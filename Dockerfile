@@ -21,8 +21,14 @@ RUN python -c "from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel('BAAI/bg
 # Copy application code
 COPY . .
 
+# Make app dir writable for non-root user (HF Spaces requires USER 1000)
+RUN chmod -R 777 /app
+
 # HF Spaces requires port 7860 and non-root user
 USER 1000
 EXPOSE 7860
+
+# SQLite must write to a writable path
+ENV DB_PATH=/tmp/interactions.db
 
 CMD ["python", "run.py"]
