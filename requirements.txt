@@ -8,6 +8,7 @@ qdrant-client>=1.9
 pydantic>=2.0
 numpy>=1.24
 scipy>=1.11
+python-multipart>=0.0.9
 
 # ── Phase 3: Hybrid semantic search ──────────────────────────────────────────
 FlagEmbedding>=1.2.9
