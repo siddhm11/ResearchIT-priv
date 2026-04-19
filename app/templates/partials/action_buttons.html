@@ -1,0 +1,45 @@
+{#
+  Action buttons for a paper card.
+  Expects: paper_id (or paper.arxiv_id), saved (bool), dismissed (bool)
+  Optional: source ("search" | "recommendation" | "saved"), position (int)
+  These are returned directly by the /api/papers/{id}/save endpoint
+  so they also work as a standalone partial.
+#}
+{% set pid = paper_id if paper_id is defined else paper.arxiv_id %}
+{% set is_saved = saved if saved is defined else (paper.saved | default(false)) %}
+{% set _source = source if source is defined else "search" %}
+
+{% if is_saved %}
+  <!-- Already saved — show saved state, allow unsave via not-interested -->
+  <div class="flex gap-2 flex-wrap">
+    <button class="btn btn-success btn-xs" disabled>
+      ✓ Saved
+    </button>
+    <button class="btn btn-ghost btn-xs"
+            hx-post="/api/papers/{{ pid }}/not-interested"
+            hx-target="#paper-{{ pid }}"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "{{ _source }}"}'>
+      Remove
+    </button>
+  </div>
+{% else %}
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/{{ pid }}/save"
+            hx-target="#actions-{{ pid }}"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "{{ _source }}", "position": "{{ position | default(0) }}"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/{{ pid }}/not-interested"
+            hx-target="#paper-{{ pid }}"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "{{ _source }}"}'>
+      ✕ Not interested
+    </button>
+  </div>
+{% endif %}

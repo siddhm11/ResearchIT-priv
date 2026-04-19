@@ -1,0 +1,45 @@
+{#
+  Reusable paper card.
+  Expects variables:
+    paper  – dict with arxiv_id, title, abstract, authors (JSON str), category, published, year
+    source – "search" | "recommendation"  (default "search")
+    position – integer rank in the list
+#}
+{% set source = source | default("search") %}
+{% set position = position | default(0) %}
+{% set authors_list = paper.authors | default("[]") | tojson_parse | default([]) %}
+
+<div class="card bg-base-100 shadow-sm border border-base-300 p-4 space-y-2"
+     id="paper-{{ paper.arxiv_id }}">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      {{ paper.title }}
+    </a>
+    {% if paper.category %}
+    <span class="badge badge-outline badge-sm shrink-0">{{ paper.category }}</span>
+    {% endif %}
+  </div>
+
+  <!-- Meta: arXiv ID + year -->
+  <div class="text-xs text-base-content/50">
+    [{{ paper.arxiv_id }}]
+    {% if paper.published %} · {{ paper.published[:4] }}{% endif %}
+    {% if authors_list %} · {{ authors_list | join(", ") }}{% endif %}
+  </div>
+
+  <!-- Abstract (truncated) -->
+  <p class="text-sm text-base-content/75 line-clamp-3">
+    {{ paper.abstract }}
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-{{ paper.arxiv_id }}">
+    {% include "partials/action_buttons.html" %}
+  </div>
+
+</div>

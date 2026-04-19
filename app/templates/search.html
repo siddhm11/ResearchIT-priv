@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Search — ArXiv Recommender{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Search bar -->
+  <div class="card bg-base-100 shadow p-4">
+    <form hx-get="/search"
+          hx-target="#search-results"
+          hx-push-url="true"
+          hx-indicator="#search-spinner"
+          class="flex gap-2">
+      <input type="text"
+             name="q"
+             value="{{ query }}"
+             placeholder="Search arXiv papers…"
+             class="input input-bordered flex-1"
+             autofocus />
+      <button class="btn btn-primary" type="submit">
+        Search
+        <span id="search-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Recommendations (sidebar-style, loads async) -->
+  {% if has_recs %}
+  <div>
+    <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
+    <div id="rec-section"
+         hx-get="/api/recommendations"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <span class="loading loading-spinner loading-sm"></span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Search results -->
+  <div id="search-results">
+    {% include "partials/search_results.html" %}
+  </div>
+
+</div>
+{% endblock %}

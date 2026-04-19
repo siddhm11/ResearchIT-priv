@@ -1,0 +1,23 @@
+{# Partial: personalised recommendations #}
+{% if papers %}
+  <div class="space-y-3">
+    {% for paper in papers %}
+      {% set position = loop.index0 %}
+      {% set source = "recommendation" %}
+      {% include "partials/paper_card.html" %}
+    {% endfor %}
+  </div>
+  <!-- Refresh button — lets user reload recs after saving more papers -->
+  <div class="text-center pt-3">
+    <button class="btn btn-ghost btn-sm"
+            hx-get="/api/recommendations"
+            hx-target="#rec-section"
+            hx-swap="innerHTML"
+            hx-indicator="#rec-refresh-spinner">
+      ↻ Show different recommendations
+      <span id="rec-refresh-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+    </button>
+  </div>
+{% else %}
+  {% include "partials/empty_recs.html" %}
+{% endif %}

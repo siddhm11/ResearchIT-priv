@@ -1,0 +1,15 @@
+{# Partial: list of search result cards #}
+{% if papers %}
+  <div class="space-y-3">
+    <p class="text-sm text-base-content/50">{{ papers | length }} results for "{{ query }}"</p>
+    {% for paper in papers %}
+      {% set position = loop.index0 %}
+      {% set source = "search" %}
+      {% include "partials/paper_card.html" %}
+    {% endfor %}
+  </div>
+{% elif query %}
+  <div class="text-center text-base-content/40 py-10">
+    No results found for "{{ query }}"
+  </div>
+{% endif %}

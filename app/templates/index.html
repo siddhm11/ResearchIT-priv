@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}ArXiv Recommender — Home{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- Hero / search bar -->
+  <div class="card bg-base-100 shadow p-6">
+    <h1 class="text-2xl font-bold mb-1">Find Research Papers</h1>
+    <p class="text-sm text-base-content/60 mb-4">
+      Search arXiv, save papers you like — get personalised recommendations.
+    </p>
+    <form hx-get="/search"
+          hx-target="#search-results"
+          hx-push-url="true"
+          hx-indicator="#search-spinner"
+          class="flex gap-2">
+      <input type="text"
+             name="q"
+             placeholder="e.g. transformer attention mechanism"
+             class="input input-bordered flex-1"
+             autofocus />
+      <button class="btn btn-primary" type="submit">
+        Search
+        <span id="search-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Recommendations section -->
+  <div>
+    <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
+    <div id="rec-section"
+         hx-get="/api/recommendations"
+         hx-trigger="load"
+         hx-indicator="#rec-spinner"
+         hx-swap="innerHTML">
+      <div class="flex items-center gap-2 text-base-content/50">
+        <span id="rec-spinner" class="htmx-indicator loading loading-spinner loading-sm"></span>
+        <span>Loading recommendations…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search results (swapped in by HTMX) -->
+  <div id="search-results"></div>
+
+</div>
+{% endblock %}
