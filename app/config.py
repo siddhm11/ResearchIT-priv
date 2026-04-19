@@ -1,8 +1,11 @@
 """
 Centralised settings for the arxiv recommender app.
-All credentials live here; override with environment variables in production.
+All credentials live in .env locally; override with env vars in production.
 """
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env file if present (won't override existing env vars)
 
 # ── Qdrant (BGE-M3 dense, 1 024-dim) ─────────────────────────────────────────
 QDRANT_URL = os.getenv("QDRANT_URL", "")
