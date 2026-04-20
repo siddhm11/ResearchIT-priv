@@ -2,7 +2,7 @@
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
 > **Last updated**: 2026-04-20  
-> **Current phase**: Phase 3.5 (Turso Metadata DB) — complete, integration pending  
+> **Current phase**: Phase 3.5 (Turso Metadata DB) — COMPLETE ✔  
 
 ---
 
@@ -205,7 +205,7 @@
 
 > *Bulk-loaded 1.23 GB of arXiv paper metadata + citation data to Turso (libSQL) cloud DB.*  
 > *Eliminates the unstable arXiv API dependency for metadata fetching (Phase 4.2 solved early).*  
-> *Created from Kaggle notebook — no code changes to ResearchIT codebase yet.*
+> *Integrated into codebase and deployed to HF Spaces.*
 
 ### Infrastructure
 - [x] Turso cloud DB created: `arxiv-data` on `aws-ap-south-1`
@@ -228,14 +228,16 @@
 - [x] Row count verified: local ↔ remote match
 - [x] Unique index on `arxiv_id` for fast lookups
 
-### Integration plan (not yet wired into code)
-- [ ] Add `TURSO_URL` and `TURSO_DB_TOKEN` to `config.py` / `.env`
-- [ ] Create `app/turso_svc.py` — metadata lookup service
+### Integration (DONE)
+- [x] Added `TURSO_URL` and `TURSO_DB_TOKEN` to `config.py` / `.env` / HF Secrets
+- [x] Created `app/turso_svc.py` — metadata lookup service
   - `fetch_metadata_batch(arxiv_ids)` → `{arxiv_id: paper_dict}`
-  - Uses `libsql-experimental` or `libsql-client` (HTTP)
-- [ ] Replace `arxiv_svc.fetch_metadata_batch()` with `turso_svc.fetch_metadata_batch()` in `search.py`
-- [ ] arXiv API becomes fallback for papers not in Turso DB
-- [ ] **Impact**: Metadata fetch drops from ~7,600ms to <50ms
+  - Uses Turso HTTP pipeline API (zero new Python deps — just httpx)
+  - Includes citation_count + influential_citations
+- [x] `app/routers/search.py` — Turso primary, arXiv API fallback (only for IDs not in Turso)
+- [x] Created `tests/test_turso_timing.py` — timing benchmark
+- [x] **Verified**: 10/10 title match, 6.1x end-to-end speedup on HF Spaces
+- [x] **Impact**: Avg search time dropped from ~10.7s to ~1.75s on HF Spaces
 
 ---
 
@@ -258,9 +260,9 @@
 ### 4.2 — Pre-populate Metadata Store ✅ DONE (via Turso)
 - [x] Bulk-loaded arXiv metadata from Kaggle to Turso cloud DB (Phase 3.5)
 - [x] 1.23 GB, includes citation counts from Semantic Scholar
-- [ ] Wire Turso service into `search.py` to replace arXiv API calls
-- [ ] arXiv API becomes fallback for genuinely new papers only
-- [ ] **Impact**: Metadata fetch drops from ~7,600ms to <50ms
+- [x] Wired Turso service into `search.py` (Turso primary, arXiv API fallback)
+- [x] arXiv API is now fallback only for genuinely new papers
+- [x] **Impact**: Search time dropped from ~10.7s to ~1.75s on HF Spaces
 
 ### 4.3 — Hungarian Matching for Cluster Stability
 - [ ] Implement Hungarian matching in `clustering.py`
@@ -356,9 +358,9 @@
 | **SQLite** | ✅ Live | interactions, paper_metadata (local cache), user_profiles, user_clusters |
 | **HF Spaces** | ✅ Deployed | Docker SDK, free tier, port 7860 — https://siddhm11-researchit.hf.space |
 | **Render** | ⚠️ Previous target (512MB RAM too small for BGE-M3) | May still be used for non-ML services |
-| **arXiv API** | ✅ Live | Keyword search fallback + metadata fetch (to be replaced by Turso) |
+| **arXiv API** | ✅ Fallback only | Keyword search + metadata for papers not in Turso |
 | **BGE-M3 Model** | ✅ Live | Pre-baked in Docker image, warm-up at startup |
-| **Groq API** | ✅ Code written, fallback-enabled | `app/groq_svc.py` — 2s timeout, academic heuristic skip |
+| **Groq API** | ✅ Live + HF Secret | `app/groq_svc.py` — 2s timeout, academic heuristic skip |
 | **Notebooks** | ✅ Organized | `notebooks/` — 01-upload, 02-test, 03-search-benchmark |
 
 ### Credentials Status
@@ -367,9 +369,9 @@
 |---|---|---|---|
 | **Qdrant Cloud** | ✅ In `.env` | `QDRANT_URL`, `QDRANT_API_KEY` | Already wired |
 | **Zilliz Cloud** | ✅ In `.env` | `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Phase 3, wired |
-| **Turso (libSQL)** | ✅ Token minted | `TURSO_URL`, `TURSO_DB_TOKEN` | Phase 3.5, not yet in config.py |
-| **Groq** | ✅ In `.env` | `GROQ_API_KEY` | Phase 3, wired |
-| **HF Spaces** | ✅ Deployed | Secrets panel | Need to add all env vars |
+| **Turso (libSQL)** | ✅ In `.env` + HF | `TURSO_URL`, `TURSO_DB_TOKEN` | Phase 3.5, wired + deployed |
+| **Groq** | ✅ In `.env` + HF | `GROQ_API_KEY` | Phase 3, wired + deployed |
+| **HF Spaces** | ✅ Deployed | Secrets panel | All env vars set ✔ |
 
 ---
 
