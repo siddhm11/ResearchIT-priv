@@ -7,11 +7,14 @@ GET /search?q=<query>
 
 Phase 3 replaces the arXiv keyword API with:
   LLM rewrite → BGE-M3 encode → Qdrant dense + Zilliz sparse → RRF → rerank
+
+Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
+  with arXiv API as fallback for papers not in Turso.
 """
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import arxiv_svc, user_state as us, hybrid_search_svc
+from app import arxiv_svc, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -34,18 +37,27 @@ async def search(
             arxiv_ids = []
 
         if arxiv_ids:
-            # Fetch metadata for the ranked results
+            # Phase 3.5: Fetch metadata from Turso DB first (fast, ~50ms)
             try:
-                meta = await arxiv_svc.fetch_metadata_batch(arxiv_ids)
-                # Preserve ranking order from hybrid search
-                papers = [meta[aid] for aid in arxiv_ids if aid in meta]
+                meta = await turso_svc.fetch_metadata_batch(arxiv_ids)
             except Exception as e:
-                # arXiv API timeout — fall back to keyword search
-                print(f"[search] Metadata fetch failed ({e}), falling back to arXiv API")
-                papers = []
+                print(f"[search] Turso metadata fetch failed: {e}")
+                meta = {}
+
+            # Fallback: fetch any missing IDs from arXiv API
+            missing = [aid for aid in arxiv_ids if aid not in meta]
+            if missing:
+                try:
+                    arxiv_meta = await arxiv_svc.fetch_metadata_batch(missing)
+                    meta.update(arxiv_meta)
+                except Exception as e:
+                    print(f"[search] arXiv fallback for {len(missing)} IDs failed: {e}")
+
+            # Preserve ranking order from hybrid search
+            papers = [meta[aid] for aid in arxiv_ids if aid in meta]
 
         if not papers and q.strip():
-            # Fallback: arXiv keyword API if hybrid returns nothing or metadata failed
+            # Fallback: arXiv keyword API if hybrid returns nothing
             try:
                 papers = await arxiv_svc.search(q.strip())
             except Exception as e:

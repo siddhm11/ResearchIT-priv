@@ -20,6 +20,10 @@ ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 
+# ── Turso (libSQL) — arXiv metadata DB — Phase 3.5 ───────────────────────────
+TURSO_URL = os.getenv("TURSO_URL", "")
+TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "")
+
 # ── Recommendation settings ───────────────────────────────────────────────────
 REC_LIMIT = 10                  # how many recommendations to show
 REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant
