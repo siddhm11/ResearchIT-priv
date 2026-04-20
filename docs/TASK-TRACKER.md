@@ -1,8 +1,8 @@
 # ResearchIT — Master Task Tracker
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
-> **Last updated**: 2026-04-19  
-> **Current phase**: Phase 3 (Hybrid Semantic Search) — implementation complete, pending deployment  
+> **Last updated**: 2026-04-20  
+> **Current phase**: Phase 3.5 (Turso Metadata DB) — complete, integration pending  
 
 ---
 
@@ -201,6 +201,44 @@
 
 ---
 
+## Phase 3.5: Turso ArXiv Metadata DB ✅ COMPLETE
+
+> *Bulk-loaded 1.23 GB of arXiv paper metadata + citation data to Turso (libSQL) cloud DB.*  
+> *Eliminates the unstable arXiv API dependency for metadata fetching (Phase 4.2 solved early).*  
+> *Created from Kaggle notebook — no code changes to ResearchIT codebase yet.*
+
+### Infrastructure
+- [x] Turso cloud DB created: `arxiv-data` on `aws-ap-south-1`
+  - URL: `https://arxiv-data-siddhm11.aws-ap-south-1.turso.io`
+  - Auth: Platform token + DB auth token (minted via CLI)
+- [x] Table: `papers` with columns:
+  - `arxiv_id` (TEXT, UNIQUE INDEX `idx_papers_arxiv_id`)
+  - `title` (TEXT)
+  - `authors` (TEXT)
+  - `categories` (TEXT)
+  - `primary_topic` (TEXT)
+  - `update_date` (TEXT)
+  - `abstract_preview` (TEXT, truncated to 500 chars)
+  - `citation_count` (INTEGER, default 0)
+  - `influential_citations` (INTEGER, default 0)
+- [x] Data sources:
+  - `arxiv_comprehensive_papers.csv` (Kaggle: siddhm11/arxivdata)
+  - `arxiv_citations_summary.csv` (Kaggle: siddhm11/citation-data-letsgoo)
+  - Joined on `id` = `arxiv_id_clean`, deduplicated
+- [x] Row count verified: local ↔ remote match
+- [x] Unique index on `arxiv_id` for fast lookups
+
+### Integration plan (not yet wired into code)
+- [ ] Add `TURSO_URL` and `TURSO_DB_TOKEN` to `config.py` / `.env`
+- [ ] Create `app/turso_svc.py` — metadata lookup service
+  - `fetch_metadata_batch(arxiv_ids)` → `{arxiv_id: paper_dict}`
+  - Uses `libsql-experimental` or `libsql-client` (HTTP)
+- [ ] Replace `arxiv_svc.fetch_metadata_batch()` with `turso_svc.fetch_metadata_batch()` in `search.py`
+- [ ] arXiv API becomes fallback for papers not in Turso DB
+- [ ] **Impact**: Metadata fetch drops from ~7,600ms to <50ms
+
+---
+
 ## Phase 4: Recommendation Pipeline Fixes 📋 NOT STARTED
 
 > *Fix the known architectural debt in the recommendation pipeline.*  
@@ -217,11 +255,12 @@
   - Deduplicate across clusters (assign to highest-ranked)
   - MMR over merged union
 
-### 4.2 — Pre-populate Metadata Store (Kaggle Bulk Load)
-- [ ] Download Kaggle arXiv metadata dataset (~4GB JSON)
-- [ ] Write bulk-insert script → SQLite `paper_metadata` table (1.6M rows)
+### 4.2 — Pre-populate Metadata Store ✅ DONE (via Turso)
+- [x] Bulk-loaded arXiv metadata from Kaggle to Turso cloud DB (Phase 3.5)
+- [x] 1.23 GB, includes citation counts from Semantic Scholar
+- [ ] Wire Turso service into `search.py` to replace arXiv API calls
 - [ ] arXiv API becomes fallback for genuinely new papers only
-- [ ] **Impact**: Metadata fetch drops from ~7,600ms to <5ms
+- [ ] **Impact**: Metadata fetch drops from ~7,600ms to <50ms
 
 ### 4.3 — Hungarian Matching for Cluster Stability
 - [ ] Implement Hungarian matching in `clustering.py`
@@ -312,24 +351,25 @@
 | Component | Status | Details |
 |---|---|---|
 | **Qdrant Cloud** | ✅ Live | 1.6M papers, BGE-M3 1024-dim, BQ enabled, HNSW m=32 |
-| **Zilliz Cloud** | ✅ Live (DB exists, not wired to code) | 1.6M papers, BGE-M3 sparse vectors, collection `arxiv_bgem3_sparse` |
-| **SQLite** | ✅ Live | interactions, paper_metadata, user_profiles, user_clusters |
-| **HF Spaces** | ✅ Deployment target | Docker SDK, free tier: 16GB RAM, 2 vCPUs, port 7860 |
+| **Zilliz Cloud** | ✅ Live | 1.6M papers, BGE-M3 sparse vectors, collection `arxiv_bgem3_sparse` |
+| **Turso (libSQL)** | ✅ Live | 1.23 GB arXiv metadata + citations, `arxiv-data` DB, `papers` table, unique index on `arxiv_id` |
+| **SQLite** | ✅ Live | interactions, paper_metadata (local cache), user_profiles, user_clusters |
+| **HF Spaces** | ✅ Deployed | Docker SDK, free tier, port 7860 — https://siddhm11-researchit.hf.space |
 | **Render** | ⚠️ Previous target (512MB RAM too small for BGE-M3) | May still be used for non-ML services |
-| **arXiv API** | ✅ Live | Keyword search (placeholder) + metadata fetch |
-| **BGE-M3 Model** | ✅ Code written, loads at startup | `app/embed_svc.py` — singleton, LRU cache, CPU float32 |
+| **arXiv API** | ✅ Live | Keyword search fallback + metadata fetch (to be replaced by Turso) |
+| **BGE-M3 Model** | ✅ Live | Pre-baked in Docker image, warm-up at startup |
 | **Groq API** | ✅ Code written, fallback-enabled | `app/groq_svc.py` — 2s timeout, academic heuristic skip |
-| **Kaggle Dataset** | ❌ Not downloaded | Phase 4 bulk-loads metadata |
-| **Notebooks** | ✅ Organized | `notebooks/` — 01-upload, 02-test, 03-search-benchmark (see `notebooks/README.md`) |
+| **Notebooks** | ✅ Organized | `notebooks/` — 01-upload, 02-test, 03-search-benchmark |
 
 ### Credentials Status
 
 | Credential | Status | Env Var | Notes |
 |---|---|---|---|
-| **Qdrant Cloud** | ✅ In `config.py` | `QDRANT_URL`, `QDRANT_API_KEY` | Already wired |
-| **Zilliz Cloud** | ✅ Confirmed (not yet in config.py) | `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Phase 3 adds to config |
-| **Groq** | ✅ Confirmed (not yet in config.py) | `GROQ_API_KEY` | Phase 3 adds to config |
-| **HF Spaces** | 📋 Not yet created | N/A | Create Space with Docker SDK when ready to deploy |
+| **Qdrant Cloud** | ✅ In `.env` | `QDRANT_URL`, `QDRANT_API_KEY` | Already wired |
+| **Zilliz Cloud** | ✅ In `.env` | `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Phase 3, wired |
+| **Turso (libSQL)** | ✅ Token minted | `TURSO_URL`, `TURSO_DB_TOKEN` | Phase 3.5, not yet in config.py |
+| **Groq** | ✅ In `.env` | `GROQ_API_KEY` | Phase 3, wired |
+| **HF Spaces** | ✅ Deployed | Secrets panel | Need to add all env vars |
 
 ---
 
