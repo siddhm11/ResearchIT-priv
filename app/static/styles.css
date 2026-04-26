@@ -1,0 +1,284 @@
+/* ── ResearchIT — Custom Styles (Phase 5) ─────────────────────────────────── */
+
+/* ── Typography ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Navbar glassmorphism ──────────────────────────────────────────────── */
+.navbar-glass {
+  background: rgba(20, 20, 30, 0.7);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background 0.3s ease;
+}
+
+[data-theme="light"] .navbar-glass {
+  background: rgba(255, 255, 255, 0.75);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* ── Brand gradient ─────────────────────────────────────────────────────── */
+.brand-text {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* ── Paper card enhancements ─────────────────────────────────────────── */
+.paper-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.paper-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+[data-theme="dark"] .paper-card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* ── Category badges (colour-coded) ──────────────────────────────────── */
+.cat-badge {
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 9999px;
+}
+
+.cat-cs    { background: rgba(99,102,241,0.15);  color: #818cf8; }
+.cat-phys  { background: rgba(168,85,247,0.15);  color: #c084fc; }
+.cat-math  { background: rgba(34,197,94,0.15);   color: #4ade80; }
+.cat-bio   { background: rgba(234,179,8,0.15);   color: #facc15; }
+.cat-econ  { background: rgba(244,63,94,0.15);   color: #fb7185; }
+.cat-stat  { background: rgba(6,182,212,0.15);   color: #22d3ee; }
+.cat-eess  { background: rgba(251,146,60,0.15);  color: #fb923c; }
+.cat-other { background: rgba(148,163,184,0.15); color: #94a3b8; }
+
+/* ── Save button animation ─────────────────────────────────────────── */
+@keyframes save-pulse {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.save-success {
+  animation: save-pulse 0.3s ease-out;
+}
+
+/* ── HTMX swap transitions ────────────────────────────────────────── */
+.htmx-swapping {
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+.htmx-added {
+  opacity: 0;
+}
+
+.htmx-settling {
+  opacity: 1;
+  transition: opacity 0.3s ease-in;
+}
+
+/* ── Skeleton loading ──────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-card {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.06) 25%,
+    rgba(148, 163, 184, 0.12) 50%,
+    rgba(148, 163, 184, 0.06) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 12px;
+  height: 140px;
+}
+
+/* ── Onboarding ──────────────────────────────────────────────────────── */
+
+/* Category tile */
+.category-tile {
+  cursor: pointer;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+  user-select: none;
+  text-align: center;
+}
+
+[data-theme="dark"] .category-tile {
+  background: rgba(30, 30, 45, 0.6);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .category-tile {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.category-tile:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.1);
+}
+
+.category-tile.selected {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.3),
+              0 4px 20px rgba(99, 102, 241, 0.15);
+}
+
+.category-tile .tile-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.category-tile .tile-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 0.25rem;
+}
+
+.category-tile .tile-desc {
+  font-size: 0.7rem;
+  opacity: 0.6;
+  line-height: 1.3;
+}
+
+.category-tile .check-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #6366f1;
+  color: white;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.category-tile.selected .check-mark {
+  display: flex;
+}
+
+/* ── Progress dots ────────────────────────────────────────────────────── */
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.3);
+  transition: all 0.3s ease;
+}
+
+.step-dot.active {
+  background: #6366f1;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+  transform: scale(1.2);
+}
+
+.step-dot.completed {
+  background: #22c55e;
+}
+
+/* ── Theme transition ─────────────────────────────────────────────────── */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ── Custom scrollbar (dark mode) ─────────────────────────────────────── */
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+}
+
+/* ── Stats pills ──────────────────────────────────────────────────────── */
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* ── Misc ─────────────────────────────────────────────────────────────── */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Seed search compact card ─────────────────────────────────────────── */
+.seed-card {
+  padding: 0.75rem;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+[data-theme="dark"] .seed-card {
+  background: rgba(30, 30, 45, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .seed-card {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.seed-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+}

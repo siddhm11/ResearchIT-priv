@@ -1,13 +1,15 @@
 {% extends "base.html" %}
 
-{% block title %}ArXiv Recommender — Home{% endblock %}
+{% block title %}ResearchIT — Discover Research{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-8 fade-in">
 
   <!-- Hero / search bar -->
-  <div class="card bg-base-100 shadow p-6">
-    <h1 class="text-2xl font-bold mb-1">Find Research Papers</h1>
+  <div class="card bg-base-100 shadow-md rounded-xl p-6">
+    <h1 class="text-2xl font-bold mb-1">
+      <span class="brand-text">Discover Research</span>
+    </h1>
     <p class="text-sm text-base-content/60 mb-4">
       Search arXiv, save papers you like — get personalised recommendations.
     </p>
@@ -30,7 +32,14 @@
 
   <!-- Recommendations section -->
   <div>
-    <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">Recommended for You</h2>
+      {% if save_count %}
+      <span class="stat-pill bg-primary/10 text-primary text-xs">
+        {{ save_count }} paper{{ "s" if save_count != 1 else "" }} saved
+      </span>
+      {% endif %}
+    </div>
     <div id="rec-section-wrapper" class="relative">
       <span id="rec-spinner" class="htmx-indicator loading loading-spinner loading-sm absolute right-0 top-0"></span>
       <div id="rec-section"
@@ -38,9 +47,11 @@
            hx-trigger="load"
            hx-indicator="#rec-spinner"
            hx-swap="innerHTML">
-        <div class="flex items-center gap-2 text-base-content/50">
-          <span class="loading loading-spinner loading-sm"></span>
-          <span>Loading recommendations…</span>
+        <!-- Skeleton loading -->
+        <div class="space-y-3">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
         </div>
       </div>
     </div>

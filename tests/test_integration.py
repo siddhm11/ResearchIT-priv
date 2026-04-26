@@ -34,13 +34,20 @@ def client(tmp_path, monkeypatch):
 # ── Home page ─────────────────────────────────────────────────────────────────
 
 def test_home_returns_200(client):
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "ArXiv" in resp.text
+    """New users are redirected to onboarding; following the redirect should show ResearchIT."""
+    resp = client.get("/", follow_redirects=False)
+    # Phase 5: new users are redirected to /onboarding
+    assert resp.status_code in (200, 302)
+    if resp.status_code == 302:
+        assert "/onboarding" in resp.headers.get("location", "")
+        # Follow the redirect
+        resp2 = client.get("/onboarding")
+        assert resp2.status_code == 200
+        assert "ResearchIT" in resp2.text
 
 
 def test_home_sets_user_cookie(client):
-    resp = client.get("/")
+    resp = client.get("/", follow_redirects=True)
     assert "arxiv_user_id" in resp.cookies
 
 

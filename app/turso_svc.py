@@ -200,3 +200,103 @@ def _to_paper_dict(row: dict) -> dict | None:
         "citation_count": citation_count,
         "influential_citations": influential,
     }
+
+
+# ── Phase 5: Trending papers for cold-start fallback ──────────────────────────
+
+async def fetch_trending_by_categories(
+    categories: set[str], limit: int = 10
+) -> list[dict]:
+    """
+    Fetch recently published, high-citation papers from Turso DB
+    filtered by arXiv categories. Used as Tier 0 popularity fallback
+    for onboarded users with zero saves.
+    """
+    if not categories:
+        return []
+
+    url = config.TURSO_URL
+    token = config.TURSO_DB_TOKEN
+    if not url or not token:
+        return []
+
+    # Build query: papers in selected categories, sorted by citation count
+    placeholders = ", ".join(["?" for _ in categories])
+    sql = f"""SELECT arxiv_id, title, authors, categories, primary_topic,
+                     update_date, abstract_preview, citation_count, influential_citations
+              FROM papers
+              WHERE primary_topic IN ({placeholders})
+                AND citation_count > 0
+              ORDER BY citation_count DESC, update_date DESC
+              LIMIT ?"""
+
+    cat_list = list(categories)
+    args = [{"type": "text", "value": c} for c in cat_list]
+    args.append({"type": "integer", "value": str(limit)})
+
+    pipeline_url = url.rstrip("/")
+    if pipeline_url.startswith("libsql://"):
+        pipeline_url = "https://" + pipeline_url[len("libsql://"):]
+    elif pipeline_url.startswith("http://"):
+        pipeline_url = "https://" + pipeline_url[len("http://"):]
+    elif not pipeline_url.startswith("https://"):
+        pipeline_url = "https://" + pipeline_url
+
+    payload = {
+        "requests": [
+            {"type": "execute", "stmt": {"sql": sql, "args": args}},
+            {"type": "close"},
+        ]
+    }
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{pipeline_url}/v2/pipeline",
+                json=payload,
+                headers=headers,
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        print(f"[turso] trending query failed: {e}")
+        return []
+
+    try:
+        data = resp.json()
+        results = data.get("results", [])
+        if not results:
+            return []
+
+        execute_result = results[0]
+        if execute_result.get("type") == "error":
+            print(f"[turso] trending query error: {execute_result.get('error')}")
+            return []
+
+        response = execute_result.get("response", {})
+        result_data = response.get("result", {})
+        cols = [c["name"] for c in result_data.get("cols", [])]
+        rows = result_data.get("rows", [])
+    except (KeyError, IndexError, TypeError) as e:
+        print(f"[turso] trending parse error: {e}")
+        return []
+
+    papers = []
+    for row in rows:
+        values = {}
+        for i, col in enumerate(cols):
+            cell = row[i]
+            if cell.get("type") == "null":
+                values[col] = None
+            else:
+                values[col] = cell.get("value", "")
+        paper = _to_paper_dict(values)
+        if paper:
+            papers.append(paper)
+
+    print(f"[turso] trending: {len(papers)} papers in {len(categories)} categories")
+    return papers

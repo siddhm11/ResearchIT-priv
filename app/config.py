@@ -55,7 +55,143 @@ SEARCH_SEMANTIC_WEIGHT = 0.80     # RRF contribution to final score
 SEARCH_RECENCY_WEIGHT = 0.20      # recency contribution to final score
 
 # ── App ───────────────────────────────────────────────────────────────────────
-APP_TITLE = "ArXiv Recommender"
+APP_TITLE = "ResearchIT"
 COOKIE_NAME = "arxiv_user_id"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # 1 year
 APP_PORT = int(os.getenv("PORT", "7860"))  # HF Spaces requires 7860
+
+# ── Phase 5: Onboarding category taxonomy ─────────────────────────────────────
+# Each group maps a user-friendly label to real arXiv primary_topic codes.
+# Used by the onboarding wizard AND as pool filters / LightGBM features later.
+CATEGORY_GROUPS: dict[str, dict] = {
+    "nlp": {
+        "name": "Natural Language Processing",
+        "icon": "💬",
+        "arxiv": ["cs.CL", "cs.IR"],
+        "desc": "Language models, text generation, information retrieval",
+    },
+    "cv": {
+        "name": "Computer Vision",
+        "icon": "👁️",
+        "arxiv": ["cs.CV"],
+        "desc": "Image recognition, object detection, video understanding",
+    },
+    "ml": {
+        "name": "Machine Learning",
+        "icon": "🧠",
+        "arxiv": ["cs.LG", "stat.ML"],
+        "desc": "Learning theory, optimization, generalization",
+    },
+    "ai": {
+        "name": "Artificial Intelligence",
+        "icon": "🤖",
+        "arxiv": ["cs.AI"],
+        "desc": "Reasoning, planning, knowledge representation",
+    },
+    "robotics": {
+        "name": "Robotics",
+        "icon": "🦾",
+        "arxiv": ["cs.RO"],
+        "desc": "Control, manipulation, autonomous systems",
+    },
+    "hep": {
+        "name": "High Energy Physics",
+        "icon": "⚛️",
+        "arxiv": ["hep-ph", "hep-th", "hep-ex", "hep-lat"],
+        "desc": "Particle physics, quantum field theory, colliders",
+    },
+    "astro": {
+        "name": "Astrophysics",
+        "icon": "🔭",
+        "arxiv": ["astro-ph.GA", "astro-ph.CO", "astro-ph.SR", "astro-ph.HE"],
+        "desc": "Galaxies, cosmology, stellar physics",
+    },
+    "quant_ph": {
+        "name": "Quantum Computing",
+        "icon": "💠",
+        "arxiv": ["quant-ph"],
+        "desc": "Quantum algorithms, error correction, quantum info",
+    },
+    "math": {
+        "name": "Mathematics",
+        "icon": "📐",
+        "arxiv": ["math.CO", "math.AG", "math.NT", "math.PR", "math.AP"],
+        "desc": "Pure and applied mathematics",
+    },
+    "bio": {
+        "name": "Computational Biology",
+        "icon": "🧬",
+        "arxiv": ["q-bio.BM", "q-bio.GN", "q-bio.QM"],
+        "desc": "Bioinformatics, genomics, protein structure",
+    },
+    "neuro": {
+        "name": "Neuroscience",
+        "icon": "🧪",
+        "arxiv": ["q-bio.NC"],
+        "desc": "Computational neuroscience, brain modeling",
+    },
+    "econ": {
+        "name": "Economics & Game Theory",
+        "icon": "📊",
+        "arxiv": ["econ.TH", "cs.GT"],
+        "desc": "Mechanism design, auctions, market models",
+    },
+    "crypto": {
+        "name": "Cryptography & Security",
+        "icon": "🔐",
+        "arxiv": ["cs.CR"],
+        "desc": "Encryption, protocols, privacy",
+    },
+    "systems": {
+        "name": "Systems & Networking",
+        "icon": "🌐",
+        "arxiv": ["cs.DC", "cs.NI"],
+        "desc": "Distributed systems, networks, cloud",
+    },
+    "hci": {
+        "name": "Human-Computer Interaction",
+        "icon": "🖱️",
+        "arxiv": ["cs.HC"],
+        "desc": "Interface design, accessibility, user studies",
+    },
+    "audio": {
+        "name": "Speech & Audio",
+        "icon": "🎵",
+        "arxiv": ["cs.SD", "eess.AS"],
+        "desc": "Speech recognition, audio generation, music AI",
+    },
+    "pde": {
+        "name": "Physics — General",
+        "icon": "🌊",
+        "arxiv": ["physics.flu-dyn", "physics.comp-ph", "physics.optics"],
+        "desc": "Fluid dynamics, computational physics, optics",
+    },
+    "cond_mat": {
+        "name": "Condensed Matter",
+        "icon": "🧊",
+        "arxiv": ["cond-mat.mes-hall", "cond-mat.mtrl-sci", "cond-mat.str-el"],
+        "desc": "Materials science, superconductivity",
+    },
+    "se": {
+        "name": "Software Engineering",
+        "icon": "💻",
+        "arxiv": ["cs.SE", "cs.PL"],
+        "desc": "Testing, verification, compilers",
+    },
+    "acl_acl": {
+        "name": "Signal Processing",
+        "icon": "📡",
+        "arxiv": ["eess.SP", "eess.IV"],
+        "desc": "Image & signal processing, medical imaging",
+    },
+}
+
+
+def expand_category_groups(group_keys: list[str]) -> set[str]:
+    """Convert a list of group keys (e.g. ['nlp', 'cv']) into a flat set of arXiv categories."""
+    cats: set[str] = set()
+    for key in group_keys:
+        grp = CATEGORY_GROUPS.get(key)
+        if grp:
+            cats.update(grp["arxiv"])
+    return cats

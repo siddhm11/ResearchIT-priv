@@ -78,6 +78,15 @@ CREATE TABLE IF NOT EXISTS user_clusters (
     computed_at     TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, cluster_idx)
 );
+
+-- Phase 5: Onboarding state and category selections
+CREATE TABLE IF NOT EXISTS user_onboarding (
+    user_id              TEXT PRIMARY KEY,
+    selected_categories  TEXT,        -- JSON array of group keys: ["nlp", "cv", "ml"]
+    onboarding_completed INTEGER DEFAULT 0,  -- 0 = in progress, 1 = done
+    created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -366,3 +375,67 @@ async def get_suppressed_categories(
         )
         rows = await cur.fetchall()
         return {row[0] for row in rows}
+
+
+# ── Phase 5: Onboarding helpers ───────────────────────────────────────────────
+
+async def save_onboarding_categories(
+    user_id: str, categories: list[str]
+) -> None:
+    """Save or update user's selected category groups."""
+    import json
+    cats_json = json.dumps(categories)
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """INSERT INTO user_onboarding (user_id, selected_categories, updated_at)
+               VALUES (?, ?, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   selected_categories = excluded.selected_categories,
+                   updated_at = datetime('now')""",
+            (user_id, cats_json),
+        )
+        await conn.commit()
+
+
+async def get_onboarding_state(user_id: str) -> dict | None:
+    """Fetch onboarding data for a user.  Returns None if no row exists."""
+    import json
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(
+            "SELECT * FROM user_onboarding WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        # Parse categories JSON
+        try:
+            d["selected_categories"] = json.loads(d["selected_categories"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["selected_categories"] = []
+        return d
+
+
+async def complete_onboarding(user_id: str) -> None:
+    """Mark user's onboarding as complete (upsert)."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            """INSERT INTO user_onboarding (user_id, onboarding_completed, updated_at)
+               VALUES (?, 1, datetime('now'))
+               ON CONFLICT(user_id) DO UPDATE SET
+                   onboarding_completed = 1,
+                   updated_at = datetime('now')""",
+            (user_id,),
+        )
+        await conn.commit()
+
+
+async def get_user_category_filter(user_id: str) -> set[str]:
+    """Return the flat set of arXiv category codes for a user's selected groups."""
+    state = await get_onboarding_state(user_id)
+    if state is None:
+        return set()
+    from app.config import expand_category_groups
+    return expand_category_groups(state["selected_categories"])

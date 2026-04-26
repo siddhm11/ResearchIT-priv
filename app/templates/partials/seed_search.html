@@ -1,0 +1,111 @@
+{#
+  Seed paper search — Step 2 of the onboarding wizard.
+  Expects:
+    seed_count  – int, papers saved so far
+    seed_target – int, target number (5)
+    papers      – list[dict], search results (optional)
+    query       – str, current search query (optional)
+#}
+<div class="fade-in">
+  <div class="text-center mb-6">
+    <h2 class="text-2xl font-bold mb-2">Save a few papers you like</h2>
+    <p class="text-base-content/60 text-sm max-w-md mx-auto">
+      Search for papers in your research area and save them.
+      This helps us understand your specific interests.
+    </p>
+  </div>
+
+  {# Search bar #}
+  <div class="mb-4">
+    <form hx-get="/api/onboarding/seed-search"
+          hx-target="#seed-results"
+          hx-swap="innerHTML"
+          hx-indicator="#seed-spinner"
+          class="flex gap-2">
+      <input type="text"
+             name="q"
+             value="{{ query | default('') }}"
+             placeholder="e.g. transformer attention mechanism"
+             class="input input-bordered flex-1"
+             autofocus />
+      <button class="btn btn-primary btn-sm" type="submit">
+        Search
+        <span id="seed-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+      </button>
+    </form>
+  </div>
+
+  {# Seed counter #}
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2">
+      <span class="stat-pill bg-primary/10 text-primary" id="seed-counter">
+        {{ seed_count | default(0) }}/{{ seed_target | default(5) }} seeds saved
+      </span>
+    </div>
+  </div>
+
+  {# Search results #}
+  <div id="seed-results" class="space-y-2 mb-6">
+    {% if papers is defined and papers %}
+      {% for paper in papers %}
+      <div class="seed-card flex items-start justify-between gap-3"
+           id="seed-paper-{{ paper.arxiv_id }}">
+        <div class="flex-1 min-w-0">
+          <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+             target="_blank" rel="noopener"
+             class="font-medium text-sm text-primary hover:underline leading-snug line-clamp-1">
+            {{ paper.title }}
+          </a>
+          <div class="text-xs text-base-content/50 mt-0.5">
+            [{{ paper.arxiv_id }}]
+            {% if paper.category %} · <span class="cat-badge cat-cs">{{ paper.category }}</span>{% endif %}
+            {% if paper.citation_count %} · 📊 {{ paper.citation_count }}{% endif %}
+          </div>
+        </div>
+        <button class="btn btn-primary btn-xs shrink-0"
+                hx-post="/api/papers/{{ paper.arxiv_id }}/save"
+                hx-target="#seed-paper-{{ paper.arxiv_id }}"
+                hx-swap="outerHTML"
+                hx-vals='{"source": "onboarding"}'
+                onclick="bumpSeedCount()">
+          ⭐ Save
+        </button>
+      </div>
+      {% endfor %}
+    {% elif query is defined and query %}
+      <p class="text-center text-base-content/40 py-6 text-sm">
+        No results found for "{{ query }}"
+      </p>
+    {% else %}
+      <p class="text-center text-base-content/30 py-6 text-sm">
+        Search above to find papers in your research area
+      </p>
+    {% endif %}
+  </div>
+
+  {# Done / Skip buttons #}
+  <div class="flex justify-end gap-2 pt-4 border-t border-base-content/10">
+    <form action="/api/onboarding/complete" method="post">
+      <button type="submit" class="btn btn-ghost btn-sm">
+        Skip — show me trending papers
+      </button>
+    </form>
+    <form action="/api/onboarding/complete" method="post">
+      <button type="submit" class="btn btn-primary btn-sm">
+        Done — start exploring →
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+  function bumpSeedCount() {
+    const el = document.getElementById('seed-counter');
+    if (el) {
+      const parts = el.textContent.trim().split('/');
+      const current = parseInt(parts[0]) || 0;
+      const target = parseInt(parts[1]) || 5;
+      el.textContent = (current + 1) + '/' + target + ' seeds saved';
+    }
+  }
+</script>

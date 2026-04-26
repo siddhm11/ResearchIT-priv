@@ -1,8 +1,8 @@
 {# Shown when the user hasn't saved enough papers yet #}
 <div class="text-center py-8 text-base-content/40 space-y-2">
-  <div class="text-3xl">📚</div>
+  <div class="text-3xl">🔍</div>
   <p class="font-medium">No recommendations yet</p>
-  <p class="text-sm">
+  <p class="text-sm max-w-sm mx-auto">
     Save {{ min_saves | default(1) }} or more paper{{ "s" if (min_saves | default(1)) > 1 else "" }}
     while searching to unlock personalised recommendations.
   </p>
@@ -11,6 +11,6 @@
           hx-get="/api/recommendations"
           hx-target="#rec-section"
           hx-swap="innerHTML">
-    Check for recommendations
+    ↻ Check for recommendations
   </button>
 </div>

@@ -69,6 +69,32 @@ async def get_recommendations(
         return r
 
     if not state.has_enough_for_recs():
+        # ── Tier 0: Category-filtered trending (Phase 5 cold-start) ──────
+        # If user has onboarded with category selections but hasn't saved
+        # enough papers yet, serve trending papers in their areas.
+        category_filter = await db.get_user_category_filter(user_id)
+        if category_filter:
+            trending = await turso_svc.fetch_trending_by_categories(
+                category_filter, limit=REC_LIMIT,
+            )
+            if trending:
+                papers = []
+                for paper in trending:
+                    paper["saved"] = False
+                    paper["dismissed"] = False
+                    paper["ranker_version"] = _RANKER_VERSION
+                    paper["candidate_source"] = "trending_category_fallback"
+                    paper["cluster_id"] = ""
+                    papers.append(paper)
+
+                r = templates.TemplateResponse(
+                    request,
+                    "partials/recommendations.html",
+                    {"papers": papers, "source": "recommendation", "trending": True},
+                )
+                r.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+                return r
+
         return _empty_resp()
 
     seen = us.all_seen(user_id)

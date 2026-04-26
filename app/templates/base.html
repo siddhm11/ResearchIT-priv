@@ -1,42 +1,84 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}ArXiv Recommender{% endblock %}</title>
+  <meta name="description" content="ResearchIT — AI-powered arXiv paper recommendations. Search, save, and discover research tailored to your interests." />
+  <title>{% block title %}ResearchIT{% endblock %}</title>
 
   <!-- TailwindCSS + DaisyUI (CDN, no build step) -->
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
 
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="/static/styles.css" />
+
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
   <style>
-    /* Smooth fade-out when HTMX removes an element */
-    .htmx-swapping { opacity: 0; transition: opacity 200ms ease-out; }
     /* Spinner shown while HTMX request is in-flight */
     .htmx-request .htmx-indicator { display: inline-block !important; }
     .htmx-indicator { display: none; }
   </style>
+
+  <!-- Theme toggle script (runs before body to prevent flash) -->
+  <script>
+    (function() {
+      const saved = localStorage.getItem('researchit-theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+  </script>
 </head>
 <body class="bg-base-200 min-h-screen">
 
   <!-- Navbar -->
-  <div class="navbar bg-base-100 shadow-sm px-4">
+  <nav class="navbar navbar-glass sticky top-0 z-50 px-6">
     <div class="flex-1">
-      <a href="/" class="text-xl font-bold text-primary">📄 ArXiv Rec</a>
+      <a href="/" class="flex items-center gap-2 text-xl">
+        <span class="brand-text">ResearchIT</span>
+      </a>
     </div>
-    <div class="flex-none gap-1 flex">
+    <div class="flex-none flex items-center gap-1">
+      <a href="/" class="btn btn-ghost btn-sm">Home</a>
       <a href="/search" class="btn btn-ghost btn-sm">Search</a>
       <a href="/saved" class="btn btn-ghost btn-sm">Saved</a>
+      <!-- Theme toggle -->
+      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
+              onclick="toggleTheme()">
+        <span id="theme-icon-dark" class="hidden">☀️</span>
+        <span id="theme-icon-light" class="hidden">🌙</span>
+      </button>
     </div>
-  </div>
+  </nav>
 
   <!-- Main content -->
   <main class="container mx-auto px-4 py-6 max-w-4xl">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Theme toggle logic -->
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('researchit-theme', next);
+      updateThemeIcon();
+    }
+
+    function updateThemeIcon() {
+      const theme = document.documentElement.getAttribute('data-theme');
+      document.getElementById('theme-icon-dark').classList.toggle('hidden', theme !== 'dark');
+      document.getElementById('theme-icon-light').classList.toggle('hidden', theme !== 'light');
+    }
+
+    // Set icon on load
+    updateThemeIcon();
+  </script>
 
 </body>
 </html>

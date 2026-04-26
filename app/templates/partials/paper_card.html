@@ -9,7 +9,25 @@
 {% set position = position | default(0) %}
 {% set authors_list = paper.authors | default("[]") | tojson_parse | default([]) %}
 
-<div class="card bg-base-100 shadow-sm border border-base-300 p-4 space-y-2"
+{# Category badge colour mapping #}
+{% set cat = paper.category | default("") %}
+{% if cat.startswith("cs.") %}
+  {% set cat_class = "cat-cs" %}
+{% elif cat.startswith("hep") or cat.startswith("physics") or cat.startswith("astro") or cat.startswith("quant") or cat.startswith("cond-mat") %}
+  {% set cat_class = "cat-phys" %}
+{% elif cat.startswith("math") or cat.startswith("stat") %}
+  {% set cat_class = "cat-math" %}
+{% elif cat.startswith("q-bio") %}
+  {% set cat_class = "cat-bio" %}
+{% elif cat.startswith("econ") %}
+  {% set cat_class = "cat-econ" %}
+{% elif cat.startswith("eess") %}
+  {% set cat_class = "cat-eess" %}
+{% else %}
+  {% set cat_class = "cat-other" %}
+{% endif %}
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
      id="paper-{{ paper.arxiv_id }}">
 
   <!-- Title + category badge -->
@@ -21,17 +39,17 @@
       {{ paper.title }}
     </a>
     {% if paper.category %}
-    <span class="badge badge-outline badge-sm shrink-0">{{ paper.category }}</span>
+    <span class="cat-badge {{ cat_class }} shrink-0">{{ paper.category }}</span>
     {% endif %}
   </div>
 
   <!-- Meta: arXiv ID + year + citations -->
-  <div class="text-xs text-base-content/50">
+  <div class="text-xs text-base-content/50 mono">
     [{{ paper.arxiv_id }}]
     {% if paper.published %} · {{ paper.published[:4] }}{% endif %}
-    {% if authors_list %} · {{ authors_list | join(", ") }}{% endif %}
+    {% if authors_list %} · <span class="font-sans">{{ authors_list[:3] | join(", ") }}{% if authors_list | length > 3 %} et al.{% endif %}</span>{% endif %}
     {% if paper.citation_count %}
-    · <span class="font-medium text-base-content/70" title="{{ paper.influential_citations|default(0) }} influential">📊 {{ paper.citation_count }} citations</span>
+    · <span class="font-medium text-base-content/70 font-sans" title="{{ paper.influential_citations|default(0) }} influential">📊 {{ paper.citation_count }} citations</span>
     {% endif %}
   </div>
 
