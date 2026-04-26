@@ -14,7 +14,7 @@ Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import arxiv_svc, turso_svc, user_state as us, hybrid_search_svc
+from app import arxiv_svc, db, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -52,6 +52,9 @@ async def search(
                     meta.update(arxiv_meta)
                 except Exception as e:
                     print(f"[search] arXiv fallback for {len(missing)} IDs failed: {e}")
+
+            # Phase 4.3: Cache to SQLite so dismissal category JOINs work
+            await db.cache_turso_metadata_batch(list(meta.values()))
 
             # Preserve ranking order from hybrid search
             papers = [meta[aid] for aid in arxiv_ids if aid in meta]

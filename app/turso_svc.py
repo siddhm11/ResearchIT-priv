@@ -59,9 +59,11 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
     pipeline_url = url.rstrip("/")
     # Convert to HTTP API URL format
     if pipeline_url.startswith("libsql://"):
-        pipeline_url = pipeline_url.replace("libsql://", "https://")
-    if not pipeline_url.startswith("https://"):
-        pipeline_url = "https://" + pipeline_url.lstrip("https://").lstrip("http://")
+        pipeline_url = "https://" + pipeline_url[len("libsql://"):]
+    elif pipeline_url.startswith("http://"):
+        pipeline_url = "https://" + pipeline_url[len("http://"):]
+    elif not pipeline_url.startswith("https://"):
+        pipeline_url = "https://" + pipeline_url
 
     payload = {
         "requests": [

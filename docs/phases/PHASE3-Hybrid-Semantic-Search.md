@@ -3,7 +3,7 @@
 > **Purpose**: Replace the Phase 1 placeholder arXiv keyword API search with real vector-based
 > semantic search using BGE-M3 encoding + Qdrant dense + Zilliz sparse + RRF fusion.
 >
-> **Status**: 📋 Not started  
+> **Status**: ✅ Complete
 > **Estimated effort**: ~2-3 weeks  
 > **Predecessor**: Phase 2c (complete) — the recommendation pipeline  
 > **Deployment target**: Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs)

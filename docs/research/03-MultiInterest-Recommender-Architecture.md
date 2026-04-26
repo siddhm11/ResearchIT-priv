@@ -266,7 +266,7 @@ Each cluster gets feed slots proportional to its importance, with a floor of 3 t
 
 **Note:** RRF *is* correct for the search bar (fusing dense + sparse for the *same* query). Only the recommendation pipeline needs quota.
 
-**Status:** ⚠️ Code still uses RRF. Scheduled for Phase 4.
+**Status:** ⚠️ Code still uses RRF. Phase 4 planned — see `docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`.
 
 ---
 

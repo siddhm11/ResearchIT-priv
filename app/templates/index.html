@@ -31,14 +31,17 @@
   <!-- Recommendations section -->
   <div>
     <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
-    <div id="rec-section"
-         hx-get="/api/recommendations"
-         hx-trigger="load"
-         hx-indicator="#rec-spinner"
-         hx-swap="innerHTML">
-      <div class="flex items-center gap-2 text-base-content/50">
-        <span id="rec-spinner" class="htmx-indicator loading loading-spinner loading-sm"></span>
-        <span>Loading recommendations…</span>
+    <div id="rec-section-wrapper" class="relative">
+      <span id="rec-spinner" class="htmx-indicator loading loading-spinner loading-sm absolute right-0 top-0"></span>
+      <div id="rec-section"
+           hx-get="/api/recommendations"
+           hx-trigger="load"
+           hx-indicator="#rec-spinner"
+           hx-swap="innerHTML">
+        <div class="flex items-center gap-2 text-base-content/50">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span>Loading recommendations…</span>
+        </div>
       </div>
     </div>
   </div>

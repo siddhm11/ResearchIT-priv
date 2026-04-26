@@ -1,9 +1,12 @@
 """
-Layer 3: Search router integration tests — Phase 3.
+Layer 3: Search router integration tests — Phase 3 + 3.5.
 
 Tests /search endpoint with mocked hybrid_search_svc.
 Validates: ranking preservation, arXiv fallback, saved/dismissed state,
 HTMX partials, and that empty queries don't trigger hybrid search.
+
+Phase 3.5: Turso is now the primary metadata source, arXiv API is fallback.
+All tests mock turso_svc.fetch_metadata_batch to avoid hitting the real DB.
 
 No network, no model, no external services needed.
 """
@@ -41,15 +44,17 @@ def test_search_hybrid_returns_papers(client, monkeypatch):
     """
     /search?q=... should use hybrid search and render paper cards.
     We mock hybrid_search_svc.search() to return known IDs and
-    arxiv_svc.fetch_metadata_batch() to return metadata for those IDs.
+    turso_svc.fetch_metadata_batch() to return metadata for those IDs.
     """
     import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
     import app.arxiv_svc as arxiv
 
     monkeypatch.setattr(hs, "search", AsyncMock(return_value=[
         "1706.03762", "2301.00001",
     ]))
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={
+    # Phase 3.5: Turso is the primary metadata source
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={
         "1706.03762": {
             "arxiv_id": "1706.03762",
             "title": "Attention Is All You Need",
@@ -69,6 +74,8 @@ def test_search_hybrid_returns_papers(client, monkeypatch):
             "year": 2023,
         },
     }))
+    # arXiv fallback returns empty (Turso found everything)
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     resp = client.get("/search?q=transformer+attention")
     assert resp.status_code == 200
@@ -82,13 +89,15 @@ def test_search_hybrid_preserves_ranking(client, monkeypatch):
     returned by hybrid_search_svc.search() — i.e., paper A before paper B.
     """
     import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
     import app.arxiv_svc as arxiv
 
     # Hybrid search returns A first, then B
     monkeypatch.setattr(hs, "search", AsyncMock(return_value=[
         "2401.00001", "1706.03762",
     ]))
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={
+    # Phase 3.5: Turso is the primary metadata source
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={
         "2401.00001": {
             "arxiv_id": "2401.00001",
             "title": "First Paper Should Appear First",
@@ -102,6 +111,7 @@ def test_search_hybrid_preserves_ranking(client, monkeypatch):
             "category": "cs.CL", "published": "2017-06-12", "year": 2017,
         },
     }))
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     resp = client.get("/search?q=test+query")
     # First paper should appear before second paper in HTML
@@ -144,12 +154,14 @@ def test_search_sets_saved_dismissed_flags(client, monkeypatch):
     based on the user's state.
     """
     import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
     import app.arxiv_svc as arxiv
 
     monkeypatch.setattr(hs, "search", AsyncMock(return_value=[
         "1706.03762", "2301.00001",
     ]))
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={
+    # Phase 3.5: Turso is the primary metadata source
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={
         "1706.03762": {
             "arxiv_id": "1706.03762", "title": "Saved Paper",
             "abstract": "...", "authors": '["A"]',
@@ -161,6 +173,7 @@ def test_search_sets_saved_dismissed_flags(client, monkeypatch):
             "category": "cs.AI", "published": "2023-01-01", "year": 2023,
         },
     }))
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     # First: visit home to get cookie, then save a paper
     client.get("/")
@@ -180,16 +193,19 @@ def test_search_htmx_partial_with_hybrid(client, monkeypatch):
     same as before the hybrid search swap.
     """
     import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
     import app.arxiv_svc as arxiv
 
     monkeypatch.setattr(hs, "search", AsyncMock(return_value=["1706.03762"]))
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={
+    # Phase 3.5: Turso is the primary metadata source
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={
         "1706.03762": {
             "arxiv_id": "1706.03762", "title": "HTMX Test Paper",
             "abstract": "...", "authors": '["A"]',
             "category": "cs.CL", "published": "2017-06-12", "year": 2017,
         },
     }))
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     resp = client.get(
         "/search?q=transformer",

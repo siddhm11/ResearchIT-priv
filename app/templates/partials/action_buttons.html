@@ -2,12 +2,16 @@
   Action buttons for a paper card.
   Expects: paper_id (or paper.arxiv_id), saved (bool), dismissed (bool)
   Optional: source ("search" | "recommendation" | "saved"), position (int)
+  Phase 4.5: ranker_version, candidate_source, cluster_id (set by recommendations.py)
   These are returned directly by the /api/papers/{id}/save endpoint
   so they also work as a standalone partial.
 #}
 {% set pid = paper_id if paper_id is defined else paper.arxiv_id %}
 {% set is_saved = saved if saved is defined else (paper.saved | default(false)) %}
 {% set _source = source if source is defined else "search" %}
+{% set _ranker_version = paper.ranker_version | default("") if paper is defined else "" %}
+{% set _candidate_source = paper.candidate_source | default("") if paper is defined else "" %}
+{% set _cluster_id = paper.cluster_id | default("") if paper is defined else "" %}
 
 {% if is_saved %}
   <!-- Already saved — show saved state, allow unsave via not-interested -->
@@ -19,7 +23,7 @@
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}"}'>
+            hx-vals='{"source": "{{ _source }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
       Remove
     </button>
   </div>
@@ -28,9 +32,9 @@
     <!-- Save -->
     <button class="btn btn-primary btn-xs"
             hx-post="/api/papers/{{ pid }}/save"
-            hx-target="#actions-{{ pid }}"
+            hx-target="[id='actions-{{ pid }}']"
             hx-swap="innerHTML"
-            hx-vals='{"source": "{{ _source }}", "position": "{{ position | default(0) }}"}'>
+            hx-vals='{"source": "{{ _source }}", "position": "{{ position | default(0) }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
       ⭐ Save
     </button>
     <!-- Not interested (removes the whole card) -->
@@ -38,8 +42,9 @@
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}"}'>
+            hx-vals='{"source": "{{ _source }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
       ✕ Not interested
     </button>
   </div>
 {% endif %}
+

@@ -25,11 +25,14 @@
     {% endif %}
   </div>
 
-  <!-- Meta: arXiv ID + year -->
+  <!-- Meta: arXiv ID + year + citations -->
   <div class="text-xs text-base-content/50">
     [{{ paper.arxiv_id }}]
     {% if paper.published %} · {{ paper.published[:4] }}{% endif %}
     {% if authors_list %} · {{ authors_list | join(", ") }}{% endif %}
+    {% if paper.citation_count %}
+    · <span class="font-medium text-base-content/70" title="{{ paper.influential_citations|default(0) }} influential">📊 {{ paper.citation_count }} citations</span>
+    {% endif %}
   </div>
 
   <!-- Abstract (truncated) -->

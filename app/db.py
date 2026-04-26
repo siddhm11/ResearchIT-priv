@@ -6,6 +6,11 @@ Tables
 interactions        – every user action (save, not_interested, click, view)
 paper_qdrant_map    – arxiv_id → integer Qdrant point ID (cached lazily)
 paper_metadata      – arXiv API response cache (title, abstract, …)
+
+Phase 4.5 instrumentation columns (interactions table):
+  ranker_version    – identifies which pipeline version served the paper
+  candidate_source  – granular origin: 'cluster_0', 'exploration', 'ewma', etc.
+  cluster_id        – which interest cluster served this paper (NULL if N/A)
 """
 import aiosqlite
 from app.config import DB_PATH
@@ -17,14 +22,17 @@ PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
 
 CREATE TABLE IF NOT EXISTS interactions (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id       TEXT    NOT NULL,
-    paper_id      TEXT    NOT NULL,
-    event_type    TEXT    NOT NULL,   -- save | not_interested | click | view
-    source        TEXT,               -- search | recommendation
-    position      INTEGER,
-    query_id      TEXT,
-    timestamp     TEXT    NOT NULL DEFAULT (datetime('now'))
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT    NOT NULL,
+    paper_id         TEXT    NOT NULL,
+    event_type       TEXT    NOT NULL,   -- save | not_interested | click | view
+    source           TEXT,               -- search | recommendation
+    position         INTEGER,
+    query_id         TEXT,
+    ranker_version   TEXT,               -- Phase 4.5: pipeline version tag
+    candidate_source TEXT,               -- Phase 4.5: 'cluster_0' | 'exploration' | 'ewma' | 'qdrant_recommend'
+    cluster_id       INTEGER,            -- Phase 4.5: interest cluster index (NULL if N/A)
+    timestamp        TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_ui_user_ts
@@ -73,10 +81,25 @@ CREATE TABLE IF NOT EXISTS user_clusters (
 """
 
 
+# ── Phase 4.5: ALTER TABLE migration for existing DBs ─────────────────────────
+# SQLite does not support IF NOT EXISTS for columns, so we try/except.
+_MIGRATION_4_5 = [
+    "ALTER TABLE interactions ADD COLUMN ranker_version TEXT",
+    "ALTER TABLE interactions ADD COLUMN candidate_source TEXT",
+    "ALTER TABLE interactions ADD COLUMN cluster_id INTEGER",
+]
+
+
 async def init_db() -> None:
     """Create tables if they don't exist. Called once at startup."""
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(_SCHEMA)
+        # Phase 4.5: add instrumentation columns to existing DBs
+        for stmt in _MIGRATION_4_5:
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # Column already exists — safe to ignore
         await db.commit()
 
 
@@ -89,13 +112,18 @@ async def log_interaction(
     source: str | None = None,
     position: int | None = None,
     query_id: str | None = None,
+    ranker_version: str | None = None,
+    candidate_source: str | None = None,
+    cluster_id: int | None = None,
 ) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO interactions
-               (user_id, paper_id, event_type, source, position, query_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, paper_id, event_type, source, position, query_id),
+               (user_id, paper_id, event_type, source, position, query_id,
+                ranker_version, candidate_source, cluster_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, paper_id, event_type, source, position, query_id,
+             ranker_version, candidate_source, cluster_id),
         )
         await db.commit()
 
@@ -273,3 +301,68 @@ async def get_user_clusters(user_id: str) -> list[dict]:
         )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Phase 4.3: Category suppression helpers ───────────────────────────────────
+
+async def cache_turso_metadata_batch(papers: list[dict]) -> None:
+    """
+    Write Turso paper dicts to the paper_metadata SQLite cache.
+
+    Called after every Turso fetch so dismissal-category JOINs work.
+    Silently skips rows missing required fields.
+    """
+    if not papers:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for paper in papers:
+            if not paper.get("arxiv_id"):
+                continue
+            try:
+                await conn.execute(
+                    """INSERT OR REPLACE INTO paper_metadata
+                       (arxiv_id, title, abstract, authors, category, published)
+                       VALUES (:arxiv_id, :title, :abstract, :authors, :category, :published)""",
+                    {
+                        "arxiv_id": paper.get("arxiv_id", ""),
+                        "title": paper.get("title", ""),
+                        "abstract": paper.get("abstract", ""),
+                        "authors": paper.get("authors", "[]"),
+                        "category": paper.get("category", ""),
+                        "published": paper.get("published", ""),
+                    },
+                )
+            except Exception:
+                pass
+        await conn.commit()
+
+
+async def get_suppressed_categories(
+    user_id: str,
+    threshold: int = 3,
+    window_days: int = 14,
+) -> set[str]:
+    """
+    Return categories the user has strongly signalled disinterest in.
+
+    A category is suppressed when the user has dismissed ≥ threshold papers
+    in that category within the last window_days days.
+
+    Requires paper_metadata to be populated (via cache_turso_metadata_batch).
+    Returns an empty set if no suppressions are found.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            """SELECT pm.category, COUNT(*) AS cnt
+               FROM interactions i
+               JOIN paper_metadata pm ON i.paper_id = pm.arxiv_id
+               WHERE i.user_id = ?
+                 AND i.event_type = 'not_interested'
+                 AND i.timestamp >= datetime('now', ? || ' days')
+                 AND pm.category != ''
+               GROUP BY pm.category
+               HAVING COUNT(*) >= ?""",
+            (user_id, f"-{window_days}", threshold),
+        )
+        rows = await cur.fetchall()
+        return {row[0] for row in rows}

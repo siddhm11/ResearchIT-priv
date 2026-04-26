@@ -15,29 +15,27 @@
 |---|---|---|
 | Qdrant Cloud (1.6M BGE-M3 papers) | ✅ Live | BQ enabled, HNSW m=32, `arxiv_bgem3_dense` collection |
 | Phase 1: Zero-ML Recommender | ✅ Complete | Qdrant BEST_SCORE with raw IDs, 55 tests |
-| Phase 2a: EWMA Profiles | ✅ Complete | Long-term (α=0.10), Short-term (α=0.40), Negative (α=0.15) |
-| Phase 2b: Ward Clustering + Prefetch+RRF | ✅ Complete | Adaptive gap-based threshold, 2+ clusters detected on real data |
-| Phase 2c: Heuristic Re-ranking + MMR | ✅ Complete | 4-feature scorer, MMR λ=0.6, exploration injection |
+| Phase 2a: EWMA Profiles | ✅ Complete | Long-term (α=0.03 ✅), Short-term (α=0.40), Negative (α=0.15) |
+| Phase 2b: Ward Clustering + Prefetch+RRF | ✅ Complete | L2-norm + adaptive gap threshold, 2+ clusters on real data |
+| Phase 2c: Heuristic Re-ranking + MMR | ✅ Complete | 5-feature scorer (neg penalty wired), MMR λ=0.6, exploration |
+| Phase 3: Hybrid Semantic Search | ✅ Complete | BGE-M3 + Qdrant dense + Zilliz sparse + RRF, 123 tests |
+| Phase 3.5: Turso Metadata DB | ✅ Complete | 1.23GB metadata + citations, search ~10.7s → ~1.75s |
 | SQLite (interactions, profiles, clusters, metadata cache) | ✅ Live | WAL mode, async via aiosqlite |
 | HTMX Frontend | ✅ Live | Search, save, dismiss, recommendations |
-| Test Suite | ✅ 88 tests passing | Unit, integration, and E2E simulation |
+| Test Suite | ✅ 125 tests passing | Unit, integration, E2E simulation, search pipeline |
 
 ### What's NOT Built Yet
 
 | Component | Planned In | Blocked By |
 |---|---|---|
-| **Hybrid Search (BGE-M3 encode + Zilliz sparse)** | **Phase 3 (NEXT)** | BGE-M3 model loading (~570MB, ~15s cold start) |
-| Recommendation fixes (RRF→quota, α tuning) | Phase 4 | Code refactor only |
-| LightGBM lambdarank re-ranker | Phase 6 | Need ≥500 labeled save/dismiss interactions |
+| **Rec pipeline fixes (RRF→quota, Hungarian, neg suppression)** | **Phase 4 (NEXT)** | Code refactor only |
 | Cold-start onboarding (category picker / ORCID) | Phase 5 | Not yet designed |
-| Negative profile used in retrieval | Phase 4 | Stored but not wired |
-| Pre-populated metadata store | Phase 4 | arXiv API is the latency bottleneck (~7.6s cold) |
+| LightGBM lambdarank re-ranker | Phase 6 | Need ≥500 labeled save/dismiss interactions |
 | LLM interest summaries per cluster | Phase 8 | Needs Claude/Groq API integration |
 
-> **Note on search architecture:** The current arXiv keyword API search was always a Phase 1 placeholder.
-> The entire point of building 1.6M BGE-M3 embeddings in Qdrant (with BQ + HNSW) is to power
-> vector-based semantic search. Replacing the arXiv API with Qdrant dense + Zilliz sparse
-> hybrid search is the **#1 priority** for the next phase.
+> **Note**: Hybrid Search (Phase 3), Turso Metadata (Phase 3.5), α_long tuning, L2
+> normalization, and negative profile wiring are all DONE. The next priority is fixing
+> the recommendation fusion from RRF → quota (Phase 4).
 
 ### Dataset Coverage
 
@@ -47,7 +45,7 @@
 | Newest paper | `2505.04101` (~May 2025) |
 | Total papers | 1,596,587 |
 | Payload stored in Qdrant | `arxiv_id` only |
-| Metadata source | arXiv API (live) → SQLite cache |
+| Metadata source | Turso DB (primary) → arXiv API (fallback) → SQLite cache |
 
 ---
 
@@ -126,7 +124,7 @@ The 6 research documents contain several contradictions. Here is each one and it
 
 This is what PinnerSage, Taobao ULIM, and Pinterest Bucketized-ANN actually deploy.
 
-**Current status**: RRF is still in the codebase. Needs to be replaced.
+**Current status**: RRF is still in the codebase. Phase 4 plan created — see `docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`.
 
 ### 2. EWMA α_long = 0.10 vs 0.03
 
@@ -136,7 +134,7 @@ This is what PinnerSage, Taobao ULIM, and Pinterest Bucketized-ANN actually depl
 
 **Resolution**: PinnerSage tested λ=0.1 and **explicitly rejected it as too recent-biased**. Their optimal was λ=0.01. Doc 06 recommends α_long=0.03 as a compromise.
 
-**Current status**: α=0.10 is in the codebase. Should be tuned down to 0.03.
+**Current status**: ✅ Already fixed — α=0.03 in `app/recommend/profiles.py:30`.
 
 ### 3. BGE-reranker-v2 in the Hot Path
 
@@ -231,46 +229,52 @@ Final results → fetch metadata → render
 
 ### Phase 4: Recommendation Pipeline Fixes (~1 week)
 
+> **Detailed plan**: [`docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`](../phases/PHASE4-Recommendation-Pipeline-Fixes.md)
+
 Corrections to the existing recommendation pipeline based on Doc 06's findings.
+Items 4.2 (α_long tuning) and 4.3-old (negative profile wiring) are already done.
 
 #### 4.1 Replace RRF with Importance-Weighted Quota Fusion
-**Why**: RRF lets dominant clusters swamp minor interests — the exact failure mode multi-interest models exist to prevent.
+**Why**: RRF lets dominant clusters swamp minor interests — the exact failure mode multi-interest models exist to prevent. PinnerSage, Taobao ULIM, and Pinterest Bucketized-ANN all use quota, not RRF.
 
-**What to change**: In `app/routers/recommendations.py`, replace `multi_interest_search()` (which uses Qdrant's server-side RRF) with per-cluster separate ANN queries, then allocate feed slots proportional to cluster importance with a floor of F_min=3.
+**What to build**:
+- New `app/recommend/fusion.py` — `allocate_quotas()` function
+- Refactor `_multi_interest_recommend()` to use `asyncio.gather()` for concurrent per-cluster searches
+- Deduplicate across clusters (first-occurrence wins)
 
-**New flow**:
 ```
 clusters = compute_clusters(...)
-weights = normalize_importance(clusters)
-for each cluster k:
-    slots_k = max(floor(total_slots × weight_k), 3)
-    candidates_k = qdrant search with medoid_k (limit = slots_k × 3)
-    rerank within cluster_k via LightGBM / heuristic
-    take top slots_k
-deduplicate across clusters (assign to highest-ranked)
-MMR over the merged union
+quotas = allocate_quotas([c.importance for c in clusters], total=100, min=3)
+results = asyncio.gather(search_by_vector(medoid_k, limit=quota_k*3) for each k)
+deduplicate → rerank → MMR → serve
 ```
 
-#### 4.2 Tune α_long from 0.10 → 0.03
-**Why**: PinnerSage explicitly rejected 0.10 as too recent-biased.
+#### ~~4.2 Tune α_long from 0.10 → 0.03~~ ✅ ALREADY DONE (Phase 2a)
 
-**What to change**: Single constant in `app/recommend/profiles.py`.
+α_long is already 0.03 in `app/recommend/profiles.py:30`.
 
-#### 4.3 Wire the Negative Profile into Re-ranking
-**Why**: Currently computed and stored but never used. YouTube showed a 3× gain from using dislikes as both features and labels.
+#### ~~4.3-old Wire the Negative Profile~~ ✅ ALREADY DONE (Phase 2c)
 
-**What to add**: In `app/recommend/reranker.py`, add a negative-similarity penalty:
-```python
-neg_penalty = cosine_sim(candidate, neg_profile) * penalty_weight
-final_score = base_score - neg_penalty
-```
+Negative EWMA is already Feature 5 in `app/recommend/reranker.py` with 0.15 penalty weight.
 
-#### 4.4 Pre-populate Metadata Store
-**Why**: The arXiv API is the #1 latency bottleneck (~7.6 seconds cold for 50 papers).
+#### 4.3 Hungarian Matching for Cluster Stability
+**Why**: Cluster indices shuffle when users save new papers, breaking analytics and future UI.
 
-**What to do**: Download the Kaggle arXiv metadata dataset (~4GB JSON). Bulk-insert all 1.6M papers' metadata into SQLite's `paper_metadata` table. The arXiv API becomes a fallback for genuinely new papers only.
+**What to build**: `stabilize_cluster_ids()` in `clustering.py` using `scipy.optimize.linear_sum_assignment`. Cost matrix of medoid cosine distances; trivial at K≤7.
 
-**Impact**: Metadata fetch drops from ~7,600ms to <5ms.
+#### 4.4 Category-Level Negative Suppression
+**Why**: YouTube (2023) showed 3× gain from richer negative treatment.
+
+**Decisions resolved**:
+- **Primary category only** — avoids over-suppression from secondary tags
+- **14-day window** — standard default (τ_neg = 14 days)
+- **Per-item temporal decay** → deferred to Phase 6 (LightGBM feature)
+
+**What to build**: `get_suppressed_categories()` in `db.py` (SQL join: interactions × paper_metadata), filter in `_multi_interest_recommend()` after reranking.
+
+#### ~~4.5 Pre-populate Metadata Store~~ ✅ ALREADY DONE (Phase 3.5 — Turso)
+
+Turso cloud DB with 1.23GB of metadata + citation counts. Search time: ~10.7s → ~1.75s.
 
 ---
 
@@ -379,8 +383,9 @@ Add LightFM hybrid model with switching strategy:
 - ≥10 interactions: LightFM
 Retrain LightGBM with dismissals as negative labels (YouTube's 3× gain from dual labels).
 
-#### 9.3 Category-Level Negative Suppression
-If ≥3 dismissals hit the same arXiv category within a week, suppress that category for 2 weeks.
+#### ~~9.3 Category-Level Negative Suppression~~ → Moved to Phase 4.4
+If ≥3 dismissals hit the same primary arXiv category within 14 days, suppress that category.
+**Decision**: Primary category only, τ_neg = 14 days. See Phase 4 plan.
 
 ---
 
@@ -388,17 +393,13 @@ If ≥3 dismissals hit the same arXiv category within a week, suppress that cate
 
 If you can only do three things, do these:
 
-### 1. Build hybrid semantic search (Phase 3)
-**Impact**: Replaces the arXiv keyword API placeholder with real vector-based search. This is what the 1.6M BGE-M3 embeddings in Qdrant were built for. Transforms the product from a keyword aggregator into a semantic discovery engine.
-**Effort**: 4 new service files + router swap. ~2-3 weeks.
+### 1. ~~Build hybrid semantic search (Phase 3)~~ ✅ DONE
 
-### 2. Pre-populate the metadata store (Phase 4.4)
-**Impact**: Drops cold metadata fetch from 7,600ms to <5ms. Single biggest latency win.
-**Effort**: Download Kaggle dataset, write a bulk-insert script, run once.
+### 2. ~~Pre-populate the metadata store (Phase 3.5)~~ ✅ DONE
 
-### 3. Replace RRF with quota fusion in recommendations (Phase 4.1)
+### 3. Replace RRF with quota fusion in recommendations (Phase 4.1) ← NEXT
 **Impact**: Prevents the dominant cluster from drowning out minority interests. Fixes the core multi-interest failure mode.
-**Effort**: Refactor `_multi_interest_recommend()` in recommendations.py.
+**Effort**: New `fusion.py` + refactor `_multi_interest_recommend()`. ~1 week for all 3 Phase 4 items.
 
 ---
 
@@ -415,5 +416,7 @@ If you can only do three things, do these:
 | — | [Phase 1 Walkthrough](PHASE1-Zero-ML-Recommender.md) | Zero-ML recommender code tour | ✅ Complete |
 | — | [Phase 2 Recommender Walkthrough](02-Phase2-MultiInterest-Recommender.md) | Multi-interest engine implementation | ✅ Complete |
 | — | [Code Summary & Test Plan](03-Code-Summary-and-Test-Plan.md) | Codebase summary and testing strategy | ✅ Complete |
-| — | [Phase 2 Hybrid Search Plan](../phases/PHASE2-Hybrid-Search-Plan.md) | BGE-M3 + Zilliz hybrid search (not yet built) | 📋 Planned |
+| — | [Phase 2 Hybrid Search Plan](../phases/PHASE2-Hybrid-Search-Plan.md) | BGE-M3 + Zilliz hybrid search prototype | ✅ Superseded by Phase 3 |
+| — | [Phase 3 Hybrid Semantic Search](../phases/PHASE3-Hybrid-Semantic-Search.md) | Full hybrid search implementation plan | ✅ Complete |
+| — | [Phase 4 Recommendation Fixes](../phases/PHASE4-Recommendation-Pipeline-Fixes.md) | Quota fusion, Hungarian matching, negative suppression | 📋 Planned |
 | — | **This Document** | Revised phase plan synthesizing all research | ✅ Current |

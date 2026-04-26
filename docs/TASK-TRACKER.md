@@ -1,8 +1,8 @@
 # ResearchIT — Master Task Tracker
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
-> **Last updated**: 2026-04-20  
-> **Current phase**: Phase 3.5 (Turso Metadata DB) — COMPLETE ✔  
+> **Last updated**: 2026-04-26  
+> **Current phase**: Phase 4.5 (Instrumentation Foundation) — COMPLETE ✔  
 
 ---
 
@@ -241,21 +241,25 @@
 
 ---
 
-## Phase 4: Recommendation Pipeline Fixes 📋 NOT STARTED
+## Phase 4: Recommendation Pipeline Fixes ✅ COMPLETE
 
-> *Fix the known architectural debt in the recommendation pipeline.*  
-> *Estimated effort: ~1 week*
+> *Fixed the known architectural debt in the recommendation pipeline.*  
+> *Detailed plan: `docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`*
 
 ### 4.1 — Replace RRF with Importance-Weighted Quota Fusion
-- [ ] Create `app/recommend/fusion.py` — quota allocation logic
+- [x] Create `app/recommend/fusion.py` — quota allocation logic
   - `w_k = importance_k / sum(importance_k)`
   - `slot_k = max(floor(F × w_k), F_min=3)` — every cluster gets at least 3 slots
   - Distribute remainder by largest fractional part
-- [ ] Refactor `_multi_interest_recommend()` in `recommendations.py`
+- [x] Create `tests/test_fusion.py` — **20 unit tests** for quota allocation
+  - Proportionality, floor enforcement, total invariant, edge cases, Doc 06 worked examples
+- [x] Refactor `_multi_interest_recommend()` in `recommendations.py`
   - Replace `multi_interest_search()` with per-cluster separate ANN queries
-  - Allocate feed slots proportionally
-  - Deduplicate across clusters (assign to highest-ranked)
-  - MMR over merged union
+  - Use `asyncio.gather()` for concurrent searches (~15ms wall-clock)
+  - Allocate feed slots proportionally via `allocate_quotas()`
+  - Deduplicate across clusters (first-occurrence = highest-ranked cluster wins)
+  - MMR over merged union (unchanged)
+- [x] Keep `qdrant_svc.multi_interest_search()` in codebase (no deletion)
 
 ### 4.2 — Pre-populate Metadata Store ✅ DONE (via Turso)
 - [x] Bulk-loaded arXiv metadata from Kaggle to Turso cloud DB (Phase 3.5)
@@ -265,13 +269,60 @@
 - [x] **Impact**: Search time dropped from ~10.7s to ~1.75s on HF Spaces
 
 ### 4.3 — Hungarian Matching for Cluster Stability
-- [ ] Implement Hungarian matching in `clustering.py`
-  - Match new cluster IDs to previous IDs by medoid similarity
-  - Prevents cluster IDs from shuffling between reclusterings
+- [x] Add `stabilize_cluster_ids()` function to `clustering.py`
+  - Uses `scipy.optimize.linear_sum_assignment` (already a dependency)
+  - Cost matrix: `1 - cosine_sim(new_medoid, old_medoid)` — trivial at K≤7
+  - Matched clusters keep old indices; new clusters get next available
+  - Min cosine threshold (0.5) rejects unrelated matches
+- [x] Call between `compute_clusters()` and `save_clusters_to_db()` in recommendations.py
+- [x] **10 tests** in `test_clustering.py` — perturbed clusters preserve indices,
+  unrelated match rejection, K growth/shrink, custom thresholds
 
-### 4.4 — Wire Remaining Negative Signal Components
-- [ ] Per-item short-term decay: `score -= α × exp(-dt / τ_neg)` — needs per-item timestamp tracking
-- [ ] Category-level suppression: if ≥3 dismissals hit the same arXiv category within a week, suppress for 2 weeks
+### 4.4 — Category-Level Negative Suppression
+- [x] Add `get_suppressed_categories()` to `db.py`
+  - Joins `interactions` + `paper_metadata` to find categories with ≥3 dismissals
+  - **Primary category only** (decision: avoid over-suppression)
+  - **14-day window** (standard default, τ_neg = 14 days)
+- [x] Add suppression filter in `_multi_interest_recommend()` after reranking
+- [x] Cache Turso metadata to `paper_metadata` via `cache_turso_metadata_batch()`
+- [x] **8 tests** in `test_db.py` — threshold, partitioning, user isolation, custom threshold
+- [~] Per-item short-term decay → **deferred to Phase 6** (LightGBM feature)
+
+**Gaps**: None.
+
+---
+
+## Phase 4.5: Instrumentation Foundation ✅ COMPLETE
+
+> *Added telemetry columns to the interactions table so every saved/dismissed paper*
+> *can be attributed to its pipeline tier, cluster origin, and ranker version.*
+> *Doc 07 (ADR A4) identified this as the single most valuable early investment —*
+> *retrofitting these fields after real user data exists is painful and blocks all*
+> *later counterfactual evaluation.*
+
+### Schema changes
+- [x] Add `ranker_version TEXT` to `interactions` table — pipeline version tag
+- [x] Add `candidate_source TEXT` to `interactions` — e.g. `cluster_0`, `exploration`, `ewma_longterm`, `qdrant_recommend`, `short_term_supplement`
+- [x] Add `cluster_id INTEGER` to `interactions` — interest cluster index (NULL if N/A)
+- [x] ALTER TABLE migration for existing DBs (safe try/except, idempotent)
+
+### Pipeline tagging
+- [x] Add `_RANKER_VERSION` constant to `recommendations.py`
+- [x] Tag Tier 1 papers with cluster origin, exploration status, short-term supplement
+- [x] Tag Tier 2 papers as `ewma_longterm`
+- [x] Tag Tier 3 papers as `qdrant_recommend`
+- [x] Build `paper_cluster_map` before quota merge (first-occurrence = cluster attribution)
+- [x] Exploration papers tagged as `candidate_source='exploration'`
+
+### End-to-end flow
+- [x] `recommendations.py` embeds tags in paper dicts
+- [x] `action_buttons.html` includes tags in `hx-vals` JSON
+- [x] `events.py` accepts `ranker_version`, `candidate_source`, `cluster_id` Form fields
+- [x] `db.log_interaction()` stores all three new columns
+
+**Files modified**: `app/db.py`, `app/routers/events.py`, `app/routers/recommendations.py`, `app/templates/partials/action_buttons.html`
+
+**Gaps**: None. `propensity` and `policy_id` fields deferred until ε-greedy exploration (Phase 9).
 
 ---
 
@@ -306,7 +357,8 @@
 
 > *Replace heuristic scorer with a trained LightGBM lambdarank model.*  
 > *Blocked by: ≥500 labeled interactions OR citation-graph bootstrap*  
-> *Estimated effort: ~2-4 weeks*
+> *Estimated effort: ~2-4 weeks*  
+> *Architecture decision: one-stage LambdaMART first (Doc 07 ADR A3)*
 
 - [ ] Citation-graph pseudo-labels from unarXive 2022 (cited = relevance 2, co-cited = 1, random = 0)
 - [ ] Author-as-user simulation
@@ -329,11 +381,30 @@
 
 ## Phase 8: LLM Interest Summaries + Distilled Re-ranker 📋 NOT STARTED
 
-> *Estimated effort: ~2 weeks*
+> *Estimated effort: ~10-12 weeks (Doc 07)*  
+> *Detailed research plan: `docs/research/07-LLM-Summaries-Reranker-and-Scaling-Research.md`*  
+> *Entry criteria: Phase 7 eval producing stable nDCG@10; cluster stability Jaccard ≥0.7 over 7 days*
 
-- [ ] Claude/Groq interest summaries per cluster (human-readable descriptions)
-- [ ] Distill BGE-reranker-v2-m3 offline → TinyBERT-L2 student (FlashRank recipe)
-- [ ] Deploy student score as LightGBM feature on top-20
+### 8a — Claude-generated per-cluster interest summaries (Doc 07 §A)
+- [ ] Cluster snapshot versioning (ADR A1)
+- [ ] Content-addressed caching: `sha256(sorted(paper_ids) + prompt_version + model)`
+- [ ] Shared summaries (not per-user) — Haiku 4.5 + Batch API (~$50-80/month @ 1K users)
+- [ ] Nightly regeneration job with 7-day TTL + event-triggered refresh
+- [ ] "You're reading about X" UI framing with sub-theme bullets
+- [ ] Anthropic Citations API for hallucination prevention
+
+### 8b — Distilled cross-encoder reranker (Doc 07 §B)
+- [ ] Deploy `cross-encoder/ms-marco-TinyBERT-L-2-v2` INT8 ONNX as MVP
+- [ ] 6ms budget for 20 pairs on CPU (AVX-512 VNNI)
+- [ ] TinyBERT score as LightGBM feature (Option C architecture)
+- [ ] Custom distillation from BGE-reranker-v2-m3 only if held-out gap >3 nDCG
+- [ ] MarginMSE loss + SciNCL citation-graph hard negatives
+
+### 8c — Use-cases and information-gain design doc (Doc 07 §C)
+- [ ] 8 user personas (P1 cold-start through P8 stay-current)
+- [ ] Information-gain table (save=3-5×, dismiss-as-label=−3-4×, passive skip=−0.1×)
+- [ ] Mode-switching UI: "Stay Current" vs "Lit Review" toggle
+- [ ] Failure mode detection rules (feed collapse, stale profile, filter bubble)
 
 ---
 
@@ -380,18 +451,19 @@
 | Test File | Count | Status |
 |---|---|---|
 | `tests/test_profiles.py` | 11 | ✅ Passing |
-| `tests/test_clustering.py` | 10 | ✅ Passing |
+| `tests/test_clustering.py` | 21 | ✅ Passing | (9 compute + 10 Hungarian + 2 persistence) |
 | `tests/test_reranker_diversity.py` | 13 | ✅ Passing |
-| `tests/test_db.py` | — | ✅ Passing |
+| `tests/test_fusion.py` | 20 | ✅ Passing | (Phase 4.1) |
+| `tests/test_db.py` | 19 | ✅ Passing | (includes 4 Turso cache + 8 suppression) |
 | `tests/test_qdrant_svc.py` | — | ✅ Passing |
 | `tests/test_arxiv_svc.py` | — | ✅ Passing |
-| `tests/test_integration.py` | — | ✅ Passing |
+| `tests/test_integration.py` | — | ✅ Passing | (includes quota pipeline E2E) |
 | `tests/test_user_state.py` | — | ✅ Passing |
 | `tests/test_saved.py` | — | ✅ Passing |
 | `tests/test_hybrid_search.py` | 21 | ✅ Passing |
 | `tests/test_search_router.py` | 6 | ✅ Passing |
 | `tests/test_live_search.py` | 8 | ✅ Passing |
-| **Total** | **123** | ✅ |
+| **Total** | **171** | ✅ |
 | `test_e2e_recs.py` (standalone) | 1 | ✅ E2E simulation |
 
 ---
@@ -404,8 +476,8 @@
 | L2-normalize before Ward clustering | ✅ Applied | `app/recommend/clustering.py` |
 | Medoid not centroid | ✅ Applied | `app/recommend/clustering.py` → `_find_medoid()` |
 | Negative EWMA wired into reranking | ✅ Applied | `app/recommend/reranker.py` → Feature 5 |
-| RRF → quota fusion for recommendations | [!] Backlog | Phase 4.1 |
-| Hungarian cluster matching | [!] Backlog | Phase 4.3 |
-| Per-item short-term negative decay | [!] Backlog | Phase 4.4 |
-| Category-level suppression | [!] Backlog | Phase 4.4 |
+| RRF → quota fusion for recommendations | ✅ Applied | `app/recommend/fusion.py` (Phase 4.1) |
+| Hungarian cluster matching | ✅ Applied | `app/recommend/clustering.py` → `stabilize_cluster_ids()` (Phase 4.3) |
+| Per-item short-term negative decay | [!] Backlog | Phase 6 (LightGBM feature) |
+| Category-level suppression | ✅ Applied | `app/db.py` → `get_suppressed_categories()` (Phase 4.4) |
 | BGE-reranker NEVER in hot path | ✅ Followed | Heuristic scorer used instead |

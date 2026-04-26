@@ -17,7 +17,7 @@ EWMA profiles update (background, non-blocking)
     ↓
 Ward clustering → K distinct interest medoids (auto K per user)
     ↓
-Qdrant prefetch + RRF fusion (~15-25ms, single API call)
+Qdrant prefetch + RRF fusion (~15-25ms, single API call)  [⚠️ Replaced by Quota Fusion in Phase 4]
     ↓
 Heuristic re-ranking of ~100 candidates (~1-2ms)
     ↓

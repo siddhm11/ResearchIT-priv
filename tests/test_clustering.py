@@ -15,6 +15,7 @@ import numpy as np
 
 from app.recommend.clustering import (
     compute_clusters,
+    stabilize_cluster_ids,
     InterestCluster,
     MIN_PAPERS_FOR_CLUSTERING,
     MAX_CLUSTERS,
@@ -110,6 +111,7 @@ def test_importance_is_sorted_descending():
 def test_few_papers_returns_single_cluster():
     """When papers < MIN_PAPERS_FOR_CLUSTERING, return a single catch-all cluster."""
     ids = ["p1", "p2", "p3"]
+    assert len(ids) < MIN_PAPERS_FOR_CLUSTERING, "test precondition: ids must be below threshold"
     rng = np.random.RandomState(11)
     embs = rng.randn(3, 1024).astype(np.float32)
     # Normalise
@@ -153,6 +155,237 @@ def test_find_medoid():
     centroid = np.array([1.0, 0.0, 0.0], dtype=np.float32)
     idx = _find_medoid(embeddings, centroid)
     assert idx == 1, f"Expected medoid idx 1, got {idx}"
+
+
+# ── Hungarian matching / cluster ID stabilisation (Phase 4.2) ────────────────
+
+def _make_two_cluster_pair(seed: int = 0) -> tuple[list, list]:
+    """
+    Build two well-separated InterestCluster lists sharing the same embedding
+    space so Hungarian matching can correctly align them.
+
+    Returns (new_clusters, old_clusters) where new_clusters[0] corresponds
+    semantically to old_clusters[0].
+    """
+    rng = np.random.RandomState(seed)
+    dim = 1024
+
+    # Two distinct topic centers
+    center_a = rng.randn(dim).astype(np.float32)
+    center_a /= np.linalg.norm(center_a)
+    center_b = rng.randn(dim).astype(np.float32)
+    center_b /= np.linalg.norm(center_b)
+
+    def _near(center, n=5, spread=0.001):
+        # NOTE: spread is scaled small because random noise in 1024-d has
+        # magnitude ~sqrt(dim)*spread, so spread=0.05 gives noise≈1.6 which
+        # dominates the unit-length center. 0.001 keeps cosine sim ≥ 0.99.
+        vecs = []
+        for _ in range(n):
+            v = center + rng.randn(dim).astype(np.float32) * spread
+            v /= np.linalg.norm(v)
+            vecs.append(v)
+        return vecs
+
+    medoid_a_new = _near(center_a)[0]
+    medoid_b_new = _near(center_b)[0]
+    medoid_a_old = _near(center_a)[0]
+    medoid_b_old = _near(center_b)[0]
+
+    old = [
+        InterestCluster(cluster_idx=0, medoid_paper_id="old_a", medoid_embedding=medoid_a_old,
+                        paper_ids=["old_a"], importance=5.0),
+        InterestCluster(cluster_idx=1, medoid_paper_id="old_b", medoid_embedding=medoid_b_old,
+                        paper_ids=["old_b"], importance=3.0),
+    ]
+    # new clusters have swapped order (b first, a second) → naive assignment would shuffle
+    new = [
+        InterestCluster(cluster_idx=0, medoid_paper_id="new_b", medoid_embedding=medoid_b_new,
+                        paper_ids=["new_b"], importance=3.0),
+        InterestCluster(cluster_idx=1, medoid_paper_id="new_a", medoid_embedding=medoid_a_new,
+                        paper_ids=["new_a"], importance=5.0),
+    ]
+    return new, old
+
+
+def test_stabilize_matches_semantically_equivalent_clusters():
+    """
+    When topic A was cluster 0 and remains cluster 0 after recluster (just
+    re-ordered by importance), stabilise_cluster_ids should restore idx=0 for A.
+    """
+    new, old = _make_two_cluster_pair()
+    # new[0] is topic B, new[1] is topic A
+    # old[0] is topic A (idx=0), old[1] is topic B (idx=1)
+    stabilised = stabilize_cluster_ids(new, old)
+
+    # After stabilisation, the cluster containing "new_a" should have idx=0
+    # and "new_b" should have idx=1
+    idx_map = {c.medoid_paper_id: c.cluster_idx for c in stabilised}
+    assert idx_map["new_a"] == 0, f"Topic A should be idx 0, got {idx_map}"
+    assert idx_map["new_b"] == 1, f"Topic B should be idx 1, got {idx_map}"
+
+
+def test_stabilize_preserves_all_clusters():
+    """Output length must equal input length."""
+    new, old = _make_two_cluster_pair()
+    stabilised = stabilize_cluster_ids(new, old)
+    assert len(stabilised) == len(new)
+
+
+def test_stabilize_unique_indices():
+    """All cluster indices in the output must be unique."""
+    new, old = _make_two_cluster_pair()
+    stabilised = stabilize_cluster_ids(new, old)
+    indices = [c.cluster_idx for c in stabilised]
+    assert len(indices) == len(set(indices)), f"Duplicate indices: {indices}"
+
+
+def test_stabilize_no_old_clusters_returns_unchanged():
+    """With no old clusters, return new clusters as-is."""
+    new, _ = _make_two_cluster_pair()
+    result = stabilize_cluster_ids(new, [])
+    assert result == new
+
+
+def test_stabilize_no_new_clusters_returns_empty():
+    """With no new clusters, return empty list."""
+    _, old = _make_two_cluster_pair()
+    result = stabilize_cluster_ids([], old)
+    assert result == []
+
+
+def test_stabilize_rejects_unrelated_match():
+    """
+    Doc 06 requirement: Hungarian must NOT inherit an old cluster's identity
+    when the cosine similarity is below the threshold (default 0.5).  A user's
+    genuinely-new topic should get a fresh index, not steal an old NLP idx
+    just because Hungarian found the "least bad" assignment.
+    """
+    rng = np.random.RandomState(7)
+    dim = 1024
+
+    def _rand_unit():
+        v = rng.randn(dim).astype(np.float32)
+        return v / np.linalg.norm(v)
+
+    # Two very different topics: old_topic_vec vs new_topic_vec (orthogonal-ish)
+    old_vec = _rand_unit()
+    new_vec = _rand_unit()
+    # Force near-orthogonality so cosine sim << 0.5
+    # (random 1024-dim unit vectors already average near 0, so this should hold)
+    cos_sim = float(new_vec @ old_vec)
+    assert abs(cos_sim) < 0.3, f"test precondition failed: cos_sim={cos_sim}"
+
+    old = [InterestCluster(cluster_idx=5, medoid_paper_id="old_topic",
+                           medoid_embedding=old_vec, paper_ids=[], importance=1.0)]
+    new = [InterestCluster(cluster_idx=0, medoid_paper_id="new_topic",
+                           medoid_embedding=new_vec, paper_ids=[], importance=1.0)]
+
+    stabilised = stabilize_cluster_ids(new, old)
+    # The unrelated new cluster must NOT inherit idx=5
+    assert stabilised[0].cluster_idx != 5, \
+        "Unrelated topic inherited old cluster's index (threshold not enforced)"
+
+
+def test_stabilize_custom_threshold():
+    """Custom min_cosine_sim should control matching strictness."""
+    rng = np.random.RandomState(13)
+    dim = 1024
+    base = rng.randn(dim).astype(np.float32)
+    base /= np.linalg.norm(base)
+    # Slightly perturbed — spread=0.001 in 1024-d gives cos_sim ~ 0.9995
+    perturbed = base + rng.randn(dim).astype(np.float32) * 0.001
+    perturbed /= np.linalg.norm(perturbed)
+
+    old = [InterestCluster(cluster_idx=2, medoid_paper_id="old",
+                           medoid_embedding=base, paper_ids=[], importance=1.0)]
+    new = [InterestCluster(cluster_idx=0, medoid_paper_id="new",
+                           medoid_embedding=perturbed, paper_ids=[], importance=1.0)]
+
+    # With default threshold 0.5, match succeeds (~0.9995 cos sim)
+    default_result = stabilize_cluster_ids(new, old)
+    assert default_result[0].cluster_idx == 2
+
+    # With threshold 0.99999 (stricter than actual 0.9995 sim), match rejected
+    strict_result = stabilize_cluster_ids(new, old, min_cosine_sim=0.99999)
+    assert strict_result[0].cluster_idx != 2
+
+
+def test_stabilize_more_new_than_old():
+    """K grew from 1 → 2: matched cluster keeps idx, new gets fresh idx."""
+    rng = np.random.RandomState(21)
+    dim = 1024
+
+    base = rng.randn(dim).astype(np.float32)
+    base /= np.linalg.norm(base)
+    close = base + rng.randn(dim).astype(np.float32) * 0.001
+    close /= np.linalg.norm(close)
+    far = rng.randn(dim).astype(np.float32)
+    far /= np.linalg.norm(far)
+
+    old = [InterestCluster(cluster_idx=0, medoid_paper_id="o",
+                           medoid_embedding=base, paper_ids=[], importance=1.0)]
+    new = [
+        InterestCluster(cluster_idx=0, medoid_paper_id="n1",
+                        medoid_embedding=close, paper_ids=[], importance=2.0),
+        InterestCluster(cluster_idx=1, medoid_paper_id="n2",
+                        medoid_embedding=far, paper_ids=[], importance=1.0),
+    ]
+    result = stabilize_cluster_ids(new, old)
+    idx_map = {c.medoid_paper_id: c.cluster_idx for c in result}
+    assert idx_map["n1"] == 0  # inherits old idx
+    assert idx_map["n2"] != 0  # fresh idx
+
+
+def test_stabilize_fewer_new_than_old():
+    """K shrank from 2 → 1: the surviving cluster keeps its idx."""
+    rng = np.random.RandomState(25)
+    dim = 1024
+    base = rng.randn(dim).astype(np.float32)
+    base /= np.linalg.norm(base)
+    other = rng.randn(dim).astype(np.float32)
+    other /= np.linalg.norm(other)
+    close = base + rng.randn(dim).astype(np.float32) * 0.001
+    close /= np.linalg.norm(close)
+
+    old = [
+        InterestCluster(cluster_idx=7, medoid_paper_id="oA",
+                        medoid_embedding=base, paper_ids=[], importance=2.0),
+        InterestCluster(cluster_idx=9, medoid_paper_id="oB",
+                        medoid_embedding=other, paper_ids=[], importance=1.0),
+    ]
+    new = [InterestCluster(cluster_idx=0, medoid_paper_id="nA",
+                           medoid_embedding=close, paper_ids=[], importance=1.0)]
+
+    result = stabilize_cluster_ids(new, old)
+    assert len(result) == 1
+    assert result[0].cluster_idx == 7  # inherits the matching old idx
+
+
+def test_stabilize_new_cluster_gets_fresh_index():
+    """
+    If new_clusters has more clusters than old, the extras get fresh indices
+    not conflicting with any matched index.
+    """
+    rng = np.random.RandomState(99)
+    dim = 1024
+
+    emb = lambda: (lambda v: v / np.linalg.norm(v))(rng.randn(dim).astype(np.float32))
+
+    old = [
+        InterestCluster(cluster_idx=0, medoid_paper_id="old_a", medoid_embedding=emb(),
+                        paper_ids=[], importance=1.0),
+    ]
+    new = [
+        InterestCluster(cluster_idx=0, medoid_paper_id="new_a", medoid_embedding=old[0].medoid_embedding.copy(),
+                        paper_ids=[], importance=1.0),
+        InterestCluster(cluster_idx=1, medoid_paper_id="new_brand", medoid_embedding=emb(),
+                        paper_ids=[], importance=1.0),
+    ]
+    stabilised = stabilize_cluster_ids(new, old)
+    indices = {c.medoid_paper_id: c.cluster_idx for c in stabilised}
+    assert indices["new_a"] == 0, "Matched cluster should inherit old index 0"
+    assert indices["new_brand"] != 0, "New unmatched cluster must not collide with idx 0"
 
 
 # ── DB persistence test ──────────────────────────────────────────────────────

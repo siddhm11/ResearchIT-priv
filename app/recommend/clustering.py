@@ -20,6 +20,7 @@ import json
 from dataclasses import dataclass, field
 import numpy as np
 from scipy.cluster.hierarchy import ward, fcluster
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import pdist
 
 from app import db
@@ -181,6 +182,95 @@ def _find_medoid(embeddings: np.ndarray, centroid: np.ndarray) -> int:
     """Find the index of the embedding closest to the centroid."""
     distances = np.linalg.norm(embeddings - centroid, axis=1)
     return int(np.argmin(distances))
+
+
+# ── Cluster ID stabilisation (Phase 4.2) ─────────────────────────────────────
+
+# Hungarian matches below this cosine similarity are rejected as "unrelated".
+# Doc 06 §"Clustering specifics": a genuinely new interest must not steal an
+# old cluster's identity just because Hungarian found the least-bad assignment.
+CLUSTER_MATCH_MIN_COSINE = 0.5
+
+
+def stabilize_cluster_ids(
+    new_clusters: list[InterestCluster],
+    old_clusters: list[InterestCluster],
+    min_cosine_sim: float = CLUSTER_MATCH_MIN_COSINE,
+) -> list[InterestCluster]:
+    """
+    Preserve cluster identity across reclusters using the Hungarian algorithm.
+
+    Every time the user saves a paper we recluster from scratch.  Without
+    stabilisation, cluster indices shuffle (NLP was 0, now it's 2), breaking
+    future analytics and UI labels.
+
+    Algorithm:
+      1. Build cost matrix: cost[i][j] = 1 - cosine_sim(new_medoid_i, old_medoid_j)
+      2. Solve with scipy linear_sum_assignment (O(K³), trivial for K ≤ 7)
+      3. Matched pairs with cosine_sim >= min_cosine_sim inherit the old idx
+      4. Weak matches (cosine_sim < min_cosine_sim) and unmatched new clusters
+         get the next available index
+
+    Args:
+        new_clusters:   freshly computed clusters (cluster_idx values ignored)
+        old_clusters:   clusters from the previous recluster (stable reference)
+        min_cosine_sim: reject matches below this cosine similarity (default 0.5)
+
+    Returns:
+        new_clusters with stable cluster_idx values assigned.
+    """
+    if not old_clusters or not new_clusters:
+        return new_clusters
+
+    new_embs = np.array([c.medoid_embedding for c in new_clusters], dtype=np.float32)
+    old_embs = np.array([c.medoid_embedding for c in old_clusters], dtype=np.float32)
+
+    # L2-normalise before cosine similarity
+    def _safe_norm(embs: np.ndarray) -> np.ndarray:
+        norms = np.linalg.norm(embs, axis=1, keepdims=True)
+        return embs / np.where(norms < 1e-10, 1.0, norms)
+
+    new_embs = _safe_norm(new_embs)
+    old_embs = _safe_norm(old_embs)
+
+    # Cosine similarity → cost matrix (n_new × n_old)
+    sim = new_embs @ old_embs.T
+    cost = 1.0 - sim
+
+    # Hungarian assignment — works on rectangular matrices
+    row_ind, col_ind = linear_sum_assignment(cost)
+
+    # Accept only pairs whose cosine similarity clears the threshold.
+    # Weak matches would steal an old cluster's identity for an unrelated topic.
+    new_to_stable: dict[int, int] = {}
+    for r, c in zip(row_ind, col_ind):
+        if float(sim[r, c]) >= min_cosine_sim:
+            new_to_stable[int(r)] = old_clusters[int(c)].cluster_idx
+
+    used_ids: set[int] = set(new_to_stable.values())
+    next_id = 0
+
+    result: list[InterestCluster] = []
+    for i, cluster in enumerate(new_clusters):
+        if i in new_to_stable:
+            stable_idx = new_to_stable[i]
+        else:
+            # No strong match — assign next free index
+            while next_id in used_ids:
+                next_id += 1
+            stable_idx = next_id
+            used_ids.add(stable_idx)
+            next_id += 1
+
+        result.append(InterestCluster(
+            cluster_idx=stable_idx,
+            medoid_paper_id=cluster.medoid_paper_id,
+            medoid_embedding=cluster.medoid_embedding,
+            paper_ids=cluster.paper_ids,
+            importance=cluster.importance,
+        ))
+
+    return result
 
 
 # ── Persistence ───────────────────────────────────────────────────────────────

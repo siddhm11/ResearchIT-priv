@@ -36,7 +36,7 @@ The current application is a fully functional FastAPI + HTMX research paper disc
 
 ## 2. Comprehensive Testing Plan
 
-The current test suite has **86 passing tests** executing via `pytest`. Our testing strategy is split into three layers: Automated, Manual, and Analytics-based evaluation.
+The current test suite has **125 passing tests** (as of Phase 3.5) executing via `pytest`. Our testing strategy is split into three layers: Automated, Manual, and Analytics-based evaluation.
 
 ### A. Automated Testing (Current & Ongoing)
 

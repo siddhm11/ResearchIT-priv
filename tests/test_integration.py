@@ -3,6 +3,7 @@ Integration tests: full HTTP request/response cycle via FastAPI TestClient.
 Tests the complete pipeline: search → save → recommendations.
 """
 import pytest
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 
 
@@ -148,7 +149,8 @@ def test_recommendations_after_save(client, monkeypatch):
         return ["1706.03762"]
     monkeypatch.setattr(qs, "recommend", fake_recommend)
 
-    # Also mock metadata fetch so we don't hit arXiv API in this test
+    # Also mock metadata fetch so we don't hit Turso DB in this test
+    import app.turso_svc as turso
     import app.arxiv_svc as arxiv
     async def fake_batch(ids):
         return {
@@ -162,7 +164,8 @@ def test_recommendations_after_save(client, monkeypatch):
                 "year": 2017,
             }
         }
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", fake_batch)
+    monkeypatch.setattr(turso, "fetch_metadata_batch", fake_batch)
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     client.get("/")
     client.post("/api/papers/0704.0002/save", data={"source": "search"})
@@ -172,6 +175,110 @@ def test_recommendations_after_save(client, monkeypatch):
 
 
 # ── Full pipeline smoke test ───────────────────────────────────────────────────
+
+def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
+    """
+    Phase 4.1 end-to-end check: with 5+ saves forming 2 distinct interests,
+    the quota pipeline must surface papers from BOTH clusters in the final feed.
+    This is the exact failure mode RRF was causing.
+    """
+    import numpy as np
+    import app.qdrant_svc as qs
+    import app.turso_svc as turso
+    import app.arxiv_svc as arxiv
+    import app.recommend.profiles as prof_mod
+
+    # Set up cookie
+    client.get("/")
+
+    # 5 saved papers, split into two topics (3 "NLP", 2 "RL") via embeddings
+    saved_ids = ["nlp_a", "nlp_b", "nlp_c", "rl_a", "rl_b"]
+    rng = np.random.RandomState(42)
+    nlp_center = rng.randn(1024).astype(np.float32)
+    nlp_center /= np.linalg.norm(nlp_center)
+    rl_center = rng.randn(1024).astype(np.float32)
+    rl_center /= np.linalg.norm(rl_center)
+
+    def _near(center):
+        v = center + rng.randn(1024).astype(np.float32) * 0.05
+        return (v / np.linalg.norm(v)).tolist()
+
+    saved_vectors = {
+        "nlp_a": _near(nlp_center),
+        "nlp_b": _near(nlp_center),
+        "nlp_c": _near(nlp_center),
+        "rl_a": _near(rl_center),
+        "rl_b": _near(rl_center),
+    }
+
+    # Candidate pool: 50 NLP-ish, 50 RL-ish
+    candidate_vectors = {}
+    nlp_candidates = [f"nlp_cand_{i}" for i in range(50)]
+    rl_candidates = [f"rl_cand_{i}" for i in range(50)]
+    for cid in nlp_candidates:
+        candidate_vectors[cid] = _near(nlp_center)
+    for cid in rl_candidates:
+        candidate_vectors[cid] = _near(rl_center)
+
+    async def fake_get_paper_vectors(ids):
+        combined = {**saved_vectors, **candidate_vectors}
+        return {aid: combined[aid] for aid in ids if aid in combined}
+
+    # search_by_vector returns candidates aligned with whichever centre
+    # the query is closer to
+    async def fake_search_by_vector(query_vector, limit, exclude_ids=None):
+        qv = np.array(query_vector, dtype=np.float32)
+        qv /= np.linalg.norm(qv)
+        if float(qv @ nlp_center) > float(qv @ rl_center):
+            pool = nlp_candidates
+        else:
+            pool = rl_candidates
+        exclude = exclude_ids or set()
+        return [p for p in pool if p not in exclude][:limit]
+
+    monkeypatch.setattr(qs, "get_paper_vectors", fake_get_paper_vectors)
+    monkeypatch.setattr(qs, "search_by_vector", fake_search_by_vector)
+
+    # Skip EWMA short-term lookup — returns None
+    async def fake_load_profile(uid, kind):
+        return None
+    monkeypatch.setattr(prof_mod, "load_profile", fake_load_profile)
+
+    async def fake_interaction_count(uid, kind):
+        return 0
+    monkeypatch.setattr(prof_mod, "get_interaction_count", fake_interaction_count)
+
+    # Metadata: provide category so templates render
+    async def fake_meta(ids):
+        return {
+            aid: {
+                "arxiv_id": aid,
+                "title": f"Title {aid}",
+                "abstract": "...",
+                "authors": "[]",
+                "category": "cs.CL" if aid.startswith("nlp") else "cs.LG",
+                "published": "2024-01-01",
+                "year": 2024,
+            }
+            for aid in ids
+        }
+    monkeypatch.setattr(turso, "fetch_metadata_batch", fake_meta)
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
+
+    # Save 5 papers to cross the MIN_PAPERS_FOR_CLUSTERING threshold
+    for aid in saved_ids:
+        client.post(f"/api/papers/{aid}/save", data={"source": "search"})
+
+    resp = client.get("/api/recommendations")
+    assert resp.status_code == 200
+
+    # The response should include recs from BOTH candidate pools (quota working)
+    has_nlp_rec = any(f"nlp_cand_{i}" in resp.text for i in range(50))
+    has_rl_rec = any(f"rl_cand_{i}" in resp.text for i in range(50))
+    assert has_nlp_rec, "No NLP cluster recs — dominant cluster failed to surface"
+    assert has_rl_rec, "Minority RL cluster starved — quota fusion is not working"
+
 
 def test_full_pipeline_smoke(client, monkeypatch):
     """
@@ -211,6 +318,7 @@ def test_full_pipeline_smoke(client, monkeypatch):
         return ["2302.11382"]
     monkeypatch.setattr(qs, "recommend", fake_rec)
 
+    import app.turso_svc as turso
     async def fake_meta(ids):
         return {
             "2302.11382": {
@@ -223,7 +331,8 @@ def test_full_pipeline_smoke(client, monkeypatch):
                 "year": 2023,
             }
         }
-    monkeypatch.setattr(arxiv, "fetch_metadata_batch", fake_meta)
+    monkeypatch.setattr(turso, "fetch_metadata_batch", fake_meta)
+    monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
     resp = client.get("/api/recommendations")
     assert resp.status_code == 200
