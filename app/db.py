@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS user_clusters (
     medoid_paper_id TEXT NOT NULL,
     importance      REAL NOT NULL,
     paper_ids       TEXT NOT NULL,  -- JSON array of arxiv_ids
+    medoid_embedding_blob BLOB,    -- Phase 6.3: persisted medoid for zero-vector fallback
     computed_at     TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (user_id, cluster_idx)
 );
@@ -98,6 +99,11 @@ _MIGRATION_4_5 = [
     "ALTER TABLE interactions ADD COLUMN cluster_id INTEGER",
 ]
 
+# ── Phase 6.3: Persist medoid embeddings for Bug B fallback ───────────────────
+_MIGRATION_6_3 = [
+    "ALTER TABLE user_clusters ADD COLUMN medoid_embedding_blob BLOB",
+]
+
 
 async def init_db() -> None:
     """Create tables if they don't exist. Called once at startup."""
@@ -105,6 +111,12 @@ async def init_db() -> None:
         await db.executescript(_SCHEMA)
         # Phase 4.5: add instrumentation columns to existing DBs
         for stmt in _MIGRATION_4_5:
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # Column already exists — safe to ignore
+        # Phase 6.3: add medoid embedding blob for Bug B fallback
+        for stmt in _MIGRATION_6_3:
             try:
                 await db.execute(stmt)
             except Exception:
@@ -289,10 +301,12 @@ async def save_user_clusters(user_id: str, clusters: list[dict]) -> None:
         for c in clusters:
             await conn.execute(
                 """INSERT INTO user_clusters
-                   (user_id, cluster_idx, medoid_paper_id, importance, paper_ids)
-                   VALUES (?, ?, ?, ?, ?)""",
+                   (user_id, cluster_idx, medoid_paper_id, importance, paper_ids,
+                    medoid_embedding_blob)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (user_id, c["cluster_idx"], c["medoid_paper_id"],
-                 c["importance"], c["paper_ids"]),
+                 c["importance"], c["paper_ids"],
+                 c.get("medoid_embedding_blob")),
             )
         await conn.commit()
 
@@ -302,7 +316,8 @@ async def get_user_clusters(user_id: str) -> list[dict]:
     async with aiosqlite.connect(DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute(
-            """SELECT cluster_idx, medoid_paper_id, importance, paper_ids, computed_at
+            """SELECT cluster_idx, medoid_paper_id, importance, paper_ids,
+                      medoid_embedding_blob, computed_at
                FROM user_clusters
                WHERE user_id = ?
                ORDER BY importance DESC""",

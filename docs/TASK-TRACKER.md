@@ -1,8 +1,8 @@
 # ResearchIT — Master Task Tracker
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
-> **Last updated**: 2026-04-29  
-> **Current phase**: Phase 6 (LightGBM Reranker) — COMPLETE ✔  
+> **Last updated**: 2026-05-03  
+> **Current phase**: Phase 6 (LightGBM Reranker) — COMPLETE ✔ | Phase 7 next  
 
 ---
 
@@ -378,13 +378,34 @@
 - [x] 7 integration tests — **all passing** (`tests/test_reranker_integration.py`)
 - [x] Latency verified: **0.223ms per 100 candidates** (target: <1ms) ✅
 
+### 6.3 — Antigravity: Feature Wiring + Deployment Verification ✅
+- [x] Wire all 37 features into `recommendations.py` caller (was legacy 6-arg signature)
+- [x] Per-candidate `cluster_importance` (N,) from `paper_cluster_map`
+- [x] Per-candidate `cluster_medoid` (N, 1024) per source cluster
+- [x] Pre-computed `is_suppressed_category` and `onboarding_category_match` arrays
+- [x] Pass `qdrant_scores`, `user_total_saves`, `user_total_dismissals`
+- [x] `reranker.py` supports both scalar broadcast and per-candidate arrays
+- [x] Add model accessors: `is_model_loaded()`, `get_num_trees()`, `get_loaded_model_path()`
+- [x] Add per-request feature activation logging
+- [x] Create `GET /healthz/reranker` endpoint (`app/routers/health.py`)
+- [x] Bug B fix: persist `medoid_embedding_blob` BLOB in `user_clusters` table
+- [x] Bug B fix: fall back to persisted blob instead of zero vector in Hungarian matching
+- [x] DB migration: `ALTER TABLE user_clusters ADD COLUMN medoid_embedding_blob BLOB`
+- [x] 9 new tests — **all passing** (`tests/test_phase6_feature_wiring.py`)
+- [x] Full suite: **203+ tests passing, 0 failures**
+- [x] Updated `CLAUDE.md`, `PHASE6-HANDOFF.md`, `README.md`
+
+### 6.4 — Retraining [~] DEFERRED
+> **Phase 6.4 retraining is deferred.** The published model `siddhm11/researchit-reranker-phase6` was trained on citation pseudo-labels with features 23–30 zero. Retraining is gated on either (a) the synthetic-user simulator (Phase 6.4b, ~30 days out) or (b) crossing 100 real users with ≥10 saves each. **Until then, Phase 6.1+6.2+6.3 plumbing is the unit of deliverable work.**
+
+- [~] Synthetic user simulator (`scripts/simulate_users.py`) — target: +30d
+- [~] Real-user retrain at 100-user threshold — target: +90d or threshold
+- [~] HF model card backfill (library_name, pipeline_tag, metrics, schema)
+
 ### Test suite
 - `tests/test_reranker_integration.py` — 7 tests (smoke, features, heuristic, E2E, latency, backward compat, comparison)
+- `tests/test_phase6_feature_wiring.py` — 9 tests (per-candidate arrays, broadcast medoid, model accessors, aggregate activation)
 - `tests/demo_reranker.py` — interactive demo with 20 realistic papers
-
-### Remaining (optional)
-- [!] Wire `qdrant_scores`, `cluster_importance`, `suppressed_categories` from `recommendations.py` → richer features
-- [!] Deploy model file to HF Spaces + verify production logs
 
 ---
 
@@ -474,6 +495,7 @@
 | `tests/test_clustering.py` | 21 | ✅ Passing | (9 compute + 10 Hungarian + 2 persistence) |
 | `tests/test_reranker_diversity.py` | 13 | ✅ Passing |
 | `tests/test_reranker_integration.py` | 7 | ✅ Passing | (Phase 6: smoke, features, E2E, latency) |
+| `tests/test_phase6_feature_wiring.py` | 9 | ✅ Passing | (Phase 6.3: per-candidate arrays, medoids, accessors) |
 | `tests/test_fusion.py` | 20 | ✅ Passing | (Phase 4.1) |
 | `tests/test_db.py` | 19 | ✅ Passing | (includes 4 Turso cache + 8 suppression) |
 | `tests/test_qdrant_svc.py` | — | ✅ Passing |
@@ -484,7 +506,7 @@
 | `tests/test_hybrid_search.py` | 21 | ✅ Passing |
 | `tests/test_search_router.py` | 6 | ✅ Passing |
 | `tests/test_live_search.py` | 8 | ✅ Passing |
-| **Total** | **178** | ✅ |
+| **Total** | **203+** | ✅ |
 | `test_e2e_recs.py` (standalone) | 1 | ✅ E2E simulation |
 
 ---

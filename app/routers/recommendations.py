@@ -216,19 +216,35 @@ async def _multi_interest_recommend(
         old_clusters_data = await load_clusters_from_db(user_id)
         if old_clusters_data:
             from app.recommend.clustering import InterestCluster
-            old_clusters = [
-                InterestCluster(
+            old_clusters = []
+            for row in old_clusters_data:
+                # Bug B fix (Phase 6.3): prefer live vector, fall back to
+                # persisted blob, skip cluster only as last resort.
+                mpid = row["medoid_paper_id"]
+                if mpid in vectors:
+                    medoid_emb = np.array(vectors[mpid], dtype=np.float32)
+                elif row.get("medoid_embedding_blob") is not None:
+                    medoid_emb = np.frombuffer(
+                        row["medoid_embedding_blob"], dtype=np.float32
+                    ).copy()
+                else:
+                    # Unrecoverable — skip this stale cluster row.
+                    # It will be rebuilt on the next Ward run.
+                    print(
+                        f"[recommendations] cluster {row['cluster_idx']}: "
+                        f"medoid {mpid} unrecoverable — skipping"
+                    )
+                    continue
+
+                old_clusters.append(InterestCluster(
                     cluster_idx=row["cluster_idx"],
-                    medoid_paper_id=row["medoid_paper_id"],
-                    medoid_embedding=np.array(
-                        vectors[row["medoid_paper_id"]], dtype=np.float32
-                    ) if row["medoid_paper_id"] in vectors else np.zeros(1024, dtype=np.float32),
+                    medoid_paper_id=mpid,
+                    medoid_embedding=medoid_emb,
                     paper_ids=[],
                     importance=row["importance"],
-                )
-                for row in old_clusters_data
-            ]
-            clusters = stabilize_cluster_ids(clusters, old_clusters)
+                ))
+            if old_clusters:
+                clusters = stabilize_cluster_ids(clusters, old_clusters)
 
         await save_clusters_to_db(user_id, clusters)
 

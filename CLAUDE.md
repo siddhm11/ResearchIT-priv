@@ -1,6 +1,8 @@
 # CLAUDE.md — ResearchIT Coding Agent Rulebook
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
+>
+> **Last updated**: 2026-05-03
 
 ---
 
@@ -97,10 +99,18 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 ### 3.4 Reranking
 
 - Terminal CPU-path reranker: **LightGBM LambdaRank** in `app/recommend/reranker.py`, with `heuristic_score()` as a fallback when the model file is missing.
-- The heuristic scorer uses 5 features: cosine_sim_longterm, cosine_sim_shortterm, paper_age_days, retrieval_position, cosine_sim_negative.
-- Weight budget: `0.40 * lt + 0.25 * st + 0.15 * recency + 0.10 * position - 0.15 * negative_penalty`.
+- **37-feature schema** (see `models/reranker-phase6/production_model/feature_schema.json`):
+  - Features 0-19: Content/retrieval (Qdrant score, citations, age, categories)
+  - Features 20-22: EWMA similarities (longterm, shortterm, negative)
+  - Features 23-30: User behavior (cluster importance, suppression, onboarding match, save/dismiss counts)
+  - Features 31-36: Cross features (cosine×recency, cosine×citations, etc.)
+- The caller in `recommendations.py` passes **all 37 features** including per-candidate cluster importance and medoid distances (Phase 6.1+6.2).
+- The heuristic fallback uses features 0, 6, 20-22, 35.
+- Weight budget (heuristic only): `0.40 * lt + 0.25 * st + 0.15 * recency + 0.10 * position - 0.15 * negative_penalty`.
 - **Do NOT put `BGE-reranker-v2-m3` in the serving path.** ~8ms per pair on CPU = ~800ms for 100 pairs. Far over the 30ms budget.
 - If a cross-encoder signal is wanted: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
+- **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
+- Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
 
 ### 3.5 Diversity
 
@@ -150,7 +160,7 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 
 ## 4. What is in scope vs out of scope right now
 
-**Current phase: Phase 6 complete; deployment pending.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
+**Current phase: Phase 6 COMPLETE; Phase 7 (Evaluation Framework) next.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
 
 **What has been built (Phases 1-2c):**
 - Qdrant BEST_SCORE recommend API (Tier 3 fallback)
@@ -183,9 +193,14 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 - Category-filtered trending fallback
 - Dark-mode base UI + updated paper cards
 
-**Phase 6 — LightGBM reranker (complete, deployment pending):**
-- LightGBM LambdaRank integrated with heuristic fallback
+**Phase 6 — LightGBM reranker (COMPLETE ✅):**
+- LightGBM LambdaRank (141 trees, 37 features) integrated with heuristic fallback
+- Phase 6.1+6.2: All 37 features wired into caller (per-candidate cluster identity)
+- Phase 6.3: `/healthz/reranker` endpoint, model accessors, feature logging
+- Phase 6.3: Bug B fixed — medoid embedding persisted as BLOB fallback
 - Model stored under `models/reranker-phase6/production_model/`
+- HF model repo: `siddhm11/researchit-reranker-phase6`
+- Phase 6.4 (retraining) deferred: gated on 100 users or synthetic simulator
 
 **Out of scope until later phases — do not build:**
 - Collaborative filtering / LightFM (Phase 9, 500+ users).
@@ -277,6 +292,7 @@ ResearchIT-Final/
 |   |   |-- events.py            # POST /api/save, /api/dismiss — triggers EWMA update
 |   |   |-- saved.py             # GET /saved — user saved papers
 |   |   |-- onboarding.py        # GET /onboarding — onboarding wizard
+|   |   |-- health.py            # GET /healthz/reranker — model deployment status
 |   |
 |   |-- recommend/               # Recommendation engine (Phase 2/4/6)
 |   |   |-- __init__.py          # Module docstring
@@ -320,10 +336,12 @@ ResearchIT-Final/
 |   |-- 02-bme-arxiv-test.ipynb  # Search quality tests + BGE-M3 prototype
 |   |-- 03-check-search-bq-prm.ipynb  # BQ vs PRM quantization benchmark
 |
-|-- tests/                       # pytest test suite (88 tests)
+|-- tests/                       # pytest test suite (203+ tests)
     |-- test_profiles.py         # EWMA profile tests (11)
     |-- test_clustering.py       # Ward clustering tests (10)
     |-- test_reranker_diversity.py # Reranker + MMR tests (13)
+    |-- test_phase6_feature_wiring.py # Phase 6.1+6.2 feature wiring (9)
+    |-- test_reranker_integration.py # Phase 6 LightGBM integration (7)
     |-- test_db.py               # SQLite schema tests
     |-- test_qdrant_svc.py       # Qdrant client tests
     |-- test_arxiv_svc.py        # arXiv service tests
@@ -426,7 +444,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). ORCID/Scholar import pending. |
 | When does behavioral take over? | ~10 saved papers. Currently activates at 5 (clustering) / 3 (EWMA) / 1 (BEST_SCORE). |
 | When to add CF? | 500+ users (Phase 9). |
-| Current phase? | **Phase 6 complete; deployment pending.** Phase 7 (evaluation) next. See `docs/TASK-TRACKER.md`. |
+| Current phase? | **Phase 6 COMPLETE.** Phase 7 (evaluation) next. See `docs/TASK-TRACKER.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights. Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
@@ -437,4 +455,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-05-02. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-05-03. Update this date when CLAUDE.md changes.*

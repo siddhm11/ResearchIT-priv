@@ -276,13 +276,14 @@ def stabilize_cluster_ids(
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 async def save_clusters_to_db(user_id: str, clusters: list[InterestCluster]) -> None:
-    """Persist clusters to SQLite."""
+    """Persist clusters to SQLite (including medoid embedding for Bug B fallback)."""
     rows = [
         {
             "cluster_idx": c.cluster_idx,
             "medoid_paper_id": c.medoid_paper_id,
             "importance": c.importance,
             "paper_ids": json.dumps(c.paper_ids),
+            "medoid_embedding_blob": c.medoid_embedding.astype(np.float32).tobytes(),
         }
         for c in clusters
     ]
