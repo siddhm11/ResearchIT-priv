@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
-from app.routers import search, events, recommendations, saved, onboarding
+from app.routers import search, events, recommendations, saved, onboarding, health
 
 
 @asynccontextmanager
@@ -46,6 +46,7 @@ app.include_router(events.router)
 app.include_router(recommendations.router)
 app.include_router(saved.router)
 app.include_router(onboarding.router)
+app.include_router(health.router)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -172,12 +172,14 @@ def compute_features(
     short_term_vec: np.ndarray | None = None,
     negative_vec: np.ndarray | None = None,
     *,
-    # New Phase 6 parameters (optional for backward compat)
-    qdrant_scores: list[float] | None = None,
-    cluster_importance: float = 0.0,
-    cluster_medoid: np.ndarray | None = None,
-    suppressed_categories: set[str] | None = None,
-    onboarding_categories: set[str] | None = None,
+    # Phase 6 parameters (optional for backward compat)
+    qdrant_scores: np.ndarray | None = None,
+    cluster_importance: np.ndarray | float = 0.0,           # (N,) or scalar
+    cluster_medoid: np.ndarray | None = None,               # (1024,) or (N, 1024)
+    is_suppressed_category: np.ndarray | None = None,       # (N,) pre-computed
+    onboarding_category_match: np.ndarray | None = None,    # (N,) pre-computed
+    suppressed_categories: set[str] | None = None,          # legacy: compute from set
+    onboarding_categories: set[str] | None = None,          # legacy: compute from set
     user_total_saves: int = 0,
     user_total_dismissals: int = 0,
     user_days_since_last_save: float = 0.0,
@@ -214,6 +216,9 @@ def compute_features(
     features = np.zeros((n, NUM_FEATURES), dtype=np.float32)
     suppressed = suppressed_categories or set()
     onboarding = onboarding_categories or set()
+    # Phase 6.1+: pre-computed arrays take priority over set-based computation
+    is_suppressed_category_arr = is_suppressed_category
+    onboarding_category_match_arr = onboarding_category_match
 
     # ── Batch cosine similarities (vectorized — fast) ─────────────────────
 
@@ -231,14 +236,26 @@ def compute_features(
 
     # Feature 24: cluster_distance_to_medoid
     if cluster_medoid is not None:
-        features[:, 24] = _cosine_sim_batch(candidate_embeddings, cluster_medoid)
+        if cluster_medoid.ndim == 1:
+            # Phase 6.1: single medoid broadcast to all candidates
+            features[:, 24] = 1.0 - _cosine_sim_batch(candidate_embeddings, cluster_medoid)
+        else:
+            # Phase 6.2: per-candidate medoid (N, 1024)
+            cand_norms = candidate_embeddings / (
+                np.linalg.norm(candidate_embeddings, axis=1, keepdims=True) + 1e-10
+            )
+            med_norms = cluster_medoid / (
+                np.linalg.norm(cluster_medoid, axis=1, keepdims=True) + 1e-10
+            )
+            sims = (cand_norms * med_norms).sum(axis=1)
+            features[:, 24] = (1.0 - sims).astype(np.float32)
 
     # ── Per-candidate features ────────────────────────────────────────────
 
     for i, meta in enumerate(candidate_metadata):
         # 0: qdrant_cosine_score
         if qdrant_scores is not None and i < len(qdrant_scores):
-            features[i, 0] = qdrant_scores[i]
+            features[i, 0] = float(qdrant_scores[i])
         else:
             # Fallback: use long-term similarity as proxy (matches heuristic baseline)
             features[i, 0] = features[i, 20]
@@ -317,14 +334,23 @@ def compute_features(
 
         # ── User behavior features (batch values) ────────────────────────
 
-        # 23: cluster_importance
-        features[i, 23] = cluster_importance
+        # 23: cluster_importance (per-candidate array or scalar)
+        if isinstance(cluster_importance, np.ndarray):
+            features[i, 23] = cluster_importance[i]
+        else:
+            features[i, 23] = float(cluster_importance)
 
-        # 25: is_suppressed_category
-        features[i, 25] = 1.0 if c_cat in suppressed else 0.0
+        # 25: is_suppressed_category (pre-computed array or from set)
+        if is_suppressed_category_arr is not None:
+            features[i, 25] = is_suppressed_category_arr[i]
+        else:
+            features[i, 25] = 1.0 if c_cat in suppressed else 0.0
 
-        # 26: onboarding_category_match
-        features[i, 26] = 1.0 if c_cat in onboarding else 0.0
+        # 26: onboarding_category_match (pre-computed array or from set)
+        if onboarding_category_match_arr is not None:
+            features[i, 26] = onboarding_category_match_arr[i]
+        else:
+            features[i, 26] = 1.0 if c_cat in onboarding else 0.0
 
         # 27-30: Interaction counts (same for all candidates)
         features[i, 27] = float(user_total_saves)
@@ -388,6 +414,28 @@ def heuristic_score(features: np.ndarray) -> np.ndarray:
     return scores
 
 
+# ── Model Accessors (Phase 6.3) ──────────────────────────────────────────────
+
+def is_model_loaded() -> bool:
+    """True iff a LightGBM Booster is loaded and active."""
+    return _USE_LGB and _lgb_model is not None
+
+
+def get_loaded_model_path() -> str | None:
+    """Return the filesystem path the model was loaded from, or None."""
+    if not _USE_LGB:
+        return None
+    for _p in _MODEL_SEARCH_PATHS:
+        if _p and os.path.isfile(_p):
+            return _p
+    return None
+
+
+def get_num_trees() -> int:
+    """Return number of boosting trees, or 0 if model not loaded."""
+    return _lgb_model.num_trees() if _lgb_model is not None else 0
+
+
 # ── Main Reranking Entry Point ───────────────────────────────────────────────
 
 def rerank_candidates(
@@ -398,12 +446,14 @@ def rerank_candidates(
     short_term_vec: np.ndarray | None = None,
     negative_vec: np.ndarray | None = None,
     *,
-    # Phase 6 additions
-    qdrant_scores: list[float] | None = None,
-    cluster_importance: float = 0.0,
-    cluster_medoid: np.ndarray | None = None,
-    suppressed_categories: set[str] | None = None,
-    onboarding_categories: set[str] | None = None,
+    # Phase 6 additions (all optional — backward compat with legacy callers)
+    qdrant_scores: np.ndarray | None = None,
+    cluster_importance: np.ndarray | float = 0.0,           # (N,) or scalar
+    cluster_medoid: np.ndarray | None = None,               # (1024,) or (N, 1024)
+    is_suppressed_category: np.ndarray | None = None,       # (N,) pre-computed
+    onboarding_category_match: np.ndarray | None = None,    # (N,) pre-computed
+    suppressed_categories: set[str] | None = None,          # legacy path
+    onboarding_categories: set[str] | None = None,          # legacy path
     user_total_saves: int = 0,
     user_total_dismissals: int = 0,
     user_days_since_last_save: float = 0.0,
@@ -445,6 +495,8 @@ def rerank_candidates(
         qdrant_scores=qdrant_scores,
         cluster_importance=cluster_importance,
         cluster_medoid=cluster_medoid,
+        is_suppressed_category=is_suppressed_category,
+        onboarding_category_match=onboarding_category_match,
         suppressed_categories=suppressed_categories,
         onboarding_categories=onboarding_categories,
         user_total_saves=user_total_saves,
@@ -452,6 +504,16 @@ def rerank_candidates(
         user_days_since_last_save=user_days_since_last_save,
         user_session_save_count=user_session_save_count,
     )
+
+    # Phase 6.3: Log per-request feature activation
+    if features.shape[0] > 0:
+        nonzero_rate = (features != 0).mean(axis=0)
+        active_count = int((nonzero_rate > 0).sum())
+        print(
+            f"[reranker] features: {active_count}/37 active, "
+            f"n_candidates={features.shape[0]}, "
+            f"model={'lgb' if _USE_LGB else 'heuristic'}"
+        )
 
     # ── Score: LightGBM or heuristic ─────────────────────────────────────
     if _USE_LGB and _lgb_model is not None:

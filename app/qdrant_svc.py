@@ -246,6 +246,39 @@ async def search_by_vector(
     return filtered[:limit]
 
 
+async def search_by_vector_with_scores(
+    query_vector: list[float],
+    limit: int = 20,
+    exclude_ids: set[str] | None = None,
+) -> list[dict]:
+    """
+    Vector search returning both arxiv_ids AND cosine scores.
+
+    Returns list of {'arxiv_id': str, 'score': float} dicts sorted by
+    score desc, excluding any in exclude_ids.
+
+    Used by the recommendation pipeline (Phase 6.1+) to feed
+    qdrant_cosine_score (feature slot 0) to the LightGBM reranker.
+    """
+    loop = asyncio.get_event_loop()
+    try:
+        results = await loop.run_in_executor(
+            None, _run_vector_search, query_vector,
+            (limit * 2) if exclude_ids else limit,
+        )
+    except Exception as e:
+        print(f"[qdrant_svc] search_by_vector_with_scores error: {e}")
+        return []
+
+    exclude = exclude_ids or set()
+    filtered = [
+        {"arxiv_id": r.payload["arxiv_id"], "score": float(r.score)}
+        for r in results
+        if r.payload.get("arxiv_id") and r.payload["arxiv_id"] not in exclude
+    ]
+    return filtered[:limit]
+
+
 def _run_vector_search(query_vector: list[float], limit: int) -> list:
     """Sync helper: nearest-neighbour search by vector."""
     client = _client()

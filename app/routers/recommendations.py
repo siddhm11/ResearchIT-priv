@@ -301,7 +301,78 @@ async def _multi_interest_recommend(
         lt_vec = await profiles.load_profile(user_id, "long_term")
         neg_vec = await profiles.load_profile(user_id, "negative")
 
-        # ── Step 6: Heuristic re-ranking ──────────────────────────────────
+        # ── Phase 6.1+: Prepare features 23-30 BEFORE rerank ─────────
+        # Category suppression (moved from post-rerank to pre-rerank feature)
+        suppressed = await db.get_suppressed_categories(user_id)
+        onboarding_categories = await db.get_user_category_filter(user_id)
+
+        # User-level interaction counts (constant across all candidates)
+        user_total_saves = len(state.positive_list)
+        user_total_dismissals = len(state.negative_list)
+
+        # Build qdrant_score_map from per_cluster_results
+        # per_cluster_results is list[list[str]] — we need scores too.
+        # Use the paper_cluster_map to approximate: score = 1.0 - (rank / total)
+        # for now, as the current retrieval path returns only IDs.
+        # TODO: Phase 6.2+ switch to search_by_vector_with_scores()
+        qdrant_score_map: dict[str, float] = {}
+        for cluster_ids in per_cluster_results:
+            for rank, aid in enumerate(cluster_ids):
+                if aid not in qdrant_score_map:
+                    # Approximate score from rank position (higher rank = higher score)
+                    qdrant_score_map[aid] = max(0.0, 1.0 - rank * 0.01)
+
+        qdrant_scores = np.asarray(
+            [qdrant_score_map.get(cid, 0.0) for cid in valid_ids],
+            dtype=np.float32,
+        )
+
+        # Per-candidate cluster importance + medoid (Phase 6.2: per-candidate)
+        per_candidate_importance = np.asarray(
+            [
+                clusters[paper_cluster_map[cid]].importance
+                if cid in paper_cluster_map and paper_cluster_map[cid] >= 0
+                   and paper_cluster_map[cid] < len(clusters)
+                else 0.0
+                for cid in valid_ids
+            ],
+            dtype=np.float32,
+        )
+
+        per_candidate_medoids = np.stack(
+            [
+                np.asarray(
+                    clusters[paper_cluster_map[cid]].medoid_embedding,
+                    dtype=np.float32,
+                )
+                if cid in paper_cluster_map and paper_cluster_map[cid] >= 0
+                   and paper_cluster_map[cid] < len(clusters)
+                else np.zeros(1024, dtype=np.float32)
+                for cid in valid_ids
+            ],
+            axis=0,
+        )
+
+        # Per-candidate suppression and onboarding flags
+        is_suppressed_arr = np.asarray(
+            [
+                1.0 if cand_meta.get(cid, {}).get("category", "") in suppressed
+                else 0.0
+                for cid in valid_ids
+            ],
+            dtype=np.float32,
+        )
+
+        onboarding_match_arr = np.asarray(
+            [
+                1.0 if cand_meta.get(cid, {}).get("category", "") in onboarding_categories
+                else 0.0
+                for cid in valid_ids
+            ],
+            dtype=np.float32,
+        )
+
+        # ── Step 6: LightGBM re-ranking (37 features) ────────────────────
         reranked_ids, reranked_scores, reranked_embs = rerank_candidates(
             candidate_ids=valid_ids,
             candidate_embeddings=valid_embs,
@@ -309,10 +380,20 @@ async def _multi_interest_recommend(
             long_term_vec=lt_vec,
             short_term_vec=st_vec,
             negative_vec=neg_vec,
+            # Phase 6 additions
+            qdrant_scores=qdrant_scores,
+            cluster_importance=per_candidate_importance,
+            cluster_medoid=per_candidate_medoids,
+            is_suppressed_category=is_suppressed_arr,
+            onboarding_category_match=onboarding_match_arr,
+            user_total_saves=user_total_saves,
+            user_total_dismissals=user_total_dismissals,
         )
 
-        # ── Step 4.3: Category suppression ────────────────────────────────
-        suppressed = await db.get_suppressed_categories(user_id)
+        # ── Step 4.3: Category suppression (post-rerank safety net) ───────
+        # The model now sees feature 25 (is_suppressed_category), but we
+        # keep a hard filter as a safety net since the model has zero
+        # weight on this feature until retrained.
         if suppressed:
             kept = [
                 i for i, cid in enumerate(reranked_ids)

@@ -248,9 +248,20 @@ python tests/test_reranker_integration.py
 | `CLAUDE.md` | Agent rulebook — architectural rules, doc precedence, code conventions |
 | `docs/TASK-TRACKER.md` | Master task checklist with all phase details |
 | `docs/PHASE6-HANDOFF.md` | LightGBM reranker handoff — model provenance, schema, reproduction |
+| `docs/phases/PHASE6-Reranker-Framing.md` | Phase 6.1-6.3 framing — feature wiring, deployment verification, retraining strategy |
 | `docs/research/06-Deep-Research-Verdict.md` | **Source of truth** for architecture decisions |
 | `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` | Master roadmap (Phases 3–9) |
 | `docs/ML Intern docs/` | ML Intern conversation logs for model training |
+
+---
+
+## Health & Monitoring
+
+```bash
+# Phase 6.3: Verify reranker deployment
+curl -s https://siddhm11-researchit.hf.space/healthz/reranker | python -m json.tool
+# Expected: {"model_loaded": true, "n_trees": 141, "fallback_active": false, ...}
+```
 
 ---
 
@@ -279,10 +290,11 @@ python tests/test_reranker_integration.py
 | `test_clustering.py` | 21 | Ward clustering + Hungarian matching |
 | `test_reranker_diversity.py` | 13 | Reranker (37-feature) + MMR diversity |
 | `test_reranker_integration.py` | 7 | Phase 6 LightGBM integration |
+| `test_phase6_feature_wiring.py` | 9 | Phase 6.1+6.2 feature wiring + per-candidate cluster |
 | `test_fusion.py` | 20 | Quota allocation |
 | `test_db.py` | 19 | SQLite schema + suppression |
 | `test_onboarding.py` | 11 | Onboarding wizard |
 | `test_hybrid_search.py` | 21 | Hybrid search pipeline |
 | `test_search_router.py` | 6 | Search router |
 | Others | ~13 | User state, saved, arxiv, qdrant, integration |
-| **Total** | **~142** | |
+| **Total** | **~203** | |
