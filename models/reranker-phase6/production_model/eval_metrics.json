@@ -1,0 +1,250 @@
+{
+  "baseline": {
+    "model": "heuristic_baseline",
+    "ndcg@5": 0.18189125891310798,
+    "ndcg@10": 0.2641219219577072,
+    "ndcg@20": 0.32963659237539206,
+    "recall@10": 0.4383825944170772,
+    "recall@50": 1.0,
+    "hr@10": 0.6637931034482759,
+    "mrr": 0.2905534769818196
+  },
+  "lightgbm": {
+    "model": "lightgbm_lambdarank",
+    "ndcg@5": 0.82504965385178,
+    "ndcg@10": 0.8790762605788959,
+    "ndcg@20": 0.8857419436726258,
+    "recall@10": 0.9825328407224959,
+    "recall@50": 1.0,
+    "hr@10": 1.0,
+    "mrr": 0.879488232074439
+  },
+  "comparison": {
+    "ndcg@5": {
+      "heuristic": 0.1819,
+      "lightgbm": 0.825,
+      "delta": 0.6432,
+      "pct_improvement": 353.59
+    },
+    "ndcg@10": {
+      "heuristic": 0.2641,
+      "lightgbm": 0.8791,
+      "delta": 0.615,
+      "pct_improvement": 232.83
+    },
+    "ndcg@20": {
+      "heuristic": 0.3296,
+      "lightgbm": 0.8857,
+      "delta": 0.5561,
+      "pct_improvement": 168.7
+    },
+    "recall@10": {
+      "heuristic": 0.4384,
+      "lightgbm": 0.9825,
+      "delta": 0.5442,
+      "pct_improvement": 124.13
+    },
+    "recall@50": {
+      "heuristic": 1.0,
+      "lightgbm": 1.0,
+      "delta": 0.0,
+      "pct_improvement": 0.0
+    },
+    "hr@10": {
+      "heuristic": 0.6638,
+      "lightgbm": 1.0,
+      "delta": 0.3362,
+      "pct_improvement": 50.65
+    },
+    "mrr": {
+      "heuristic": 0.2906,
+      "lightgbm": 0.8795,
+      "delta": 0.5889,
+      "pct_improvement": 202.69
+    }
+  },
+  "training": {
+    "num_boost_round": 500,
+    "best_iteration": 141,
+    "training_time_seconds": 438.3,
+    "train_rows": 90993,
+    "train_queries": 1857,
+    "eval_rows": 7007,
+    "eval_queries": 143,
+    "params": {
+      "objective": "lambdarank",
+      "metric": "ndcg",
+      "eval_at": [
+        5,
+        10,
+        20
+      ],
+      "num_leaves": 63,
+      "learning_rate": 0.05,
+      "min_data_in_leaf": 50,
+      "feature_fraction": 0.8,
+      "bagging_fraction": 0.8,
+      "bagging_freq": 5,
+      "lambdarank_truncation_level": 20,
+      "verbose": 1,
+      "seed": 42,
+      "num_threads": 16
+    }
+  },
+  "latency": {
+    "candidates": 100,
+    "per_call_ms": 0.371,
+    "target_ms": 1.0,
+    "pass": true
+  },
+  "feature_importance": [
+    {
+      "feature": "candidate_num_cited_by",
+      "importance": 75202.76596653461
+    },
+    {
+      "feature": "age_ratio",
+      "importance": 7596.793288946152
+    },
+    {
+      "feature": "candidate_position",
+      "importance": 6764.516093611717
+    },
+    {
+      "feature": "cosine_x_citations",
+      "importance": 2383.0548932552338
+    },
+    {
+      "feature": "qdrant_cosine_score",
+      "importance": 2352.823166191578
+    },
+    {
+      "feature": "candidate_citation_count",
+      "importance": 2041.6424934267998
+    },
+    {
+      "feature": "citation_count_ratio",
+      "importance": 2001.2503576278687
+    },
+    {
+      "feature": "query_age_days",
+      "importance": 1749.186391532421
+    },
+    {
+      "feature": "query_num_references",
+      "importance": 1726.2534816265106
+    },
+    {
+      "feature": "candidate_citations_per_year",
+      "importance": 1633.2916722893715
+    },
+    {
+      "feature": "candidate_influential_citations",
+      "importance": 1563.8026618361473
+    },
+    {
+      "feature": "query_citation_count",
+      "importance": 1290.2721555233002
+    },
+    {
+      "feature": "category_x_recency",
+      "importance": 1187.7681130766869
+    },
+    {
+      "feature": "citations_x_recency",
+      "importance": 1143.2343423366547
+    },
+    {
+      "feature": "position_inverse",
+      "importance": 1107.6220703125
+    },
+    {
+      "feature": "cosine_x_recency",
+      "importance": 823.2756890654564
+    },
+    {
+      "feature": "shared_author_count",
+      "importance": 791.4225223064423
+    },
+    {
+      "feature": "candidate_age_days",
+      "importance": 763.275697529316
+    },
+    {
+      "feature": "candidate_is_newer",
+      "importance": 761.230022072792
+    },
+    {
+      "feature": "year_diff",
+      "importance": 618.8730190396309
+    },
+    {
+      "feature": "candidate_recency_score",
+      "importance": 584.2375701665878
+    },
+    {
+      "feature": "cosine_x_cocitation",
+      "importance": 558.3581310510635
+    },
+    {
+      "feature": "co_citation_count",
+      "importance": 401.8176366686821
+    },
+    {
+      "feature": "candidate_log_citations",
+      "importance": 295.0608749985695
+    },
+    {
+      "feature": "query_log_citations",
+      "importance": 219.8663707971573
+    },
+    {
+      "feature": "same_primary_category",
+      "importance": 186.0732226371765
+    },
+    {
+      "feature": "ewma_longterm_similarity",
+      "importance": 0.0
+    },
+    {
+      "feature": "ewma_shortterm_similarity",
+      "importance": 0.0
+    },
+    {
+      "feature": "ewma_negative_similarity",
+      "importance": 0.0
+    },
+    {
+      "feature": "cluster_importance",
+      "importance": 0.0
+    },
+    {
+      "feature": "cluster_distance_to_medoid",
+      "importance": 0.0
+    },
+    {
+      "feature": "is_suppressed_category",
+      "importance": 0.0
+    },
+    {
+      "feature": "onboarding_category_match",
+      "importance": 0.0
+    },
+    {
+      "feature": "user_total_saves",
+      "importance": 0.0
+    },
+    {
+      "feature": "user_total_dismissals",
+      "importance": 0.0
+    },
+    {
+      "feature": "user_days_since_last_save",
+      "importance": 0.0
+    },
+    {
+      "feature": "user_session_save_count",
+      "importance": 0.0
+    }
+  ]
+}

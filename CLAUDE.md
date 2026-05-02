@@ -67,7 +67,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
-- **Current status:** The codebase still uses Qdrant prefetch+RRF for recommendations in `app/qdrant_svc.py` via `multi_interest_search()`. This will be replaced with per-cluster quota in Phase 4. Do not extend the RRF pattern to new recommendation code.
+- **Current status:** Recommendations use per-cluster quota fusion in `app/recommend/fusion.py` and `app/routers/recommendations.py`. `multi_interest_search()` remains only as a legacy helper; do not use it for new recommendation code.
 
 Quota formula:
 ```
@@ -96,7 +96,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.4 Reranking
 
-- Terminal CPU-path reranker: currently a **hand-tuned heuristic scorer** in `app/recommend/reranker.py` via `heuristic_score()`. Will be replaced with **LightGBM `objective='lambdarank'`** in Phase 6 when training data exists.
+- Terminal CPU-path reranker: **LightGBM LambdaRank** in `app/recommend/reranker.py`, with `heuristic_score()` as a fallback when the model file is missing.
 - The heuristic scorer uses 5 features: cosine_sim_longterm, cosine_sim_shortterm, paper_age_days, retrieval_position, cosine_sim_negative.
 - Weight budget: `0.40 * lt + 0.25 * st + 0.15 * recency + 0.10 * position - 0.15 * negative_penalty`.
 - **Do NOT put `BGE-reranker-v2-m3` in the serving path.** ~8ms per pair on CPU = ~800ms for 100 pairs. Far over the 30ms budget.
@@ -111,12 +111,12 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
 
-NOT YET IMPLEMENTED (Phase 5). The pivot in doc 05 went too far. Doc 06 corrects it. The right onboarding is **three-layer hybrid**:
+IMPLEMENTED (Phase 5 core flow). ORCID / Scholar import is still pending. The right onboarding is **three-layer hybrid**:
 
 1. arXiv category multi-select — used as a **filter and LightGBM feature**, NOT as the primary user vector.
-2. ORCID / Semantic Scholar / Google Scholar author import — ingest authored paper embeddings as initial seeds.
-3. "Add 5 seed papers" library seeder — explicit user-chosen seeds.
-4. Fallback: popularity-per-selected-category feed for first session if user skips all three.
+2. ORCID / Semantic Scholar / Google Scholar author import — ingest authored paper embeddings as initial seeds. (NOT YET)
+3. "Add 5 seed papers" library seeder — explicit user-chosen seeds. (DONE)
+4. Fallback: popularity-per-selected-category feed for first session if user skips all three. (DONE)
 
 Behavioral takes over once the user crosses **~10 saved papers**. Subject categories remain a feature/filter forever, never the primary vector.
 
@@ -127,7 +127,7 @@ The negative EWMA profile IS wired into reranking (Feature 5 in `reranker.py`). 
 1. **Session hard filter** — never re-show dismissed items (`seen` set in `recommendations.py`). DONE.
 2. **Short-term item penalty** at rerank: `score -= alpha * exp(-dt / tau_neg)` — NOT YET (needs per-item decay tracking).
 3. **Long-term EWMA negative profile** — wired as Feature 5 with 0.15 penalty weight. DONE.
-4. **Category-level suppression** — NOT YET (needs category tracking on dismissals).
+4. **Category-level suppression** — DONE (db category suppression + rec filter).
 5. **LightGBM dismissal labels** — NOT YET (Phase 6, needs 10K+ dismissals).
 
 ### 3.8 Latency budget
@@ -140,7 +140,7 @@ End-to-end feed generation target: **<30ms on CPU** (excluding metadata fetch, w
 - Negative-profile penalty: <1ms
 - Headroom: ~15ms
 
-**Note:** Metadata fetching from arXiv API currently adds ~7,600ms cold. This will be fixed by bulk-loading Kaggle metadata into SQLite (Phase 4). The recommendation compute itself is within budget.
+**Note:** Metadata fetching from arXiv API is now largely avoided via the Turso metadata DB (Phase 3.5). arXiv remains a fallback for missing IDs.
 
 ### 3.9 ArXiv ID integrity
 
@@ -150,7 +150,7 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 
 ## 4. What is in scope vs out of scope right now
 
-**Current phase: Phase 3 complete, Phase 4 next.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) is implemented and tested — pending HF Spaces deployment.
+**Current phase: Phase 6 complete; deployment pending.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
 
 **What has been built (Phases 1-2c):**
 - Qdrant BEST_SCORE recommend API (Tier 3 fallback)
@@ -173,10 +173,19 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 - `Dockerfile` + `.dockerignore` — HF Spaces deployment (Docker SDK, port 7860)
 - 21 new tests passing, 109 total (zero regressions)
 
-**Phase 4 — recommendation fixes:**
-- Replace RRF with importance-weighted quota in `app/routers/recommendations.py`
-- Pre-populate SQLite metadata from Kaggle dataset
+**Phase 4 — recommendation fixes (complete):**
+- Replace RRF with importance-weighted quota fusion
 - Hungarian matching for cluster stability
+- Category-level suppression in recommendations
+
+**Phase 5 — cold-start onboarding + UI (complete):**
+- Onboarding wizard (category multi-select + seed search)
+- Category-filtered trending fallback
+- Dark-mode base UI + updated paper cards
+
+**Phase 6 — LightGBM reranker (complete, deployment pending):**
+- LightGBM LambdaRank integrated with heuristic fallback
+- Model stored under `models/reranker-phase6/production_model/`
 
 **Out of scope until later phases — do not build:**
 - Collaborative filtering / LightFM (Phase 9, 500+ users).
@@ -257,23 +266,32 @@ ResearchIT-Final/
 |   |-- user_state.py            # In-memory user state (positive/negative deques)
 |   |-- templates_env.py         # Jinja2 environment setup
 |   |
+|   |-- embed_svc.py             # BGE-M3 model singleton (Phase 3)
+|   |-- groq_svc.py              # LLM query rewriter (Phase 3)
+|   |-- hybrid_search_svc.py     # Hybrid search orchestrator (Phase 3)
+|   |-- turso_svc.py             # Turso metadata client (Phase 3.5)
+|   |-- zilliz_svc.py            # Zilliz sparse search client (Phase 3)
 |   |-- routers/                 # FastAPI route handlers
-|   |   |-- search.py            # GET /search — arXiv keyword API (Phase 3 replaces)
-|   |   |-- recommendations.py   # GET /api/recommendations — 3-tier cascade
+|   |   |-- search.py            # GET /search — hybrid semantic search
+|   |   |-- recommendations.py   # GET /api/recommendations — 3-tier cascade + quota
 |   |   |-- events.py            # POST /api/save, /api/dismiss — triggers EWMA update
 |   |   |-- saved.py             # GET /saved — user saved papers
+|   |   |-- onboarding.py        # GET /onboarding — onboarding wizard
 |   |
-|   |-- recommend/               # Recommendation engine (Phase 2)
+|   |-- recommend/               # Recommendation engine (Phase 2/4/6)
 |   |   |-- __init__.py          # Module docstring
 |   |   |-- profiles.py          # EWMA profiles (long/short/negative)
 |   |   |-- clustering.py        # Ward clustering + medoids + adaptive threshold
-|   |   |-- reranker.py          # 5-feature heuristic scorer (then LightGBM later)
+|   |   |-- fusion.py            # Quota fusion (Phase 4)
+|   |   |-- reranker.py          # LightGBM reranker + heuristic fallback
 |   |   |-- diversity.py         # MMR reranking + exploration injection
 |   |
+|   |-- static/                  # CSS, images
 |   |-- templates/               # Jinja2 + HTMX templates
 |       |-- base.html            # Base layout
 |       |-- index.html           # Home page with recommendations
 |       |-- search.html          # Search page
+|       |-- onboarding.html      # Onboarding wizard
 |       |-- partials/            # HTMX partial templates
 |
 |-- docs/                        # Documentation (see section 2 for precedence)
@@ -314,12 +332,8 @@ ResearchIT-Final/
     |-- test_saved.py            # Saved papers tests
 ```
 
-**Modules that do NOT exist yet** (planned for future phases):
-- `app/embed_svc.py` — BGE-M3 model singleton (Phase 3) ✅ BUILT
-- `app/zilliz_svc.py` — Zilliz sparse search (Phase 3) ✅ BUILT
-- `app/groq_svc.py` — LLM query rewriter (Phase 3) ✅ BUILT
-- `app/hybrid_search_svc.py` — Search orchestrator (Phase 3) ✅ BUILT
-- `app/recommend/fusion.py` — Quota fusion, replaces RRF (Phase 4)
+**Modules planned for future phases:**
+- None listed here yet. Add when new components are scoped.
 
 ### 5.6 Common commands
 
@@ -400,27 +414,27 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 |---|---|
 | Source of truth? | `docs/research/06-Deep-Research-Verdict.md` |
 | Master roadmap? | `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` |
-| Recommendation fusion? | Importance-weighted quota with `F_min=3`. NOT RRF. (code still uses RRF — Phase 4 fix) |
-| Search fusion? | RRF (correct, but search currently uses arXiv keyword API — Phase 3 upgrades to hybrid). |
+| Recommendation fusion? | Importance-weighted quota with `F_min=3` (Phase 4 complete). |
+| Search fusion? | RRF (hybrid search in Phase 3). |
 | alpha_long? | `0.03` — in `app/recommend/profiles.py` |
 | alpha_short? | `0.40` — in `app/recommend/profiles.py` |
 | alpha_neg? | `0.15` — in `app/recommend/profiles.py` |
 | MMR lambda? | `0.6` — in `app/recommend/diversity.py` |
 | Cluster algorithm? | Ward, L2-normalized, Euclidean, adaptive gap threshold, `K_max=7`. In `app/recommend/clustering.py`. |
-| Reranker? | Heuristic scorer (5 features) then LightGBM lambdarank (Phase 6). In `app/recommend/reranker.py`. |
+| Reranker? | LightGBM lambdarank with heuristic fallback (Phase 6). |
 | Latency budget? | <30ms end-to-end (compute only; metadata I/O excluded). |
-| Cold start? | Hybrid: arXiv categories + ORCID/Scholar import + 5 seed papers + popularity fallback. NOT BUILT YET (Phase 5). |
+| Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). ORCID/Scholar import pending. |
 | When does behavioral take over? | ~10 saved papers. Currently activates at 5 (clustering) / 3 (EWMA) / 1 (BEST_SCORE). |
 | When to add CF? | 500+ users (Phase 9). |
-| Current phase? | **Phase 3 complete.** Phase 4 (rec pipeline fixes) next. See `docs/TASK-TRACKER.md`. |
+| Current phase? | **Phase 6 complete; deployment pending.** Phase 7 (evaluation) next. See `docs/TASK-TRACKER.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights. Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
-| How to test? | `python -m pytest tests/ -v` (123 tests) |
+| How to test? | `python -m pytest tests/ -v` |
 | Storage? | SQLite (`interactions.db`) — ephemeral on HF Spaces. Supabase at 10+ concurrent writes/sec. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-04-19. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-05-02. Update this date when CLAUDE.md changes.*

@@ -1,6 +1,6 @@
 # Phase 5: Cold-Start Onboarding + UI Redesign
 
-> **Status**: 📋 PLANNING  
+> **Status**: ✅ CORE FLOW COMPLETE (categories + seed search + trending fallback); ORCID/Scholar import deferred  
 > **Estimated effort**: ~2 weeks  
 > **Depends on**: Phase 4.5 ✅ COMPLETE  
 > **Research backing**: Doc 02 §4, Doc 05, Doc 06 §1-3/§5, Doc 07 §C/§D  

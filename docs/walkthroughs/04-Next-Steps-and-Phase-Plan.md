@@ -20,6 +20,9 @@
 | Phase 2c: Heuristic Re-ranking + MMR | ✅ Complete | 5-feature scorer (neg penalty wired), MMR λ=0.6, exploration |
 | Phase 3: Hybrid Semantic Search | ✅ Complete | BGE-M3 + Qdrant dense + Zilliz sparse + RRF, 123 tests |
 | Phase 3.5: Turso Metadata DB | ✅ Complete | 1.23GB metadata + citations, search ~10.7s → ~1.75s |
+| Phase 4: Recommendation Pipeline Fixes | ✅ Complete | Quota fusion + Hungarian matching + category suppression |
+| Phase 5: Cold-Start Onboarding + UI | ✅ Complete | Onboarding wizard + trending fallback + UI polish |
+| Phase 6: LightGBM Reranker | ✅ Complete (integration; deployment pending) | LambdaRank model + fallback |
 | SQLite (interactions, profiles, clusters, metadata cache) | ✅ Live | WAL mode, async via aiosqlite |
 | HTMX Frontend | ✅ Live | Search, save, dismiss, recommendations |
 | Test Suite | ✅ 125 tests passing | Unit, integration, E2E simulation, search pipeline |
@@ -28,10 +31,10 @@
 
 | Component | Planned In | Blocked By |
 |---|---|---|
-| **Rec pipeline fixes (RRF→quota, Hungarian, neg suppression)** | **Phase 4 (NEXT)** | Code refactor only |
-| Cold-start onboarding (category picker / ORCID) | Phase 5 | Not yet designed |
-| LightGBM lambdarank re-ranker | Phase 6 | Need ≥500 labeled save/dismiss interactions |
+| Evaluation framework (offline + online metrics) | Phase 7 | Not yet implemented |
+| ORCID / Scholar import (onboarding stretch) | Phase 5 (stretch) | Deferred |
 | LLM interest summaries per cluster | Phase 8 | Needs Claude/Groq API integration |
+| Exploration + collaborative filtering | Phase 9 | Needs user scale |
 
 > **Note**: Hybrid Search (Phase 3), Turso Metadata (Phase 3.5), α_long tuning, L2
 > normalization, and negative profile wiring are all DONE. The next priority is fixing
@@ -227,7 +230,9 @@ Final results → fetch metadata → render
 
 ---
 
-### Phase 4: Recommendation Pipeline Fixes (~1 week)
+### Phase 4: Recommendation Pipeline Fixes (COMPLETE)
+
+Status: implemented (quota fusion, Hungarian matching, category suppression).
 
 > **Detailed plan**: [`docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`](../phases/PHASE4-Recommendation-Pipeline-Fixes.md)
 
@@ -278,7 +283,9 @@ Turso cloud DB with 1.23GB of metadata + citation counts. Search time: ~10.7s �
 
 ---
 
-### Phase 5: Cold-Start Onboarding (~1-2 weeks)
+### Phase 5: Cold-Start Onboarding (COMPLETE)
+
+Status: core flow implemented (categories + seed search + trending fallback). ORCID/Scholar import deferred.
 
 Build the onboarding pipeline that Doc 06 identifies as a 4-37% lift even once behavioral data exists.
 
@@ -302,7 +309,9 @@ If the user pastes their ORCID, ingest their authored papers as initial saves.
 
 ---
 
-### Phase 6: LightGBM Re-ranker (~2-4 weeks, when data exists)
+### Phase 6: LightGBM Re-ranker (COMPLETE)
+
+Status: integration complete; deployment pending.
 
 Replace the heuristic scorer with a trained LightGBM lambdarank model.
 
@@ -397,9 +406,9 @@ If you can only do three things, do these:
 
 ### 2. ~~Pre-populate the metadata store (Phase 3.5)~~ ✅ DONE
 
-### 3. Replace RRF with quota fusion in recommendations (Phase 4.1) ← NEXT
-**Impact**: Prevents the dominant cluster from drowning out minority interests. Fixes the core multi-interest failure mode.
-**Effort**: New `fusion.py` + refactor `_multi_interest_recommend()`. ~1 week for all 3 Phase 4 items.
+### 3. Build the Phase 7 evaluation framework
+**Impact**: Establishes offline/online metrics to tune and validate the stack before growth.
+**Effort**: ~1 week (metrics + time-split evaluation harness).
 
 ---
 
@@ -418,5 +427,5 @@ If you can only do three things, do these:
 | — | [Code Summary & Test Plan](03-Code-Summary-and-Test-Plan.md) | Codebase summary and testing strategy | ✅ Complete |
 | — | [Phase 2 Hybrid Search Plan](../phases/PHASE2-Hybrid-Search-Plan.md) | BGE-M3 + Zilliz hybrid search prototype | ✅ Superseded by Phase 3 |
 | — | [Phase 3 Hybrid Semantic Search](../phases/PHASE3-Hybrid-Semantic-Search.md) | Full hybrid search implementation plan | ✅ Complete |
-| — | [Phase 4 Recommendation Fixes](../phases/PHASE4-Recommendation-Pipeline-Fixes.md) | Quota fusion, Hungarian matching, negative suppression | 📋 Planned |
+| — | [Phase 4 Recommendation Fixes](../phases/PHASE4-Recommendation-Pipeline-Fixes.md) | Quota fusion, Hungarian matching, negative suppression | ✅ Complete |
 | — | **This Document** | Revised phase plan synthesizing all research | ✅ Current |

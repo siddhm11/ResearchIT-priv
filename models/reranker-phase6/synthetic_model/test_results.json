@@ -1,0 +1,16 @@
+{
+  "data_quality": "PASS",
+  "model_learning": "PASS",
+  "ndcg@10_heuristic": 0.9111,
+  "ndcg@10_lightgbm": 0.9985,
+  "ndcg@10_random": 0.1559,
+  "improvement_over_heuristic": 0.0874,
+  "improvement_pct": 9.59,
+  "latency_100_candidates_ms": 0.388,
+  "model_size_kb": 286.2,
+  "active_features": 26,
+  "zero_features": 11,
+  "lgb_wins_pct": 91.4,
+  "heuristic_wins_pct": 0.4,
+  "train_eval_gap": 0.0008
+}

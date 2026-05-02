@@ -36,7 +36,7 @@ def _make_metadata(n: int, base_year: str = "2025") -> list[dict]:
 # ── Feature extraction tests ─────────────────────────────────────────────────
 
 def test_feature_shape():
-    """Feature matrix should have shape (N, 5) — includes negative sim (Doc 06)."""
+    """Feature matrix should have shape (N, 37) — Phase 6 expanded schema."""
     n = 20
     embs = _make_embeddings(n)
     meta = _make_metadata(n)
@@ -44,7 +44,7 @@ def test_feature_shape():
     st = _make_embeddings(1, seed=99)[0]
 
     features = compute_features(embs, meta, lt, st)
-    assert features.shape == (n, 5), f"Expected (20, 5), got {features.shape}"
+    assert features.shape == (n, 37), f"Expected (20, 37), got {features.shape}"
 
 
 def test_features_without_profiles():
@@ -54,11 +54,11 @@ def test_features_without_profiles():
     meta = _make_metadata(n)
 
     features = compute_features(embs, meta, long_term_vec=None, short_term_vec=None)
-    assert features.shape == (n, 5)
-    # Cosine sim columns should be all zeros (LT, ST, and negative)
-    assert np.allclose(features[:, 0], 0.0)
-    assert np.allclose(features[:, 1], 0.0)
-    assert np.allclose(features[:, 4], 0.0)
+    assert features.shape == (n, 37)
+    # EWMA similarity columns should be all zeros when profiles are None
+    assert np.allclose(features[:, 20], 0.0)  # ewma_longterm_similarity
+    assert np.allclose(features[:, 21], 0.0)  # ewma_shortterm_similarity
+    assert np.allclose(features[:, 22], 0.0)  # ewma_negative_similarity
 
 
 # ── Heuristic scoring tests ──────────────────────────────────────────────────
@@ -66,7 +66,7 @@ def test_features_without_profiles():
 def test_heuristic_score_shape():
     """Heuristic scores should have shape (N,)."""
     n = 15
-    features = np.random.randn(n, 5).astype(np.float32)  # 5 features (Doc 06)
+    features = np.random.randn(n, 37).astype(np.float32)  # 37 features (Phase 6)
     scores = heuristic_score(features)
     assert scores.shape == (n,)
 

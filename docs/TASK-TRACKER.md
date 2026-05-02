@@ -1,8 +1,8 @@
 # ResearchIT — Master Task Tracker
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
-> **Last updated**: 2026-04-26  
-> **Current phase**: Phase 4.5 (Instrumentation Foundation) — COMPLETE ✔  
+> **Last updated**: 2026-04-29  
+> **Current phase**: Phase 6 (LightGBM Reranker) — COMPLETE ✔  
 
 ---
 
@@ -116,8 +116,7 @@
 
 **Doc 06 correction applied**: Negative EWMA profile wired as Feature 5 with 0.15 penalty.
 
-**Gaps (deferred to Phase 6)**:
-- [~] LightGBM lambdarank model (requires ≥500 labeled interactions)
+**Gaps**: None. LightGBM model now integrated (Phase 6 ✅).
 
 ---
 
@@ -353,18 +352,39 @@
 
 ---
 
-## Phase 6: LightGBM Re-ranker 📋 NOT STARTED
+## Phase 6: LightGBM Re-ranker ✅ COMPLETE
 
-> *Replace heuristic scorer with a trained LightGBM lambdarank model.*  
-> *Blocked by: ≥500 labeled interactions OR citation-graph bootstrap*  
-> *Estimated effort: ~2-4 weeks*  
-> *Architecture decision: one-stage LambdaMART first (Doc 07 ADR A3)*
+> *Replaced heuristic scorer with a trained LightGBM lambdarank model.*  
+> *Unblocked via citation-graph pseudo-labels from Semantic Scholar.*  
+> *Handoff doc: `docs/PHASE6-HANDOFF.md`*  
+> *Model repo: [siddhm11/researchit-reranker-phase6](https://huggingface.co/siddhm11/researchit-reranker-phase6)*
 
-- [ ] Citation-graph pseudo-labels from unarXive 2022 (cited = relevance 2, co-cited = 1, random = 0)
-- [ ] Author-as-user simulation
-- [ ] ~30-50 features including sparse/dense scores, citation count, category match, author overlap
-- [ ] Train LightGBM with `objective='lambdarank'`
-- [ ] Target: ~1ms for 100 candidates
+### 6.1 — ML Intern: Data Pipeline + Model Training ✅
+- [x] Export 1.6M arXiv IDs from Turso → `arxiv_ids.txt` (`scripts/export_arxiv_ids.py`)
+- [x] Fetch 242K citation edges from Semantic Scholar Batch API (`01_fetch_citation_edges.py`)
+- [x] Generate 98K training triples with pseudo-labels: cited=2, co-cited=1, negative=0 (`02_generate_training_triples.py`)
+- [x] 37-feature schema (20 content, 11 user behavior, 6 cross-features)
+- [x] Train LightGBM LambdaRank model: 141 trees, 63 leaves, lr=0.05 (`03_train_lightgbm.py`)
+- [x] nDCG@10 = 0.879 (+233% vs heuristic baseline)
+- [x] All artifacts pushed to HuggingFace
+
+### 6.2 — Opus: Integration into ResearchIT ✅
+- [x] Rewrite `app/recommend/reranker.py` — 5 features → 37 features
+- [x] LightGBM model loading at import time with heuristic fallback
+- [x] Multi-path model file search (env var → relative → absolute)
+- [x] Backward-compatible `rerank_candidates()` signature (old callers unaffected)
+- [x] Add `lightgbm>=4.0,<5.0` to `requirements.txt`
+- [x] Fix CRLF→LF line endings in model file (Windows Git issue)
+- [x] 7 integration tests — **all passing** (`tests/test_reranker_integration.py`)
+- [x] Latency verified: **0.223ms per 100 candidates** (target: <1ms) ✅
+
+### Test suite
+- `tests/test_reranker_integration.py` — 7 tests (smoke, features, heuristic, E2E, latency, backward compat, comparison)
+- `tests/demo_reranker.py` — interactive demo with 20 realistic papers
+
+### Remaining (optional)
+- [!] Wire `qdrant_scores`, `cluster_importance`, `suppressed_categories` from `recommendations.py` → richer features
+- [!] Deploy model file to HF Spaces + verify production logs
 
 ---
 
@@ -453,6 +473,7 @@
 | `tests/test_profiles.py` | 11 | ✅ Passing |
 | `tests/test_clustering.py` | 21 | ✅ Passing | (9 compute + 10 Hungarian + 2 persistence) |
 | `tests/test_reranker_diversity.py` | 13 | ✅ Passing |
+| `tests/test_reranker_integration.py` | 7 | ✅ Passing | (Phase 6: smoke, features, E2E, latency) |
 | `tests/test_fusion.py` | 20 | ✅ Passing | (Phase 4.1) |
 | `tests/test_db.py` | 19 | ✅ Passing | (includes 4 Turso cache + 8 suppression) |
 | `tests/test_qdrant_svc.py` | — | ✅ Passing |
@@ -463,7 +484,7 @@
 | `tests/test_hybrid_search.py` | 21 | ✅ Passing |
 | `tests/test_search_router.py` | 6 | ✅ Passing |
 | `tests/test_live_search.py` | 8 | ✅ Passing |
-| **Total** | **171** | ✅ |
+| **Total** | **178** | ✅ |
 | `test_e2e_recs.py` (standalone) | 1 | ✅ E2E simulation |
 
 ---

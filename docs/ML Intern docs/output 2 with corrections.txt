@@ -1,0 +1,93 @@
+This is a really valuable review. Let me go through each criticism honestly and show you I actually understand what Opus is saying — and where I agree vs disagree.
+
+The 4 Critical Gaps Opus Identified
+Gap 1: "It doesn't know about your existing feature pipeline"
+Opus is right. I listed a generic 30-feature set when your codebase already computes features I should have included. Let me verify by looking at what's actually in your code:
+
+hf_repo_files
+
+hf_repo_files
+
+hf_repo_files
+
+Good. Now I have the full picture. Let me give you my honest assessment of all 4 gaps.
+
+Gap 1: "Doesn't know about your existing feature pipeline"
+Verdict: Opus is 100% right. I missed this.
+
+Your reranker.py already computes 5 features. Your pipeline already has these signals flowing through it:
+
+Feature Opus Says I Missed	Where It Lives	Available?
+ewma_longterm_similarity	reranker.py Feature 1 (weight 0.40)	✅ Already computed
+ewma_shortterm_similarity	reranker.py Feature 2 (weight 0.25)	✅ Already computed
+ewma_negative_similarity	reranker.py Feature 5 (weight -0.15)	✅ Already computed
+cluster_importance	clustering.py → InterestCluster.importance	✅ Available
+cluster_distance_to_medoid	Computable from medoid_embedding in clustering	✅ Easy to add
+is_suppressed_category	db.py → get_suppressed_categories()	✅ Already computed
+onboarding_category_match	db.py → get_user_category_filter()	✅ Available
+My generic feature list wasn't wrong, but it was incomplete. The real feature set for LightGBM should be my 30 generic features PLUS these 7 system-specific features. They're free — your pipeline already computes them.
+
+However — for the pseudo-label training dataset (citation graph), we're simulating users, not using real users. So some of these features (EWMA profiles, cluster assignments, suppression) won't exist for pseudo-users. They become relevant in two scenarios:
+
+Phase 2: When you retrain on real interaction data (500+ saves)
+Feature design: The LightGBM model architecture should have slots for these features from day 1, even if they're zero-filled during pseudo-label training
+So Opus is right that I should have mentioned them. My correction: the feature extraction script needs to define the full 37-feature schema upfront, with the 7 system features zero-filled during citation-graph training, ready to light up when real users arrive.
+
+Gap 2: "It's only LightGBM-1, not the full Doc 07 architecture"
+Verdict: Opus is right, but this is intentional staging, not an oversight.
+
+The full Doc 07 architecture is:
+
+Retrieval → LightGBM-1 (rerank) → TinyBERT (top-20 score) → LightGBM-2 (final)
+I proposed only LightGBM-1. Opus says I "undersell the integration."
+
+I'd push back slightly here: LightGBM-1 is the correct first step. Your own Doc 07 §B says TinyBERT is Phase 8b, and it explicitly says:
+
+"Custom distillation from BGE-reranker-v2-m3 only if held-out gap >3 nDCG"
+
+So the right sequence is:
+
+Build LightGBM-1 → measure nDCG → deploy
+Add TinyBERT as a feature → measure if gap >3 nDCG → deploy if yes
+LightGBM-2 only if the two-stage pipeline shows measurable improvement
+Opus is right that I should have acknowledged the full architecture and positioned LightGBM-1 as stage 1 of a multi-stage plan. But building only LightGBM-1 first is the correct engineering decision.
+
+Gap 3: "Doesn't mention time-split evaluation"
+Verdict: Opus is completely right. This is a real miss.
+
+If you train on all papers and evaluate on a random holdout, you get temporal leakage — a 2024 paper citing a 2020 paper would appear in training, and the model learns "these two papers are related" before the 2024 paper exists. In production, you can't see future citations.
+
+The correct approach:
+
+Train:  papers published before 2023
+Eval:   papers published 2023+
+Assert: max(train_paper.published) < min(eval_paper.published)
+I should have said this. The dataset building script must enforce this split. Non-negotiable.
+
+Gap 4: "Doesn't mention your existing reranker"
+Verdict: Partially right.
+
+I did say "Replace heuristic_score() with model.predict()" — but Opus is right that I didn't look at the actual function signature or show how the integration works concretely with your existing compute_features() → heuristic_score() flow.
+
+The real integration is:
+
+# reranker.py — current
+features = compute_features(embeddings, metadata, lt_vec, st_vec, neg_vec)
+scores = heuristic_score(features)  # hand-tuned weights
+
+# reranker.py — after LightGBM
+features = compute_features_v2(embeddings, metadata, lt_vec, st_vec, neg_vec, 
+                                cluster_importance, suppressed_cats, ...)  # expanded
+if lgb_model is not None:
+    scores = lgb_model.predict(features)
+else:
+    scores = heuristic_score(features)  # graceful fallback
+The heuristic scorer stays as a fallback. LightGBM is an upgrade path, not a replacement.
+
+Summary: What I'd Do Differently
+Gap	My Fix
+Missing system features	Define full 37-feature schema. 7 system features zero-filled for pseudo-labels, active for real users
+Only LightGBM-1	Acknowledge full Doc 07 multi-stage pipeline. Position this as stage 1 explicitly
+No time-split eval	Enforce train < 2023, eval ≥ 2023 in the dataset script. Non-negotiable
+Integration detail	Show concrete reranker.py changes with fallback to heuristic scorer
+Opus gave you a solid review. The core plan is still correct — citation edges → pseudo-labels → LightGBM lambdarank — but the execution details need these 4 fixes baked in.

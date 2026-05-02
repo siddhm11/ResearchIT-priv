@@ -4,7 +4,7 @@
 > recommendation pipeline: replace RRF with importance-weighted quota fusion, add
 > Hungarian matching for cluster stability, and wire category-level negative suppression.
 >
-> **Status**: 📋 Not started  
+> **Status**: ✅ COMPLETE (implemented in code)  
 > **Estimated effort**: ~1 week  
 > **Predecessor**: Phase 3.5 (complete) — Turso metadata DB  
 > **Deployment target**: Same — Hugging Face Spaces (no infra changes)
@@ -33,7 +33,7 @@ identified three concrete faults that degrade quality for multi-interest users:
 
 ## Current Architecture vs Target Architecture
 
-### Current Retrieval (Phase 2b — being fixed)
+### Legacy Retrieval (Phase 2b — replaced)
 
 ```
 Cluster medoids + short-term vector
@@ -58,7 +58,7 @@ FusionQuery(fusion=Fusion.RRF)
 means "near the centroid of everything" — the exact failure multi-interest models
 exist to prevent.
 
-### Target Retrieval (Phase 4)
+### Implemented Retrieval (Phase 4)
 
 ```
 compute_clusters() → K clusters with importance scores
