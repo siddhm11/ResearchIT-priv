@@ -68,13 +68,17 @@ async def search(
                 papers = []
 
     user_id = user_id or str(uuid.uuid4())
+    # Phase 6.5 B1: one query_id per search request for per-feed CTR
+    query_id = str(uuid.uuid4())
     state = await us.ensure_loaded(user_id)
     saved_ids = set(state.positive_list)
     dismissed_ids = set(state.negative_list)
 
-    for p in papers:
+    for idx, p in enumerate(papers):
         p["saved"] = p["arxiv_id"] in saved_ids
         p["dismissed"] = p["arxiv_id"] in dismissed_ids
+        p["query_id"] = query_id
+        p["position"] = idx
 
     if request.headers.get("HX-Request"):
         resp = templates.TemplateResponse(

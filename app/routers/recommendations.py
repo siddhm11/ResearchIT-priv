@@ -59,6 +59,9 @@ async def get_recommendations(
     user_id = user_id or str(uuid.uuid4())
     state = await us.ensure_loaded(user_id)
 
+    # Phase 6.5 B1: one query_id per feed request for per-feed CTR analysis
+    query_id = str(uuid.uuid4())
+
     def _empty_resp():
         r = templates.TemplateResponse(
             request,
@@ -79,12 +82,14 @@ async def get_recommendations(
             )
             if trending:
                 papers = []
-                for paper in trending:
+                for idx, paper in enumerate(trending):
                     paper["saved"] = False
                     paper["dismissed"] = False
                     paper["ranker_version"] = _RANKER_VERSION
                     paper["candidate_source"] = "trending_category_fallback"
                     paper["cluster_id"] = ""
+                    paper["query_id"] = query_id
+                    paper["position"] = idx
                     papers.append(paper)
 
                 r = templates.TemplateResponse(
@@ -106,7 +111,7 @@ async def get_recommendations(
 
     # ── Tier 1: Multi-interest clustering + quota fusion (≥5 saves) ──────
     rec_arxiv_ids, paper_tags = await _multi_interest_recommend(
-        user_id, state, seen, REC_LIMIT,
+        user_id, state, seen, REC_LIMIT, query_id=query_id,
     )
 
     # ── Tier 2: EWMA single-vector search (≥3 saves) ──────────────────────
@@ -117,6 +122,7 @@ async def get_recommendations(
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": "ewma_longterm",
                 "cluster_id": "",
+                "query_id": query_id,
             }
 
     # ── Tier 3: Qdrant Recommend API (≥1 save fallback) ───────────────────
@@ -132,6 +138,7 @@ async def get_recommendations(
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": "qdrant_recommend",
                 "cluster_id": "",
+                "query_id": query_id,
             }
 
     if not rec_arxiv_ids:
@@ -151,7 +158,7 @@ async def get_recommendations(
     await db.cache_turso_metadata_batch(list(meta.values()))
 
     papers = []
-    for aid in rec_arxiv_ids:
+    for idx, aid in enumerate(rec_arxiv_ids):
         if aid not in meta:
             continue
         tags = paper_tags.get(aid, {})
@@ -163,6 +170,9 @@ async def get_recommendations(
             "ranker_version": tags.get("ranker_version", _RANKER_VERSION),
             "candidate_source": tags.get("candidate_source", ""),
             "cluster_id": tags.get("cluster_id", ""),
+            # Phase 6.5 B1: query_id + position for per-feed CTR
+            "query_id": tags.get("query_id", query_id),
+            "position": idx,
         })
 
     resp = templates.TemplateResponse(
@@ -177,7 +187,8 @@ async def get_recommendations(
 # ── Tier 1: Multi-interest clustering + quota fusion ─────────────────────────
 
 async def _multi_interest_recommend(
-    user_id: str, state, seen: set[str], limit: int
+    user_id: str, state, seen: set[str], limit: int,
+    *, query_id: str = "",
 ) -> tuple[list[str], dict[str, dict]]:
     """
     Full recommendation pipeline (Phase 2b + Phase 4 corrections):
@@ -458,6 +469,7 @@ async def _multi_interest_recommend(
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": source,
                 "cluster_id": str(cluster_idx) if cluster_idx is not None and cluster_idx >= 0 else "",
+                "query_id": query_id,
             }
 
         return final, paper_tags

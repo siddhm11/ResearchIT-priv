@@ -3,6 +3,7 @@
   Expects: paper_id (or paper.arxiv_id), saved (bool), dismissed (bool)
   Optional: source ("search" | "recommendation" | "saved"), position (int)
   Phase 4.5: ranker_version, candidate_source, cluster_id (set by recommendations.py)
+  Phase 6.5: query_id (per-request UUID for feed-level CTR)
   These are returned directly by the /api/papers/{id}/save endpoint
   so they also work as a standalone partial.
 #}
@@ -12,6 +13,8 @@
 {% set _ranker_version = paper.ranker_version | default("") if paper is defined else "" %}
 {% set _candidate_source = paper.candidate_source | default("") if paper is defined else "" %}
 {% set _cluster_id = paper.cluster_id | default("") if paper is defined else "" %}
+{% set _query_id = paper.query_id | default("") if paper is defined else "" %}
+{% set _position = paper.position | default(0) if paper is defined else 0 %}
 
 {% if is_saved %}
   <!-- Already saved — show saved state, allow unsave via not-interested -->
@@ -23,7 +26,7 @@
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
+            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}"}'>
       Remove
     </button>
   </div>
@@ -34,7 +37,7 @@
             hx-post="/api/papers/{{ pid }}/save"
             hx-target="[id='actions-{{ pid }}']"
             hx-swap="innerHTML"
-            hx-vals='{"source": "{{ _source }}", "position": "{{ position | default(0) }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
+            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}"}'>
       ⭐ Save
     </button>
     <!-- Not interested (removes the whole card) -->
@@ -42,9 +45,8 @@
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}"}'>
+            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}"}'>
       ✕ Not interested
     </button>
   </div>
 {% endif %}
-
