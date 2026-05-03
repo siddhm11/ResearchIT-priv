@@ -757,16 +757,17 @@ Two lines, verbatim:
 - [ ] Commit: "Phase 6.2: per-candidate cluster identity through reranker"
 
 ### Phase 6.3 — Deployment verification + Bug B
-- [ ] Decide deployment strategy: E.1.a (commit) vs E.1.b (snapshot_download). Recommend E.1.a.
-- [ ] Verify `models/reranker-phase6/production_model/reranker_v1.txt` is in working tree, not gitignored, not dockerignored
-- [ ] Push to HF Space; wait for build; check build logs for "[reranker] LightGBM model loaded"
-- [ ] Add `/healthz/reranker` route (Section E.2)
-- [ ] Add `_rr.is_model_loaded()`, `_rr.get_loaded_model_path()`, `_rr.get_num_trees()` accessors
-- [ ] `curl https://siddhm11-researchit.hf.space/healthz/reranker` → confirm `model_loaded: true, n_trees: 141`
-- [ ] Add per-request `reranker.features` log line with `feature_nonzero_rate`
-- [ ] Fix Bug B: medoid_embedding_blob fallback in cluster reload (Section E.4)
-- [ ] Add `medoid_embedding_blob BLOB` column to clusters table on Turso (one-line ALTER)
-- [ ] Update CLAUDE.md / model card to reflect deployment story
+- [x] Decide deployment strategy: E.1.a (commit) vs E.1.b (snapshot_download). Used E.1.a.
+- [x] Verify `models/reranker-phase6/production_model/reranker_v1.txt` is in working tree, not gitignored, not dockerignored
+- [x] Push to HF Space; wait for build; check build logs for "[reranker] LightGBM model loaded"
+- [x] Add `/healthz/reranker` route (Section E.2)
+- [x] Add `_rr.is_model_loaded()`, `_rr.get_loaded_model_path()`, `_rr.get_num_trees()` accessors
+- [x] `curl https://siddhm11-researchit.hf.space/healthz/reranker` → confirm `model_loaded: true, n_trees: 141`
+  > *Verified live at 2026-05-03: `model_loaded=true, n_trees=141, fallback_active=false, feature_count=37, feature_schema_hash=5d0b3de7b0c1`.*
+- [x] Add per-request `reranker.features` log line with `feature_nonzero_rate`
+- [x] Fix Bug B: medoid_embedding_blob fallback in cluster reload (Section E.4)
+- [x] Add `medoid_embedding_blob BLOB` column to clusters table (SQLite ALTER migration)
+- [x] Update CLAUDE.md / model card to reflect deployment story
 
 ### Phase 6 documentation
 - [ ] Write `docs/phases/PHASE6.md` retraining decision (Section F.4)

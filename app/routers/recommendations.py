@@ -256,38 +256,49 @@ async def _multi_interest_recommend(
         st_vec = await profiles.load_profile(user_id, "short_term")
 
         search_tasks = [
-            qdrant_svc.search_by_vector(
+            qdrant_svc.search_by_vector_with_scores(
                 query_vector=c.medoid_embedding.tolist(),
                 limit=quota * _OVERSAMPLE,
                 exclude_ids=seen,
             )
             for c, quota in zip(clusters, quotas)
         ]
-        per_cluster_results = await asyncio.gather(*search_tasks)
+        per_cluster_scored = await asyncio.gather(*search_tasks)
 
-        # Phase 4.5: Build paper → cluster mapping BEFORE merge (so we know
-        # which cluster each paper was retrieved from).
+        # Build paper → cluster map AND real qdrant_score_map in one pass.
+        # Phase 6.5 A1: replaces the old rank-based linear decay approximation.
         paper_cluster_map: dict[str, int] = {}
-        for cluster, result_ids in zip(clusters, per_cluster_results):
-            for aid in result_ids:
+        qdrant_score_map: dict[str, float] = {}
+        for cluster, scored_results in zip(clusters, per_cluster_scored):
+            for hit in scored_results:
+                aid = hit["arxiv_id"]
                 if aid not in paper_cluster_map:  # first-occurrence wins
                     paper_cluster_map[aid] = cluster.cluster_idx
+                # Keep highest cosine if a paper appears in multiple clusters
+                if aid not in qdrant_score_map or hit["score"] > qdrant_score_map[aid]:
+                    qdrant_score_map[aid] = float(hit["score"])
 
-        # Apply quota merge (dedup globally, respect per-cluster quotas)
-        candidate_ids = merge_quota_results(list(per_cluster_results), quotas)
+        # merge_quota_results expects list[list[str]] — extract IDs
+        per_cluster_ids = [
+            [h["arxiv_id"] for h in scored] for scored in per_cluster_scored
+        ]
+        candidate_ids = merge_quota_results(per_cluster_ids, quotas)
 
         # Supplement with short-term session context
         if st_vec is not None:
             seen_so_far = seen | set(candidate_ids)
-            st_results = await qdrant_svc.search_by_vector(
+            st_scored = await qdrant_svc.search_by_vector_with_scores(
                 query_vector=st_vec.tolist(),
                 limit=_ST_SUPPLEMENT,
                 exclude_ids=seen_so_far,
             )
-            for aid in st_results:
+            for hit in st_scored:
+                aid = hit["arxiv_id"]
                 if aid not in set(candidate_ids):
                     candidate_ids.append(aid)
                     paper_cluster_map[aid] = -1  # short-term supplement
+                if aid not in qdrant_score_map:
+                    qdrant_score_map[aid] = float(hit["score"])
 
         if not candidate_ids:
             return [], {}
@@ -326,17 +337,8 @@ async def _multi_interest_recommend(
         user_total_saves = len(state.positive_list)
         user_total_dismissals = len(state.negative_list)
 
-        # Build qdrant_score_map from per_cluster_results
-        # per_cluster_results is list[list[str]] — we need scores too.
-        # Use the paper_cluster_map to approximate: score = 1.0 - (rank / total)
-        # for now, as the current retrieval path returns only IDs.
-        # TODO: Phase 6.2+ switch to search_by_vector_with_scores()
-        qdrant_score_map: dict[str, float] = {}
-        for cluster_ids in per_cluster_results:
-            for rank, aid in enumerate(cluster_ids):
-                if aid not in qdrant_score_map:
-                    # Approximate score from rank position (higher rank = higher score)
-                    qdrant_score_map[aid] = max(0.0, 1.0 - rank * 0.01)
+        # qdrant_score_map was built above from real cosine scores
+        # (Phase 6.5 A1 — replaces the old rank-based approximation)
 
         qdrant_scores = np.asarray(
             [qdrant_score_map.get(cid, 0.0) for cid in valid_ids],

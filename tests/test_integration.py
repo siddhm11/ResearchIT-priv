@@ -231,20 +231,29 @@ def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
         combined = {**saved_vectors, **candidate_vectors}
         return {aid: combined[aid] for aid in ids if aid in combined}
 
-    # search_by_vector returns candidates aligned with whichever centre
-    # the query is closer to
-    async def fake_search_by_vector(query_vector, limit, exclude_ids=None):
+    # search_by_vector_with_scores returns candidates with cosine scores,
+    # aligned with whichever centre the query is closer to
+    async def fake_search_by_vector_with_scores(query_vector, limit, exclude_ids=None):
         qv = np.array(query_vector, dtype=np.float32)
         qv /= np.linalg.norm(qv)
         if float(qv @ nlp_center) > float(qv @ rl_center):
             pool = nlp_candidates
+            center = nlp_center
         else:
             pool = rl_candidates
+            center = rl_center
         exclude = exclude_ids or set()
-        return [p for p in pool if p not in exclude][:limit]
+        results = []
+        for p in pool:
+            if p not in exclude:
+                # Compute realistic cosine score
+                pv = np.array(candidate_vectors[p], dtype=np.float32)
+                score = float(qv @ pv / (np.linalg.norm(qv) * np.linalg.norm(pv) + 1e-10))
+                results.append({"arxiv_id": p, "score": score})
+        return results[:limit]
 
     monkeypatch.setattr(qs, "get_paper_vectors", fake_get_paper_vectors)
-    monkeypatch.setattr(qs, "search_by_vector", fake_search_by_vector)
+    monkeypatch.setattr(qs, "search_by_vector_with_scores", fake_search_by_vector_with_scores)
 
     # Skip EWMA short-term lookup — returns None
     async def fake_load_profile(uid, kind):
