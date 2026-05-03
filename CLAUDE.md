@@ -156,6 +156,10 @@ End-to-end feed generation target: **<30ms on CPU** (excluding metadata fetch, w
 
 ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as strings, never integers.** Pandas will silently coerce them — always pass `dtype=str` to `read_csv`. This is a real bug that has bitten this project before.
 
+### 3.10 Per-candidate cluster identity (Phase 6)
+
+The per-cluster origin of each retrieved candidate is preserved end-to-end via `paper_cluster_map: dict[str, int]` (built in `recommendations.py` before `merge_quota_results()`). This mapping flows through to the reranker as per-candidate `cluster_importance` (N,) and `cluster_medoid` (N, 1024) arrays. **Do not re-introduce dominant-cluster shortcuts as "simplifications"** — LightGBM feature slot 24 (`cluster_distance_to_medoid`) depends on per-candidate medoids to correctly score papers from minority-interest clusters.
+
 ---
 
 ## 4. What is in scope vs out of scope right now

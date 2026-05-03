@@ -95,8 +95,8 @@ async def seed_search(
     papers = []
     if q.strip():
         try:
-            results = await hybrid_search_svc.hybrid_search(q.strip(), top_k=6)
-            arxiv_ids = [r["arxiv_id"] for r in results]
+            results = await hybrid_search_svc.search(q.strip(), limit=6)
+            arxiv_ids = results  # search() returns list[str] directly
             if arxiv_ids:
                 meta = await turso_svc.fetch_metadata_batch(arxiv_ids)
                 missing = [aid for aid in arxiv_ids if aid not in meta]
