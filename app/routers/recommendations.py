@@ -268,6 +268,22 @@ async def _multi_interest_recommend(
 
         await save_clusters_to_db(user_id, clusters)
 
+        # Phase 6.5 B3: append snapshot for cluster history (non-blocking)
+        try:
+            import numpy as _np
+            await db.save_cluster_snapshot(user_id, [
+                {
+                    "cluster_idx": c.cluster_idx,
+                    "medoid_paper_id": c.medoid_paper_id,
+                    "importance": c.importance,
+                    "paper_ids": c.paper_ids,
+                    "medoid_embedding_blob": c.medoid_embedding.astype(_np.float32).tobytes(),
+                }
+                for c in clusters
+            ])
+        except Exception as e:
+            print(f"[recommendations] cluster snapshot save failed (non-fatal): {e}")
+
         # ── Step 2: Quota allocation ───────────────────────────────────────
         importances = [c.importance for c in clusters]
         quotas = allocate_quotas(importances, total_slots=100, min_slots=3)

@@ -13,6 +13,9 @@ Phase 4.5 instrumentation columns (interactions table):
   cluster_id        – which interest cluster served this paper (NULL if N/A)
 """
 import aiosqlite
+import hashlib
+import json
+import uuid as _uuid
 from app.config import DB_PATH
 
 # ── DDL ───────────────────────────────────────────────────────────────────────
@@ -88,6 +91,24 @@ CREATE TABLE IF NOT EXISTS user_onboarding (
     created_at           TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Phase 6.5 B3: Append-only cluster history (current-state still in user_clusters)
+CREATE TABLE IF NOT EXISTS cluster_snapshots (
+    user_id              TEXT NOT NULL,
+    snapshot_id          TEXT NOT NULL,           -- UUID, one per recluster event
+    cluster_idx          INTEGER NOT NULL,        -- stable index after Hungarian
+    medoid_paper_id      TEXT NOT NULL,
+    importance           REAL NOT NULL,
+    paper_ids            TEXT NOT NULL,           -- JSON array
+    medoid_embedding_blob BLOB,
+    snapshot_date        TEXT NOT NULL DEFAULT (datetime('now')),
+    paper_ids_hash       TEXT NOT NULL,           -- sha256(sorted(paper_ids))[:16]
+    PRIMARY KEY (user_id, snapshot_id, cluster_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_snap_user_date
+    ON cluster_snapshots(user_id, snapshot_date DESC);
+CREATE INDEX IF NOT EXISTS idx_snap_hash
+    ON cluster_snapshots(paper_ids_hash);
 """
 
 
@@ -470,3 +491,47 @@ async def get_user_category_filter(user_id: str) -> set[str]:
         return set()
     from app.config import expand_category_groups
     return expand_category_groups(state["selected_categories"])
+
+
+# ── Phase 6.5 B3: Cluster snapshot versioning ─────────────────────────────────
+
+async def save_cluster_snapshot(user_id: str, clusters: list[dict]) -> str:
+    """Append a new snapshot of the user's clusters. Returns snapshot_id.
+
+    This is purely additive history — current-state queries still hit
+    user_clusters. Retrospective queries hit cluster_snapshots.
+
+    Each cluster dict must have: cluster_idx, medoid_paper_id, importance,
+    paper_ids (list[str] or JSON string), optionally medoid_embedding_blob.
+    """
+    snapshot_id = str(_uuid.uuid4())
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for c in clusters:
+            paper_ids = c["paper_ids"]
+            if isinstance(paper_ids, str):
+                paper_ids = json.loads(paper_ids)
+            paper_ids_hash = hashlib.sha256(
+                json.dumps(sorted(paper_ids)).encode()
+            ).hexdigest()[:16]
+            await conn.execute(
+                """INSERT INTO cluster_snapshots
+                   (user_id, snapshot_id, cluster_idx, medoid_paper_id,
+                    importance, paper_ids, medoid_embedding_blob, paper_ids_hash)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, snapshot_id, c["cluster_idx"], c["medoid_paper_id"],
+                 c["importance"], json.dumps(paper_ids),
+                 c.get("medoid_embedding_blob"), paper_ids_hash),
+            )
+        await conn.commit()
+    return snapshot_id
+
+
+async def prune_old_snapshots(retention_days: int = 30) -> int:
+    """Delete cluster snapshots older than retention_days. Returns rows deleted."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "DELETE FROM cluster_snapshots WHERE snapshot_date < datetime('now', ?)",
+            (f"-{retention_days} days",),
+        )
+        await conn.commit()
+        return cur.rowcount

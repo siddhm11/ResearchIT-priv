@@ -33,6 +33,13 @@ async def lifespan(app: FastAPI):
         print("[main] BGE-M3 model loaded — hybrid search ready")
     except Exception as e:
         print(f"[main] BGE-M3 not loaded ({e}) — search will fall back to arXiv API")
+    # Phase 6.5 B3: Prune old cluster snapshots (>30 days)
+    try:
+        pruned = await db.prune_old_snapshots(retention_days=30)
+        if pruned:
+            print(f"[main] Pruned {pruned} old cluster snapshot rows")
+    except Exception as e:
+        print(f"[main] Snapshot pruning skipped: {e}")
     yield
 
 
