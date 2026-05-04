@@ -79,6 +79,8 @@ async def search(
         p["dismissed"] = p["arxiv_id"] in dismissed_ids
         p["query_id"] = query_id
         p["position"] = idx
+        p["propensity"] = 1.0  # search is deterministic
+        p["policy_id"] = "search_v1"
 
     if request.headers.get("HX-Request"):
         resp = templates.TemplateResponse(

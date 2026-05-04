@@ -27,6 +27,8 @@ async def save_paper(
     ranker_version: str = Form(default=""),
     candidate_source: str = Form(default=""),
     cluster_id: str = Form(default=""),
+    propensity: float = Form(default=0.0),
+    policy_id: str = Form(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     user_id = user_id or str(uuid.uuid4())
@@ -41,6 +43,8 @@ async def save_paper(
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
         cluster_id=int(cluster_id) if cluster_id else None,
+        propensity=propensity if propensity > 0 else None,
+        policy_id=policy_id or None,
     )
 
     us.record_positive(user_id, paper_id)
@@ -66,6 +70,8 @@ async def not_interested(
     ranker_version: str = Form(default=""),
     candidate_source: str = Form(default=""),
     cluster_id: str = Form(default=""),
+    propensity: float = Form(default=0.0),
+    policy_id: str = Form(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     user_id = user_id or str(uuid.uuid4())
@@ -80,6 +86,8 @@ async def not_interested(
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
         cluster_id=int(cluster_id) if cluster_id else None,
+        propensity=propensity if propensity > 0 else None,
+        policy_id=policy_id or None,
     )
 
     us.record_negative(user_id, paper_id)

@@ -104,6 +104,12 @@ _MIGRATION_6_3 = [
     "ALTER TABLE user_clusters ADD COLUMN medoid_embedding_blob BLOB",
 ]
 
+# ── Phase 6.5 B2: Propensity + policy_id for counterfactual evaluation ────────
+_MIGRATION_6_5 = [
+    "ALTER TABLE interactions ADD COLUMN propensity REAL",
+    "ALTER TABLE interactions ADD COLUMN policy_id TEXT",
+]
+
 
 async def init_db() -> None:
     """Create tables if they don't exist. Called once at startup."""
@@ -117,6 +123,12 @@ async def init_db() -> None:
                 pass  # Column already exists — safe to ignore
         # Phase 6.3: add medoid embedding blob for Bug B fallback
         for stmt in _MIGRATION_6_3:
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # Column already exists — safe to ignore
+        # Phase 6.5 B2: add propensity + policy_id for SNIPS evaluation
+        for stmt in _MIGRATION_6_5:
             try:
                 await db.execute(stmt)
             except Exception:
@@ -136,15 +148,19 @@ async def log_interaction(
     ranker_version: str | None = None,
     candidate_source: str | None = None,
     cluster_id: int | None = None,
+    propensity: float | None = None,
+    policy_id: str | None = None,
 ) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO interactions
                (user_id, paper_id, event_type, source, position, query_id,
-                ranker_version, candidate_source, cluster_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ranker_version, candidate_source, cluster_id,
+                propensity, policy_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, paper_id, event_type, source, position, query_id,
-             ranker_version, candidate_source, cluster_id),
+             ranker_version, candidate_source, cluster_id,
+             propensity, policy_id),
         )
         await db.commit()
 

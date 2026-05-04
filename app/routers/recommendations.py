@@ -90,6 +90,8 @@ async def get_recommendations(
                     paper["cluster_id"] = ""
                     paper["query_id"] = query_id
                     paper["position"] = idx
+                    paper["propensity"] = 1.0  # deterministic
+                    paper["policy_id"] = _RANKER_VERSION
                     papers.append(paper)
 
                 r = templates.TemplateResponse(
@@ -123,6 +125,8 @@ async def get_recommendations(
                 "candidate_source": "ewma_longterm",
                 "cluster_id": "",
                 "query_id": query_id,
+                "propensity": 1.0,
+                "policy_id": _RANKER_VERSION,
             }
 
     # ── Tier 3: Qdrant Recommend API (≥1 save fallback) ───────────────────
@@ -139,6 +143,8 @@ async def get_recommendations(
                 "candidate_source": "qdrant_recommend",
                 "cluster_id": "",
                 "query_id": query_id,
+                "propensity": 1.0,
+                "policy_id": _RANKER_VERSION,
             }
 
     if not rec_arxiv_ids:
@@ -173,6 +179,9 @@ async def get_recommendations(
             # Phase 6.5 B1: query_id + position for per-feed CTR
             "query_id": tags.get("query_id", query_id),
             "position": idx,
+            # Phase 6.5 B2: propensity + policy_id for counterfactual eval
+            "propensity": tags.get("propensity", 1.0),
+            "policy_id": tags.get("policy_id", _RANKER_VERSION),
         })
 
     resp = templates.TemplateResponse(
@@ -452,8 +461,17 @@ async def _multi_interest_recommend(
         )
         final = final[:limit + 2]
 
-        # Phase 4.5: Build per-paper instrumentation tags
+        # Phase 4.5 + 6.5: Build per-paper instrumentation tags
         exploration_set = set(final) - set(mmr_selected)
+
+        # Phase 6.5 B2: Compute propensity for counterfactual evaluation
+        # MMR-selected papers are deterministic → propensity = 1.0
+        # Exploration papers are randomly sampled → propensity = n_explore / pool_size
+        mmr_set = set(mmr_selected)
+        explore_pool_size = max(1, len(reranked_ids) - len(mmr_set))
+        n_actual_explore = len(exploration_set)
+        explore_propensity = n_actual_explore / explore_pool_size if explore_pool_size > 0 else 0.0
+
         paper_tags: dict[str, dict] = {}
         for aid in final:
             cluster_idx = paper_cluster_map.get(aid)
@@ -470,6 +488,8 @@ async def _multi_interest_recommend(
                 "candidate_source": source,
                 "cluster_id": str(cluster_idx) if cluster_idx is not None and cluster_idx >= 0 else "",
                 "query_id": query_id,
+                "propensity": explore_propensity if aid in exploration_set else 1.0,
+                "policy_id": _RANKER_VERSION,
             }
 
         return final, paper_tags
