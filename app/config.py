@@ -24,6 +24,9 @@ METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 TURSO_URL = os.getenv("TURSO_URL", "")
 TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "")
 
+# ── Semantic Scholar API — Phase 5.1 (author import) ─────────────────────────
+S2_API_KEY = os.getenv("S2_API_KEY", "")
+
 # ── Recommendation settings ───────────────────────────────────────────────────
 REC_LIMIT = 10                  # how many recommendations to show
 REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant

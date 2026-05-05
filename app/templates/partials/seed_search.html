@@ -15,6 +15,30 @@
     </p>
   </div>
 
+  {# Phase 5.1: Quick author import #}
+  <div class="mb-4 p-3 bg-base-200/50 rounded-lg">
+    <p class="text-xs font-medium text-base-content/70 mb-2">
+      ⚡ Quick import: Paste your Semantic Scholar profile URL to auto-import papers
+    </p>
+    <form hx-post="/api/onboarding/import-author"
+          hx-target="#import-result"
+          hx-swap="innerHTML"
+          hx-indicator="#import-spinner"
+          class="flex gap-2">
+      <input type="text"
+             name="author_url"
+             placeholder="e.g. https://www.semanticscholar.org/author/…/1234567"
+             class="input input-bordered input-sm flex-1 text-xs" />
+      <button class="btn btn-secondary btn-sm" type="submit">
+        Import
+        <span id="import-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+      </button>
+    </form>
+    <div id="import-result" class="mt-2"></div>
+  </div>
+
+  <div class="divider text-xs text-base-content/40">OR search manually</div>
+
   {# Search bar #}
   <div class="mb-4">
     <form hx-get="/api/onboarding/seed-search"
