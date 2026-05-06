@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api")
 
 # Phase 4.5: Pipeline version tag for instrumentation.  Bump this on any
 # change to the ranking logic so A/B attribution is possible.
-_RANKER_VERSION = "v4.1_quota_hungarian_suppression"
+_RANKER_VERSION = "v6.5_lightgbm_real_cosines"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3

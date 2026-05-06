@@ -1,8 +1,8 @@
 # ResearchIT — Master Task Tracker
 
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
-> **Last updated**: 2026-05-03  
-> **Current phase**: Phase 6 (LightGBM Reranker) — COMPLETE ✔ | Phase 7 next  
+> **Last updated**: 2026-05-05  
+> **Current phase**: Phase 6.5 (Instrumentation) — COMPLETE ✔ | Phase 7 next  
 
 ---
 
@@ -401,6 +401,47 @@
 - [~] Synthetic user simulator (`scripts/simulate_users.py`) — target: +30d
 - [~] Real-user retrain at 100-user threshold — target: +90d or threshold
 - [~] HF model card backfill (library_name, pipeline_tag, metrics, schema)
+
+## Phase 6.5: Instrumentation ✅ COMPLETE
+
+> **Purpose**: Stabilize the recommendation pipeline and prepare telemetry substrate for Phase 7 evaluation.
+
+### A1 — Real Qdrant cosine scores
+- [x] Switch `search_by_vector()` → `search_by_vector_with_scores()` in per-cluster + short-term searches
+- [x] Build `qdrant_score_map` from real cosines (replaces fake `1.0 - rank*0.01` linear decay)
+- [x] Feature 0 (`qdrant_cosine_score`) now receives actual cosine similarities
+
+### A2 — Deployment verification
+- [x] `curl /healthz/reranker` → `model_loaded=true, n_trees=141, fallback_active=false`
+- [x] Verification timestamp added to `PHASE6-Reranker-Framing.md`
+
+### B1 — query_id linkage
+- [x] Generate `query_id` (UUID) once per feed request in `get_recommendations()`
+- [x] Thread through all 4 tiers: trending, Tier 1, Tier 2, Tier 3
+- [x] Generate `query_id` in `search.py` per search request
+- [x] Add `query_id` + `position` to `action_buttons.html` hx-vals
+
+### B2 — Propensity logging
+- [x] Add `propensity REAL` + `policy_id TEXT` migration to `interactions` table
+- [x] Extend `db.log_interaction()` with propensity + policy_id params
+- [x] Compute propensity: 1.0 (deterministic) vs `n_explore/pool_size` (exploration)
+- [x] Thread through templates + `events.py` Form params
+
+### B3 — Cluster snapshot versioning
+- [x] Add `cluster_snapshots` table (append-only, content-addressed via `paper_ids_hash`)
+- [x] `save_cluster_snapshot()` called after each `save_clusters_to_db()`
+- [x] `prune_old_snapshots(30)` on startup in `main.py` lifespan
+
+### B4 — S2 author import (Phase 5.1)
+- [x] `app/s2_svc.py`: parse S2 URL / raw ID / ORCID, fetch author papers from S2 API
+- [x] `POST /api/onboarding/import-author` endpoint in `onboarding.py`
+- [x] Quick-import form added to `seed_search.html` template
+
+### Documentation
+- [x] `CLAUDE.md`: Rule 3.11 — interaction instrumentation invariants
+- [x] `_RANKER_VERSION` bumped to `v6.5_lightgbm_real_cosines`
+- [x] Phase status updated to 6.5 COMPLETE
+- [x] Tests: 203+ passing
 
 ### Test suite
 - `tests/test_reranker_integration.py` — 7 tests (smoke, features, heuristic, E2E, latency, backward compat, comparison)

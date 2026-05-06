@@ -160,11 +160,20 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 
 The per-cluster origin of each retrieved candidate is preserved end-to-end via `paper_cluster_map: dict[str, int]` (built in `recommendations.py` before `merge_quota_results()`). This mapping flows through to the reranker as per-candidate `cluster_importance` (N,) and `cluster_medoid` (N, 1024) arrays. **Do not re-introduce dominant-cluster shortcuts as "simplifications"** — LightGBM feature slot 24 (`cluster_distance_to_medoid`) depends on per-candidate medoids to correctly score papers from minority-interest clusters.
 
+### 3.11 Interaction instrumentation invariants (Phase 6.5)
+
+Every interaction logged via `db.log_interaction()` must carry **`query_id`**, **`propensity`**, and **`policy_id`**. These are required for Phase 7 evaluation:
+- `query_id` (UUID): links all papers in a single feed request for per-feed CTR.
+- `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
+- `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
+
+**When adding a new recommendation tier or call path**, always include these three fields in the `paper_tags` dict. The round-trip is: `recommendations.py` → paper dict → `action_buttons.html` `hx-vals` → `events.py` Form params → `db.log_interaction()`.
+
 ---
 
 ## 4. What is in scope vs out of scope right now
 
-**Current phase: Phase 6 COMPLETE; Phase 7 (Evaluation Framework) next.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
+**Current phase: Phase 6.5 COMPLETE; Phase 7 (Evaluation Framework) next.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
 
 **What has been built (Phases 1-2c):**
 - Qdrant BEST_SCORE recommend API (Tier 3 fallback)
@@ -459,4 +468,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-05-03. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-05-05. Update this date when CLAUDE.md changes.*
