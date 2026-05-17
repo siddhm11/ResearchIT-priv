@@ -10,6 +10,7 @@ The collection is 'arxiv_bgem3_dense' with integer point IDs and 1024-dim BGE-M3
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from functools import lru_cache
 
 from qdrant_client import QdrantClient
@@ -166,21 +167,75 @@ def _run_recommend(
 
 
 # ── Phase 2a: Vector retrieval + vector search ───────────────────────────────
+#
+# In-process LRU vector cache.
+# Profiling showed Qdrant Cloud free tier reads candidate vectors from
+# disk on every retrieve(), which dominated Tier 1 latency (9-18s for
+# 120 vectors). Vectors are 1024 floats = 4KB each. A 25K cap = ~100MB
+# RAM ceiling. Same papers appear across users' candidate sets (Zipf),
+# so steady-state hit rate is high.
+#
+# Vectors don't change once uploaded, so no TTL.
+
+_VECTOR_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
+_VECTOR_CACHE_MAX = 25_000
+
+
+def _vec_cache_get(arxiv_id: str) -> list[float] | None:
+    val = _VECTOR_CACHE.get(arxiv_id)
+    if val is not None:
+        _VECTOR_CACHE.move_to_end(arxiv_id)
+    return val
+
+
+def _vec_cache_put(arxiv_id: str, vec: list[float]) -> None:
+    if arxiv_id in _VECTOR_CACHE:
+        _VECTOR_CACHE.move_to_end(arxiv_id)
+        _VECTOR_CACHE[arxiv_id] = vec
+        return
+    _VECTOR_CACHE[arxiv_id] = vec
+    if len(_VECTOR_CACHE) > _VECTOR_CACHE_MAX:
+        _VECTOR_CACHE.popitem(last=False)
+
+
+def vector_cache_stats() -> dict:
+    return {"size": len(_VECTOR_CACHE), "max": _VECTOR_CACHE_MAX}
+
 
 async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
     """
-    Fetch actual BGE-M3 embedding vectors for papers from Qdrant.
+    Fetch BGE-M3 embedding vectors for papers from Qdrant.
     Returns {arxiv_id: vector_list} for papers found.
 
-    Used by EWMA profile updates — we need the paper's embedding
-    to blend into the user's profile vector.
+    Cached in-process by arxiv_id; only un-cached IDs hit Qdrant. The
+    Qdrant retrieve() that pulls the actual stored vectors is the
+    single most expensive call in the pipeline (BQ -> disk read), so
+    absorbing repeats here is a big win.
+
+    Used by:
+      - EWMA profile updates on save (events.py)
+      - Cluster medoid embedding load (recommendations.py)
+      - Tier 1 candidate vector fetch (recommendations.py, ~120 IDs)
     """
     if not arxiv_ids:
         return {}
 
-    id_map = await lookup_qdrant_ids(arxiv_ids)
+    # Cache check first — pull anything we already know.
+    result: dict[str, list[float]] = {}
+    misses: list[str] = []
+    for aid in arxiv_ids:
+        cached = _vec_cache_get(aid)
+        if cached is not None:
+            result[aid] = cached
+        else:
+            misses.append(aid)
+
+    if not misses:
+        return result
+
+    id_map = await lookup_qdrant_ids(misses)
     if not id_map:
-        return {}
+        return result
 
     point_ids = list(id_map.values())
     arxiv_by_point = {v: k for k, v in id_map.items()}
@@ -192,9 +247,8 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
         )
     except Exception as e:
         print(f"[qdrant_svc] get_paper_vectors error: {e}")
-        return {}
+        return result
 
-    result = {}
     for p in points:
         aid = p.payload.get("arxiv_id") or arxiv_by_point.get(p.id)
         if aid and p.vector:
@@ -202,6 +256,7 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
             vec = p.vector if isinstance(p.vector, list) else p.vector.get("dense", p.vector)
             if isinstance(vec, list):
                 result[aid] = vec
+                _vec_cache_put(aid, vec)
     return result
 
 
@@ -250,6 +305,7 @@ async def search_by_vector_with_scores(
     query_vector: list[float],
     limit: int = 20,
     exclude_ids: set[str] | None = None,
+    with_vectors: bool = False,
 ) -> list[dict]:
     """
     Vector search returning both arxiv_ids AND cosine scores.
@@ -257,29 +313,43 @@ async def search_by_vector_with_scores(
     Returns list of {'arxiv_id': str, 'score': float} dicts sorted by
     score desc, excluding any in exclude_ids.
 
-    Used by the recommendation pipeline (Phase 6.1+) to feed
-    qdrant_cosine_score (feature slot 0) to the LightGBM reranker.
+    If `with_vectors=True`, each dict also has a 'vector' key holding the
+    1024-dim BGE-M3 embedding. Returning vectors in the search response
+    avoids a separate `client.retrieve()` round-trip later — that retrieve
+    was ~9-18s on cold candidates because BQ rescore reads from disk.
     """
     loop = asyncio.get_event_loop()
     try:
         results = await loop.run_in_executor(
             None, _run_vector_search, query_vector,
             (limit * 2) if exclude_ids else limit,
+            with_vectors,
         )
     except Exception as e:
         print(f"[qdrant_svc] search_by_vector_with_scores error: {e}")
         return []
 
     exclude = exclude_ids or set()
-    filtered = [
-        {"arxiv_id": r.payload["arxiv_id"], "score": float(r.score)}
-        for r in results
-        if r.payload.get("arxiv_id") and r.payload["arxiv_id"] not in exclude
-    ]
-    return filtered[:limit]
+    out: list[dict] = []
+    for r in results:
+        aid = r.payload.get("arxiv_id")
+        if not aid or aid in exclude:
+            continue
+        item = {"arxiv_id": aid, "score": float(r.score)}
+        if with_vectors and r.vector:
+            # Named vectors return a dict; unnamed returns a list.
+            vec = r.vector if isinstance(r.vector, list) else r.vector.get("dense", r.vector)
+            if isinstance(vec, list):
+                item["vector"] = vec
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
 
 
-def _run_vector_search(query_vector: list[float], limit: int) -> list:
+def _run_vector_search(
+    query_vector: list[float], limit: int, with_vectors: bool = False,
+) -> list:
     """Sync helper: nearest-neighbour search by vector."""
     client = _client()
     result = client.query_points(
@@ -287,7 +357,7 @@ def _run_vector_search(query_vector: list[float], limit: int) -> list:
         query=query_vector,
         limit=limit,
         with_payload=True,
-        with_vectors=False,
+        with_vectors=with_vectors,
     )
     return result.points
 

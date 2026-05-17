@@ -9,6 +9,11 @@
 {% set position = position | default(0) %}
 {% set authors_list = paper.authors | default("[]") | tojson_parse | default([]) %}
 
+{# Fallback: if tojson_parse returned empty but authors is a non-empty string, split by comma #}
+{% if not authors_list and paper.authors %}
+  {% set authors_list = paper.authors.split(", ") %}
+{% endif %}
+
 {# Category badge colour mapping #}
 {% set cat = paper.category | default("") %}
 {% if cat.startswith("cs.") %}
@@ -43,19 +48,19 @@
     {% endif %}
   </div>
 
-  <!-- Meta: arXiv ID + year + citations -->
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
   <div class="text-xs text-base-content/50 mono">
     [{{ paper.arxiv_id }}]
     {% if paper.published %} · {{ paper.published[:4] }}{% endif %}
-    {% if authors_list %} · <span class="font-sans">{{ authors_list[:3] | join(", ") }}{% if authors_list | length > 3 %} et al.{% endif %}</span>{% endif %}
+    {% if authors_list %} · <span class="font-sans">{{ authors_list[:3] | join(", ") }}{% if authors_list | length > 3 %} et al. ({{ authors_list | length }} authors){% endif %}</span>{% endif %}
     {% if paper.citation_count %}
     · <span class="font-medium text-base-content/70 font-sans" title="{{ paper.influential_citations|default(0) }} influential">📊 {{ paper.citation_count }} citations</span>
     {% endif %}
   </div>
 
-  <!-- Abstract (truncated) -->
-  <p class="text-sm text-base-content/75 line-clamp-3">
-    {{ paper.abstract }}
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    {{ paper.abstract[:500] }}{% if paper.abstract | length > 500 %}…{% endif %}
   </p>
 
   <!-- Action buttons (HTMX-powered, swap themselves on click) -->

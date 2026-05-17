@@ -9,7 +9,7 @@ POST /api/onboarding/skip           → mark done (no categories), redirect to /
 """
 import uuid
 import json
-from fastapi import APIRouter, Request, Cookie, Form
+from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import db
 from app.config import COOKIE_NAME, CATEGORY_GROUPS
@@ -116,20 +116,14 @@ async def seed_search(
             except Exception:
                 pass
 
-    # Check current save count
-    from app import user_state as us
-    state = await us.ensure_loaded(user_id)
-    seed_count = len(state.positives)
-
+    # HTMX request: return ONLY the results partial (swap target = #seed-results).
+    # The full seed_search.html panel is rendered by save_categories() during the
+    # step 1 → step 2 transition; subsequent searches must not re-render the whole
+    # panel or it nests inside #seed-results and duplicates the wizard.
     resp = templates.TemplateResponse(
         request,
-        "partials/seed_search.html",
-        {
-            "papers": papers,
-            "query": q,
-            "seed_count": seed_count,
-            "seed_target": 5,
-        },
+        "partials/seed_results.html",
+        {"papers": papers, "query": q},
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
@@ -161,90 +155,4 @@ async def skip_onboarding(
     return resp
 
 
-@router.post("/api/onboarding/import-author", response_class=HTMLResponse)
-async def import_author(
-    request: Request,
-    author_url: str = Form(default=""),
-    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
-):
-    """Phase 5.1: Import papers from a Semantic Scholar author profile.
 
-    Accepts S2 URL, raw S2 author ID, or ORCID.
-    Auto-saves the author's arXiv papers as seed interests.
-    """
-    user_id = user_id or str(uuid.uuid4())
-
-    if not author_url.strip():
-        return HTMLResponse(
-            '<div class="alert alert-warning text-sm py-2">'
-            '⚠️ Please paste a Semantic Scholar author URL, ID, or ORCID.</div>'
-        )
-
-    from app import s2_svc, user_state as us
-
-    # 1. Parse input
-    parsed_id, input_type = s2_svc.parse_author_input(author_url)
-    if parsed_id is None:
-        return HTMLResponse(
-            '<div class="alert alert-error text-sm py-2">'
-            '❌ Could not recognise input. Paste a Semantic Scholar author URL, '
-            'a numeric author ID, or an ORCID (e.g. 0000-0003-3394-6622).</div>'
-        )
-
-    # 2. Resolve ORCID → S2 author ID if needed
-    try:
-        if input_type == "orcid":
-            s2_id = await s2_svc.resolve_orcid(parsed_id)
-            if not s2_id:
-                return HTMLResponse(
-                    '<div class="alert alert-warning text-sm py-2">'
-                    f'⚠️ No Semantic Scholar author found for ORCID {parsed_id}.</div>'
-                )
-        else:
-            s2_id = parsed_id
-    except Exception as e:
-        print(f"[onboarding] ORCID resolve failed: {e}")
-        return HTMLResponse(
-            '<div class="alert alert-error text-sm py-2">'
-            '❌ Failed to look up ORCID. Please try pasting the S2 URL directly.</div>'
-        )
-
-    # 3. Fetch arXiv papers
-    try:
-        arxiv_ids = await s2_svc.fetch_author_arxiv_papers(s2_id, limit=20)
-    except Exception as e:
-        print(f"[onboarding] S2 author paper fetch failed: {e}")
-        return HTMLResponse(
-            '<div class="alert alert-error text-sm py-2">'
-            '❌ Failed to fetch papers from Semantic Scholar. '
-            'The author ID may be invalid, or the API may be down.</div>'
-        )
-
-    if not arxiv_ids:
-        return HTMLResponse(
-            '<div class="alert alert-warning text-sm py-2">'
-            '⚠️ No arXiv papers found for this author. '
-            'They may publish in venues not indexed on arXiv.</div>'
-        )
-
-    # 4. Auto-save each paper as a positive interaction
-    for aid in arxiv_ids:
-        us.record_positive(user_id, aid)
-        await db.log_interaction(
-            user_id=user_id,
-            paper_id=aid,
-            event_type="save",
-            source="s2_import",
-        )
-
-    state = await us.ensure_loaded(user_id)
-    seed_count = len(state.positives)
-
-    resp = HTMLResponse(
-        f'<div class="alert alert-success text-sm py-2">'
-        f'✅ Imported {len(arxiv_ids)} papers! '
-        f'You now have {seed_count} saved papers. '
-        f'Click <strong>"Done — start exploring →"</strong> to see your recommendations.</div>'
-    )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
-    return resp

@@ -27,17 +27,23 @@ async def search(
     q: str = "",
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
+    import time
+    start_time = time.perf_counter()
+    search_meta = {}
     papers = []
     if q.strip():
         # Phase 3: Hybrid semantic search (BGE-M3 + Qdrant + Zilliz + RRF)
         try:
-            arxiv_ids = await hybrid_search_svc.search(q.strip(), limit=ARXIV_MAX_RESULTS)
+            arxiv_ids, search_meta = await hybrid_search_svc.search(
+                q.strip(), limit=ARXIV_MAX_RESULTS, return_meta=True
+            )
         except Exception as e:
             print(f"[search] Hybrid search error: {e}")
             arxiv_ids = []
 
         if arxiv_ids:
             # Phase 3.5: Fetch metadata from Turso DB first (fast, ~50ms)
+            t0_meta = time.perf_counter()
             try:
                 meta = await turso_svc.fetch_metadata_batch(arxiv_ids)
             except Exception as e:
@@ -52,6 +58,8 @@ async def search(
                     meta.update(arxiv_meta)
                 except Exception as e:
                     print(f"[search] arXiv fallback for {len(missing)} IDs failed: {e}")
+            
+            search_meta["meta_time_ms"] = int((time.perf_counter() - t0_meta) * 1000)
 
             # Phase 4.3: Cache to SQLite so dismissal category JOINs work
             await db.cache_turso_metadata_batch(list(meta.values()))
@@ -66,6 +74,8 @@ async def search(
             except Exception as e:
                 print(f"[search] arXiv fallback also failed: {e}")
                 papers = []
+        
+        search_meta["total_time_ms"] = int((time.perf_counter() - start_time) * 1000)
 
     user_id = user_id or str(uuid.uuid4())
     # Phase 6.5 B1: one query_id per search request for per-feed CTR
@@ -86,7 +96,7 @@ async def search(
         resp = templates.TemplateResponse(
             request,
             "partials/search_results.html",
-            {"papers": papers, "query": q},
+            {"papers": papers, "query": q, "search_meta": search_meta},
         )
     else:
         resp = templates.TemplateResponse(
@@ -96,6 +106,7 @@ async def search(
                 "papers": papers,
                 "query": q,
                 "has_recs": state.has_enough_for_recs(),
+                "search_meta": search_meta,
             },
         )
 

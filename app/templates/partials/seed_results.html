@@ -1,0 +1,41 @@
+{#
+  Seed search results — inner partial, swapped into #seed-results by HTMX.
+  Expects:
+    papers  – list[dict] (optional)
+    query   – str         (optional)
+#}
+{% if papers is defined and papers %}
+  {% for paper in papers %}
+  <div class="seed-card flex items-start justify-between gap-3"
+       id="seed-paper-{{ paper.arxiv_id }}">
+    <div class="flex-1 min-w-0">
+      <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener"
+         class="font-medium text-sm text-primary hover:underline leading-snug line-clamp-1">
+        {{ paper.title }}
+      </a>
+      <div class="text-xs text-base-content/50 mt-0.5">
+        [{{ paper.arxiv_id }}]
+        {% if paper.category %} · <span class="cat-badge cat-cs">{{ paper.category }}</span>{% endif %}
+        {% if paper.citation_count %} · 📊 {{ paper.citation_count }}{% endif %}
+      </div>
+    </div>
+    <button class="btn btn-primary btn-xs shrink-0"
+            hx-post="/api/papers/{{ paper.arxiv_id }}/save"
+            hx-target="#seed-paper-{{ paper.arxiv_id }}"
+            hx-swap="outerHTML"
+            hx-vals='{"source": "onboarding"}'
+            onclick="bumpSeedCount()">
+      ⭐ Save
+    </button>
+  </div>
+  {% endfor %}
+{% elif query is defined and query %}
+  <p class="text-center text-base-content/40 py-6 text-sm">
+    No results found for "{{ query }}"
+  </p>
+{% else %}
+  <p class="text-center text-base-content/30 py-6 text-sm">
+    Search above to find papers in your research area
+  </p>
+{% endif %}

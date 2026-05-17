@@ -17,6 +17,7 @@ Reference: Research-MultiInterest_Recommender_Architecture.md §2
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 import numpy as np
 from scipy.cluster.hierarchy import ward, fcluster
@@ -33,6 +34,14 @@ WARD_DISTANCE_THRESHOLD = 1.5
 # Absolute limits on cluster count
 MIN_CLUSTERS = 1
 MAX_CLUSTERS = 7   # RFC: PinnerSage uses 3-5 for typical users, cap at 7
+
+# Average papers per cluster floor — used to derive a soft cap on K from N.
+# K_soft_cap = max(MIN_CLUSTERS, ceil(N / AVG_CLUSTER_SIZE_FLOOR)).
+# Set to 4: at N=5 -> K_max=2, at N=10 -> K_max=3, at N=28 -> K_max=7.
+# Without this, gap-based thresholding over-splits at small N: 5 same-domain
+# papers were producing K=4 (3 singletons), which then got over-weighted by
+# the quota floor of 3 slots per cluster.
+AVG_CLUSTER_SIZE_FLOOR = 4
 
 # Minimum saved papers before clustering is meaningful
 MIN_PAPERS_FOR_CLUSTERING = 5
@@ -132,14 +141,36 @@ def compute_clusters(
     # Cut the dendrogram at the adaptive threshold
     labels = fcluster(linkage, t=threshold, criterion="distance")
 
-    # Clamp cluster count
+    # Clamp cluster count.
+    # Two layers:
+    #   1. Hard cap: never exceed MAX_CLUSTERS (=7) regardless of N.
+    #   2. Soft cap: keep average cluster size >= AVG_CLUSTER_SIZE_FLOOR.
+    #      This prevents the gap-detection from over-splitting small N
+    #      (e.g. 5 same-domain saves were producing K=4 with 3 singletons,
+    #      which then got over-weighted by the quota floor of 3 slots).
+    soft_cap = max(
+        MIN_CLUSTERS,
+        min(MAX_CLUSTERS, math.ceil(n / AVG_CLUSTER_SIZE_FLOOR)),
+    )
+
     unique_labels = np.unique(labels)
     n_clusters = len(unique_labels)
 
-    # If too many clusters, re-cut with a maxclust constraint
     if n_clusters > MAX_CLUSTERS:
         labels = fcluster(linkage, t=MAX_CLUSTERS, criterion="maxclust")
         unique_labels = np.unique(labels)
+        n_clusters = len(unique_labels)
+
+    if n_clusters > soft_cap:
+        labels = fcluster(linkage, t=soft_cap, criterion="maxclust")
+        unique_labels = np.unique(labels)
+        n_clusters = len(unique_labels)
+
+    # Final safety net: merge any remaining singleton clusters into their
+    # nearest non-singleton neighbour. The soft cap usually eliminates them,
+    # but a 6-1-1-1 distribution after maxclust=4 would still leave 3.
+    labels = _merge_singletons(labels, embeddings)
+    unique_labels = np.unique(labels)
 
     # Compute recency weights (position-based: most recent = highest weight)
     recency_weights = np.array([
@@ -182,6 +213,49 @@ def _find_medoid(embeddings: np.ndarray, centroid: np.ndarray) -> int:
     """Find the index of the embedding closest to the centroid."""
     distances = np.linalg.norm(embeddings - centroid, axis=1)
     return int(np.argmin(distances))
+
+
+def _merge_singletons(labels: np.ndarray, embeddings: np.ndarray) -> np.ndarray:
+    """Merge singleton clusters into their nearest non-singleton cluster.
+
+    Why: Ward's gap-based threshold can over-split at small N, producing
+    1-paper clusters that get over-weighted by the quota floor (3 slots
+    per cluster regardless of importance). Merging singletons into the
+    nearest non-singleton cluster preserves the multi-interest signal
+    where it's real and removes spurious singletons where it's noise.
+
+    Edge case: if every cluster is a singleton (all papers maximally
+    distant), we leave the labels alone — collapsing them would erase
+    a genuine multi-interest signal.
+    """
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    singleton_labels = unique_labels[counts == 1]
+    non_singleton_labels = unique_labels[counts > 1]
+
+    if len(singleton_labels) == 0:
+        return labels  # nothing to merge
+    if len(non_singleton_labels) == 0:
+        return labels  # all singletons — keep as is
+
+    centroids: dict[int, np.ndarray] = {}
+    for ns_label in non_singleton_labels:
+        ns_mask = labels == ns_label
+        centroids[int(ns_label)] = embeddings[ns_mask].mean(axis=0)
+
+    new_labels = labels.copy()
+    for s_label in singleton_labels:
+        s_idx = int(np.where(labels == s_label)[0][0])
+        s_emb = embeddings[s_idx]
+        best_label = int(s_label)
+        best_dist = float("inf")
+        for ns_label, centroid in centroids.items():
+            d = float(np.linalg.norm(s_emb - centroid))
+            if d < best_dist:
+                best_dist = d
+                best_label = ns_label
+        new_labels[s_idx] = best_label
+
+    return new_labels
 
 
 # ── Cluster ID stabilisation (Phase 4.2) ─────────────────────────────────────

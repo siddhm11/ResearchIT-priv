@@ -325,30 +325,30 @@
 
 ---
 
-## Phase 5: Cold-Start Onboarding 📋 NOT STARTED
+## Phase 5: Cold-Start Onboarding ✅ COMPLETE
 
-> *Build the hybrid onboarding pipeline for new users.*  
-> *Estimated effort: ~1-2 weeks*  
+> *Onboarding wizard for new users — category selection + seed paper search + trending fallback.*  
 > *Reference: Doc 06 — "4-37% lift even once behavioral data exists"*
 
-### 5.1 — arXiv Category Multi-Select
-- [ ] UI screen on first visit: select 3-5 arXiv categories
-- [ ] Store selections in SQLite
-- [ ] Use as pool filter for first 1-3 sessions
-- [ ] Preserve as LightGBM feature permanently
-- [ ] Does NOT create "subject vectors" — just filters
+### 5.1 — arXiv Category Multi-Select ✅
+- [x] UI screen on first visit: select 1-8 arXiv category groups
+- [x] Store selections in SQLite (`user_onboarding` table)
+- [x] Use as pool filter for recommendations (via `get_user_category_filter()`)
+- [x] Preserve as LightGBM feature permanently (Feature 26: `onboarding_category_match`)
+- [x] Does NOT create "subject vectors" — just filters
 
-### 5.2 — Seed Paper Import
-- [ ] Let users search for and save 3-5 seed papers during onboarding
-- [ ] Immediately create EWMA profiles + Ward clusters
-- [ ] Uses hybrid search (Phase 3) for discovery
+### 5.2 — Seed Paper Import ✅
+- [x] Let users search for and save seed papers during onboarding
+- [x] Immediately create EWMA profiles + Ward clusters on next feed request
+- [x] Uses hybrid search (Phase 3) for discovery
 
-### 5.3 — ORCID / Semantic Scholar Import (Stretch)
-- [ ] Accept ORCID ID → fetch authored papers → initial saves
-- [ ] Gives 10-50 papers of signal instantly
+### ~~5.3 — ORCID / Semantic Scholar Import~~ ❌ REMOVED
+> S2 author import was implemented but removed — not the onboarding direction we want.
+> Onboarding focuses on category selection + manual seed paper search.
 
-### 5.4 — Popularity Fallback
-- [ ] If user skips all onboarding: serve popularity-per-selected-category feed
+### 5.4 — Popularity Fallback ✅
+- [x] Category-filtered trending papers served via `turso_svc.fetch_trending_by_categories()`
+- [x] 1-hour TTL trending cache for performance
 
 ---
 
@@ -432,10 +432,10 @@
 - [x] `save_cluster_snapshot()` called after each `save_clusters_to_db()`
 - [x] `prune_old_snapshots(30)` on startup in `main.py` lifespan
 
-### B4 — S2 author import (Phase 5.1)
-- [x] `app/s2_svc.py`: parse S2 URL / raw ID / ORCID, fetch author papers from S2 API
-- [x] `POST /api/onboarding/import-author` endpoint in `onboarding.py`
-- [x] Quick-import form added to `seed_search.html` template
+### ~~B4 — S2 author import~~ ❌ REMOVED
+> S2 author import was implemented and then removed — not the onboarding direction we want.
+> `app/s2_svc.py`, the `/api/onboarding/import-author` endpoint, and the quick-import UI
+> have all been deleted. Onboarding uses category selection + manual seed search only.
 
 ### Documentation
 - [x] `CLAUDE.md`: Rule 3.11 — interaction instrumentation invariants

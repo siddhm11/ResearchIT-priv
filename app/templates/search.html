@@ -7,10 +7,9 @@
 
   <!-- Search bar -->
   <div class="card bg-base-100 shadow-md rounded-xl p-4">
-    <form hx-get="/search"
-          hx-target="#search-results"
+    <form hx-get="/search" 
+          hx-target="#search-results" 
           hx-push-url="true"
-          hx-indicator="#search-spinner"
           class="flex gap-2">
       <input type="text"
              name="q"
@@ -18,16 +17,38 @@
              placeholder="Search arXiv papers…"
              class="input input-bordered flex-1"
              autofocus />
-      <button class="btn btn-primary" type="submit">
-        Search
-        <span id="search-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
+      <button class="btn btn-primary flex items-center gap-2" type="submit">
+        <span class="search-btn-text">Search</span>
+        <span class="search-btn-loading hidden">
+          <span class="loading loading-spinner loading-sm"></span>
+          Searching…
+        </span>
       </button>
     </form>
   </div>
 
-  <!-- Recommendations (sidebar-style, loads async) -->
-  {% if has_recs %}
-  <div>
+  <!-- Loading overlay (outside search-results so it doesn't get swapped away) -->
+  <div id="search-loading" class="hidden">
+    <div class="flex flex-col items-center justify-center py-16 gap-4">
+      <span class="loading loading-ring loading-lg text-primary"></span>
+      <div class="text-sm text-base-content/60 animate-pulse">
+        Searching 1.6M papers across Qdrant + Zilliz…
+      </div>
+      <div class="flex gap-6 text-xs text-base-content/40 font-mono">
+        <span>Groq rewriting</span>
+        <span>→</span>
+        <span>BGE-M3 encoding</span>
+        <span>→</span>
+        <span>Vector retrieval</span>
+        <span>→</span>
+        <span>RRF + reranking</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recommendations — only when not actively searching -->
+  {% if has_recs and not query %}
+  <div id="rec-wrapper">
     <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
     <div id="rec-section"
          hx-get="/api/recommendations"
@@ -47,4 +68,29 @@
   </div>
 
 </div>
+
+<script>
+  // Show/hide loading overlay + HIDE recommendations when searching
+  document.body.addEventListener('htmx:beforeRequest', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'search-results') {
+      document.getElementById('search-loading').classList.remove('hidden');
+      document.getElementById('search-results').classList.add('opacity-30');
+      // Hide recommendations section when a search starts
+      var recWrapper = document.getElementById('rec-wrapper');
+      if (recWrapper) recWrapper.classList.add('hidden');
+      // Swap button text
+      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.remove('hidden'));
+    }
+  });
+  document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'search-results') {
+      document.getElementById('search-loading').classList.add('hidden');
+      document.getElementById('search-results').classList.remove('opacity-30');
+      // Restore button text
+      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.remove('hidden'));
+      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.add('hidden'));
+    }
+  });
+</script>
 {% endblock %}

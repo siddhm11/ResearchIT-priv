@@ -32,7 +32,7 @@
 | Component | Planned In | Blocked By |
 |---|---|---|
 | Evaluation framework (offline + online metrics) | Phase 7 | Not yet implemented |
-| ORCID / Scholar import (onboarding stretch) | Phase 5 (stretch) | Deferred |
+| ~~ORCID / Scholar import~~ | ~~Phase 5~~ | Removed (not the onboarding direction we want) |
 | LLM interest summaries per cluster | Phase 8 | Needs Claude/Groq API integration |
 | Exploration + collaborative filtering | Phase 9 | Needs user scale |
 
@@ -101,12 +101,12 @@ The latest deep research (Doc 06) adds critical nuance that **neither pure-behav
 
 > "The pure-behavioral position in Doc 03/05 is directionally right but structurally incomplete... item-level seeds + adaptive refinement beats both fixed-category questionnaires and pure-behavior-from-zero, and onboarding cues remain a 4–37% lift even once behavioral data exists."
 
-**The corrected position**: A three-layer hybrid:
+**The corrected position**: A two-layer hybrid:
 1. **Coarse arXiv-category multiselect** — filter and LightGBM feature (5-second cold-start signal)
-2. **Seed-paper / ORCID import** — initial behavioral profile (strong cold-start signal)
-3. **Ward clustering + medoid retrieval** — takes over at ~10 saves (production-grade personalization)
+2. **Seed paper search + save** — initial behavioral profile via manual discovery
+3. **Ward clustering + medoid retrieval** — takes over at ~5 saves (production-grade personalization)
 
-This resolves the tension: subject categories aren't the *primary* user model, but they *are* a useful prior for cold-start, filtering, and as re-ranking features.
+This resolves the tension: subject categories aren't the *primary* user model, but they *are* a useful prior for cold-start, filtering, and as re-ranking features. ORCID/S2 author import was explored and removed — manual seed search is the preferred onboarding path.
 
 ---
 
@@ -283,29 +283,30 @@ Turso cloud DB with 1.23GB of metadata + citation counts. Search time: ~10.7s �
 
 ---
 
-### Phase 5: Cold-Start Onboarding (COMPLETE)
+### Phase 5: Cold-Start Onboarding (COMPLETE ✅)
 
-Status: core flow implemented (categories + seed search + trending fallback). ORCID/Scholar import deferred.
+Status: fully implemented — categories + seed search + trending fallback.
 
 Build the onboarding pipeline that Doc 06 identifies as a 4-37% lift even once behavioral data exists.
 
-#### 5.1 arXiv Category Multi-Select
-A simple UI screen on first visit: select 3-5 arXiv categories (cs.CL, cs.CV, stat.ML, etc.).
-- Used as pool filter for first 1-3 sessions
-- Stored as a LightGBM feature permanently
+#### 5.1 arXiv Category Multi-Select ✅
+UI screen on first visit: select 1-8 arXiv category groups.
+- Used as pool filter for recommendations
+- Stored as a LightGBM feature permanently (Feature 26: `onboarding_category_match`)
 - Does NOT create "subject vectors" — just filters
 
-#### 5.2 Seed Paper Import
-Let users search for and save 3-5 seed papers during onboarding.
-- These immediately create EWMA profiles and Ward clusters
+#### 5.2 Seed Paper Import ✅
+Users search for and save seed papers during onboarding.
+- These immediately create EWMA profiles and Ward clusters on next feed request
 - Bypasses the "save 5 papers before any recs" cold-start trap
-- Scholar Inbox found this sufficient for good initial recommendations
-- **With hybrid search in place (Phase 3), seed paper search will use Qdrant vectors, not the arXiv API**
+- Uses hybrid search (Phase 3) for discovery
 
-#### 5.3 ORCID / Semantic Scholar ID Import (Stretch)
-If the user pastes their ORCID, ingest their authored papers as initial saves.
-- This gives the system 10-50 papers worth of signal instantly
-- Creates highly personalized clusters from Day 1
+#### ~~5.3 ORCID / Semantic Scholar ID Import~~ ❌ REMOVED
+S2 author import was implemented and then removed — not the onboarding direction we want.
+Onboarding focuses on category selection + manual seed paper search.
+
+#### 5.4 Popularity Fallback ✅
+Category-filtered trending papers via `turso_svc.fetch_trending_by_categories()` with 1-hour TTL cache.
 
 ---
 

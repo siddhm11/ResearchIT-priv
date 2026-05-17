@@ -13,6 +13,40 @@
       {% include "partials/paper_card.html" %}
     {% endfor %}
   </div>
+
+  {# Pipeline timing breakdown #}
+  {% if timing is defined and timing %}
+  <div class="mt-4 p-3 rounded-lg bg-base-200/50 border border-base-300/30">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-xs font-semibold text-base-content/60">⚡ Recommendation Pipeline Breakdown</span>
+    </div>
+    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-base-content/50">
+      {% if timing.clustering_ms is defined %}
+        <span>Ward Clustering: <span class="text-primary">{{ timing.clustering_ms }}ms</span></span>
+      {% endif %}
+      {% if timing.ann_retrieval_ms is defined %}
+        <span>ANN Retrieval: <span class="text-primary">{{ timing.ann_retrieval_ms }}ms</span></span>
+      {% endif %}
+      {% if timing.candidate_meta_ms is defined %}
+        <span>Candidate Meta: <span class="text-primary">{{ timing.candidate_meta_ms }}ms</span></span>
+      {% endif %}
+      {% if rerank_time_ms is defined %}
+        <span>LightGBM Rerank: <span class="text-primary">{{ rerank_time_ms }}ms</span></span>
+      {% endif %}
+      {% if timing.mmr_ms is defined %}
+        <span>MMR Diversity: <span class="text-primary">{{ timing.mmr_ms }}ms</span></span>
+      {% endif %}
+      {% if meta_time_ms is defined %}
+        <span>Final Metadata: <span class="text-primary">{{ meta_time_ms }}ms</span></span>
+      {% endif %}
+    </div>
+  </div>
+  {% elif rerank_time_ms is defined and meta_time_ms is defined %}
+  <div class="text-center pt-2 pb-1 text-xs text-base-content/40 font-mono">
+    ⚡ Reranking: {{ rerank_time_ms }}ms | Metadata: {{ meta_time_ms }}ms
+  </div>
+  {% endif %}
+
   <!-- Refresh button — lets user reload recs after saving more papers -->
   <div class="text-center pt-3">
     <button class="btn btn-ghost btn-sm"

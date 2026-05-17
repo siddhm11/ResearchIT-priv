@@ -13,20 +13,13 @@
     <p class="text-sm text-base-content/60 mb-4">
       Search arXiv, save papers you like — get personalised recommendations.
     </p>
-    <form hx-get="/search"
-          hx-target="#search-results"
-          hx-push-url="true"
-          hx-indicator="#search-spinner"
-          class="flex gap-2">
+    <form action="/search" method="get" class="flex gap-2">
       <input type="text"
              name="q"
              placeholder="e.g. transformer attention mechanism"
              class="input input-bordered flex-1"
              autofocus />
-      <button class="btn btn-primary" type="submit">
-        Search
-        <span id="search-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
-      </button>
+      <button class="btn btn-primary" type="submit">Search</button>
     </form>
   </div>
 
@@ -56,9 +49,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Search results (swapped in by HTMX) -->
-  <div id="search-results"></div>
 
 </div>
 {% endblock %}

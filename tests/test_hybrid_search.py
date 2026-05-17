@@ -102,56 +102,100 @@ class TestRRFFusion:
         assert gap_k10 > gap_k100
 
 
-# ── Recency rerank tests ─────────────────────────────────────────────────────
+# ── Title-match rerank tests ─────────────────────────────────────────────────
 
-class TestRecencyRerank:
-    """Test recency boosting in hybrid_search_svc."""
+class TestTitleMatchRerank:
+    """Test the title-match boost in hybrid_search_svc.
 
-    def test_recency_boost_newer_papers(self):
-        """Newer papers should get higher recency scores."""
-        from app.hybrid_search_svc import _recency_rerank
+    Recency rerank was removed (it crushed seminal old papers like
+    1706.03762 below newer "X is all you need" titles). Replaced with a
+    title-match boost that promotes papers whose title matches the query.
+    """
 
-        # Two papers with same RRF score but different ages
-        fused = [
-            {"arxiv_id": "2401.00001", "rrf_score": 0.5},  # Jan 2024
-            {"arxiv_id": "1501.00001", "rrf_score": 0.5},  # Jan 2015
-        ]
+    @pytest.mark.asyncio
+    async def test_exact_title_match_wins(self, monkeypatch):
+        """Paper with exact-title match should rank #1 even with low RRF."""
+        from app import hybrid_search_svc
 
-        ranked = _recency_rerank(fused)
-
-        # Newer paper (2401) should rank higher
-        assert ranked[0]["arxiv_id"] == "2401.00001"
-
-    def test_recency_preserves_strong_rrf(self):
-        """A much higher RRF score should still dominate over recency."""
-        from app.hybrid_search_svc import _recency_rerank
+        async def fake_meta(ids):
+            return {
+                "1706.03762": {"title": "Attention Is All You Need"},
+                "2404.01183": {"title": "Positioning Is All You Need"},
+            }
+        monkeypatch.setattr(hybrid_search_svc.turso_svc, "fetch_metadata_batch", fake_meta)
 
         fused = [
-            {"arxiv_id": "1501.00001", "rrf_score": 1.0},   # Old but high RRF
-            {"arxiv_id": "2401.00001", "rrf_score": 0.01},   # New but low RRF
+            {"arxiv_id": "2404.01183", "rrf_score": 0.0317},  # higher RRF
+            {"arxiv_id": "1706.03762", "rrf_score": 0.0164},  # lower RRF, exact match
         ]
+        ranked = await hybrid_search_svc._title_match_rerank(
+            fused, "attention is all you need"
+        )
+        assert ranked[0]["arxiv_id"] == "1706.03762"
 
-        ranked = _recency_rerank(fused)
+    @pytest.mark.asyncio
+    async def test_substring_match_beats_no_match(self, monkeypatch):
+        """A substring title match outranks no-match candidates."""
+        from app import hybrid_search_svc
 
-        # High RRF should still win (0.80 weight vs 0.20 recency)
-        assert ranked[0]["arxiv_id"] == "1501.00001"
+        async def fake_meta(ids):
+            return {
+                "2501.05730": {"title": "Element-wise Attention Is All You Need"},
+                "9999.99999": {"title": "An Unrelated Survey of Graph Theory"},
+            }
+        monkeypatch.setattr(hybrid_search_svc.turso_svc, "fetch_metadata_batch", fake_meta)
 
-    def test_recency_empty_input(self):
+        fused = [
+            {"arxiv_id": "9999.99999", "rrf_score": 0.05},     # higher RRF, no match
+            {"arxiv_id": "2501.05730", "rrf_score": 0.01},     # lower RRF, substring match
+        ]
+        ranked = await hybrid_search_svc._title_match_rerank(
+            fused, "attention is all you need"
+        )
+        assert ranked[0]["arxiv_id"] == "2501.05730"
+
+    @pytest.mark.asyncio
+    async def test_no_match_falls_back_to_rrf(self, monkeypatch):
+        """When nothing matches, RRF order is preserved."""
+        from app import hybrid_search_svc
+
+        async def fake_meta(ids):
+            return {
+                "1234.56789": {"title": "Some Paper"},
+                "9876.54321": {"title": "Another Paper"},
+            }
+        monkeypatch.setattr(hybrid_search_svc.turso_svc, "fetch_metadata_batch", fake_meta)
+
+        fused = [
+            {"arxiv_id": "1234.56789", "rrf_score": 0.05},
+            {"arxiv_id": "9876.54321", "rrf_score": 0.01},
+        ]
+        ranked = await hybrid_search_svc._title_match_rerank(fused, "transformer")
+        assert [r["arxiv_id"] for r in ranked] == ["1234.56789", "9876.54321"]
+
+    @pytest.mark.asyncio
+    async def test_empty_input(self):
         """Empty input returns empty output."""
-        from app.hybrid_search_svc import _recency_rerank
-        assert _recency_rerank([]) == []
+        from app import hybrid_search_svc
+        assert await hybrid_search_svc._title_match_rerank([], "anything") == []
 
-    def test_recency_unparseable_id(self):
-        """Papers with unparseable IDs get neutral recency (0.5)."""
-        from app.hybrid_search_svc import _recency_rerank
+    @pytest.mark.asyncio
+    async def test_turso_failure_falls_back_to_rrf(self, monkeypatch):
+        """If Turso lookup raises, ranking falls back to pure RRF order."""
+        from app import hybrid_search_svc
+
+        async def boom(ids):
+            raise RuntimeError("turso down")
+        monkeypatch.setattr(hybrid_search_svc.turso_svc, "fetch_metadata_batch", boom)
 
         fused = [
-            {"arxiv_id": "math/0301001", "rrf_score": 0.5},
+            {"arxiv_id": "1234.56789", "rrf_score": 0.05},
+            {"arxiv_id": "9876.54321", "rrf_score": 0.01},
         ]
-
-        ranked = _recency_rerank(fused)
-        assert len(ranked) == 1
-        assert "final_score" in ranked[0]
+        ranked = await hybrid_search_svc._title_match_rerank(fused, "attention")
+        assert [r["arxiv_id"] for r in ranked] == ["1234.56789", "9876.54321"]
+        # final_score must be set even on the fallback path
+        assert all("final_score" in r for r in ranked)
 
 
 # ── Groq rewriter tests ─────────────────────────────────────────────────────

@@ -45,7 +45,7 @@ try:
         if _path and os.path.isfile(_path):
             _lgb_model = lgb.Booster(model_file=_path)
             _USE_LGB = True
-            print(f"[reranker] ✅ LightGBM model loaded from {_path}")
+            print(f"[reranker] SUCCESS: LightGBM model loaded from {_path}")
             print(f"[reranker]   trees={_lgb_model.num_trees()}, features={_lgb_model.num_feature()}")
             break
 

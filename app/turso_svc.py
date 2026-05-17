@@ -15,10 +15,63 @@ from __future__ import annotations
 
 import json
 import time
+from collections import OrderedDict
 
 import httpx
 
 from app import config
+
+
+# ── In-process metadata cache ────────────────────────────────────────────────
+#
+# Recommendations + search both fetch metadata for hundreds of arxiv_ids per
+# request, often the same well-known papers across users. Each round-trip is
+# 1-3s on a 1.6M-row libSQL DB. An in-process LRU absorbs the repeats.
+#
+# Trade-offs:
+#   - Asyncio is single-threaded, no lock needed.
+#   - Paper title/abstract/authors are effectively immutable for our use,
+#     so we don't TTL-expire metadata. citation_count drifts but is only
+#     used for display ranking; staleness is fine.
+#   - 50K capacity at ~1KB per row -> ~50MB RAM ceiling.
+
+_METADATA_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_METADATA_CACHE_MAX = 50_000
+
+
+def _cache_get(arxiv_id: str) -> dict | None:
+    val = _METADATA_CACHE.get(arxiv_id)
+    if val is not None:
+        # Mark as MRU
+        _METADATA_CACHE.move_to_end(arxiv_id)
+    return val
+
+
+def _cache_put(arxiv_id: str, paper: dict) -> None:
+    if arxiv_id in _METADATA_CACHE:
+        _METADATA_CACHE.move_to_end(arxiv_id)
+        _METADATA_CACHE[arxiv_id] = paper
+        return
+    _METADATA_CACHE[arxiv_id] = paper
+    if len(_METADATA_CACHE) > _METADATA_CACHE_MAX:
+        # Evict LRU
+        _METADATA_CACHE.popitem(last=False)
+
+
+def metadata_cache_stats() -> dict:
+    """For diagnostics: current cache size and max."""
+    return {"size": len(_METADATA_CACHE), "max": _METADATA_CACHE_MAX}
+
+
+# ── In-process trending cache ────────────────────────────────────────────────
+#
+# Trending is filter-by-LIKE on 1.6M rows -> ~15s cold. Onboarding has a
+# small fixed set of category combinations, and citation counts barely
+# change minute-to-minute. A short TTL converts the 15s wait into a
+# one-time hit per category combo.
+
+_TRENDING_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_TRENDING_TTL_SECONDS = 60 * 60  # 1 hour
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -37,11 +90,31 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
     Paper dict has keys: arxiv_id, title, abstract, authors, category,
     published, year, citation_count, influential_citations.
 
-    Uses Turso HTTP pipeline API — single HTTP request for all IDs.
+    First checks the in-process LRU cache; only un-cached IDs hit the network.
     """
     if not arxiv_ids:
         return {}
 
+    # Cache check — pull anything already-known up front.
+    output: dict[str, dict] = {}
+    misses: list[str] = []
+    for aid in arxiv_ids:
+        cached = _cache_get(aid)
+        if cached is not None:
+            output[aid] = cached
+        else:
+            misses.append(aid)
+
+    if not misses:
+        return output
+
+    fetched = await _fetch_metadata_batch_uncached(misses)
+    output.update(fetched)
+    return output
+
+
+async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict]:
+    """Network fetch for IDs we don't already have cached."""
     url = config.TURSO_URL
     token = config.TURSO_DB_TOKEN
 
@@ -133,6 +206,7 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
         paper = _to_paper_dict(values)
         if paper:
             output[paper["arxiv_id"]] = paper
+            _cache_put(paper["arxiv_id"], paper)
 
     return output
 
@@ -211,27 +285,52 @@ async def fetch_trending_by_categories(
     Fetch recently published, high-citation papers from Turso DB
     filtered by arXiv categories. Used as Tier 0 popularity fallback
     for onboarded users with zero saves.
+
+    Cached in-process (1 hour TTL): citation counts barely change
+    minute-to-minute, and onboarding has a small fixed set of category
+    combinations, so the first cold-start hit pays the ~15s LIKE-scan
+    cost once and subsequent users get an instant hit.
+
+    Filter strategy:
+      Turso's `primary_topic` column stores friendly labels like
+      "AI/ML" / "Computer Vision" — NOT arxiv codes — and the mapping
+      from arxiv code to friendly label is not 1:1 (e.g. Vaswani's
+      cs.CL paper is labeled "AI/ML" while BERT's cs.CL paper is
+      labeled "NLP/Computational Linguistics"). The `categories`
+      column, however, contains the real space-separated arxiv codes
+      ("cs.CL cs.LG"). So we filter via LIKE on `categories`.
+
+      Performance: LIKE '%cs.XX%' with leading wildcard skips the index,
+      but Turso's `citation_count > 0` filter + ORDER BY citation_count
+      narrows the scan, and trending is not a hot path.
     """
     if not categories:
         return []
+
+    cache_key = (tuple(sorted(categories)), limit)
+    cached = _TRENDING_CACHE.get(cache_key)
+    if cached is not None and (time.time() - cached[0]) < _TRENDING_TTL_SECONDS:
+        return cached[1]
 
     url = config.TURSO_URL
     token = config.TURSO_DB_TOKEN
     if not url or not token:
         return []
 
-    # Build query: papers in selected categories, sorted by citation count
-    placeholders = ", ".join(["?" for _ in categories])
+    cat_list = list(categories)
+    # categories column is space-separated arxiv codes; arxiv codes
+    # don't share substrings (no code is a substring of another), so
+    # plain LIKE '%code%' is safe.
+    like_clauses = " OR ".join(["categories LIKE ?" for _ in cat_list])
     sql = f"""SELECT arxiv_id, title, authors, categories, primary_topic,
                      update_date, abstract_preview, citation_count, influential_citations
               FROM papers
-              WHERE primary_topic IN ({placeholders})
+              WHERE ({like_clauses})
                 AND citation_count > 0
               ORDER BY citation_count DESC, update_date DESC
               LIMIT ?"""
 
-    cat_list = list(categories)
-    args = [{"type": "text", "value": c} for c in cat_list]
+    args = [{"type": "text", "value": f"%{c}%"} for c in cat_list]
     args.append({"type": "integer", "value": str(limit)})
 
     pipeline_url = url.rstrip("/")
@@ -254,16 +353,29 @@ async def fetch_trending_by_categories(
         "Content-Type": "application/json",
     }
 
+    # Use a longer timeout than metadata fetch — full table scan
+    # for citation-sorted trending against 1.6M rows can spike to
+    # 15-25s on the first cold hit. Once cached, warm reads are 0ms.
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{pipeline_url}/v2/pipeline",
                 json=payload,
                 headers=headers,
             )
             resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        # Surface response body on HTTP errors — Turso's empty-string
+        # exceptions were the symptom that hid this bug for months.
+        body = ""
+        try:
+            body = e.response.text[:500]
+        except Exception:
+            pass
+        print(f"[turso] trending HTTP error {e.response.status_code}: {body}")
+        return []
     except Exception as e:
-        print(f"[turso] trending query failed: {e}")
+        print(f"[turso] trending request failed: {type(e).__name__}: {e!r}")
         return []
 
     try:
@@ -282,7 +394,7 @@ async def fetch_trending_by_categories(
         cols = [c["name"] for c in result_data.get("cols", [])]
         rows = result_data.get("rows", [])
     except (KeyError, IndexError, TypeError) as e:
-        print(f"[turso] trending parse error: {e}")
+        print(f"[turso] trending parse error: {type(e).__name__}: {e!r}")
         return []
 
     papers = []
@@ -299,4 +411,10 @@ async def fetch_trending_by_categories(
             papers.append(paper)
 
     print(f"[turso] trending: {len(papers)} papers in {len(categories)} categories")
+    if papers:
+        _TRENDING_CACHE[cache_key] = (time.time(), papers)
+        # Also seed metadata cache — these papers are likely to be
+        # fetched again as part of recommendations / display.
+        for p in papers:
+            _cache_put(p["arxiv_id"], p)
     return papers

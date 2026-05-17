@@ -276,7 +276,7 @@ curl -s https://siddhm11-researchit.hf.space/healthz/reranker | python -m json.t
 | `TURSO_URL` | Yes | Turso database URL |
 | `TURSO_DB_TOKEN` | Yes | Turso auth token |
 | `GROQ_API_KEY` | Yes | Groq API key for query rewriting |
-| `S2_API_KEY` | No | Semantic Scholar API key (training only) |
+| `S2_API_KEY` | No | Semantic Scholar API key (offline training scripts only, not used by the app) |
 | `RERANKER_MODEL_PATH` | No | Override LightGBM model file path |
 | `DB_PATH` | No | SQLite path (default: `interactions.db`) |
 

@@ -14,7 +14,7 @@ python-multipart>=0.0.9
 FlagEmbedding>=1.2.9
 transformers>=4.44,<5.0
 pymilvus>=2.4
-groq>=0.9
+groq>=1.0  # 1.0+ drops the `proxies` kwarg internally so httpx>=0.28 works
 python-dotenv>=1.0
 
 # ── Phase 6: LightGBM reranker ───────────────────────────────────────────

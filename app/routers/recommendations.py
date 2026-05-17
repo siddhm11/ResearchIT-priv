@@ -16,6 +16,7 @@ Phase 4 changes vs Phase 2b:
   - Category-level suppression filters strongly disliked topics (4.3)
 """
 import asyncio
+import time
 import uuid
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
@@ -110,9 +111,11 @@ async def get_recommendations(
     # populated by whichever tier serves the result.
     paper_tags: dict[str, dict] = {}
     rec_arxiv_ids: list[str] = []
+    rerank_time_ms = 0
+    timing_breakdown: dict = {}
 
     # ── Tier 1: Multi-interest clustering + quota fusion (≥5 saves) ──────
-    rec_arxiv_ids, paper_tags = await _multi_interest_recommend(
+    rec_arxiv_ids, paper_tags, rerank_time_ms, timing_breakdown = await _multi_interest_recommend(
         user_id, state, seen, REC_LIMIT, query_id=query_id,
     )
 
@@ -151,6 +154,7 @@ async def get_recommendations(
         return _empty_resp()
 
     # Phase 3.5: Turso primary, arXiv API fallback
+    t0_meta = time.time()
     meta = await turso_svc.fetch_metadata_batch(rec_arxiv_ids)
     missing = [aid for aid in rec_arxiv_ids if aid not in meta]
     if missing:
@@ -159,6 +163,8 @@ async def get_recommendations(
             meta.update(arxiv_meta)
         except Exception as e:
             print(f"[recommendations] arXiv fallback for {len(missing)} IDs failed: {e}")
+    t1_meta = time.time()
+    meta_time_ms = int((t1_meta - t0_meta) * 1000)
 
     # Cache to SQLite so category suppression JOINs work (Phase 4.3)
     await db.cache_turso_metadata_batch(list(meta.values()))
@@ -187,7 +193,12 @@ async def get_recommendations(
     resp = templates.TemplateResponse(
         request,
         "partials/recommendations.html",
-        {"papers": papers},
+        {
+            "papers": papers,
+            "rerank_time_ms": rerank_time_ms,
+            "meta_time_ms": meta_time_ms,
+            "timing": timing_breakdown,
+        },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
@@ -210,18 +221,20 @@ async def _multi_interest_recommend(
       7. MMR diversity → select top-k with diversity
       8. Exploration injection → serendipitous papers
 
-    Returns ([], {}) to trigger fallback to Tier 2.
+    Returns ([], {}, 0, {}) to trigger fallback to Tier 2.
     Phase 4.5: second element is {arxiv_id: {ranker_version, candidate_source, cluster_id}}.
     """
     positives = state.positive_list
     if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
-        return [], {}
+        return [], {}, 0, {}
 
     try:
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
         if len(vectors) < MIN_PAPERS_FOR_CLUSTERING:
-            return [], {}
+            return [], {}, 0, {}
+
+        timing = {}  # Collect per-stage timing breakdown
 
         # Build aligned arrays (only papers we got vectors for)
         aligned_ids = [pid for pid in positives if pid in vectors]
@@ -230,6 +243,7 @@ async def _multi_interest_recommend(
         )
 
         # ── Step 1: Compute interest clusters ─────────────────────────────
+        t0_cluster = time.time()
         clusters = compute_clusters(aligned_ids, aligned_embs)
 
         # ── Step 4.2: Stabilise cluster IDs with Hungarian matching ───────
@@ -267,6 +281,7 @@ async def _multi_interest_recommend(
                 clusters = stabilize_cluster_ids(clusters, old_clusters)
 
         await save_clusters_to_db(user_id, clusters)
+        timing["clustering_ms"] = int((time.time() - t0_cluster) * 1000)
 
         # Phase 6.5 B3: append snapshot for cluster history (non-blocking)
         try:
@@ -289,8 +304,15 @@ async def _multi_interest_recommend(
         quotas = allocate_quotas(importances, total_slots=100, min_slots=3)
 
         # ── Step 3: Parallel per-cluster ANN searches ─────────────────────
+        t0_ann = time.time()
         st_vec = await profiles.load_profile(user_id, "short_term")
 
+        # NOTE on latency: we previously tried passing with_vectors=True
+        # to fold the candidate-vector fetch into the search call. That
+        # made it *worse* on Qdrant Cloud free tier — search latency
+        # ballooned from ~2s to ~40s because returning vectors triggers
+        # a per-result disk read inside the search path. Keep the search
+        # vector-free; vectors come from a separate cached retrieve.
         search_tasks = [
             qdrant_svc.search_by_vector_with_scores(
                 query_vector=c.medoid_embedding.tolist(),
@@ -301,20 +323,16 @@ async def _multi_interest_recommend(
         ]
         per_cluster_scored = await asyncio.gather(*search_tasks)
 
-        # Build paper → cluster map AND real qdrant_score_map in one pass.
-        # Phase 6.5 A1: replaces the old rank-based linear decay approximation.
         paper_cluster_map: dict[str, int] = {}
         qdrant_score_map: dict[str, float] = {}
         for cluster, scored_results in zip(clusters, per_cluster_scored):
             for hit in scored_results:
                 aid = hit["arxiv_id"]
-                if aid not in paper_cluster_map:  # first-occurrence wins
+                if aid not in paper_cluster_map:
                     paper_cluster_map[aid] = cluster.cluster_idx
-                # Keep highest cosine if a paper appears in multiple clusters
                 if aid not in qdrant_score_map or hit["score"] > qdrant_score_map[aid]:
                     qdrant_score_map[aid] = float(hit["score"])
 
-        # merge_quota_results expects list[list[str]] — extract IDs
         per_cluster_ids = [
             [h["arxiv_id"] for h in scored] for scored in per_cluster_scored
         ]
@@ -337,9 +355,14 @@ async def _multi_interest_recommend(
                     qdrant_score_map[aid] = float(hit["score"])
 
         if not candidate_ids:
-            return [], {}
+            return [], {}, 0, {}
+        timing["ann_retrieval_ms"] = int((time.time() - t0_ann) * 1000)
 
         # ── Step 5: Fetch candidate vectors + metadata ────────────────────
+        # get_paper_vectors is now LRU-cached by arxiv_id (qdrant_svc),
+        # so warm cache makes this cheap; only fresh papers pay the
+        # disk-read cost.
+        t0_cand_meta = time.time()
         cand_vectors = await qdrant_svc.get_paper_vectors(candidate_ids)
         cand_meta = await turso_svc.fetch_metadata_batch(candidate_ids)
         cand_missing = [cid for cid in candidate_ids if cid not in cand_meta]
@@ -356,7 +379,8 @@ async def _multi_interest_recommend(
         # Only process candidates with both vectors and metadata
         valid_ids = [cid for cid in candidate_ids if cid in cand_vectors and cid in cand_meta]
         if not valid_ids:
-            return candidate_ids[:limit], {}
+            return candidate_ids[:limit], {}, 0, {}
+        timing["candidate_meta_ms"] = int((time.time() - t0_cand_meta) * 1000)
 
         valid_embs = np.array([cand_vectors[cid] for cid in valid_ids], dtype=np.float32)
         valid_meta = [cand_meta[cid] for cid in valid_ids]
@@ -427,6 +451,7 @@ async def _multi_interest_recommend(
         )
 
         # ── Step 6: LightGBM re-ranking (37 features) ────────────────────
+        t0_rerank = time.time()
         reranked_ids, reranked_scores, reranked_embs = rerank_candidates(
             candidate_ids=valid_ids,
             candidate_embeddings=valid_embs,
@@ -443,6 +468,8 @@ async def _multi_interest_recommend(
             user_total_saves=user_total_saves,
             user_total_dismissals=user_total_dismissals,
         )
+        t1_rerank = time.time()
+        rerank_time_ms = int((t1_rerank - t0_rerank) * 1000)
 
         # ── Step 4.3: Category suppression (post-rerank safety net) ───────
         # The model now sees feature 25 (is_suppressed_category), but we
@@ -459,6 +486,7 @@ async def _multi_interest_recommend(
                 reranked_embs = reranked_embs[kept]
 
         # ── Step 7: MMR diversity enforcement ─────────────────────────────
+        t0_mmr = time.time()
         query_vec = lt_vec if lt_vec is not None else aligned_embs.mean(axis=0)
         mmr_selected = mmr_rerank(
             query_embedding=query_vec,
@@ -468,6 +496,7 @@ async def _multi_interest_recommend(
             lambda_param=0.6,
             top_k=limit,
         )
+        timing["mmr_ms"] = int((time.time() - t0_mmr) * 1000)
 
         # ── Step 8: Exploration injection ─────────────────────────────────
         final = inject_exploration(
@@ -508,11 +537,11 @@ async def _multi_interest_recommend(
                 "policy_id": _RANKER_VERSION,
             }
 
-        return final, paper_tags
+        return final, paper_tags, rerank_time_ms, timing
 
     except Exception as e:
-        print(f"[recommendations] multi-interest search failed: {e}")
-        return [], {}
+        print(f"[recommendations] multi-interest preprocessing failed: {e}")
+        return [], {}, 0, {}
 
 
 # ── Tier 2: EWMA single-vector search ────────────────────────────────────────

@@ -15,30 +15,6 @@
     </p>
   </div>
 
-  {# Phase 5.1: Quick author import #}
-  <div class="mb-4 p-3 bg-base-200/50 rounded-lg">
-    <p class="text-xs font-medium text-base-content/70 mb-2">
-      ⚡ Quick import: Paste your Semantic Scholar profile URL to auto-import papers
-    </p>
-    <form hx-post="/api/onboarding/import-author"
-          hx-target="#import-result"
-          hx-swap="innerHTML"
-          hx-indicator="#import-spinner"
-          class="flex gap-2">
-      <input type="text"
-             name="author_url"
-             placeholder="e.g. https://www.semanticscholar.org/author/…/1234567"
-             class="input input-bordered input-sm flex-1 text-xs" />
-      <button class="btn btn-secondary btn-sm" type="submit">
-        Import
-        <span id="import-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
-      </button>
-    </form>
-    <div id="import-result" class="mt-2"></div>
-  </div>
-
-  <div class="divider text-xs text-base-content/40">OR search manually</div>
-
   {# Search bar #}
   <div class="mb-4">
     <form hx-get="/api/onboarding/seed-search"
@@ -68,43 +44,9 @@
     </div>
   </div>
 
-  {# Search results #}
+  {# Search results — inner div is the HTMX swap target #}
   <div id="seed-results" class="space-y-2 mb-6">
-    {% if papers is defined and papers %}
-      {% for paper in papers %}
-      <div class="seed-card flex items-start justify-between gap-3"
-           id="seed-paper-{{ paper.arxiv_id }}">
-        <div class="flex-1 min-w-0">
-          <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
-             target="_blank" rel="noopener"
-             class="font-medium text-sm text-primary hover:underline leading-snug line-clamp-1">
-            {{ paper.title }}
-          </a>
-          <div class="text-xs text-base-content/50 mt-0.5">
-            [{{ paper.arxiv_id }}]
-            {% if paper.category %} · <span class="cat-badge cat-cs">{{ paper.category }}</span>{% endif %}
-            {% if paper.citation_count %} · 📊 {{ paper.citation_count }}{% endif %}
-          </div>
-        </div>
-        <button class="btn btn-primary btn-xs shrink-0"
-                hx-post="/api/papers/{{ paper.arxiv_id }}/save"
-                hx-target="#seed-paper-{{ paper.arxiv_id }}"
-                hx-swap="outerHTML"
-                hx-vals='{"source": "onboarding"}'
-                onclick="bumpSeedCount()">
-          ⭐ Save
-        </button>
-      </div>
-      {% endfor %}
-    {% elif query is defined and query %}
-      <p class="text-center text-base-content/40 py-6 text-sm">
-        No results found for "{{ query }}"
-      </p>
-    {% else %}
-      <p class="text-center text-base-content/30 py-6 text-sm">
-        Search above to find papers in your research area
-      </p>
-    {% endif %}
+    {% include "partials/seed_results.html" %}
   </div>
 
   {# Done / Skip buttons #}

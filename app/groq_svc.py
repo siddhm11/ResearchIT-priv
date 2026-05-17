@@ -45,29 +45,29 @@ def _get_client():
 
 _SYSTEM_PROMPT = """You are an academic search query optimizer for arXiv papers.
 
-Your job: Convert casual or vague user queries into dense, keyword-rich academic search strings that will match arXiv paper titles and abstracts.
+Your job: Convert casual or conversational user queries into academic search strings.
 
 Rules:
 1. Output ONLY the rewritten query string — no explanation, no quotes, no preamble.
-2. Include standard academic terms, model names, acronyms, and author-style keywords.
-3. Keep the output to 8-15 words maximum.
-4. If the query already looks academic, return it with minimal changes.
+2. If the user's query is casual or conversational, rewrite it using standard academic terms.
+3. CRITICAL: If the query is ALREADY a precise technical term, a single keyword, an acronym, or a known paper title (e.g., "perplexity", "transformers", "Adam optimizer"), DO NOT expand it. Return it EXACTLY AS IS. Do NOT add random related words.
+4. Never output more than 8 words.
 
 Examples:
 User: "when AI makes up fake facts"
-Output: LLM hallucination factual errors sycophancy truthfulness survey
+Output: LLM hallucination factual errors
 
 User: "the llama model by facebook"
-Output: LLaMA open efficient foundation language model Meta AI
+Output: LLaMA foundation language model Meta AI
 
-User: "how to make images from text"
-Output: text-to-image generation diffusion models latent space
+User: "perplexity"
+Output: perplexity
 
-User: "papers about making language models smaller"
-Output: language model compression distillation pruning quantization efficient
+User: "attention is all you need"
+Output: attention is all you need
 
-User: "whisper speech recognition"
-Output: Whisper OpenAI automatic speech recognition multilingual"""
+User: "gradient descent"
+Output: gradient descent"""
 
 
 # ── Heuristic: should we skip rewriting? ─────────────────────────────────────
@@ -85,8 +85,14 @@ _ACADEMIC_PATTERN = re.compile(
 
 
 def _looks_academic(query: str) -> bool:
-    """Heuristic: skip rewriting if query already has academic terms."""
+    """Heuristic: skip rewriting if query already looks academic or is very short."""
     words = query.split()
+    
+    # 1-2 word queries are usually precise keywords or author names (e.g., "perplexity", "lecun")
+    # Expanding them almost always ruins the precision.
+    if len(words) <= 2:
+        return True
+        
     if len(words) > 6:
         matches = len(_ACADEMIC_PATTERN.findall(query))
         if matches >= 2:

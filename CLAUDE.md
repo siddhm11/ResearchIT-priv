@@ -205,6 +205,7 @@ Every interaction logged via `db.log_interaction()` must carry **`query_id`**, *
 - Onboarding wizard (category multi-select + seed search)
 - Category-filtered trending fallback
 - Dark-mode base UI + updated paper cards
+- S2/ORCID author import was explored and **removed** — not the direction we want
 
 **Phase 6 — LightGBM reranker (COMPLETE ✅):**
 - LightGBM LambdaRank (141 trees, 37 features) integrated with heuristic fallback
@@ -216,6 +217,7 @@ Every interaction logged via `db.log_interaction()` must carry **`query_id`**, *
 - Phase 6.4 (retraining) deferred: gated on 100 users or synthetic simulator
 
 **Out of scope until later phases — do not build:**
+- S2/ORCID author import for onboarding (removed — not the direction we want).
 - Collaborative filtering / LightFM (Phase 9, 500+ users).
 - Cross-encoder reranking in serving path (never; only distilled — Phase 8).
 - Claude/Groq-generated cluster summaries (Phase 8).
