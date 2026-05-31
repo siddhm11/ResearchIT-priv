@@ -64,11 +64,9 @@
             0 selected
           </span>
           <div class="flex gap-2">
-            <form action="/api/onboarding/skip" method="post">
-              <button type="submit" class="btn btn-ghost btn-sm">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="skipOnboarding()">
                 Skip for now
-              </button>
-            </form>
+            </button>
             <button class="btn btn-primary btn-sm" id="continue-btn"
                     onclick="submitCategories()" disabled>
               Continue →
@@ -137,6 +135,16 @@
         btn.disabled = false;
         btn.textContent = 'Continue →';
       }
+    }
+
+    // ── Skip onboarding entirely ──────────────────────────────────
+    async function skipOnboarding() {
+      try {
+        await fetch('/api/onboarding/skip', { method: 'POST' });
+      } catch (e) {
+        console.error('Skip failed:', e);
+      }
+      window.location.href = '/';
     }
 
     // Initialize on load
