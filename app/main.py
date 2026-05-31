@@ -30,9 +30,20 @@ async def lifespan(app: FastAPI):
         from app import embed_svc
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, embed_svc.get_model)
-        print("[main] BGE-M3 model loaded — hybrid search ready")
+        print("[main] BGE-M3 model loaded -- hybrid search ready")
     except Exception as e:
-        print(f"[main] BGE-M3 not loaded ({e}) — search will fall back to arXiv API")
+        print(f"[main] BGE-M3 not loaded ({e}) -- search will fall back to arXiv API")
+    
+    # Eagerly warm up Cross-Encoder Reranker at startup (graceful fallback)
+    try:
+        import asyncio
+        from app import reranker_bge_svc
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, reranker_bge_svc.get_reranker)
+        print("[main] Cross-Encoder Reranker loaded -- high relevance search ready")
+    except Exception as e:
+        print(f"[main] Reranker not loaded ({e}) -- search will fall back to RRF rankings")
+
     # Phase 6.5 B3: Prune old cluster snapshots (>30 days)
     try:
         pruned = await db.prune_old_snapshots(retention_days=30)

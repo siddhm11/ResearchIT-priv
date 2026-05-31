@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-05-03
+> **Last updated**: 2026-05-29
 
 ---
 
@@ -107,8 +107,8 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - The caller in `recommendations.py` passes **all 37 features** including per-candidate cluster importance and medoid distances (Phase 6.1+6.2).
 - The heuristic fallback uses features 0, 6, 20-22, 35.
 - Weight budget (heuristic only): `0.40 * lt + 0.25 * st + 0.15 * recency + 0.10 * position - 0.15 * negative_penalty`.
-- **Do NOT put `BGE-reranker-v2-m3` in the serving path.** ~8ms per pair on CPU = ~800ms for 100 pairs. Far over the 30ms budget.
-- If a cross-encoder signal is wanted: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
+- **Cross-Encoder Reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) is used in the Search serving path**, for the **top-10 candidates** (configured via `SEARCH_RERANK_TOP_N` in `config.py`). MiniLM-L-6 is a 22M-param model achieving ~200-400ms for 10 pairs on CPU — fast enough for the hot path. Recommendations must not use the Cross-Encoder in the hot path, but keep using the highly efficient 37-feature LightGBM model.
+- If a cross-encoder signal is wanted for recommendations: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
 - **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
 - Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
 
@@ -470,4 +470,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-05-05. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-05-29. Update this date when CLAUDE.md changes.*

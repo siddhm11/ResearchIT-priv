@@ -50,13 +50,13 @@ try:
             break
 
     if not _USE_LGB:
-        print("[reranker] LightGBM installed but model file not found — using heuristic")
+        print("[reranker] LightGBM installed but model file not found -- using heuristic")
         print(f"[reranker]   searched: {[p for p in _MODEL_SEARCH_PATHS if p]}")
 
 except ImportError:
-    print("[reranker] LightGBM not installed — using heuristic fallback")
+    print("[reranker] LightGBM not installed -- using heuristic fallback")
 except Exception as e:
-    print(f"[reranker] Model load error: {e} — using heuristic fallback")
+    print(f"[reranker] Model load error: {e} -- using heuristic fallback")
 
 
 # ── 37-Feature Schema ────────────────────────────────────────────────────────
@@ -520,7 +520,7 @@ def rerank_candidates(
         try:
             scores = _lgb_model.predict(features)
         except Exception as e:
-            print(f"[reranker] ⚠️ LightGBM prediction failed: {e} — using heuristic")
+            print(f"[reranker] WARNING: LightGBM prediction failed: {e} -- using heuristic")
             scores = heuristic_score(features)
     else:
         scores = heuristic_score(features)

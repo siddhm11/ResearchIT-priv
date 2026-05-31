@@ -29,6 +29,7 @@ from app import qdrant_svc
 from app import zilliz_svc
 from app import groq_svc
 from app import turso_svc
+from app import arxiv_svc
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -150,6 +151,78 @@ async def search(
 
     if not fused:
         return ([], search_meta) if return_meta else []
+
+    # ── Step 4.5: BGE Cross-Encoder Reranking ──────────────────────────
+    t0_bge = time.perf_counter()
+    bge_time_ms = 0
+
+    if fused:
+        top_n = min(len(fused), config.SEARCH_RERANK_TOP_N)
+        top_candidates = fused[:top_n]
+        top_ids = [item["arxiv_id"] for item in top_candidates]
+
+        try:
+            meta = await turso_svc.fetch_metadata_batch(top_ids)
+
+            # Fetch missing from arXiv API just in case (graceful fallback)
+            missing = [aid for aid in top_ids if aid not in meta]
+            if missing:
+                try:
+                    arxiv_meta = await arxiv_svc.fetch_metadata_batch(missing)
+                    meta.update(arxiv_meta)
+                except Exception as e:
+                    print(f"[hybrid_search] arXiv fallback in BGE rerank failed: {e}")
+
+            # Prepare papers for reranking
+            papers_to_rerank = []
+            for item in top_candidates:
+                aid = item["arxiv_id"]
+                p_meta = meta.get(aid) or {}
+                papers_to_rerank.append({
+                    "arxiv_id": aid,
+                    "title": p_meta.get("title") or "",
+                    "abstract": p_meta.get("abstract") or "",
+                })
+
+            # Run BGE Reranker in executor to avoid blocking the async event loop
+            from app import reranker_bge_svc
+            loop = asyncio.get_running_loop()
+
+            reranked_papers, bge_time_ms = await loop.run_in_executor(
+                None,
+                lambda: reranker_bge_svc.rerank(query, papers_to_rerank, top_n=top_n)
+            )
+
+            # Normalize and assign BGE scores back to fused list
+            max_rrf = fused[0]["rrf_score"] if fused else 1.0
+
+            # Map BGE scores back to their fused items
+            bge_scores_by_id = {}
+            for p in reranked_papers:
+                bge_score = p.get("bge_rerank_score", 0.0)
+                # Map BGE logit score to a [0, 1] probability using sigmoid
+                try:
+                    bge_prob = 1.0 / (1.0 + math.exp(-bge_score))
+                except OverflowError:
+                    bge_prob = 0.0 if bge_score < 0 else 1.0
+
+                # Scale by max_rrf to align range
+                bge_scores_by_id[p["arxiv_id"]] = bge_prob * max_rrf
+
+            # Update rrf_score for reranked items
+            for item in fused[:top_n]:
+                aid = item["arxiv_id"]
+                if aid in bge_scores_by_id:
+                    item["rrf_score"] = bge_scores_by_id[aid]
+
+            # Re-sort fused list by the new rrf_score before passing to title match boost
+            fused.sort(key=lambda x: x["rrf_score"], reverse=True)
+
+        except Exception as e:
+            print(f"[hybrid_search] BGE reranking stage failed: {e}")
+            bge_time_ms = 0
+
+    search_meta["bge_rerank_time_ms"] = bge_time_ms
 
     # ── Step 5: Title-match boost ────────────────────────────────────────
     # Use the user's ORIGINAL query (not the LLM rewrite) for title matching —

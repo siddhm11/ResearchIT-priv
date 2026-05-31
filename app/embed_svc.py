@@ -41,7 +41,7 @@ def get_model():
 
         from FlagEmbedding import BGEM3FlagModel
 
-        print(f"[embed_svc] Loading {config.BGE_M3_MODEL} on {config.BGE_M3_DEVICE}…")
+        print(f"[embed_svc] Loading {config.BGE_M3_MODEL} on {config.BGE_M3_DEVICE}...")
 
         # use_fp16=False on CPU (fp16 requires CUDA)
         use_fp16 = config.BGE_M3_DEVICE != "cpu"

@@ -68,6 +68,9 @@
       {% if search_meta.rrf_time_ms is defined %}
         <span>RRF Fusion: <span class="text-primary">{{ search_meta.rrf_time_ms }}ms</span></span>
       {% endif %}
+      {% if search_meta.bge_rerank_time_ms is defined %}
+        <span>BGE Rerank: <span class="text-primary">{{ search_meta.bge_rerank_time_ms }}ms</span></span>
+      {% endif %}
       {% if search_meta.turso_boost_fetch_ms is defined %}
         <span>Turso Title Fetch: <span class="text-primary">{{ search_meta.turso_boost_fetch_ms }}ms</span></span>
         <span>Rerank Compute: <span class="text-primary">{{ search_meta.rerank_compute_ms }}ms</span></span>

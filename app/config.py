@@ -50,6 +50,10 @@ BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 BGE_M3_DEVICE = os.getenv("BGE_M3_DEVICE", "cpu")
 ENCODE_CACHE_SIZE = 128  # LRU cache for encoded queries
 
+# ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "10"))  # cap to preserve CPU latency
+
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator
 SEARCH_FETCH_K_MULTIPLIER = 6     # candidates = top_k × 6 before rerank

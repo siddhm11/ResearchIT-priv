@@ -95,3 +95,15 @@ Four concrete faults, in order of impact. First, **RRF fusion across K medoid qu
 ## What changes if this verdict is right
 
 The implementation surface looks almost identical to Doc 03 from 50 feet away — Ward clustering, medoid representatives, EWMA dynamics, LightGBM rerank, MMR diversity, Supabase/Render infra — but three subsystems differ in ways that determine whether the system actually works for multi-interest users: the fusion step switches from RRF to importance-weighted quota with a floor, the onboarding gains a coarse category filter + ORCID/seed-paper import that make the first session functional without contradicting the long-run behavioral vision, and the reranking stack uses LightGBM as the terminal CPU-path reranker with any cross-encoder signal distilled offline rather than at serving time. The system Amin built so far (hybrid search on Qdrant + Zilliz) is load-bearing infrastructure for Phase 2, not scaffolding, because the *search* RRF fusion is correct even though the *recommendation* RRF fusion is not — these are different problems with different correct answers. The strongest evidence for this architecture is that it's what Pinterest (with 1000× more users), Scholar Inbox (with the same arXiv domain and 3M papers), Taobao ULIM (with the same quota pattern at billion-scale), Semantic Scholar (with the same LightGBM terminal reranker), and the empirical onboarding literature since Rashid 2002 all converge on — hybrid, quota-merged, behaviorally-dominated, with explicit signals as priors not primary vectors.
+
+## Changelog
+
+### 2026-05-29 — Direct BGE Cross-Encoder Search Reranker Integration
+**Decision:** BAAI/bge-reranker-v2-m3 (cross-encoder) is integrated into the Search hot path.
+**Supersedes:** Section "Reranking" (above) which strictly forbade BGE-reranker on serving path due to latency.
+**Rationale:** The user explicitly requested to bypass the latency restrictions for high-relevance search. To minimize CPU latency impact on the HF Spaces free tier (2 vCPUs), BGE Cross-Encoder reranking is constrained strictly to the top-20 candidates fetched by RRF. This limits the extra latency to ~150-250ms while delivering premium-tier semantic relevance.
+**Action items:**
+- Implemented `app/reranker_bge_svc.py` to lazily manage and execute FlagReranker.
+- Eagerly warmed up BGE Reranker in `app/main.py` lifespan alongside BGE-M3.
+- Integrated BGE reranking stage in `app/hybrid_search_svc.py` after RRF and scaled its logit scores into RRF-compatible probabilities using a sigmoid function.
+- Updated `app/templates/partials/search_results.html` to display "BGE Rerank" timing in the search pipeline breakdown view.
