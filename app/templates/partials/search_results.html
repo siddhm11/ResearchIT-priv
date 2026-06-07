@@ -3,6 +3,9 @@
   <div class="space-y-3">
     <div class="mb-4 text-sm text-base-content/60">
       <span class="font-medium text-base-content">{{ papers | length }} results</span> for "{{ query }}"
+      {% if search_meta and search_meta.total_time_ms is defined %}
+        <span class="text-xs opacity-50 ml-1">({{ search_meta.total_time_ms }}ms)</span>
+      {% endif %}
       {% if search_meta and search_meta.rewritten_query %}
         <span class="text-xs opacity-70 ml-1">
           (Expanded to: <span class="italic">"{{ search_meta.rewritten_query }}"</span>)
