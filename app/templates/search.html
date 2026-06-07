@@ -7,16 +7,19 @@
 
   <!-- Search bar -->
   <div class="card bg-base-100 shadow-md rounded-xl p-4">
-    <form hx-get="/search" 
+    <form id="search-form"
+          hx-get="/search" 
           hx-target="#search-results" 
           hx-push-url="true"
+          hx-trigger="submit"
           class="flex gap-2">
       <input type="text"
              name="q"
              value="{{ query }}"
              placeholder="Search arXiv papers…"
              class="input input-bordered flex-1"
-             autofocus />
+             autofocus
+             onkeydown="if(event.key==='Enter'){event.preventDefault(); htmx.trigger(document.getElementById('search-form'), 'submit');}" />
       <button class="btn btn-primary flex items-center gap-2" type="submit">
         <span class="search-btn-text">Search</span>
         <span class="search-btn-loading hidden">
