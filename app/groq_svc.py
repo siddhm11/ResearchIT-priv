@@ -158,3 +158,69 @@ def _run_rewrite(client, query: str) -> str:
         timeout=2.0,  # Hard 2s timeout — search must not stall
     )
     return response.choices[0].message.content
+
+
+# ── AI Search Summaries ──────────────────────────────────────────────────────
+
+async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
+    """
+    Generate a short 3-4 sentence AI summary synthesizing the top papers.
+    Uses llama-3.3-70b-versatile via Groq.
+    
+    Returns:
+        Summary HTML string, or None if error or not enough papers.
+    """
+    if not papers or len(papers) < 2:
+        return None
+        
+    client = _get_client()
+    if client is None:
+        return None
+        
+    # Build context from top 5 papers max
+    context_lines = []
+    for i, p in enumerate(papers[:5]):
+        context_lines.append(f"Paper {i+1}: {p['title']}\nAbstract: {p['abstract'][:800]}...")
+    context_str = "\n\n".join(context_lines)
+    
+    prompt = f"""You are an expert AI research assistant. 
+The user searched for: "{query}"
+
+Here are the top papers returned for this query:
+{context_str}
+
+Task: Write a concise, synthesized overview (3-4 sentences max) that answers the user's query based ONLY on these papers. 
+Format: Return plain text with basic markdown (bolding key terms is good). DO NOT start with "Here is a summary" or similar filler. DO NOT output bullet points. Be direct, educational, and authoritative."""
+
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _run_summary, client, prompt)
+        
+        summary = result.strip()
+        if not summary:
+            return None
+            
+        # Basic markdown to HTML (bolding)
+        import re
+        summary_html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', summary)
+        
+        return summary_html
+        
+    except Exception as e:
+        print(f"[groq_svc] Summary generation failed: {e}")
+        return None
+
+
+def _run_summary(client, prompt: str) -> str:
+    """Sync helper: call Groq chat completion for summaries with 4s timeout."""
+    response = client.chat.completions.create(
+        messages=[
+            {"role": "user", "content": prompt},
+        ],
+        model="llama-3.3-70b-versatile",
+        temperature=0.3,
+        max_tokens=150,
+        timeout=4.0,  # 4s timeout so it doesn't hang indefinitely
+    )
+    return response.choices[0].message.content

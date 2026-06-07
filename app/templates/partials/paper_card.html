@@ -49,12 +49,30 @@
   </div>
 
   <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
-  <div class="text-xs text-base-content/50 mono">
-    [{{ paper.arxiv_id }}]
-    {% if paper.published %} · {{ paper.published[:4] }}{% endif %}
-    {% if authors_list %} · <span class="font-sans">{{ authors_list[:3] | join(", ") }}{% if authors_list | length > 3 %} et al. ({{ authors_list | length }} authors){% endif %}</span>{% endif %}
+  <div class="flex flex-wrap items-center gap-2 mb-1">
+    {% set p_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
+    {% if p_year %}
+      <span class="year-pill {% if p_year in ['2025', '2026', '2024'] %}recent{% endif %}">{{ p_year }}</span>
+    {% endif %}
+    
+    <span class="text-xs text-base-content/40 mono font-medium">[{{ paper.arxiv_id }}]</span>
+    
+    {% if authors_list %}
+      <span class="text-xs text-base-content/60 mx-1">•</span>
+      <span class="text-xs text-base-content/70">
+        {{ authors_list[:3] | join(", ") }}
+        {% if authors_list | length > 3 %}
+          <span class="opacity-60 italic">et al. ({{ authors_list | length }} authors)</span>
+        {% endif %}
+      </span>
+    {% endif %}
+
     {% if paper.citation_count %}
-    · <span class="font-medium text-base-content/70 font-sans" title="{{ paper.influential_citations|default(0) }} influential">📊 {{ paper.citation_count }} citations</span>
+      <span class="text-xs text-base-content/60 mx-1 hidden sm:inline">•</span>
+      <span class="cite-count" title="{{ paper.influential_citations|default(0) }} influential">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+        {{ paper.citation_count }} citations
+      </span>
     {% endif %}
   </div>
 

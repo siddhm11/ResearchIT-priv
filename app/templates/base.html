@@ -35,29 +35,58 @@
 <body class="bg-base-200 min-h-screen">
 
   <!-- Navbar -->
-  <nav class="navbar navbar-glass sticky top-0 z-50 px-6">
+  <nav class="navbar navbar-glass sticky top-0 z-50 px-4 md:px-6">
     <div class="flex-1">
       <a href="/" class="flex items-center gap-2 text-xl">
         <span class="brand-text">ResearchIT</span>
       </a>
     </div>
-    <div class="flex-none flex items-center gap-1">
+    
+    <!-- Desktop Menu -->
+    <div class="hidden md:flex flex-none items-center gap-1">
       <a href="/" class="btn btn-ghost btn-sm">Home</a>
       <a href="/search" class="btn btn-ghost btn-sm">Search</a>
       <a href="/saved" class="btn btn-ghost btn-sm">Saved</a>
       <!-- Theme toggle -->
-      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
+      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle ml-2" title="Toggle theme"
               onclick="toggleTheme()">
         <span id="theme-icon-dark" class="hidden">☀️</span>
         <span id="theme-icon-light" class="hidden">🌙</span>
       </button>
     </div>
+
+    <!-- Mobile Menu Toggle -->
+    <div class="flex-none md:hidden">
+      <label class="btn btn-ghost btn-sm btn-circle swap swap-rotate">
+        <input type="checkbox" class="mobile-menu-toggle hidden" />
+        <svg class="swap-off fill-current" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><path d="M64,384H448V341.33H64Zm0-106.67H448V234.67H64ZM64,128v42.67H448V128Z"/></svg>
+        <svg class="swap-on fill-current" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><polygon points="400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49"/></svg>
+      </label>
+      <!-- Mobile Menu Dropdown -->
+      <div class="mobile-menu hidden">
+        <a href="/" class="btn btn-ghost justify-start">Home</a>
+        <a href="/search" class="btn btn-ghost justify-start">Search</a>
+        <a href="/saved" class="btn btn-ghost justify-start">Saved</a>
+        <div class="divider my-1"></div>
+        <button class="btn btn-ghost justify-start" onclick="toggleTheme()">
+          <span class="theme-text-dark hidden">Switch to Light Mode ☀️</span>
+          <span class="theme-text-light hidden">Switch to Dark Mode 🌙</span>
+        </button>
+      </div>
+    </div>
   </nav>
 
   <!-- Main content -->
-  <main class="container mx-auto px-4 py-6 max-w-4xl">
+  <main class="container mx-auto px-4 py-6 md:py-8 max-w-4xl min-h-[70vh]">
     {% block content %}{% endblock %}
   </main>
+
+  <footer class="app-footer">
+    <div class="container mx-auto px-4 max-w-4xl">
+      <p>Built with ❤️ — <span class="brand-text font-semibold">ResearchIT</span></p>
+      <p class="mt-2 text-xs opacity-60">AI-powered arXiv recommendations using Qdrant, Zilliz & Turso.</p>
+    </div>
+  </footer>
 
   <!-- Theme toggle logic -->
   <script>
@@ -72,8 +101,16 @@
 
     function updateThemeIcon() {
       const theme = document.documentElement.getAttribute('data-theme');
-      document.getElementById('theme-icon-dark').classList.toggle('hidden', theme !== 'dark');
-      document.getElementById('theme-icon-light').classList.toggle('hidden', theme !== 'light');
+      
+      // Desktop icons
+      const iconDark = document.getElementById('theme-icon-dark');
+      const iconLight = document.getElementById('theme-icon-light');
+      if (iconDark) iconDark.classList.toggle('hidden', theme !== 'dark');
+      if (iconLight) iconLight.classList.toggle('hidden', theme !== 'light');
+      
+      // Mobile menu text
+      document.querySelectorAll('.theme-text-dark').forEach(el => el.classList.toggle('hidden', theme !== 'dark'));
+      document.querySelectorAll('.theme-text-light').forEach(el => el.classList.toggle('hidden', theme !== 'light'));
     }
 
     // Set icon on load

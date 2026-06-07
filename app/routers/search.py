@@ -112,3 +112,44 @@ async def search(
 
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
+
+
+@router.get("/api/search/summary", response_class=HTMLResponse)
+async def search_summary(
+    request: Request,
+    q: str = "",
+    ids: str = "",
+):
+    """
+    Generate an AI Overview for a given search query and set of arXiv IDs.
+    Called asynchronously by HTMX after search results load.
+    """
+    if not q or not ids:
+        return ""
+        
+    arxiv_ids = [aid.strip() for aid in ids.split(",") if aid.strip()]
+    if not arxiv_ids:
+        return ""
+
+    from app import groq_svc
+    
+    # Fetch metadata for the top papers (need abstracts for summary)
+    try:
+        meta = await turso_svc.fetch_metadata_batch(arxiv_ids[:5])
+        papers = [meta[aid] for aid in arxiv_ids[:5] if aid in meta]
+    except Exception as e:
+        print(f"[search] Turso fetch failed for summary: {e}")
+        return ""
+
+    if not papers:
+        return ""
+
+    summary_html = await groq_svc.generate_search_summary(q, papers)
+    if not summary_html:
+        return ""
+
+    return templates.TemplateResponse(
+        request,
+        "partials/ai_summary.html",
+        {"summary_html": summary_html},
+    )
