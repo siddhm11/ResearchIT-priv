@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="ResearchIT — AI-powered arXiv paper recommendations. Search, save, and discover research tailored to your interests." />
+  <title>Search — ResearchIT</title>
+
+  <!-- TailwindCSS + DaisyUI (CDN, no build step) -->
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="/static/styles.css" />
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+
+  <style>
+    /* Spinner shown while HTMX request is in-flight */
+    .htmx-request .htmx-indicator { display: inline-block !important; }
+    .htmx-indicator { display: none; }
+  </style>
+
+  <!-- Theme toggle script (runs before body to prevent flash) -->
+  <script>
+    (function() {
+      const saved = localStorage.getItem('researchit-theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      }
+    })();
+  </script>
+</head>
+<body class="bg-base-200 min-h-screen">
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-glass sticky top-0 z-50 px-6">
+    <div class="flex-1">
+      <a href="/" class="flex items-center gap-2 text-xl">
+        <span class="brand-text">ResearchIT</span>
+      </a>
+    </div>
+    <div class="flex-none flex items-center gap-1">
+      <a href="/" class="btn btn-ghost btn-sm">Home</a>
+      <a href="/search" class="btn btn-ghost btn-sm">Search</a>
+      <a href="/saved" class="btn btn-ghost btn-sm">Saved</a>
+      <!-- Theme toggle -->
+      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
+              onclick="toggleTheme()">
+        <span id="theme-icon-dark" class="hidden">☀️</span>
+        <span id="theme-icon-light" class="hidden">🌙</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="container mx-auto px-4 py-6 max-w-4xl">
+    
+<div class="space-y-6 fade-in">
+
+  <!-- Search bar -->
+  <div class="card bg-base-100 shadow-md rounded-xl p-4">
+    <form hx-get="/search" 
+          hx-target="#search-results" 
+          hx-push-url="true"
+          class="flex gap-2">
+      <input type="text"
+             name="q"
+             value="transformer attention"
+             placeholder="Search arXiv papers…"
+             class="input input-bordered flex-1"
+             autofocus />
+      <button class="btn btn-primary flex items-center gap-2" type="submit">
+        <span class="search-btn-text">Search</span>
+        <span class="search-btn-loading hidden">
+          <span class="loading loading-spinner loading-sm"></span>
+          Searching…
+        </span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Loading overlay (outside search-results so it doesn't get swapped away) -->
+  <div id="search-loading" class="hidden">
+    <div class="flex flex-col items-center justify-center py-16 gap-4">
+      <span class="loading loading-ring loading-lg text-primary"></span>
+      <div class="text-sm text-base-content/60 animate-pulse">
+        Searching 1.6M papers across Qdrant + Zilliz…
+      </div>
+      <div class="flex gap-6 text-xs text-base-content/40 font-mono">
+        <span>Groq rewriting</span>
+        <span>→</span>
+        <span>BGE-M3 encoding</span>
+        <span>→</span>
+        <span>Vector retrieval</span>
+        <span>→</span>
+        <span>RRF + reranking</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recommendations — only when not actively searching -->
+  
+
+  <!-- Search results -->
+  <div id="search-results">
+    
+
+  <div class="space-y-3">
+    <div class="flex flex-col gap-1 mb-4">
+      <div class="flex justify-between items-center text-sm text-base-content/50">
+        <span>10 results for "transformer attention"</span>
+        
+          <span>Search completed in 584ms</span>
+        
+      </div>
+      
+      
+      
+        
+        <div class="alert bg-base-200/50 border-l-4 border-base-300 p-3 text-sm flex gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="stroke-base-content/30 shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <div class="flex-1 text-base-content/50">
+            <span class="font-semibold">Groq rewrite:</span> skipped (query too short: 2 words)
+            — searching with original query as-is
+          </div>
+        </div>
+        
+      
+    </div>
+
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2209.15001">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2209.15001"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Dilated Neighborhood Attention Transformer
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2209.15001]
+     · 2022
+     · <span class="font-sans">Ali Hassani, Humphrey Shi</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Transformers are quickly becoming one of the most heavily applied deep learning architectures across modalities, domains, and tasks. In vision, on top of ongoing efforts into plain transformers, hierarchical transformers have also gained significant attention, thanks to their performance and easy integration into existing frameworks. These models typically employ localized attention mechanisms, such as the sliding-window Neighborhood Attention (NA) or Swin Transformer&#39;s Shifted Window Self Atten…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2209.15001">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2209.15001/save"
+            hx-target="[id='actions-2209.15001']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "0", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2209.15001/not-interested"
+            hx-target="#paper-2209.15001"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "0", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2605.26355">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2605.26355"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Energy-Gated Attention and Wavelet Positional Encoding: Complementary Inductive Biases for Transformer Attention
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.LG</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2605.26355]
+     · 2026
+     · <span class="font-sans">Athanasios Zeris</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Standard transformer attention computes pairwise token similarity but treats all tokens as equally salient and all positions as equally local, regardless of the informational structure of the input. We identify two complementary inductive biases that standard attention lacks: energy salience (which tokens concentrate informational energy, learned end-to-end without explicit frequency decomposition) and scale-selective locality (how far positional influence extends at each frequency, implemented …
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2605.26355">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2605.26355/save"
+            hx-target="[id='actions-2605.26355']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "1", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2605.26355/not-interested"
+            hx-target="#paper-2605.26355"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "1", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2309.01692">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2309.01692"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Mask-Attention-Free Transformer for 3D Instance Segmentation
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2309.01692]
+     · 2023
+     · <span class="font-sans">Xin Lai, Yuhui Yuan, Ruihang Chu et al. (5 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Recently, transformer-based methods have dominated 3D instance segmentation, where mask attention is commonly involved. Specifically, object queries are guided by the initial instance masks in the first cross-attention, and then iteratively refine themselves in a similar manner. However, we observe that the mask-attention pipeline usually leads to slow convergence due to low-recall initial instance masks. Therefore, we abandon the mask attention design and resort to an auxiliary center regressio…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2309.01692">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2309.01692/save"
+            hx-target="[id='actions-2309.01692']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "2", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2309.01692/not-interested"
+            hx-target="#paper-2309.01692"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "2", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2402.04563">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2402.04563"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Attention Guided CAM: Visual Explanations of Vision Transformer Guided by Self-Attention
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2402.04563]
+     · 2024
+     · <span class="font-sans">Saebom Leem, Hyunseok Seo</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Vision Transformer(ViT) is one of the most widely used models in the computer vision field with its great performance on various tasks. In order to fully utilize the ViT-based architecture in various applications, proper visualization methods with a decent localization performance are necessary, but these methods employed in CNN-based models are still not available in ViT due to its unique structure. In this work, we propose an attention-guided visualization method applied to ViT that provides a…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2402.04563">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2402.04563/save"
+            hx-target="[id='actions-2402.04563']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "3", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2402.04563/not-interested"
+            hx-target="#paper-2402.04563"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "3", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-1809.04281">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/1809.04281"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Music Transformer
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.LG</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [1809.04281]
+     · 2018
+     · <span class="font-sans">Cheng-Zhi Anna Huang, Ashish Vaswani, Jakob Uszkoreit et al. (5 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Music relies heavily on repetition to build structure and meaning. Self-reference occurs on multiple timescales, from motifs to phrases to reusing of entire sections of music, such as in pieces with ABA structure. The Transformer (Vaswani et al., 2017), a sequence model based on self-attention, has achieved compelling results in many generation tasks that require maintaining long-range coherence. This suggests that self-attention might also be well-suited to modeling music. In musical compositio…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-1809.04281">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/1809.04281/save"
+            hx-target="[id='actions-1809.04281']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "4", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/1809.04281/not-interested"
+            hx-target="#paper-1809.04281"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "4", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2206.03003">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2206.03003"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Transformer-based Personalized Attention Mechanism for Medical Images with Clinical Records
+    </a>
+    
+    <span class="cat-badge cat-eess shrink-0">eess.IV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2206.03003]
+     · 2022
+     · <span class="font-sans">Yusuke Takagi, Noriaki Hashimoto, Hiroki Masuda et al. (5 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    In medical image diagnosis, identifying the attention region, i.e., the region of interest for which the diagnosis is made, is an important task. Various methods have been developed to automatically identify target regions from given medical images. However, in actual medical practice, the diagnosis is made based not only on the images but also on a variety of clinical records. This means that pathologists examine medical images with some prior knowledge of the patients and that the attention re…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2206.03003">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2206.03003/save"
+            hx-target="[id='actions-2206.03003']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "5", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2206.03003/not-interested"
+            hx-target="#paper-2206.03003"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "5", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2503.02130">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2503.02130"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Forgetting Transformer: Softmax Attention with a Forget Gate
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.LG</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2503.02130]
+     · 2025
+     · <span class="font-sans">Zhixuan Lin, Evgenii Nikishin, Xu Owen He et al. (4 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    An essential component of modern recurrent sequence models is the forget gate. While Transformers do not have an explicit recurrent form, we show that a forget gate can be naturally incorporated into Transformers by down-weighting the unnormalized attention scores in a data-dependent way. We name this attention mechanism Forgetting Attention and the resulting model the Forgetting Transformer (FoX). We show that FoX outperforms the Transformer on long-context language modeling, length extrapolati…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2503.02130">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2503.02130/save"
+            hx-target="[id='actions-2503.02130']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "6", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2503.02130/not-interested"
+            hx-target="#paper-2503.02130"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "6", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2305.11403">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2305.11403"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Efficient Mixed Transformer for Single Image Super-Resolution
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2305.11403]
+     · 2023
+     · <span class="font-sans">Ling Zheng, Jinchen Zhu, Jinpeng Shi et al. (4 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Recently, Transformer-based methods have achieved impressive results in single image super-resolution (SISR). However, the lack of locality mechanism and high complexity limit their application in the field of super-resolution (SR). To solve these problems, we propose a new method, Efficient Mixed Transformer (EMT) in this study. Specifically, we propose the Mixed Transformer Block (MTB), consisting of multiple consecutive transformer layers, in some of which the Pixel Mixer (PM) is used to repl…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2305.11403">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2305.11403/save"
+            hx-target="[id='actions-2305.11403']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "7", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2305.11403/not-interested"
+            hx-target="#paper-2305.11403"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "7", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2303.15105">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2303.15105"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      Vision Transformer with Quadrangle Attention
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2303.15105]
+     · 2023
+     · <span class="font-sans">Qiming Zhang, Jing Zhang, Yufei Xu et al. (4 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Window-based attention has become a popular choice in vision transformers due to its superior performance, lower computational complexity, and less memory footprint. However, the design of hand-crafted windows, which is data-agnostic, constrains the flexibility of transformers to adapt to objects of varying sizes, shapes, and orientations. To address this issue, we propose a novel quadrangle attention (QA) method that extends the window-based attention to a general quadrangle formulation. Our me…
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2303.15105">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2303.15105/save"
+            hx-target="[id='actions-2303.15105']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "8", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2303.15105/not-interested"
+            hx-target="#paper-2303.15105"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "8", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+      
+      
+      
+
+
+
+
+
+
+
+
+
+
+  
+
+
+<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
+     id="paper-2404.05657">
+
+  <!-- Title + category badge -->
+  <div class="flex items-start justify-between gap-2">
+    <a href="https://arxiv.org/abs/2404.05657"
+       target="_blank"
+       rel="noopener"
+       class="font-semibold text-primary hover:underline leading-snug">
+      MLP Can Be A Good Transformer Learner
+    </a>
+    
+    <span class="cat-badge cat-cs shrink-0">cs.CV</span>
+    
+  </div>
+
+  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
+  <div class="text-xs text-base-content/50 mono">
+    [2404.05657]
+     · 2024
+     · <span class="font-sans">Sihao Lin, Pumeng Lyu, Dongrui Liu et al. (5 authors)</span>
+    
+  </div>
+
+  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
+  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+    Self-attention mechanism is the key of the Transformer but often criticized for its computation demands. Previous token pruning works motivate their methods from the view of computation redundancy but still need to load the full network and require same memory costs. This paper introduces a novel strategy that simplifies vision transformers and reduces computational load through the selective removal of non-essential attention layers, guided by entropy considerations. We identify that regarding …
+  </p>
+
+  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
+  <div id="actions-2404.05657">
+    
+
+
+
+
+
+
+
+
+
+
+
+
+  <div class="flex gap-2 flex-wrap">
+    <!-- Save -->
+    <button class="btn btn-primary btn-xs"
+            hx-post="/api/papers/2404.05657/save"
+            hx-target="[id='actions-2404.05657']"
+            hx-swap="innerHTML"
+            hx-vals='{"source": "search", "position": "9", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ⭐ Save
+    </button>
+    <!-- Not interested (removes the whole card) -->
+    <button class="btn btn-ghost btn-xs text-error"
+            hx-post="/api/papers/2404.05657/not-interested"
+            hx-target="#paper-2404.05657"
+            hx-swap="outerHTML swap:200ms"
+            hx-vals='{"source": "search", "position": "9", "ranker_version": "", "candidate_source": "", "cluster_id": "", "query_id": "ab1aa070-6277-4cbf-8b0d-31570b6688d0", "propensity": "1.0", "policy_id": "search_v1"}'>
+      ✕ Not interested
+    </button>
+  </div>
+
+  </div>
+
+</div>
+    
+  </div>
+
+  
+  
+  <div class="mt-4 p-3 rounded-lg bg-base-200/50 border border-base-300/30">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-xs font-semibold text-base-content/60">⚡ Search Pipeline Breakdown</span>
+      
+        <span class="text-xs text-base-content/40">(584ms total)</span>
+      
+    </div>
+    <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono text-base-content/50">
+      
+        <span>Groq Rewrite: <span class="text-primary">0ms</span>
+          
+            <span class="text-warning/60">(skipped (query too short: 2 words))</span>
+          
+        </span>
+      
+      
+        <span>BGE-M3 Encode: <span class="text-primary">15ms</span></span>
+      
+      
+      
+      
+      
+      
+    </div>
+  </div>
+  
+
+
+  </div>
+
+</div>
+
+<script>
+  // Show/hide loading overlay + HIDE recommendations when searching
+  document.body.addEventListener('htmx:beforeRequest', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'search-results') {
+      document.getElementById('search-loading').classList.remove('hidden');
+      document.getElementById('search-results').classList.add('opacity-30');
+      // Hide recommendations section when a search starts
+      var recWrapper = document.getElementById('rec-wrapper');
+      if (recWrapper) recWrapper.classList.add('hidden');
+      // Swap button text
+      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.remove('hidden'));
+    }
+  });
+  document.body.addEventListener('htmx:afterRequest', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'search-results') {
+      document.getElementById('search-loading').classList.add('hidden');
+      document.getElementById('search-results').classList.remove('opacity-30');
+      // Restore button text
+      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.remove('hidden'));
+      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.add('hidden'));
+    }
+  });
+</script>
+
+  </main>
+
+  <!-- Theme toggle logic -->
+  <script>
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('researchit-theme', next);
+      updateThemeIcon();
+    }
+
+    function updateThemeIcon() {
+      const theme = document.documentElement.getAttribute('data-theme');
+      document.getElementById('theme-icon-dark').classList.toggle('hidden', theme !== 'dark');
+      document.getElementById('theme-icon-light').classList.toggle('hidden', theme !== 'light');
+    }
+
+    // Set icon on load
+    updateThemeIcon();
+  </script>
+
+</body>
+</html>

@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 load_dotenv()  # reads .env file if present (won't override existing env vars)
 
 # ── Qdrant (BGE-M3 dense, 1 024-dim) ─────────────────────────────────────────
-QDRANT_URL = os.getenv("QDRANT_URL", "")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+QDRANT_URL = os.getenv("QDRANT_URL", "").strip()
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "").strip()
 QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "arxiv_bgem3_dense")
 
 # ── SQLite ────────────────────────────────────────────────────────────────────
@@ -21,8 +21,8 @@ ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 
 # ── Turso (libSQL) — arXiv metadata DB — Phase 3.5 ───────────────────────────
-TURSO_URL = os.getenv("TURSO_URL", "")
-TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "")
+TURSO_URL = os.getenv("TURSO_URL", "").strip()
+TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
 
 
 
@@ -32,8 +32,8 @@ REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant
 REC_MIN_POSITIVES = 1           # minimum saves needed before showing recs
 
 # ── Zilliz Cloud (BGE-M3 sparse vectors) — Phase 3 ────────────────────────────
-ZILLIZ_URI = os.getenv("ZILLIZ_URI", "")
-ZILLIZ_TOKEN = os.getenv("ZILLIZ_TOKEN", "")
+ZILLIZ_URI = os.getenv("ZILLIZ_URI", "").strip()
+ZILLIZ_TOKEN = os.getenv("ZILLIZ_TOKEN", "").strip()
 ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 
 # Zilliz schema (confirmed from notebooks/01-bme-upload.ipynb):
@@ -43,7 +43,7 @@ ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 #   Index: SPARSE_INVERTED_INDEX, metric_type="IP"
 
 # ── Groq (LLM query rewriter) — Phase 3 ──────────────────────────────────────
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
