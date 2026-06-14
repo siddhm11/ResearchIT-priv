@@ -32,43 +32,44 @@
   {% set cat_class = "cat-other" %}
 {% endif %}
 
-<div class="card bg-base-100 shadow-sm paper-card p-4 space-y-2 rounded-xl"
-     id="paper-{{ paper.arxiv_id }}">
+<div class="paper-card bg-base-100 p-4 md:p-5 space-y-2.5 animate-card-in"
+     id="paper-{{ paper.arxiv_id }}"
+     data-cat="{{ cat }}">
 
   <!-- Title + category badge -->
-  <div class="flex items-start justify-between gap-2">
+  <div class="flex items-start justify-between gap-3">
     <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
        target="_blank"
        rel="noopener"
-       class="font-semibold text-primary hover:underline leading-snug">
+       class="paper-title leading-snug flex-1">
       {{ paper.title }}
     </a>
     {% if paper.category %}
-    <span class="cat-badge {{ cat_class }} shrink-0">{{ paper.category }}</span>
+    <span class="cat-badge {{ cat_class }} shrink-0 mt-0.5">{{ paper.category }}</span>
     {% endif %}
   </div>
 
-  <!-- Meta: arXiv ID + year + authors (max 3) + citations -->
-  <div class="flex flex-wrap items-center gap-2 mb-1">
+  <!-- Meta: year pill · arXiv ID · authors · citations -->
+  <div class="flex flex-wrap items-center gap-2">
     {% set p_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
     {% if p_year %}
-      <span class="year-pill {% if p_year in ['2025', '2026', '2024'] %}recent{% endif %}">{{ p_year }}</span>
+      <span class="year-pill {% if p_year in ['2024', '2025', '2026'] %}recent{% endif %}">{{ p_year }}</span>
     {% endif %}
-    
-    <span class="text-xs text-base-content/40 mono font-medium">[{{ paper.arxiv_id }}]</span>
-    
+
+    <span class="text-xs text-base-content/40 font-mono font-medium">[{{ paper.arxiv_id }}]</span>
+
     {% if authors_list %}
-      <span class="text-xs text-base-content/60 mx-1">•</span>
+      <span class="text-xs text-base-content/60">·</span>
       <span class="text-xs text-base-content/70">
         {{ authors_list[:3] | join(", ") }}
         {% if authors_list | length > 3 %}
-          <span class="opacity-60 italic">et al. ({{ authors_list | length }} authors)</span>
+          <span class="opacity-60 italic">+{{ authors_list | length - 3 }} more</span>
         {% endif %}
       </span>
     {% endif %}
 
     {% if paper.citation_count %}
-      <span class="text-xs text-base-content/60 mx-1 hidden sm:inline">•</span>
+      <span class="text-xs text-base-content/60 hidden sm:inline">·</span>
       <span class="cite-count" title="{{ paper.influential_citations|default(0) }} influential">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
         {{ paper.citation_count }} citations
@@ -76,14 +77,24 @@
     {% endif %}
   </div>
 
-  <!-- Abstract (truncated to ~300 chars + CSS clamp) -->
-  <p class="text-sm text-base-content/75" style="display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+  <!-- Abstract (expandable) -->
+  <p class="abstract-text text-sm text-base-content/75">
     {{ paper.abstract[:500] }}{% if paper.abstract | length > 500 %}…{% endif %}
   </p>
+  <button class="abstract-toggle" onclick="toggleAbstract(this)">↓ Show more</button>
 
   <!-- Action buttons (HTMX-powered, swap themselves on click) -->
   <div id="actions-{{ paper.arxiv_id }}">
     {% include "partials/action_buttons.html" %}
+  </div>
+
+  <!-- Why this paper? — Coming Soon -->
+  <div class="coming-soon-wrapper interactive" onclick="handleComingSoon(event)">
+    <div class="flex items-center gap-2 pt-1 cursor-pointer">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+      <span class="text-xs text-base-content/50">Why this paper?</span>
+      <span class="coming-soon-badge">Coming Soon</span>
+    </div>
   </div>
 
 </div>

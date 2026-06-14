@@ -1,16 +1,28 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Set up your ResearchIT feed — choose your research interests." />
-  <title>Welcome — ResearchIT</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to ResearchIT</title>
 
+  <!-- DaisyUI + TailwindCSS (CDN) -->
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="stylesheet" href="/static/styles.css" />
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/animations.css" />
+
+  <!-- HTMX -->
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  
+  <style>
+    /* HTMX indicator visibility */
+    .htmx-request .htmx-indicator { display: inline-block !important; }
+    .htmx-indicator { display: none; }
+  </style>
+
+  <!-- Theme restore -->
   <script>
     (function() {
       const saved = localStorage.getItem('researchit-theme');
@@ -18,138 +30,159 @@
     })();
   </script>
 </head>
-<body class="bg-base-200 min-h-screen flex items-center justify-center">
+<body class="bg-base-200 min-h-screen flex items-center justify-center p-4">
 
-  <div class="max-w-3xl w-full mx-auto px-4 py-8">
+  <!-- Step Indicator -->
+  <div class="fixed top-8 left-1/2 -translate-x-1/2 flex items-center gap-4 z-50">
+    <div id="dot-1" class="step-dot active"></div>
+    <div class="w-16 h-0.5 bg-base-content/10"></div>
+    <div id="dot-2" class="step-dot"></div>
+  </div>
 
-    {# ── Step indicator ──────────────────────────────────────────── #}
-    <div class="flex items-center justify-center gap-3 mb-8">
-      <div class="step-dot active" id="dot-1"></div>
-      <div class="w-8 h-px bg-base-content/20"></div>
-      <div class="step-dot" id="dot-2"></div>
-    </div>
+  <main class="w-full max-w-4xl pb-16 fade-in">
+    
+    <!-- ═══ Step 1: Category Selection ═══ -->
+    <div id="step-1">
+      <div class="text-center mb-10 relative">
+        <div class="rit-hero-glow animate-glow" style="top: -50px; left: 50%; transform: translateX(-50%);"></div>
+        <h1 class="text-3xl md:text-5xl font-extrabold mb-4 font-display relative z-10">
+          <span class="brand-text">Build Your Research Feed</span>
+        </h1>
+        <p class="text-base-content/60 max-w-lg mx-auto relative z-10">
+          Select your research areas to get personalized recommendations. Choose at least 1 topic.
+        </p>
+      </div>
 
-    {# ── Wizard container ────────────────────────────────────────── #}
-    <div id="wizard-container">
-
-      {# ════════ STEP 1: Category Selection ════════ #}
-      <div id="step-1" class="fade-in">
-        <div class="text-center mb-8">
-          <h1 class="text-3xl font-bold mb-2">
-            <span class="brand-text">Welcome to ResearchIT</span>
-          </h1>
-          <p class="text-base-content/60 text-sm max-w-md mx-auto">
-            Select your research areas to get personalised paper recommendations.
-            Choose at least 1 topic.
-          </p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-10 relative z-10">
+        {% for key, cat in categories.items() %}
+        <div class="category-tile {% if key in selected %}selected{% endif %} animate-card-in" 
+             style="animation-delay: {{ loop.index0 * 0.03 }}s"
+             data-key="{{ key }}" 
+             onclick="toggleCategory(this)">
+          
+          <div class="check-mark">✓</div>
+          <span class="tile-icon">{{ cat.icon }}</span>
+          <h3 class="tile-name">{{ cat.name }}</h3>
+          <p class="tile-desc">{{ cat.desc }}</p>
         </div>
+        {% endfor %}
+      </div>
 
-        {# Category grid #}
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-6" id="category-grid">
-          {% for key, cat in categories.items() %}
-          <div class="category-tile relative {{ 'selected' if key in selected else '' }}"
-               data-key="{{ key }}"
-               onclick="toggleCategory(this)">
-            <div class="check-mark">✓</div>
-            <span class="tile-icon">{{ cat.icon }}</span>
-            <div class="tile-name">{{ cat.name }}</div>
-            <div class="tile-desc">{{ cat.desc }}</div>
+      <!-- Action Footer -->
+      <div class="fixed bottom-0 left-0 right-0 p-4 bg-base-200/95 backdrop-blur-md border-t border-base-content/10 z-50">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+          <div class="text-sm font-medium">
+            <span id="selected-count" class="badge badge-primary mr-2">{{ selected|length }}</span>
+            <span class="text-base-content/60">selected (max 8)</span>
           </div>
-          {% endfor %}
-        </div>
-
-        {# Selection counter + buttons #}
-        <div class="flex items-center justify-between">
-          <span class="text-sm text-base-content/50" id="selection-count">
-            0 selected
-          </span>
-          <div class="flex gap-2">
-            <button type="button" class="btn btn-ghost btn-sm" onclick="skipOnboarding()">
-                Skip for now
+          <div class="flex gap-3">
+            <button onclick="skipOnboarding()" class="btn btn-ghost btn-sm md:btn-md text-base-content/50">
+              Skip for now
             </button>
-            <button class="btn btn-primary btn-sm" id="continue-btn"
-                    onclick="submitCategories()" disabled>
-              Continue →
+            <button id="continue-btn" onclick="submitCategories()" class="btn btn-primary btn-sm md:btn-md px-6 shadow-lg shadow-primary/20" {% if selected|length == 0 %}disabled{% endif %}>
+              Continue
+              <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
             </button>
           </div>
         </div>
       </div>
-
-      {# ════════ STEP 2: Seed Papers (loaded via HTMX) ════════ #}
-      <div id="step-2" class="hidden"></div>
-
     </div>
-  </div>
 
+    <!-- ═══ Step 2: Seed Search ═══ -->
+    <div id="step-2" class="hidden">
+      <!-- Content loaded via HTMX from /api/onboarding/categories -->
+    </div>
+
+  </main>
+
+  <script src="/static/app.js"></script>
   <script>
-    // ── Category toggle logic ──────────────────────────────────────
-    const selected = new Set({{ selected | tojson }});
+    // Initialize selected set from Jinja template
+    let selectedCategories = new Set({{ selected | tojson }});
 
-    function toggleCategory(tile) {
-      const key = tile.dataset.key;
-      if (selected.has(key)) {
-        selected.delete(key);
-        tile.classList.remove('selected');
+    function toggleCategory(element) {
+      const key = element.dataset.key;
+      
+      if (selectedCategories.has(key)) {
+        selectedCategories.delete(key);
+        element.classList.remove('selected');
       } else {
-        if (selected.size >= 8) return; // max 8
-        selected.add(key);
-        tile.classList.add('selected');
+        if (selectedCategories.size >= 8) {
+          showToast('Maximum 8 categories allowed', 'error');
+          return;
+        }
+        selectedCategories.add(key);
+        element.classList.add('selected');
       }
       updateUI();
     }
 
     function updateUI() {
-      const count = selected.size;
-      document.getElementById('selection-count').textContent = count + ' selected';
-      document.getElementById('continue-btn').disabled = count < 1;
-    }
-
-    // ── Submit categories → show Step 2 ──────────────────────────
-    async function submitCategories() {
+      const countEl = document.getElementById('selected-count');
       const btn = document.getElementById('continue-btn');
-      btn.disabled = true;
-      btn.textContent = 'Saving...';
-
-      try {
-        const resp = await fetch('/api/onboarding/categories', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories: Array.from(selected) }),
-        });
-
-        if (resp.ok) {
-          const html = await resp.text();
-          // Hide step 1, show step 2
-          document.getElementById('step-1').classList.add('hidden');
-          document.getElementById('step-2').classList.remove('hidden');
-          document.getElementById('step-2').innerHTML = html;
-          // Update step dots
-          document.getElementById('dot-1').classList.remove('active');
-          document.getElementById('dot-1').classList.add('completed');
-          document.getElementById('dot-2').classList.add('active');
-          // Re-process HTMX on the new content
-          htmx.process(document.getElementById('step-2'));
-        }
-      } catch (e) {
-        console.error('Failed to save categories:', e);
-        btn.disabled = false;
-        btn.textContent = 'Continue →';
+      
+      countEl.innerText = selectedCategories.size;
+      
+      if (selectedCategories.size > 0) {
+        btn.removeAttribute('disabled');
+        btn.classList.add('animate-pulse-once');
+      } else {
+        btn.setAttribute('disabled', 'true');
+        btn.classList.remove('animate-pulse-once');
       }
     }
 
-    // ── Skip onboarding entirely ──────────────────────────────────
+    async function submitCategories() {
+      if (selectedCategories.size === 0) return;
+      
+      const btn = document.getElementById('continue-btn');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Saving...';
+      btn.setAttribute('disabled', 'true');
+
+      try {
+        const response = await fetch('/api/onboarding/categories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categories: Array.from(selectedCategories) })
+        });
+        
+        if (response.ok) {
+          const html = await response.text();
+          
+          // Hide step 1, show step 2
+          document.getElementById('step-1').classList.add('hidden');
+          const step2 = document.getElementById('step-2');
+          step2.innerHTML = html;
+          step2.classList.remove('hidden');
+          step2.classList.add('fade-in');
+          
+          // Update dots
+          document.getElementById('dot-1').classList.replace('active', 'completed');
+          document.getElementById('dot-2').classList.add('active');
+          
+          // Initialize HTMX on the newly injected HTML
+          htmx.process(step2);
+        } else {
+          showToast('Failed to save categories. Please try again.', 'error');
+          btn.innerHTML = originalText;
+          btn.removeAttribute('disabled');
+        }
+      } catch (e) {
+        showToast('Network error. Please try again.', 'error');
+        btn.innerHTML = originalText;
+        btn.removeAttribute('disabled');
+      }
+    }
+
     async function skipOnboarding() {
       try {
         await fetch('/api/onboarding/skip', { method: 'POST' });
+        window.location.href = '/';
       } catch (e) {
-        console.error('Skip failed:', e);
+        window.location.href = '/';
       }
-      window.location.href = '/';
     }
-
-    // Initialize on load
-    updateUI();
   </script>
-
 </body>
 </html>

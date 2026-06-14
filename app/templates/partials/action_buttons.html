@@ -20,36 +20,46 @@
 {% set _policy_id = paper.policy_id | default("") if paper is defined else "" %}
 
 {% if is_saved %}
-  <!-- Already saved — show saved state, allow unsave via not-interested -->
-  <div class="flex gap-2 flex-wrap">
-    <button class="btn btn-success btn-xs" disabled>
-      ✓ Saved
+  <!-- Already saved — show saved state -->
+  <div class="flex items-center gap-2 flex-wrap">
+    <button class="rit-action-btn rit-btn-save saved save-success" disabled>
+      <span class="btn-icon">✓</span> Saved
     </button>
-    <button class="btn btn-ghost btn-xs"
+    <button class="rit-action-btn rit-btn-dismiss"
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
             hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      Remove
+      <span class="btn-icon">✕</span> Remove
     </button>
   </div>
 {% else %}
-  <div class="flex gap-2 flex-wrap">
+  <div class="flex items-center gap-2 flex-wrap">
     <!-- Save -->
-    <button class="btn btn-primary btn-xs"
+    <button class="rit-action-btn rit-btn-save"
             hx-post="/api/papers/{{ pid }}/save"
             hx-target="[id='actions-{{ pid }}']"
             hx-swap="innerHTML"
             hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      ⭐ Save
+      <span class="btn-icon">⭐</span> Save
     </button>
     <!-- Not interested (removes the whole card) -->
-    <button class="btn btn-ghost btn-xs text-error"
+    <button class="rit-action-btn rit-btn-dismiss"
             hx-post="/api/papers/{{ pid }}/not-interested"
             hx-target="#paper-{{ pid }}"
             hx-swap="outerHTML swap:200ms"
             hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      ✕ Not interested
+      <span class="btn-icon">✕</span> Not interested
     </button>
+    <!-- Open on arXiv -->
+    <a href="https://arxiv.org/abs/{{ pid }}"
+       target="_blank"
+       rel="noopener"
+       class="rit-action-btn rit-btn-link">
+      <span class="btn-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+      </span>
+      arXiv
+    </a>
   </div>
 {% endif %}

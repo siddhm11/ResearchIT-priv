@@ -1,77 +1,86 @@
-{#
-  Seed paper search — Step 2 of the onboarding wizard.
-  Expects:
-    seed_count  – int, papers saved so far
-    seed_target – int, target number (5)
-    papers      – list[dict], search results (optional)
-    query       – str, current search query (optional)
-#}
-<div class="fade-in">
-  <div class="text-center mb-6">
-    <h2 class="text-2xl font-bold mb-2">Save a few papers you like</h2>
-    <p class="text-base-content/60 text-sm max-w-md mx-auto">
-      Search for papers in your research area and save them.
-      This helps us understand your specific interests.
-    </p>
-  </div>
+<div class="text-center mb-8 relative">
+  <div class="rit-hero-glow animate-glow" style="top: -30px; left: 50%; transform: translateX(-50%);"></div>
+  <h2 class="text-3xl font-bold mb-3 font-display relative z-10">Save a few papers you like</h2>
+  <p class="text-base-content/60 max-w-md mx-auto relative z-10">
+    Search for papers in your field and save a few to seed your recommendations.
+  </p>
+</div>
 
-  {# Search bar #}
-  <div class="mb-4">
-    <form hx-get="/api/onboarding/seed-search"
-          hx-target="#seed-results"
-          hx-swap="innerHTML"
-          hx-indicator="#seed-spinner"
-          class="flex gap-2">
-      <input type="text"
-             name="q"
-             value="{{ query | default('') }}"
-             placeholder="e.g. transformer attention mechanism"
-             class="input input-bordered flex-1"
-             autofocus />
-      <button class="btn btn-primary btn-sm" type="submit">
-        Search
-        <span id="seed-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
-      </button>
-    </form>
+<!-- Seed Progress Bar -->
+<div class="max-w-xl mx-auto mb-8">
+  <div class="flex justify-between items-center mb-2 text-xs font-medium text-base-content/70">
+    <span>Progress</span>
+    <span id="seed-counter">{{ seed_count }}/{{ seed_target }} seeds saved</span>
   </div>
+  <div class="seed-progress-track">
+    <div class="seed-progress-fill" style="width: {{ (seed_count / seed_target * 100) | round | int }}%"></div>
+  </div>
+</div>
 
-  {# Seed counter #}
-  <div class="flex items-center justify-between mb-4">
-    <div class="flex items-center gap-2">
-      <span class="stat-pill bg-primary/10 text-primary" id="seed-counter">
-        {{ seed_count | default(0) }}/{{ seed_target | default(5) }} seeds saved
-      </span>
+<div class="max-w-xl mx-auto">
+  <div class="rit-search-wrapper mb-8">
+    <div class="card bg-base-100 shadow-md rounded-xl">
+      <form class="flex gap-2 p-2 items-center"
+            hx-get="/api/onboarding/seed-search"
+            hx-target="#seed-results"
+            hx-swap="innerHTML"
+            hx-indicator="#seed-loading">
+        <svg class="w-5 h-5 ml-3 text-base-content/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
+        </svg>
+        <input type="text"
+               name="q"
+               value="{{ query | default('') }}"
+               placeholder="Search by keywords or authors..."
+               class="rit-search-input py-2 text-base md:text-lg"
+               autofocus />
+        <button class="btn btn-primary px-5 rounded-lg flex-shrink-0" type="submit">
+          Search
+        </button>
+      </form>
     </div>
   </div>
+</div>
 
-  {# Search results — inner div is the HTMX swap target #}
-  <div id="seed-results" class="space-y-2 mb-6">
-    {% include "partials/seed_results.html" %}
-  </div>
+<div id="seed-loading" class="htmx-indicator w-full text-center py-8">
+  <span class="loading loading-spinner loading-lg text-primary"></span>
+</div>
 
-  {# Done / Skip buttons #}
-  <div class="flex justify-end gap-2 pt-4 border-t border-base-content/10">
-    <form action="/api/onboarding/complete" method="post">
-      <button type="submit" class="btn btn-ghost btn-sm">
-        Skip — show me trending papers
-      </button>
+<div id="seed-results">
+  {% include "partials/seed_results.html" %}
+</div>
+
+<!-- Action Footer -->
+<div class="fixed bottom-0 left-0 right-0 p-4 bg-base-200/95 backdrop-blur-md border-t border-base-content/10 z-50">
+  <div class="max-w-4xl mx-auto flex items-center justify-end gap-3">
+    <form action="/api/onboarding/complete" method="post" class="inline">
+      <button type="submit" class="btn btn-ghost btn-sm md:btn-md text-base-content/50">Skip</button>
     </form>
-    <form action="/api/onboarding/complete" method="post">
-      <button type="submit" class="btn btn-primary btn-sm">
-        Done — start exploring →
+    <form action="/api/onboarding/complete" method="post" class="inline">
+      <button type="submit" class="btn btn-primary btn-sm md:btn-md px-6 shadow-lg shadow-primary/20">
+        Finish & View Feed
+        <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
       </button>
     </form>
   </div>
 </div>
 
 <script>
+  let _seedCount = {{ seed_count }};
+  const _seedTarget = {{ seed_target }};
+
   function bumpSeedCount() {
-    const el = document.getElementById('seed-counter');
-    if (el) {
-      const parts = el.textContent.trim().split('/');
-      const current = parseInt(parts[0]) || 0;
-      const target = parseInt(parts[1]) || 5;
-      el.textContent = (current + 1) + '/' + target + ' seeds saved';
+    _seedCount++;
+    const counterEl = document.getElementById('seed-counter');
+    if (counterEl) {
+      counterEl.innerText = `${_seedCount}/${_seedTarget} seeds saved`;
+    }
+    
+    // Animate progress bar
+    const fillEl = document.querySelector('.seed-progress-fill');
+    if (fillEl) {
+      const percentage = Math.min((_seedCount / _seedTarget) * 100, 100);
+      fillEl.style.width = `${percentage}%`;
     }
   }
 </script>

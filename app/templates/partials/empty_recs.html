@@ -1,16 +1,25 @@
 {# Shown when the user hasn't saved enough papers yet #}
-<div class="text-center py-8 text-base-content/40 space-y-2">
-  <div class="text-3xl">🔍</div>
-  <p class="font-medium">No recommendations yet</p>
-  <p class="text-sm max-w-sm mx-auto">
+<div class="text-center py-12 space-y-4 max-w-md mx-auto">
+  <div class="text-5xl mb-2 opacity-70">🔬</div>
+  <h3 class="text-lg font-semibold font-display">Your personal feed is brewing</h3>
+  <p class="text-sm text-base-content/50 leading-relaxed">
     Save {{ min_saves | default(1) }} or more paper{{ "s" if (min_saves | default(1)) > 1 else "" }}
-    while searching to unlock personalised recommendations.
+    while searching to unlock personalized recommendations powered by your unique research interests.
   </p>
-  <!-- Check again after saving papers on the search page -->
-  <button class="btn btn-ghost btn-xs mt-1"
-          hx-get="/api/recommendations"
-          hx-target="#rec-section"
-          hx-swap="innerHTML">
-    ↻ Check for recommendations
-  </button>
+
+  <div class="flex flex-col items-center gap-3 pt-2">
+    <a href="/search" class="btn btn-primary btn-sm shadow-lg shadow-primary/10">
+      <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
+      </svg>
+      Start Searching
+    </a>
+
+    <button class="btn btn-ghost btn-xs text-base-content/40"
+            hx-get="/api/recommendations"
+            hx-target="#rec-section"
+            hx-swap="innerHTML">
+      ↻ Check for recommendations
+    </button>
+  </div>
 </div>

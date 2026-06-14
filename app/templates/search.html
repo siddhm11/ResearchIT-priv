@@ -6,63 +6,57 @@
 <div class="space-y-6 fade-in">
 
   <!-- Search bar -->
-  <div class="card bg-base-100 shadow-md rounded-xl p-4">
-    <form id="search-form"
-          hx-get="/search" 
-          hx-target="#search-results" 
-          hx-push-url="true"
-          hx-trigger="submit"
-          class="flex gap-2">
-      <input type="text"
-             name="q"
-             value="{{ query }}"
-             placeholder="Search arXiv papers…"
-             class="input input-bordered flex-1"
-             autofocus
-             onkeydown="if(event.key==='Enter'){event.preventDefault(); htmx.trigger(document.getElementById('search-form'), 'submit');}" />
-      <button class="btn btn-primary flex items-center gap-2" type="submit">
-        <span class="search-btn-text">Search</span>
-        <span class="search-btn-loading hidden">
-          <span class="loading loading-spinner loading-sm"></span>
-          Searching…
-        </span>
-      </button>
-    </form>
+  <div class="rit-search-wrapper">
+    <div class="card bg-base-100 shadow-md rounded-xl p-4">
+      <form id="search-form"
+            hx-get="/search"
+            hx-target="#search-results"
+            hx-push-url="true"
+            hx-trigger="submit"
+            class="flex gap-2 items-center">
+        <input type="text"
+               name="q"
+               value="{{ query }}"
+               placeholder="Search arXiv papers…"
+               class="rit-search-input flex-1"
+               autofocus
+               onkeydown="if(event.key==='Enter'){event.preventDefault(); htmx.trigger(document.getElementById('search-form'), 'submit');}" />
+        <button class="btn btn-primary flex items-center gap-2" type="submit">
+          <span class="search-btn-text">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Search
+          </span>
+          <span class="search-btn-loading hidden">
+            <span class="loading loading-spinner loading-sm"></span>
+            Searching…
+          </span>
+        </button>
+      </form>
+      <p class="text-xs text-base-content/40 mt-2 text-center">Search across 1.6M+ papers</p>
+    </div>
   </div>
 
   <!-- Loading overlay (outside search-results so it doesn't get swapped away) -->
   <div id="search-loading" class="hidden">
-    <div class="flex flex-col items-center justify-center py-16 gap-4">
-      <span class="loading loading-ring loading-lg text-primary"></span>
-      <div class="text-sm text-base-content/60 animate-pulse">
-        Searching 1.6M papers across Qdrant + Zilliz…
-      </div>
-      <div class="flex gap-6 text-xs text-base-content/40 font-mono">
-        <span>Groq rewriting</span>
-        <span>→</span>
-        <span>BGE-M3 encoding</span>
-        <span>→</span>
-        <span>Vector retrieval</span>
-        <span>→</span>
-        <span>RRF + reranking</span>
-      </div>
-    </div>
+    {% set count = 3 %}{% include "partials/skeleton.html" %}
+    <div id="search-progress-msgs" class="rit-progress-container mt-4"></div>
   </div>
 
   <!-- Recommendations — only when not actively searching -->
   {% if has_recs and not query %}
-  <div id="rec-wrapper">
+  <section id="rec-wrapper">
     <h2 class="text-lg font-semibold mb-3">Recommended for You</h2>
     <div id="rec-section"
          hx-get="/api/recommendations"
          hx-trigger="load"
          hx-swap="innerHTML">
       <div class="space-y-3">
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
+        {% set count = 2 %}{% include "partials/skeleton.html" %}
       </div>
     </div>
-  </div>
+  </section>
   {% endif %}
 
   <!-- Search results -->
@@ -71,29 +65,8 @@
   </div>
 
 </div>
+{% endblock %}
 
-<script>
-  // Show/hide loading overlay + HIDE recommendations when searching
-  document.body.addEventListener('htmx:beforeRequest', function(evt) {
-    if (evt.detail.target && evt.detail.target.id === 'search-results') {
-      document.getElementById('search-loading').classList.remove('hidden');
-      document.getElementById('search-results').classList.add('opacity-30');
-      // Hide recommendations section when a search starts
-      var recWrapper = document.getElementById('rec-wrapper');
-      if (recWrapper) recWrapper.classList.add('hidden');
-      // Swap button text
-      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.add('hidden'));
-      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.remove('hidden'));
-    }
-  });
-  document.body.addEventListener('htmx:afterRequest', function(evt) {
-    if (evt.detail.target && evt.detail.target.id === 'search-results') {
-      document.getElementById('search-loading').classList.add('hidden');
-      document.getElementById('search-results').classList.remove('opacity-30');
-      // Restore button text
-      document.querySelectorAll('.search-btn-text').forEach(el => el.classList.remove('hidden'));
-      document.querySelectorAll('.search-btn-loading').forEach(el => el.classList.add('hidden'));
-    }
-  });
-</script>
+{% block scripts %}
+<!-- Search page JS now handled by app.js global HTMX listeners -->
 {% endblock %}

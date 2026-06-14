@@ -6,116 +6,132 @@
   <meta name="description" content="ResearchIT — AI-powered arXiv paper recommendations. Search, save, and discover research tailored to your interests." />
   <title>{% block title %}ResearchIT{% endblock %}</title>
 
-  <!-- TailwindCSS + DaisyUI (CDN, no build step) -->
+  <!-- DaisyUI + TailwindCSS (CDN, no build step) -->
   <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Custom styles -->
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/animations.css" />
 
   <!-- HTMX -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 
   <style>
-    /* Spinner shown while HTMX request is in-flight */
+    /* HTMX indicator visibility */
     .htmx-request .htmx-indicator { display: inline-block !important; }
     .htmx-indicator { display: none; }
   </style>
 
-  <!-- Theme toggle script (runs before body to prevent flash) -->
+  <!-- Theme restore (runs before body to prevent flash) -->
   <script>
     (function() {
       const saved = localStorage.getItem('researchit-theme');
-      if (saved) {
-        document.documentElement.setAttribute('data-theme', saved);
-      }
+      if (saved) document.documentElement.setAttribute('data-theme', saved);
     })();
   </script>
+
+  {% block head %}{% endblock %}
 </head>
 <body class="bg-base-200 min-h-screen">
 
-  <!-- Navbar -->
-  <nav class="navbar navbar-glass sticky top-0 z-50 px-4 md:px-6">
+  <!-- ═══ Navbar ═══ -->
+  <nav class="rit-navbar navbar sticky top-0 z-50 px-4 md:px-6">
     <div class="flex-1">
-      <a href="/" class="flex items-center gap-2 text-xl">
-        <span class="brand-text">ResearchIT</span>
+      <a href="/" class="flex items-center gap-2 text-xl group">
+        <svg class="w-7 h-7 text-sky-400 group-hover:text-sky-300 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          <path d="M11 8v6M8 11h6" opacity="0.5"/>
+        </svg>
+        <span class="brand-text text-lg">ResearchIT</span>
       </a>
     </div>
-    
+
     <!-- Desktop Menu -->
     <div class="hidden md:flex flex-none items-center gap-1">
-      <a href="/" class="btn btn-ghost btn-sm">Home</a>
-      <a href="/search" class="btn btn-ghost btn-sm">Search</a>
-      <a href="/saved" class="btn btn-ghost btn-sm">Saved</a>
-      <!-- Theme toggle -->
-      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle ml-2" title="Toggle theme"
+      <a href="/" class="rit-nav-link">Home</a>
+      <a href="/search" class="rit-nav-link">Search</a>
+      <a href="/saved" class="rit-nav-link">Saved</a>
+      <div class="w-px h-5 bg-base-content/10 mx-2"></div>
+      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
               onclick="toggleTheme()">
-        <span id="theme-icon-dark" class="hidden">☀️</span>
-        <span id="theme-icon-light" class="hidden">🌙</span>
+        <svg class="theme-icon-sun w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <svg class="theme-icon-moon w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
     </div>
 
     <!-- Mobile Menu Toggle -->
-    <div class="flex-none md:hidden">
+    <div class="flex-none md:hidden relative">
       <label class="btn btn-ghost btn-sm btn-circle swap swap-rotate">
         <input type="checkbox" class="mobile-menu-toggle hidden" />
-        <svg class="swap-off fill-current" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><path d="M64,384H448V341.33H64Zm0-106.67H448V234.67H64ZM64,128v42.67H448V128Z"/></svg>
-        <svg class="swap-on fill-current" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 512 512"><polygon points="400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49"/></svg>
+        <svg class="swap-off fill-current" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 512 512"><path d="M64,384H448V341.33H64Zm0-106.67H448V234.67H64ZM64,128v42.67H448V128Z"/></svg>
+        <svg class="swap-on fill-current" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 512 512"><polygon points="400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49"/></svg>
       </label>
-      <!-- Mobile Menu Dropdown -->
       <div class="mobile-menu hidden">
-        <a href="/" class="btn btn-ghost justify-start">Home</a>
-        <a href="/search" class="btn btn-ghost justify-start">Search</a>
-        <a href="/saved" class="btn btn-ghost justify-start">Saved</a>
-        <div class="divider my-1"></div>
-        <button class="btn btn-ghost justify-start" onclick="toggleTheme()">
-          <span class="theme-text-dark hidden">Switch to Light Mode ☀️</span>
-          <span class="theme-text-light hidden">Switch to Dark Mode 🌙</span>
+        <a href="/" class="btn btn-ghost btn-sm justify-start">Home</a>
+        <a href="/search" class="btn btn-ghost btn-sm justify-start">Search</a>
+        <a href="/saved" class="btn btn-ghost btn-sm justify-start">Saved</a>
+        <div class="divider my-1 opacity-20"></div>
+        <button class="btn btn-ghost btn-sm justify-start" onclick="toggleTheme()">
+          <span class="theme-text-dark hidden">Switch to Light ☀️</span>
+          <span class="theme-text-light hidden">Switch to Dark 🌙</span>
         </button>
       </div>
     </div>
   </nav>
 
-  <!-- Main content -->
-  <main class="container mx-auto px-4 py-6 md:py-8 max-w-4xl min-h-[70vh]">
+  <!-- ═══ Main Content ═══ -->
+  <main class="container mx-auto px-4 py-6 md:py-10 max-w-4xl min-h-[70vh]">
     {% block content %}{% endblock %}
   </main>
 
+  <!-- ═══ Footer ═══ -->
   <footer class="app-footer">
     <div class="container mx-auto px-4 max-w-4xl">
-      <p>Built with ❤️ — <span class="brand-text font-semibold">ResearchIT</span></p>
-      <p class="mt-2 text-xs opacity-60">AI-powered arXiv recommendations using Qdrant, Zilliz & Turso.</p>
+      <p class="mb-2">
+        <span class="brand-text font-semibold">ResearchIT</span>
+        <span class="mx-2 opacity-30">·</span>
+        <span>Your personal research feed</span>
+      </p>
+      <div class="flex flex-wrap justify-center gap-2 mt-3">
+        <span class="footer-tech-badge">Qdrant</span>
+        <span class="footer-tech-badge">Zilliz</span>
+        <span class="footer-tech-badge">BGE-M3</span>
+        <span class="footer-tech-badge">LightGBM</span>
+        <span class="footer-tech-badge">Groq</span>
+        <span class="footer-tech-badge">Turso</span>
+      </div>
     </div>
   </footer>
 
-  <!-- Theme toggle logic -->
-  <script>
-    function toggleTheme() {
-      const html = document.documentElement;
-      const current = html.getAttribute('data-theme');
-      const next = current === 'dark' ? 'light' : 'dark';
-      html.setAttribute('data-theme', next);
-      localStorage.setItem('researchit-theme', next);
-      updateThemeIcon();
-    }
+  <!-- ═══ Mobile Bottom Navigation ═══ -->
+  <div class="rit-bottom-nav">
+    <a href="/" class="rit-bottom-nav-item" data-page="home">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m3 12 2-2m0 0 7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11 2 2m-2-2v10a1 1 0 0 1-1 1h-3m-4 0a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2Z"/>
+      </svg>
+      <span>Home</span>
+    </a>
+    <a href="/search" class="rit-bottom-nav-item" data-page="search">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
+      </svg>
+      <span>Search</span>
+    </a>
+    <a href="/saved" class="rit-bottom-nav-item" data-page="saved">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"/>
+      </svg>
+      <span>Saved</span>
+    </a>
+  </div>
 
-    function updateThemeIcon() {
-      const theme = document.documentElement.getAttribute('data-theme');
-      
-      // Desktop icons
-      const iconDark = document.getElementById('theme-icon-dark');
-      const iconLight = document.getElementById('theme-icon-light');
-      if (iconDark) iconDark.classList.toggle('hidden', theme !== 'dark');
-      if (iconLight) iconLight.classList.toggle('hidden', theme !== 'light');
-      
-      // Mobile menu text
-      document.querySelectorAll('.theme-text-dark').forEach(el => el.classList.toggle('hidden', theme !== 'dark'));
-      document.querySelectorAll('.theme-text-light').forEach(el => el.classList.toggle('hidden', theme !== 'light'));
-    }
+  <!-- ═══ Toast Container ═══ -->
+  <div id="toast-container"></div>
 
-    // Set icon on load
-    updateThemeIcon();
-  </script>
+  <!-- ═══ Scripts ═══ -->
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
 
 </body>
 </html>
