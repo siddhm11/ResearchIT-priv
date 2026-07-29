@@ -269,6 +269,14 @@ def _to_paper_dict(row: dict) -> dict | None:
         "abstract": (row.get("abstract_preview") or "").replace("\n", " "),
         "authors": authors_json,
         "category": category,
+        # Raw space-separated arXiv codes ("cs.CL cs.LG").
+        #
+        # `category` above comes from primary_topic, which stores friendly
+        # labels ("AI/ML", "NLP/Computational Linguistics") rather than arXiv
+        # codes.  Anything that needs to compare against CATEGORY_GROUPS — which
+        # is defined in arXiv codes — must use this field instead, or the
+        # comparison silently never matches.
+        "arxiv_categories": row.get("categories") or "",
         "published": update_date,
         "year": year,
         "citation_count": citation_count,

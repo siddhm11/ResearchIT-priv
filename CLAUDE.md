@@ -372,8 +372,9 @@ ResearchIT-Final/
 
 ```bash
 # Run the app (dev server with hot reload)
-python run.py
+DEV_RELOAD=1 python run.py
 # serves at http://127.0.0.1:7860 (port 7860 for HF Spaces compat)
+# Plain `python run.py` runs WITHOUT reload — that is what the container uses.
 
 # Run all tests
 python -m pytest tests/ -v

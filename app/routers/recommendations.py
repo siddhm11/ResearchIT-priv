@@ -441,10 +441,20 @@ async def _multi_interest_recommend(
             dtype=np.float32,
         )
 
+        # Feature 26 compares against CATEGORY_GROUPS, which is expressed in
+        # arXiv codes (cs.CL, cs.CV, ...).  It must therefore read the raw
+        # `arxiv_categories` field, not `category` — the latter holds Turso's
+        # friendly primary_topic label ("AI/ML"), so the old comparison against
+        # a set of arXiv codes was never true and this feature was pinned to 0.
+        # A paper is a match if ANY of its arXiv codes is in the user's set.
         onboarding_match_arr = np.asarray(
             [
-                1.0 if cand_meta.get(cid, {}).get("category", "") in onboarding_categories
-                else 0.0
+                1.0 if (
+                    onboarding_categories
+                    and set(
+                        (cand_meta.get(cid, {}).get("arxiv_categories") or "").split()
+                    ) & onboarding_categories
+                ) else 0.0
                 for cid in valid_ids
             ],
             dtype=np.float32,
