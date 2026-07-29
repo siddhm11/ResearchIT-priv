@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+*.db
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# Cache
+.pytest_cache/
+.qodo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PDFs (research docs, not code)
+*.pdf
+
+# Large data files
+arxiv_ids.txt
+e2e_output.txt
+
+# Generated / scratch
+pdf_images/
+
+# Notebooks (reference only — tracked selectively)
+notebooks/02-bme-arxiv-test.ipynb
+notebooks/03-check-search-bq-prm.ipynb
+
+# Scratch / temp files
+docs/walkthroughs/Untitled-1.txt

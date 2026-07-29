@@ -1,0 +1,3258 @@
+[
+  {
+    "band": "A",
+    "query": "attention is all you need",
+    "description": "Landmark transformer paper by Vaswani et al.",
+    "rewrite": "Transformer self-attention mechanisms Vaswani et al",
+    "latency_ms": 4127.867400005925,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1706.03762",
+        "title": "Attention Is All You Need",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1912.11959",
+        "title": "Is Attention All What You Need? -- An Empirical Investigation on   Convolution-Based Active Memory and Self-Attention",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2404.01183",
+        "title": "Positioning is All You Need",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2502.05383",
+        "title": "Is attention all you need to solve the correlated electron problem?",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2405.06478",
+        "title": "Attention is all they need: Cognitive science and the (techno)political   economy of attention in humans and machines",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2304.04556",
+        "title": "Attention: Marginal Probability is All You Need?",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2501.05730",
+        "title": "Element-wise Attention Is All You Need",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1906.02792",
+        "title": "Attention is all you need for Videos: Self-attention based Video   Summarization using Universal Transformers",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2408.02692",
+        "title": "Attention is all you need for an improved CNN-based flash flood   susceptibility modeling. The case of the ungauged Rheraya watershed, Morocco",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2501.09166",
+        "title": "Attention is All You Need Until You Need Retention",
+        "category": "?"
+      }
+    ],
+    "expected_id": "1706.03762",
+    "expected_found": true,
+    "expected_rank": 1,
+    "topic_diversity": 0
+  },
+  {
+    "band": "A",
+    "query": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    "description": "Full BERT title \u2014 should be exact #1",
+    "rewrite": null,
+    "latency_ms": 1612.3626999906264,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1810.04805",
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language   Understanding",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2210.12440",
+        "title": "Spectrum-BERT: Pre-training of Deep Bidirectional Transformers for   Spectral Classification of Chinese Liquors",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2106.08254",
+        "title": "BEiT: BERT Pre-Training of Image Transformers",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1909.04120",
+        "title": "Span Selection Pre-training for Question Answering",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2401.15861",
+        "title": "BPDec: Unveiling the Potential of Masked Language Modeling Decoder in   BERT pretraining",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "1909.10351",
+        "title": "TinyBERT: Distilling BERT for Natural Language Understanding",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2011.07208",
+        "title": "Utilizing Bidirectional Encoder Representations from Transformers for   Answer Selection",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1905.05583",
+        "title": "How to Fine-Tune BERT for Text Classification?",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1906.08237",
+        "title": "XLNet: Generalized Autoregressive Pretraining for Language Understanding",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2112.07571",
+        "title": "Epigenomic language models powered by Cerebras",
+        "category": "?"
+      }
+    ],
+    "expected_id": "1810.04805",
+    "expected_found": true,
+    "expected_rank": 1,
+    "topic_diversity": 0
+  },
+  {
+    "band": "A",
+    "query": "Deep Residual Learning for Image Recognition",
+    "description": "ResNet \u2014 the most-cited CV paper",
+    "rewrite": "Deep Residual Learning Image Recognition ConvNets ResNet",
+    "latency_ms": 2775.4920000443235,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1512.03385",
+        "title": "Deep Residual Learning for Image Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1604.01335",
+        "title": "Deep Cross Residual Learning for Multitask Visual Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1805.00325",
+        "title": "Study of Residual Networks for Image Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2505.01632",
+        "title": "Transfer Learning-Based Deep Residual Learning for Speech Recognition in   Clean and Noisy Environments",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2004.04989",
+        "title": "Improved Residual Networks for Image and Video Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "1604.08671",
+        "title": "Deep Edge Guided Recurrent Residual Learning for Image Super-Resolution",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1707.08866",
+        "title": "Deep Residual Learning for Weakly-Supervised Relation Extraction",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1706.08807",
+        "title": "Recurrent Residual Learning for Action Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2211.12320",
+        "title": "A Cross-Residual Learning for Image Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2107.05318",
+        "title": "R3L: Connecting Deep Reinforcement Learning to Recurrent Neural Networks   for Image Denoising via Residual Recovery",
+        "category": "?"
+      }
+    ],
+    "expected_id": "1512.03385",
+    "expected_found": true,
+    "expected_rank": 1,
+    "topic_diversity": 0
+  },
+  {
+    "band": "F",
+    "query": "how do transformers work in NLP",
+    "description": "Newcomer asking about transformer basics",
+    "rewrite": "Transformer architecture self-attention mechanisms NLP deep learning sequence modeling",
+    "latency_ms": 2065.812500019092,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2406.16893",
+        "title": "A Survey on Transformers in NLP with Focus on Efficiency",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1910.06764",
+        "title": "Stabilizing Transformers for Reinforcement Learning",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2204.05673",
+        "title": "What do Toothbrushes do in the Kitchen? How Transformers Think our World   is Structured",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2410.13732",
+        "title": "Reducing the Transformer Architecture to a Minimum",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2306.07303",
+        "title": "A Comprehensive Survey on Applications of Transformers for Deep Learning   Tasks",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2202.07856",
+        "title": "The NLP Task Effectiveness of Long-Range Transformers",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2310.10930",
+        "title": "Enhanced Transformer Architecture for Natural Language Processing",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1907.00570",
+        "title": "Do Transformer Attention Heads Provide Transparency in Abstractive   Summarization?",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1906.06755",
+        "title": "Theoretical Limitations of Self-Attention in Neural Sequence Models",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2105.08050",
+        "title": "Pay Attention to MLPs",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "F",
+    "query": "what is reinforcement learning from human feedback",
+    "description": "Beginner asking about RLHF \u2014 should surface Ouyang/InstructGPT/Christiano",
+    "rewrite": null,
+    "latency_ms": 1188.2260999991558,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2312.14925",
+        "title": "A Survey of Reinforcement Learning from Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2504.12501",
+        "title": "Reinforcement Learning from Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2504.14732",
+        "title": "Reinforcement Learning from Multi-level and Episodic Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2502.05434",
+        "title": "Sample-Efficient Reinforcement Learning from Human Feedback via   Information-Directed Sampling",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2211.11602",
+        "title": "Improving Multimodal Interactive Agents with Reinforcement Learning from   Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2410.02504",
+        "title": "Dual Active Learning for Reinforcement Learning from Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2303.02891",
+        "title": "Perspectives on the Social Impacts of Reinforcement Learning with Human   Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2310.13639",
+        "title": "Contrastive Preference Learning: Learning from Human Feedback without RL",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1707.07402",
+        "title": "Reinforcement Learning for Bandit Neural Machine Translation with   Simulated Human Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1805.10627",
+        "title": "Reliability and Learnability of Human Bandit Feedback for   Sequence-to-Sequence Reinforcement Learning",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "F",
+    "query": "explain how neural networks learn",
+    "description": "Very basic \u2014 should return foundational/survey papers",
+    "rewrite": "deep learning neural networks backpropagation optimization stochastic gradient descent",
+    "latency_ms": 2098.3753000036813,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2204.07291",
+        "title": "The training response law explains how deep neural networks learn",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1901.07538",
+        "title": "Unsupervised Learning of Neural Networks to Explain Neural Networks   (extended abstract)",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1805.07468",
+        "title": "Unsupervised Learning of Neural Networks to Explain Neural Networks",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2310.09838",
+        "title": "Explaining How a Neural Network Play the Go Game and Let People Learn",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2307.02129",
+        "title": "How Deep Neural Networks Learn Compositional Data: The Random Hierarchy   Model",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2303.14937",
+        "title": "LEURN: Learning Explainable Univariate Rules with Neural Networks",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1902.08160",
+        "title": "Topology of Learning in Artificial Neural Networks",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1502.04042",
+        "title": "Abstract Learning via Demodulation in a Deep Neural Network",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1911.05640",
+        "title": "Neural Network Processing Neural Networks: An efficient way to learn   higher order functions",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2206.01717",
+        "title": "A Theoretical Analysis on Feature Learning in Neural Networks: Emergence   from Inputs and Advantage over Fixed Features",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "F",
+    "query": "what are diffusion models and how do they generate images",
+    "description": "Beginner asking about DDPM/Stable Diffusion family",
+    "rewrite": null,
+    "latency_ms": 1032.1455000084825,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2302.09378",
+        "title": "Modelos Generativos basados en Mecanismos de Difusi\\'on",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2302.01394",
+        "title": "Understanding and contextualising diffusion models",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2305.19066",
+        "title": "Nested Diffusion Processes for Anytime Image Generation",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2209.10948",
+        "title": "Implementing and Experimenting with Diffusion Models for Text-to-Image   Generation",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2411.07449",
+        "title": "Tracing the Roots: Leveraging Temporal Dynamics in Diffusion   Trajectories for Origin Attribution",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2303.05275",
+        "title": "Detecting Images Generated by Diffusers",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2212.00235",
+        "title": "VIDM: Video Implicit Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2301.13188",
+        "title": "Extracting Training Data from Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2306.08103",
+        "title": "Generating Images with 3D Annotations Using Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2306.05182",
+        "title": "Interactive Fashion Content Generation Using LLMs and Latent Diffusion   Models",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "F",
+    "query": "how does GPT-4 work",
+    "description": "Newcomer asking about GPT-4 \u2014 should surface the technical report",
+    "rewrite": "GPT-4 architecture transformer large language model multimodal processing",
+    "latency_ms": 2233.0756000010297,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2305.03195",
+        "title": "Gpt-4: A Review on Advancements and Opportunities in Natural Language   Processing",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2303.08774",
+        "title": "GPT-4 Technical Report",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2304.10592",
+        "title": "MiniGPT-4: Enhancing Vision-Language Understanding with Advanced Large   Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2411.17976",
+        "title": "The importance of visual modelling languages in generative software   engineering",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2503.23601",
+        "title": "Exploring GPT-4 for Robotic Agent Strategy with Real-Time State Feedback   and a Reactive Behaviour Framework",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2409.15981",
+        "title": "GPT-4 as a Homework Tutor can Improve Student Engagement and Learning   Outcomes",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2402.17396",
+        "title": "Benchmarking GPT-4 on Algorithmic Problems: A Systematic Evaluation of   Prompting Strategies",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2310.11458",
+        "title": "GPT-4 as an interface between researchers and computational software:   improving usability and reproducibility",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2305.04160",
+        "title": "X-LLM: Bootstrapping Advanced Large Language Models by Treating   Multi-Modalities as Foreign Languages",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2311.15732",
+        "title": "GPT4Vis: What Can GPT-4 Do for Zero-shot Visual Recognition?",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "contrastive learning for self-supervised visual representations",
+    "description": "Should return SimCLR, MoCo, BYOL, DINO etc.",
+    "rewrite": "Contrastive learning self-supervised visual representation learning CNNs",
+    "latency_ms": 1839.8786999750882,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2202.03968",
+        "title": "Self-supervised Contrastive Learning for Cross-domain Hyperspectral   Image Representation",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2301.12541",
+        "title": "Supervised and Contrastive Self-Supervised In-Domain Representation   Learning for Dense Prediction Problems in Remote Sensing",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2210.03163",
+        "title": "Brief Introduction to Contrastive Learning Pretext Tasks for Visual   Representation",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2204.13386",
+        "title": "Self-supervised Contrastive Learning for Audio-Visual Action Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2208.04278",
+        "title": "Self-Supervised Contrastive Representation Learning for 3D Mesh   Segmentation",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2401.12024",
+        "title": "Multimodal Visual-Tactile Representation Learning through   Self-Supervised Contrastive Pre-Training",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2112.05760",
+        "title": "Learning Representations with Contrastive Self-Supervised Learning for   Histopathology Applications",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2103.13517",
+        "title": "A Broad Study on the Transferability of Visual Representations with   Contrastive Learning",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2106.15788",
+        "title": "Exploring Localization for Self-supervised Fine-grained Contrastive   Learning",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2105.05682",
+        "title": "Multi-Scale Contrastive Siamese Networks for Self-Supervised Graph   Representation Learning",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "knowledge distillation from large language models to smaller ones",
+    "description": "Distillation pipeline \u2014 DistilBERT, TinyBERT, knowledge distillation surveys",
+    "rewrite": null,
+    "latency_ms": 1139.147799985949,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2306.08543",
+        "title": "MiniLLM: Knowledge Distillation of Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2504.13825",
+        "title": "Feature Alignment and Representation Transfer in Knowledge Distillation   for Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2504.14366",
+        "title": "Empirical Evaluation of Knowledge Distillation from Transformers to Subquadratic Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2412.19449",
+        "title": "Feature Alignment-Based Knowledge Distillation for Efficient Compression   of Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2403.06414",
+        "title": "Evolving Knowledge Distillation with Large Language Models and Active   Learning",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2406.17328",
+        "title": "Dual-Space Knowledge Distillation for Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2002.00733",
+        "title": "Generation-Distillation for Efficient Natural Language Understanding in   Low-Data Settings",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2402.04616",
+        "title": "Beyond Answers: Transferring Reasoning Capabilities to Smaller LLMs   Using Multi-Teacher Knowledge Distillation",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2505.15442",
+        "title": "On the Generalization vs Fidelity Paradox in Knowledge Distillation",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2409.12500",
+        "title": "LLMR: Knowledge Distillation with a Large Language Model-Induced Reward",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "graph neural networks for molecular property prediction",
+    "description": "GNN + chemistry \u2014 SchNet, DimeNet, MPNN papers",
+    "rewrite": null,
+    "latency_ms": 1286.9488000287674,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2208.04852",
+        "title": "Graph neural networks for the prediction of molecular structure-property   relationships",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1909.00259",
+        "title": "Gated Graph Recursive Neural Networks for Molecular Property Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2008.12187",
+        "title": "Graph Neural Network Architecture Search for Molecular Property   Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2005.13607",
+        "title": "Multi-View Graph Neural Networks for Molecular Property Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2410.12156",
+        "title": "FragNet: A Graph Neural Network for Molecular Property Prediction with   Four Layers of Interpretability",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2410.11323",
+        "title": "KA-GNN: Kolmogorov-Arnold Graph Neural Networks for Molecular Property   Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2104.06046",
+        "title": "Which Hyperparameters to Optimise? An Investigation of Evolutionary   Hyperparameter Optimisation in Graph Neural Network For Molecular Property   Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2106.15529",
+        "title": "On Graph Neural Network Ensembles for Large-Scale Molecular Property   Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2012.01981",
+        "title": "Advanced Graph and Sequence Neural Networks for Molecular Property   Prediction and Drug Discovery",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2405.05205",
+        "title": "Hybrid Quantum Graph Neural Network for Molecular Property Prediction",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "efficient inference for large language models quantization pruning",
+    "description": "LLM compression \u2014 GPTQ, AWQ, SparseGPT, pruning surveys",
+    "rewrite": null,
+    "latency_ms": 1113.6418000096455,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2402.09748",
+        "title": "Model Compression and Efficient Inference for Large Language Models: A   Survey",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2410.17170",
+        "title": "Self-calibration for Language Model Quantization and Pruning",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2412.11629",
+        "title": "QPruner: Probabilistic Decision Quantization for Structured Pruning in   Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2412.11494",
+        "title": "FTP: A Fine-grained Token-wise Pruner for Large Language Models via   Token Routing",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2402.02834",
+        "title": "Shortened LLaMA: Depth Pruning for Large Language Models with Comparison   of Retraining Methods",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2309.09507",
+        "title": "Pruning Large Language Models via Accuracy Predictor",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2102.11289",
+        "title": "Ps and Qs: Quantization-aware pruning for efficient low latency neural   network inference",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2502.15796",
+        "title": "Pruning as a Defense: Reducing Memorization in Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2502.04348",
+        "title": "Prompt-based Depth Pruning of Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2503.15369",
+        "title": "EfficientLLaVA:Generalizable Auto-Pruning for Large Vision-language   Models",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "causal inference in observational studies with machine learning",
+    "description": "Causal ML \u2014 double ML, causal forests, CATE estimation",
+    "rewrite": null,
+    "latency_ms": 967.5587000092492,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2202.12813",
+        "title": "Causal discovery for observational sciences using supervised machine   learning",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2002.02770",
+        "title": "A Survey on Causal Inference",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2011.12508",
+        "title": "Causal inference using deep neural networks",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2101.00878",
+        "title": "The Value Added of Machine Learning to Causal Inference: Evidence from   Revisited Studies",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2009.10982",
+        "title": "An Introduction to Proximal Causal Learning",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2012.06865",
+        "title": "From controlled to undisciplined data: estimating causal effects in the   era of data science using a potential outcome framework",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1805.06826",
+        "title": "The Blessings of Multiple Causes",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1910.09648",
+        "title": "Causal bootstrapping",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2009.13472",
+        "title": "Targeted VAE: Variational and Targeted Learning for Causal Inference",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2406.02584",
+        "title": "A Scoping Review of Earth Observation and Machine Learning for Causal   Inference: Implications for the Geography of Poverty",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "G",
+    "query": "multi-task learning with shared representations",
+    "description": "MTL surveys, hard/soft parameter sharing, task relationships",
+    "rewrite": "Multi-task learning shared representations transfer learning joint optimization",
+    "latency_ms": 1785.949699988123,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1603.02185",
+        "title": "Distributed Multi-Task Learning with Shared Representation",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1603.02041",
+        "title": "Learning Shared Representations in Multi-task Reinforcement Learning",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2102.06177",
+        "title": "Multi-Task Reinforcement Learning with Context-based Representations",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2206.12441",
+        "title": "Joint Representation Training in Sequential Tasks with Shared Structure",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2202.10066",
+        "title": "Multi-task Representation Learning with Stochastic Linear Bandits",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2409.16651",
+        "title": "Learning Representation for Multitask learning through Self Supervised   Auxiliary learning",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1804.08139",
+        "title": "Same Representation, Different Attentions: Shareable Sentence   Representation Learning from Multiple Tasks",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2304.01354",
+        "title": "Functional Knowledge Transfer with Self-supervised Representation   Learning",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1812.00500",
+        "title": "Multi-task Learning of Hierarchical Vision-Language Representation",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2309.16921",
+        "title": "YOLOR-Based Multi-Task Learning",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "H",
+    "query": "how to fine-tune a pre-trained language model for classification",
+    "description": "Practical fine-tuning \u2014 ULMFiT, how-to-fine-tune-BERT papers",
+    "rewrite": null,
+    "latency_ms": 1168.5913000255823,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2004.11493",
+        "title": "UHH-LT at SemEval-2020 Task 12: Fine-Tuning of Pre-Trained Transformer   Networks for Offensive Language Detection",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2305.19249",
+        "title": "Preserving Pre-trained Features Helps Calibrate Fine-tuned Language   Models",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2305.00350",
+        "title": "POUF: Prompt-oriented unsupervised fine-tuning for large pre-trained   models",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2305.18324",
+        "title": "Regex-augmented Domain Transfer Topic Classification based on a   Pre-trained Language Model: An application in Financial Domain",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "1907.05338",
+        "title": "To Tune or Not To Tune? How About the Best of Both Worlds?",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "1910.11959",
+        "title": "FineText: Text Classification via Attention-based Language Model   Fine-tuning",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2004.03829",
+        "title": "Exploring Versatile Generative Language Model Via Parameter-Efficient   Transfer Learning",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2004.14218",
+        "title": "Exploring Fine-tuning Techniques for Pre-trained Cross-lingual Models   via Continual Learning",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2105.12192",
+        "title": "NukeLM: Pre-Trained and Fine-Tuned Language Models for the Nuclear and   Energy Domains",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2210.16771",
+        "title": "Parameter-Efficient Tuning Makes a Good Classification Head",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "H",
+    "query": "implementing attention mechanism from scratch",
+    "description": "Implementation-level detail \u2014 attention tutorials, scaled dot product",
+    "rewrite": "Self-Attention Mechanism Implementation Transformer Architecture",
+    "latency_ms": 1706.720200018026,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2503.15758",
+        "title": "ATTENTION2D: Communication Efficient Distributed Self-Attention   Mechanism",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2204.13154",
+        "title": "Attention Mechanism in Neural Networks: Where it Comes and Where it Goes",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2502.19214",
+        "title": "A Hybrid Transformer Architecture with a Quantized Self-Attention   Mechanism Applied to Molecular Generation",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1811.05544",
+        "title": "An Introductory Survey on Attention Mechanisms in NLP Problems",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "1803.02155",
+        "title": "Self-Attention with Relative Position Representations",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2103.05103",
+        "title": "Image Captioning using Multiple Transformers for Self-Attention   Mechanism",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2102.03902",
+        "title": "Nystr\\\"omformer: A Nystr\\\"om-Based Algorithm for Approximating   Self-Attention",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2108.05340",
+        "title": "Person Re-identification via Attention Pyramid",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2006.04768",
+        "title": "Linformer: Self-Attention with Linear Complexity",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2004.11207",
+        "title": "Self-Attention Attribution: Interpreting Information Interactions Inside   Transformer",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "H",
+    "query": "best practices for training stable diffusion models",
+    "description": "Practical SD training \u2014 latent diffusion, classifier-free guidance",
+    "rewrite": null,
+    "latency_ms": 955.2253999863751,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2302.00670",
+        "title": "Stable Target Field for Reduced Variance Score Estimation in Diffusion   Models",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2502.05625",
+        "title": "Training-Free Constrained Generation With Stable Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2306.01984",
+        "title": "DYffusion: A Dynamics-informed Diffusion Model for Spatiotemporal   Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2411.14430",
+        "title": "Stable Flow: Vital Layers for Training-Free Image Editing",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2303.16509",
+        "title": "HoloDiffusion: Training a 3D Diffusion Model using 2D Images",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2312.02696",
+        "title": "Analyzing and Improving the Training Dynamics of Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2402.07802",
+        "title": "Towards a mathematical theory for consistency training in diffusion   models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2403.05056",
+        "title": "Stealing Stable Diffusion Prior for Robust Monocular Depth Estimation",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2310.13545",
+        "title": "ScaleLong: Towards More Stable Training of Diffusion Model via Scaling   Network Long Skip Connection",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2407.01014",
+        "title": "An Expectation-Maximization Algorithm for Training Clean Diffusion   Models from Corrupted Observations",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "H",
+    "query": "building a retrieval augmented generation system",
+    "description": "RAG \u2014 should surface the Lewis et al. RAG paper, REALM, etc.",
+    "rewrite": "retrieval-augmented generation RAG language models knowledge retrieval architectures",
+    "latency_ms": 1782.7779999934137,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2409.13707",
+        "title": "Retrieval Augmented Generation-Based Incident Resolution Recommendation   System for IT Support",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2410.15944",
+        "title": "Developing Retrieval Augmented Generation (RAG) based LLM Systems from   PDFs: An Experience Report",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2503.18016",
+        "title": "Retrieval Augmented Generation and Understanding in Vision: A Survey and   New Outlook",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2503.10677",
+        "title": "A Survey on Knowledge-Oriented Retrieval-Augmented Generation",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2403.00820",
+        "title": "Retrieval Augmented Generation Systems: Automatic Dataset Creation,   Evaluation and Boolean Agent Setup",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2402.19473",
+        "title": "Retrieval-Augmented Generation for AI-Generated Content: A Survey",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2406.13249",
+        "title": "R^2AG: Incorporating Retrieval Information into Retrieval Augmented   Generation",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2501.15915",
+        "title": "Parametric Retrieval Augmented Generation",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2407.13193",
+        "title": "Retrieval-Augmented Generation for Natural Language Processing: A Survey",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2401.15884",
+        "title": "Corrective Retrieval Augmented Generation",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "H",
+    "query": "how to do distributed training with PyTorch across GPUs",
+    "description": "Distributed training \u2014 ZeRO, Megatron, FSDP, DeepSpeed papers",
+    "rewrite": null,
+    "latency_ms": 967.3073999583721,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2006.15704",
+        "title": "PyTorch Distributed: Experiences on Accelerating Data Parallel Training",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2101.07956",
+        "title": "PyTorch-Direct: Enabling GPU Centric Data Access for Very Large Graph   Neural Network Training with Irregular Accesses",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2302.09406",
+        "title": "{\\ae}net-PyTorch: a GPU-supported implementation for machine learning   atomic potentials training",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2309.06497",
+        "title": "A Distributed Data-Parallel PyTorch Implementation of the Distributed   Shampoo Optimizer for Training Neural Networks At-Scale",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2103.13262",
+        "title": "FastMoE: A Fast Mixture-of-Expert Training System",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2410.06511",
+        "title": "TorchTitan: One-stop PyTorch native solution for production ready LLM   pre-training",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2206.06356",
+        "title": "Modern Distributed Data-Parallel Large-Scale Pre-training Strategies For   NLP models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1811.05233",
+        "title": "Massively Distributed SGD: ImageNet/ResNet-50 Training in a Flash",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2412.06041",
+        "title": "PyPOD-GP: Using PyTorch for Accelerated Chip-Level Thermal Simulation of   the GPU",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2304.14226",
+        "title": "TorchBench: Benchmarking PyTorch with High API Surface Coverage",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "I",
+    "query": "transformer vs CNN for image classification",
+    "description": "ViT vs ResNet/EfficientNet \u2014 should surface comparison papers",
+    "rewrite": "Transformer CNN image classification comparison Vision Transformer ViT",
+    "latency_ms": 1903.2504000351764,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2406.03478",
+        "title": "Convolutional Neural Networks and Vision Transformers for Fashion MNIST   Classification: A Literature Review",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2504.08481",
+        "title": "A Hybrid Fully Convolutional CNN-Transformer Model for Inherently   Interpretable Medical Image Classification",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2108.09038",
+        "title": "Is it Time to Replace CNNs with Transformers for Medical Images?",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2108.09147",
+        "title": "Convolutional Neural Network (CNN) vs Vision Transformer (ViT) for   Digital Holography",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2112.00965",
+        "title": "Vision Pair Learning: An Efficient Training Framework for Image   Classification",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2406.00237",
+        "title": "A Comparative Study of CNN, ResNet, and Vision Transformers for   Multi-Classification of Chest Diseases",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2110.14731",
+        "title": "Vision Transformer for Classification of Breast Ultrasound Images",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2409.12026",
+        "title": "On Vision Transformers for Classification Tasks in Side-Scan Sonar   Imagery",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2103.05940",
+        "title": "TransMed: Transformers Advance Multi-modal Medical Image Classification",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2108.03414",
+        "title": "Vision Transformer for femur fracture classification",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "I",
+    "query": "survey of large language models",
+    "description": "LLM surveys \u2014 Zhao et al. survey, Minaee survey",
+    "rewrite": "large language models survey LLMs BERT transformer architectures evaluation benchmarks",
+    "latency_ms": 2101.066200004425,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2411.11072",
+        "title": "Multilingual Large Language Models: A Systematic Survey",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2406.10833",
+        "title": "A Comprehensive Survey of Scientific Large Language Models and Their   Applications in Scientific Discovery",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2309.15025",
+        "title": "Large Language Model Alignment: A Survey",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2311.05876",
+        "title": "Trends in Integration of Knowledge and Large Language Models: A Survey   and Taxonomy of Methods, Benchmarks, and Applications",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2404.15777",
+        "title": "A Comprehensive Survey on Evaluating Large Language Model Applications   in the Medical Industry",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2412.03220",
+        "title": "Survey of different Large Language Model Architectures: Trends,   Benchmarks, and Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2505.15957",
+        "title": "Towards Holistic Evaluation of Large Audio-Language Models: A Comprehensive Survey",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2405.19323",
+        "title": "Are Large Language Models Chameleons? An Attempt to Simulate Social   Surveys",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2309.17447",
+        "title": "A Large Language Model Approach to Educational Survey Feedback Analysis",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2310.19736",
+        "title": "Evaluating Large Language Models: A Comprehensive Survey",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "I",
+    "query": "comparison of object detection architectures YOLO vs DETR",
+    "description": "YOLO family vs transformer-based detection",
+    "rewrite": null,
+    "latency_ms": 1010.0513999932446,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2504.13099",
+        "title": "RF-DETR Object Detection vs YOLOv12 : A Study of Transformer-based and   CNN-based Architectures for Single-Class and Multi-Class Greenfruit Detection   in Complex Orchard Environments Under Label Ambiguity",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2211.06588",
+        "title": "DEYO: DETR with YOLO for Step-by-Step Object Detection",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2304.08069",
+        "title": "DETRs Beat YOLOs on Real-time Object Detection",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2309.11851",
+        "title": "DEYOv3: DETR with YOLO for Real-time Object Detection",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2402.16370",
+        "title": "DEYO: DETR with YOLO for End-to-End Object Detection",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2504.18586",
+        "title": "A Decade of You Only Look Once (YOLO) for Object Detection",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2406.03459",
+        "title": "LW-DETR: A Transformer Replacement to YOLO for Real-Time Detection",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2312.12314",
+        "title": "First qualitative observations on deep learning vision model YOLO and   DETR for automated driving in Austria",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2310.08772",
+        "title": "Investigating the Robustness and Properties of Detection Transformers   (DETR) Toward Difficult Images",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2502.12524",
+        "title": "YOLOv12: Attention-Centric Real-Time Object Detectors",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "I",
+    "query": "GAN vs diffusion models for image generation",
+    "description": "Generative model comparison \u2014 StyleGAN, DDPM, score matching",
+    "rewrite": null,
+    "latency_ms": 889.1186999971978,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2410.17966",
+        "title": "A Wavelet Diffusion GAN for Image Super-Resolution",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2403.19645",
+        "title": "GANTASTIC: GAN-based Transfer of Interpretable Directions for   Disentangled Image Editing in Text-to-Image Diffusion Models",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2307.08702",
+        "title": "Diffusion Models Beat GANs on Image Classification",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2105.05233",
+        "title": "Diffusion Models Beat GANs on Image Synthesis",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2405.04356",
+        "title": "Diffusion-driven GAN Inversion for Multi-Modal Face Image Generation",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2209.11047",
+        "title": "MIDMs: Matching Interleaved Diffusion Models for Exemplar-based Image   Translation",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2302.08908",
+        "title": "LayoutDiffuse: Adapting Foundational Diffusion Models for   Layout-to-Image Generation",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2503.23127",
+        "title": "Galaxy Imaging with Generative Models: Insights from a Two-Models Framework",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2301.03396",
+        "title": "Diffused Heads: Diffusion Models Beat GANs on Talking-Face Generation",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2211.16152",
+        "title": "Wavelet Diffusion Models are fast and scalable Image Generators",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "I",
+    "query": "review of federated learning privacy methods",
+    "description": "FL surveys \u2014 McMahan, differential privacy in FL",
+    "rewrite": "Federated learning privacy preservation methods differential privacy homomorphism",
+    "latency_ms": 1966.5430000168271,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2302.04208",
+        "title": "Exploratory Analysis of Federated Learning Methods with Differential   Privacy on MIMIC-III",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2109.13012",
+        "title": "Federated Deep Learning with Bayesian Privacy",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2102.05883",
+        "title": "Privacy-Preserving Self-Taught Federated Learning for Heterogeneous Data",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2408.15621",
+        "title": "Convergent Differential Privacy Analysis for General Federated Learning:   the $f$-DP Perspective",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2402.00342",
+        "title": "Survey of Privacy Threats and Countermeasures in Federated Learning",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2206.03396",
+        "title": "Group privacy for personalized federated learning",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2311.10832",
+        "title": "Exploring Machine Learning Models for Federated Learning: A Review of   Approaches, Performance, and Limitations",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2405.03636",
+        "title": "The Federation Strikes Back: A Survey of Federated Learning Privacy   Attacks, Defenses, Applications, and Policy Landscape",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2007.00914",
+        "title": "Federated Learning and Differential Privacy: Software tools analysis,   the Sherpa.ai FL framework and methodological guidelines for preserving data   privacy",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2501.14453",
+        "title": "Optimal Strategies for Federated Learning Maintaining Client Privacy",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "mixture of experts models scaling",
+    "description": "MoE \u2014 Switch Transformer, Mixtral, GShard",
+    "rewrite": "Mixture of Experts MoE deep learning scalable architectures sparse gating",
+    "latency_ms": 1488.4431999525987,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2502.05172",
+        "title": "Joint MoE Scaling Laws: Mixture of Experts Can Be Memory Efficient",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2303.07226",
+        "title": "Scaling Vision-Language Models with Sparse Mixture of Experts",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2310.07188",
+        "title": "Adaptive Gating in Mixture-of-Experts based Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2402.07871",
+        "title": "Scaling Laws for Fine-Grained Mixture of Experts",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2401.17118",
+        "title": "Explainable data-driven modeling via mixture of experts: towards   effective blending of grey and black-box models",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2407.06204",
+        "title": "A Survey on Mixture of Experts in Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2404.02852",
+        "title": "Toward Inference-optimal Mixture-of-Expert Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2503.00634",
+        "title": "Efficiently Editing Mixture-of-Experts Models with Compressed Experts",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2410.09039",
+        "title": "Semi-Supervised Learning of Noisy Mixture of Experts Models",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2404.08985",
+        "title": "T-REX: Mixture-of-Rank-One-Experts with Semantic-aware Intuition for Multi-task Large Language Model Finetuning",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "test-time compute scaling for reasoning",
+    "description": "New paradigm \u2014 o1-style reasoning, tree search at inference",
+    "rewrite": "test-time compute efficient reasoning scalable inference methods",
+    "latency_ms": 2332.4564999784343,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2504.00869",
+        "title": "m1: Unleash the Potential of Test-Time Scaling for Medical Reasoning   with Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2502.05171",
+        "title": "Scaling up Test-Time Compute with Latent Reasoning: A Recurrent Depth   Approach",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2502.18080",
+        "title": "Towards Thinking-Optimal Scaling of Test-Time Compute for LLM Reasoning",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2504.02890",
+        "title": "Scaling Test-time Compute for Low-resource Languages: Multilingual   Reasoning in LLMs",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2505.14733",
+        "title": "The Energy Cost of Reasoning: Analyzing Energy Usage in LLMs with Test-time Compute",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2505.19187",
+        "title": "LIMOPro: Reasoning Refinement for Efficient and Effective Test-time Scaling",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2503.19877",
+        "title": "Scaling Evaluation-time Compute with Reasoning Models as Process   Evaluators",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2504.01317",
+        "title": "Adaptive Rectification Sampling for Test-Time Compute Scaling",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2501.19393",
+        "title": "s1: Simple test-time scaling",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2502.13962",
+        "title": "Is That Your Final Answer? Test-Time Scaling Improves Selective Question   Answering",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "multimodal large language models vision and text",
+    "description": "GPT-4V, LLaVA, Flamingo, multimodal LLMs",
+    "rewrite": null,
+    "latency_ms": 977.2495999932289,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2411.14279",
+        "title": "Looking Beyond Text: Reducing Language bias in Large Vision-Language   Models via Multimodal Dual-Attention and Soft-Image Guidance",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2311.17647",
+        "title": "Text as Images: Can Multimodal Large Language Models Follow Printed   Instructions in Pixels?",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2410.01744",
+        "title": "Leopard: A Vision Language Model For Text-Rich Multi-Image Tasks",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2412.02104",
+        "title": "Explainable and Interpretable Multimodal Large Language Models: A   Comprehensive Survey",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2407.10996",
+        "title": "Visualization Literacy of Multimodal Large Language Models: A   Comparative Study",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2411.09273",
+        "title": "Cross-Modal Consistency in Multimodal Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2402.01345",
+        "title": "Skip \\n: A Simple Method to Reduce Hallucination in Large   Vision-Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2502.04395",
+        "title": "Time-VLM: Exploring Multimodal Vision-Language Models for Augmented Time Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2403.08773",
+        "title": "Veagle: Advancements in Multimodal Representation Learning",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2407.04681",
+        "title": "Rethinking Visual Prompting for Multimodal Large Language Models with   External Knowledge",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "state space models as alternative to transformers",
+    "description": "S4, Mamba, H3 \u2014 structured state space models",
+    "rewrite": null,
+    "latency_ms": 970.7190000335686,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2404.09516",
+        "title": "State Space Model for New-Generation Network Alternative to   Transformers: A Survey",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2404.16112",
+        "title": "Mamba-360: Survey of State Space Models as Transformer Alternative for   Long Sequence Modelling: Methods, Applications, and Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2402.01032",
+        "title": "Repeat After Me: Transformers are Better than State Space Models at   Copying",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2501.16237",
+        "title": "Application of Structured State Space Models to High energy physics with   locality-sensitive hashing",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2411.15685",
+        "title": "State-Space Large Audio Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2404.08819",
+        "title": "The Illusion of State in State-Space Models",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2412.14354",
+        "title": "State Space Models are Strong Text Rerankers",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2405.17394",
+        "title": "The Expressive Capacity of State Space Models: A Formal Language   Perspective",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2302.14120",
+        "title": "Diagonal State Space Augmented Transformers for Speech Recognition",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2407.05489",
+        "title": "How Effective are State Space Models for Machine Translation?",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "constitutional AI and AI safety alignment techniques",
+    "description": "Anthropic constitutional AI, RLHF alternatives, safety",
+    "rewrite": null,
+    "latency_ms": 925.6349000497721,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2502.15861",
+        "title": "C3AI: Crafting and Evaluating Constitutions for Constitutional AI",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2501.17112",
+        "title": "Decoding Human Preferences in Alignment: An Improved Approach to Inverse   Constitutional AI",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2503.05748",
+        "title": "Alignment, Agency and Autonomy in Frontier AI: A Systems Engineering   Perspective",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2503.17365",
+        "title": "How Effective Is Constitutional AI in Small LLMs? A Study on DeepSeek-R1   and Its Peers",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2502.16691",
+        "title": "Toward Responsible Federated Large Language Models: Leveraging a Safety   Filter and Constitutional AI",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2411.04127",
+        "title": "Combining Theory of Mind and Kindness for Self-Supervised Human-AI   Alignment",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2311.08706",
+        "title": "Aligned: A Platform-based Process for Alignment",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2101.06060",
+        "title": "The Challenge of Value Alignment: from Fairer Algorithms to AI Safety",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2403.18341",
+        "title": "IterAlign: Iterative Constitutional Alignment of Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2410.17271",
+        "title": "Rules, Cases, and Reasoning: Positivist Legal Theory as a Framework for   Pluralistic AI Alignment",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "J",
+    "query": "sparse attention mechanisms for long context",
+    "description": "Longformer, BigBird, sparse transformers for 100K+ context",
+    "rewrite": "sparse attention transformers long-range dependencies contextualization",
+    "latency_ms": 1455.3994999732822,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2502.20766",
+        "title": "FlexPrefill: A Context-Aware Sparse Attention Mechanism for Efficient   Long-Sequence Inference",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2502.12216",
+        "title": "Tactic: Adaptive Sparse Attention with Clustering and Distribution   Fitting for Long-Context LLMs",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2502.01659",
+        "title": "Longer Attention Span: Increasing Transformer Context Length with Sparse   Graph Processing Techniques",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2504.16795",
+        "title": "Random Long-Context Access for Mamba via Hardware-aligned Hierarchical   Sparse Attention",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2109.01915",
+        "title": "Sparse Spatial Attention Network for Semantic Segmentation",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2412.06198",
+        "title": "SparseAccelerate: Efficient Long-Context Inference for Mid-Range GPUs",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2406.05678",
+        "title": "SinkLoRA: Enhanced Efficiency and Chat Capabilities for Long-Context   Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2009.06097",
+        "title": "Cluster-Former: Clustering-based Sparse Transformer for Long-Range   Dependency Encoding",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2406.15486",
+        "title": "SampleAttention: Near-Lossless Acceleration of Long Context LLM   Inference with Adaptive Structured Sparse Attention",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2406.16747",
+        "title": "Sparser is Faster and Less is More: Efficient Sparse Attention for   Long-Range Transformers",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "K",
+    "query": "deep learning for protein structure prediction",
+    "description": "AlphaFold, ESMFold, protein language models",
+    "rewrite": "deep learning protein structure prediction AlphaFold convolutional neural networks",
+    "latency_ms": 1523.7058000057004,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2503.13522",
+        "title": "Advanced Deep Learning Methods for Protein Structure Prediction and   Design",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2504.01490",
+        "title": "Deep Learning-Driven Protein Structure Prediction and Design: Key Model   Developments by Nobel Laureates and Multi-Domain Applications",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2107.12243",
+        "title": "Protein-RNA interaction prediction with deep learning: Structure matters",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2211.14939",
+        "title": "Applying Deep Reinforcement Learning to the HP Model for Protein   Structure Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2012.09741",
+        "title": "On the performance of deep learning for numerical optimization: an   application to protein structure prediction",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2002.05643",
+        "title": "DeepSurf: A surface-based deep learning approach for the prediction of   ligand binding sites on proteins",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2412.20329",
+        "title": "Protein Structure Prediction in the 3D HP Model Using Deep Reinforcement   Learning",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1610.07187",
+        "title": "Learning Deep Architectures for Interaction Prediction in   Structure-based Virtual Screening",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2009.00133",
+        "title": "Unsupervised and Supervised Structure Learning for Protein Contact   Prediction",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1910.02845",
+        "title": "Combining docking pose rank and structure with deep learning improves   protein-ligand binding mode prediction",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "K",
+    "query": "natural language processing for legal document analysis",
+    "description": "Legal NLP \u2014 contract analysis, legal BERT, court opinion mining",
+    "rewrite": null,
+    "latency_ms": 1012.3439999879338,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2204.07182",
+        "title": "Analysing similarities between legal court documents using natural   language processing approaches based on Transformers",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2110.15709",
+        "title": "LegalNLP -- Natural Language Processing methods for the Brazilian Legal   Language",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2503.12100",
+        "title": "Large Language Models in Legislative Content Analysis: A Dataset from   the Polish Parliament",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1311.6063",
+        "title": "NILE: Fast Natural Language Processing for Electronic Health Records",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2404.06751",
+        "title": "Leveraging open-source models for legal language modeling and analysis:   a case study on the Indian constitution",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2203.08244",
+        "title": "Toward Improving Attentive Neural Networks in Legal Text Processing",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2410.21306",
+        "title": "Natural Language Processing for the Legal Domain: A Survey of Tasks,   Datasets, Models, and Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2309.05500",
+        "title": "NeCo@ALQAC 2023: Legal Domain Knowledge Acquisition for Low-Resource   Languages through Data Enrichment",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1806.03688",
+        "title": "LexNLP: Natural language processing and information extraction for legal   and regulatory texts",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1709.05563",
+        "title": "Data Innovation for International Development: An overview of natural   language processing for qualitative data analysis",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "K",
+    "query": "machine learning for climate change prediction",
+    "description": "Climate ML \u2014 weather forecasting, carbon modeling",
+    "rewrite": "climate change prediction machine learning modeling uncertainty quantification",
+    "latency_ms": 2138.445299991872,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1806.11037",
+        "title": "Using machine learning to parameterize moist convection: potential for   modeling of climate, climate change and extreme events",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2112.08440",
+        "title": "Climate-Invariant Machine Learning",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2311.09413",
+        "title": "Leveraging machine learning to enhance climate models: a review",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2503.08163",
+        "title": "XAI4Extremes: An interpretable machine learning framework for   understanding extreme-weather precursors under climate change",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2310.09162",
+        "title": "Quantum Machine Learning in Climate Change and Sustainability: a Review",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2207.07390",
+        "title": "Machine learning applications for weather and climate need greater focus   on extremes",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1906.05433",
+        "title": "Tackling Climate Change with Machine Learning",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2310.03180",
+        "title": "Accessing Convective Hazards Frequency Shift with Climate Change using   Physics-Informed Machine Learning",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2107.07997",
+        "title": "Uncertainty Prediction for Machine Learning Models of Material   Properties",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1303.2739",
+        "title": "Machine Learning for Bioclimatic Modelling",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "K",
+    "query": "using transformers for time series forecasting",
+    "description": "Time series transformers \u2014 Informer, Autoformer, PatchTST",
+    "rewrite": "Transformer time series forecasting Prophet LSTM Seq2Seq",
+    "latency_ms": 1477.9143999912776,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2207.05397",
+        "title": "Dateformer: Time-modeling Transformer for Longer-term Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2206.04038",
+        "title": "Scaleformer: Iterative Multi-scale Refining Transformers for Time Series   Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2402.06638",
+        "title": "Transformers with Attentive Federated Aggregation for Time Series Stock   Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2501.02735",
+        "title": "Sequence Complementor: Complementing Transformers For Time Series   Forecasting with Learnable Sequences",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2411.01419",
+        "title": "PSformer: Parameter-efficient Transformer with Segment Attention for   Time Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2209.03945",
+        "title": "W-Transformers : A Wavelet-based Transformer Framework for Univariate   Time Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2210.17393",
+        "title": "Probabilistic Decomposition Transformer for Time Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2503.09791",
+        "title": "Minimal Time Series Transformer",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2408.02279",
+        "title": "DRFormer: Multi-Scale Transformer Utilizing Diverse Receptive Fields for   Long Time-Series Forecasting",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2310.01232",
+        "title": "Modality-aware Transformer for Financial Time series Forecasting",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "K",
+    "query": "reinforcement learning for robotics manipulation",
+    "description": "RL + robotics \u2014 sim-to-real transfer, dexterous manipulation",
+    "rewrite": "reinforcement learning robotics manipulation control policy optimization deep learning",
+    "latency_ms": 1636.6290000150912,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2102.04148",
+        "title": "Deep Reinforcement Learning for the Control of Robotic Manipulation: A   Focussed Mini-Review",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1701.08878",
+        "title": "Deep Reinforcement Learning for Robotic Manipulation-The state of the   art",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1610.00633",
+        "title": "Deep Reinforcement Learning for Robotic Manipulation with Asynchronous   Off-Policy Updates",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1803.10371",
+        "title": "Reinforcement learning for non-prehensile manipulation: Transfer from   simulation to physical system",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "1910.07294",
+        "title": "Reinforcement Learning for Robotic Manipulation using Simulated   Locomotion Demonstrations",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2107.13356",
+        "title": "Value-Based Reinforcement Learning for Continuous Control Robotic   Manipulation in Multi-Task Sparse Reward Settings",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2210.08126",
+        "title": "Geometric Reinforcement Learning For Robotic Manipulation",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2311.11287",
+        "title": "Tactile Active Inference Reinforcement Learning for Efficient Robotic   Manipulation Skill Acquisition",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1704.03073",
+        "title": "Data-efficient Deep Reinforcement Learning for Dexterous Manipulation",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2304.06055",
+        "title": "Exploiting Symmetry and Heuristic Demonstrations in Off-policy   Reinforcement Learning for Robotic Manipulation",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "L",
+    "query": "AI ethics",
+    "description": "Very broad \u2014 should return survey-level papers on AI ethics/fairness/bias",
+    "rewrite": "AI ethics fairness accountability transparency explainability bias mitigation",
+    "latency_ms": 1728.8928999914788,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2302.12149",
+        "title": "Beyond Bias and Compliance: Towards Individual Agency and Plurality of   Ethics in AI",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2403.14681",
+        "title": "AI Ethics: A Bibliometric Analysis, Critical Issues, and Key Gaps",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2109.07906",
+        "title": "Ethics of AI: A Systematic Literature Review of Principles and   Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2304.08275",
+        "title": "Implementing Responsible AI: Tensions and Trade-Offs Between Ethics   Aspects",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2207.01493",
+        "title": "AI Ethics: An Empirical Study on the Views of Practitioners and   Lawmakers",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2307.10057",
+        "title": "Ethics in the Age of AI: An Analysis of AI Practitioners' Awareness and   Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2503.18842",
+        "title": "Three Kinds of AI Ethics",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2206.09514",
+        "title": "Ethics in AI through the Practitioner's View: A Grounded Theory   Literature Review",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2403.05551",
+        "title": "A Bibliometric View of AI Ethics Development",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2501.08497",
+        "title": "Addressing Intersectionality, Explainability, and Ethics in AI-Driven   Diagnostics: A Rebuttal and Call for Transdiciplinary Action",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "L",
+    "query": "embedding",
+    "description": "Single word \u2014 highly ambiguous. Word2Vec? Sentence embeddings? Image embeddings?",
+    "rewrite": "word embeddings neural language models representation learning",
+    "latency_ms": 1689.5794000010937,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1607.06532",
+        "title": "Novel Word Embedding and Translation-based Language Modeling for   Extractive Speech Summarization",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1608.05852",
+        "title": "Learning Word Embeddings from Intrinsic and Extrinsic Views",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1611.05962",
+        "title": "Word and Document Embeddings based on Neural Network Approaches",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1502.05746",
+        "title": "Binary Embedding: Fundamental Limits and Fast Algorithm",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "1701.05291",
+        "title": "Heterogeneous Information Network Embedding for Meta Path based   Proximity",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2309.11824",
+        "title": "Word Embedding with Neural Probabilistic Prior",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1412.6448",
+        "title": "Embedding Word Similarity with Neural Machine Translation",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1705.03556",
+        "title": "Relevance-based Word Embedding",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1910.03505",
+        "title": "Investigating the Effectiveness of Representations Based on   Word-Embeddings in Active Learning for Labelling Text Datasets",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1705.07368",
+        "title": "Mixed Membership Word Embeddings for Computational Social Science",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "L",
+    "query": "language model",
+    "description": "Broad \u2014 should return influential LM papers or surveys",
+    "rewrite": "neural language models NLP transformer architectures deep learning",
+    "latency_ms": 1597.907799994573,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1606.00499",
+        "title": "Generalizing and Hybridizing Count-based and Neural Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2205.01398",
+        "title": "Neural language models for network configuration: Opportunities and   reality check",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1502.01446",
+        "title": "Beyond Word-based Language Model in Statistical Machine Translation",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1909.04985",
+        "title": "Learning Dynamic Author Representations with Temporal Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2412.03220",
+        "title": "Survey of different Large Language Model Architectures: Trends,   Benchmarks, and Challenges",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "1801.08771",
+        "title": "Modeling of languages for tensor manipulation",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2111.00610",
+        "title": "Towards Language Modelling in the Speech Domain Using Sub-word   Linguistic Units",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2205.05128",
+        "title": "Human Language Modeling",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2109.08270",
+        "title": "Language Models as a Knowledge Source for Cognitive Agents",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2110.10470",
+        "title": "Interpreting Deep Learning Models in Natural Language Processing: A   Review",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "L",
+    "query": "generate images from text",
+    "description": "Casual \u2014 should surface DALL-E, Stable Diffusion, Imagen",
+    "rewrite": "text-to-image synthesis generative models diffusion transformers",
+    "latency_ms": 1434.7260000067763,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1806.11302",
+        "title": "Generate the corresponding Image from Text Description using Modified   GAN-CLS Algorithm",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2309.00810",
+        "title": "RenAIssance: A Survey into AI Text-to-Image Generation in the Era of   Large Model",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2209.10948",
+        "title": "Implementing and Experimenting with Diffusion Models for Text-to-Image   Generation",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1910.04056",
+        "title": "Text-to-Image Synthesis Based on Machine Generated Captions",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2303.07909",
+        "title": "Text-to-image Diffusion Models in Generative AI: A Survey",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2407.06079",
+        "title": "Layered Diffusion Model for One-Shot High Resolution Text-to-Image   Synthesis",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1904.01310",
+        "title": "DM-GAN: Dynamic Memory Generative Adversarial Networks for Text-to-Image   Synthesis",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2505.10046",
+        "title": "Exploring the Deep Fusion of Large Language Models and Diffusion Transformers for Text-to-Image Synthesis",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1612.03242",
+        "title": "StackGAN: Text to Photo-realistic Image Synthesis with Stacked   Generative Adversarial Networks",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2407.06642",
+        "title": "Powerful and Flexible: Personalized Text-to-Image Generation via   Reinforcement Learning",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "L",
+    "query": "make AI more safe",
+    "description": "Very casual \u2014 should surface alignment/safety papers",
+    "rewrite": "AI safety robustness adversarial attacks fairness transparency explainability",
+    "latency_ms": 1531.0878999880515,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2504.16110",
+        "title": "Security-First AI: Foundations for Robust and Trustworthy Systems",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2405.06624",
+        "title": "Towards Guaranteed Safe AI: A Framework for Ensuring Robust and Reliable   AI Systems",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2403.10462",
+        "title": "Safety Cases: How to Justify the Safety of Advanced AI Systems",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2309.12321",
+        "title": "A Case for AI Safety via Law",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2409.07878",
+        "title": "Mapping Technical Safety Research at AI Companies: A literature review   and incentives analysis",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2408.12935",
+        "title": "Trustworthy, Responsible, and Safe AI: A Comprehensive Architectural   Framework for AI Safety with Challenges and Mitigations",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2411.18526",
+        "title": "NeuroAI for AI Safety",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2201.10436",
+        "title": "Safe AI -- How is this Possible?",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2502.09288",
+        "title": "AI Safety for Everyone",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2410.21572",
+        "title": "Safety cases for frontier AI",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "M",
+    "query": "improvements to the original transformer architecture",
+    "description": "Post-Vaswani improvements \u2014 Reformer, Performer, ALiBi, RoPE",
+    "rewrite": "Transformer-XL BERT RoBERTa DistilBERT efficient attention mechanisms",
+    "latency_ms": 1451.1854000156745,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2410.23182",
+        "title": "ProTransformer: Robustify Transformers via Plug-and-Play Paradigm",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2305.14768",
+        "title": "Dual Path Transformer with Partition Attention",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2503.18565",
+        "title": "Distil-xLSTM: Learning Attention Mechanisms through Recurrent Structures",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2503.15983",
+        "title": "InhibiDistilbert: Knowledge Distillation for a ReLU and Addition-based   Transformer",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2501.06098",
+        "title": "ELFATT: Efficient Linear Fast Attention for Vision Transformers",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2311.12678",
+        "title": "Interpretation of the Transformer and Improvement of the Extractor",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2004.05150",
+        "title": "Longformer: The Long-Document Transformer",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2503.16726",
+        "title": "EDiT: Efficient Diffusion Transformers with Linear Compressed Attention",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "1906.05714",
+        "title": "A Multiscale Visualization of Attention in the Transformer Model",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2210.11909",
+        "title": "Boosting vision transformers for image retrieval",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "M",
+    "query": "papers that cite ResNet and extend residual connections",
+    "description": "ResNet extensions \u2014 DenseNet, ResNeXt, WideResNet, SE-Net",
+    "rewrite": null,
+    "latency_ms": 859.7527000238188,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "1904.01367",
+        "title": "Why ResNet Works? Residuals Generalize",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "1805.07477",
+        "title": "Norm-Preservation: Why Residual Networks Can Become Extremely Deep?",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "1910.09599",
+        "title": "On the space-time expressivity of ResNets",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "1707.08866",
+        "title": "Deep Residual Learning for Weakly-Supervised Relation Extraction",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "1804.10123",
+        "title": "IamNN: Iterative and Adaptive Mobile Neural Network for Efficient Image   Classification",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "1905.10944",
+        "title": "Identity Connections in Residual Nets Improve Noise Stability",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "1611.01186",
+        "title": "Demystifying ResNet",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "1805.09585",
+        "title": "Residual Networks as Geodesic Flows of Diffeomorphisms",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2109.12556",
+        "title": "Frequency Disentangled Residual Network",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2004.04989",
+        "title": "Improved Residual Networks for Image and Video Recognition",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "M",
+    "query": "alternatives to RLHF for aligning language models",
+    "description": "DPO, SPIN, KTO \u2014 methods that bypass reward modeling",
+    "rewrite": null,
+    "latency_ms": 1012.4404999660328,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2406.15567",
+        "title": "SAIL: Self-Improving Efficient Online Alignment of Large Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2302.05206",
+        "title": "The Wisdom of Hindsight Makes Language Models Better Instruction   Followers",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2305.06176",
+        "title": "Fine-tuning Language Models with Generative Adversarial Reward Modelling",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2408.14874",
+        "title": "Inverse-Q*: Token Level Reinforcement Learning for Aligning Large   Language Models Without Preference Data",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2406.05587",
+        "title": "Creativity Has Left the Chat: The Price of Debiasing Language Models",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2407.04181",
+        "title": "Orchestrating LLMs with Different Personalizations",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2401.11458",
+        "title": "Linear Alignment: A Closed-form Solution for Aligning Human Preferences   without Tuning and Feedback",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2403.16649",
+        "title": "CLHA: A Simple yet Effective Contrastive Learning Framework for Human   Alignment",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2405.17956",
+        "title": "Unified Preference Optimization: Language Model Alignment Beyond the Preference Frontier",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "2306.02231",
+        "title": "Fine-Tuning Language Models with Advantage-Induced Policy Alignment",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  },
+  {
+    "band": "M",
+    "query": "BERT variants for low resource languages",
+    "description": "mBERT, XLM-R, AfricanBERT, ArabBERT \u2014 multilingual BERT variants",
+    "rewrite": "Multilingual BERT low-resource languages adaptation transfer learning",
+    "latency_ms": 1428.8215999840759,
+    "n_results": 10,
+    "results": [
+      {
+        "rank": 1,
+        "arxiv_id": "2012.02462",
+        "title": "Fine-tuning BERT for Low-Resource Natural Language Understanding via   Active Learning",
+        "category": "?"
+      },
+      {
+        "rank": 2,
+        "arxiv_id": "2402.14408",
+        "title": "Transferring BERT Capabilities from High-Resource to Low-Resource   Languages Using Vocabulary Matching",
+        "category": "?"
+      },
+      {
+        "rank": 3,
+        "arxiv_id": "2204.05814",
+        "title": "MuCoT: Multilingual Contrastive Training for Question-Answering in   Low-resource Languages",
+        "category": "?"
+      },
+      {
+        "rank": 4,
+        "arxiv_id": "2004.13640",
+        "title": "Extending Multilingual BERT to Low-Resource Languages",
+        "category": "?"
+      },
+      {
+        "rank": 5,
+        "arxiv_id": "2005.09093",
+        "title": "Are All Languages Created Equal in Multilingual BERT?",
+        "category": "?"
+      },
+      {
+        "rank": 6,
+        "arxiv_id": "2012.15562",
+        "title": "UNKs Everywhere: Adapting Multilingual Language Models to New Scripts",
+        "category": "?"
+      },
+      {
+        "rank": 7,
+        "arxiv_id": "2409.10965",
+        "title": "Cross-lingual transfer of multilingual models on low resource African   Languages",
+        "category": "?"
+      },
+      {
+        "rank": 8,
+        "arxiv_id": "2212.12510",
+        "title": "MicroBERT: Effective Training of Low-resource Monolingual BERTs through   Parameter Reduction and Multitask Learning",
+        "category": "?"
+      },
+      {
+        "rank": 9,
+        "arxiv_id": "2408.03172",
+        "title": "Leveraging Parameter Efficient Training Methods for Low Resource Text   Classification: A Case Study in Marathi",
+        "category": "?"
+      },
+      {
+        "rank": 10,
+        "arxiv_id": "1907.00409",
+        "title": "Evaluating Language Model Finetuning Techniques for Low-resource   Languages",
+        "category": "?"
+      }
+    ],
+    "expected_id": null,
+    "expected_found": null,
+    "expected_rank": null,
+    "topic_diversity": 0
+  }
+]

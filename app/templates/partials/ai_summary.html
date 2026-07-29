@@ -1,0 +1,17 @@
+{# Partial: AI Summary Card #}
+{% if summary_html %}
+<div class="ai-summary-card mb-6 fade-in">
+  <div class="flex items-center gap-2 mb-3">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-primary" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2L9.19 8.63L2 9.24l5.46 4.73L5.82 21L12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z" />
+    </svg>
+    <span class="font-semibold text-sm brand-text-sm">AI Overview</span>
+  </div>
+  <div class="text-sm text-base-content/90 leading-relaxed">
+    {{ summary_html | safe }}
+  </div>
+  <div class="mt-3 flex justify-end">
+    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">Powered by Groq</span>
+  </div>
+</div>
+{% endif %}
