@@ -25,9 +25,36 @@ from qdrant_client.models import (
     Prefetch,
     FusionQuery,
     Fusion,
+    SearchParams,
+    QuantizationSearchParams,
 )
 
 from app import config, db
+
+
+# ── Quantization search params ───────────────────────────────────────────────
+#
+# The collection has binary quantization with always_ram, so the 1-bit codes
+# live in memory while the float16 vectors (3.27 GB) stay on disk. Rescoring
+# reads those vectors back, and the number read scales with `oversampling` —
+# which is where the latency was going: the cumulative vector-IO counter on the
+# cluster stood at 56.7 GB.
+#
+# Sending no params at all is NOT the same as sending oversampling=1.0.
+# Measured on the live collection, 3 real paper vectors, recall@10 against
+# exact (un-quantized) search as ground truth:
+#
+#   no params (previous behaviour)      2810 ms    100% recall
+#   rescore=False                        615 ms     57% recall   <- unusable
+#   rescore=True, oversampling=1.0       608 ms    100% recall   <- chosen
+#   rescore=True, oversampling=2.0       783 ms    100% recall
+#
+# So 4.6x faster at identical recall. Rescore stays ON deliberately: binary
+# codes alone lose 43% of the correct results, because 1024 dims compressed to
+# 1024 bits is far too lossy to rank on directly.
+_SEARCH_PARAMS = SearchParams(
+    quantization=QuantizationSearchParams(rescore=True, oversampling=1.0),
+)
 
 # ── Client (sync, thread-safe, reused across requests) ───────────────────────
 
@@ -162,6 +189,7 @@ def _run_recommend(
         limit=limit,
         with_payload=True,
         with_vectors=False,
+        search_params=_SEARCH_PARAMS,
     )
     return result.points
 
@@ -358,6 +386,7 @@ def _run_vector_search(
         limit=limit,
         with_payload=True,
         with_vectors=with_vectors,
+        search_params=_SEARCH_PARAMS,
     )
     return result.points
 
@@ -400,6 +429,7 @@ def _run_dense_search(query_vector: list[float], limit: int) -> list:
         limit=limit,
         with_payload=True,
         with_vectors=False,
+        search_params=_SEARCH_PARAMS,
     )
     return result.points
 
@@ -480,5 +510,6 @@ def _run_prefetch_rrf(prefetches: list[Prefetch], limit: int) -> list:
         limit=limit,
         with_payload=True,
         with_vectors=False,
+        search_params=_SEARCH_PARAMS,
     )
     return result.points
