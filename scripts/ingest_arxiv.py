@@ -193,6 +193,9 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="stop after N papers (0 = all)")
     ap.add_argument("--dry-run", action="store_true",
                     help="fetch and parse only; no model load, no writes")
+    ap.add_argument("--encode-only", action="store_true",
+                    help="fetch, parse and encode, but write nothing. Validates "
+                         "the GPU path without needing database credentials.")
     ap.add_argument("--state", default="data/ingest_state.json")
     args = ap.parse_args()
 
@@ -201,7 +204,8 @@ def main() -> int:
 
     turso_url = os.environ.get("TURSO_URL", "")
     turso_tok = os.environ.get("TURSO_DB_TOKEN", "")
-    if not args.dry_run and not (turso_url and turso_tok):
+    writing = not (args.dry_run or args.encode_only)
+    if writing and not (turso_url and turso_tok):
         print("TURSO_URL / TURSO_DB_TOKEN required for a real run", file=sys.stderr)
         return 2
 
@@ -211,8 +215,12 @@ def main() -> int:
 
     encoder = upserter = None
     if not args.dry_run:
-        from ingest_backends import Encoder, Upserter  # local module, see below
-        encoder, upserter = Encoder(), Upserter()
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from ingest_backends import Encoder
+        encoder = Encoder()
+        if writing:
+            from ingest_backends import Upserter
+            upserter = Upserter()
 
     seen_total = new_total = 0
     t0 = time.time()
@@ -230,6 +238,16 @@ def main() -> int:
 
             if args.dry_run:
                 fresh = ids
+            elif args.encode_only:
+                fresh = ids
+                vecs = encoder.encode([
+                    f"{p['title'][:256]} {p['abstract'][:1024]}" for p in papers])
+                d, s = vecs[0]
+                nz = sum(len(sp) for _dv, sp in vecs) / len(vecs)
+                norm = sum(x * x for x in d) ** 0.5
+                print(f"    encoded {len(vecs)}: dense dim={len(d)} "
+                      f"norm={norm:.4f} | sparse avg {nz:.0f} terms/doc",
+                      flush=True)
             else:
                 have = turso_existing(turso_url, turso_tok, ids)
                 fresh = [i for i in ids if i not in have]
