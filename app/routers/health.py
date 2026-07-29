@@ -138,6 +138,22 @@ async def healthz_deep():
             "time_ms": int((time.perf_counter() - t0) * 1000),
         }
 
+    # ── Local metadata sidecar ───────────────────────────────────────────
+    # Not a network service, but worth surfacing: if the image built without
+    # it, every metadata lookup silently reverts to a cross-region Turso call
+    # and search gets ~1.2s slower with no other symptom.
+    # "skipped" rather than "error" when absent: the sidecar is an accelerator,
+    # and its absence must not mark the deployment unhealthy.
+    try:
+        from app import local_meta
+        info = local_meta.stats()
+        info["status"] = "ok" if info.get("available") else "skipped"
+        results["services"]["metadata_sidecar"] = info
+    except Exception as e:
+        results["services"]["metadata_sidecar"] = {
+            "status": "skipped", "available": False, "error": str(e),
+        }
+
     # ── Overall status ───────────────────────────────────────────────────
     all_ok = all(
         s.get("status") == "ok"

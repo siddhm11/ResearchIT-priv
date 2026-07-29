@@ -26,6 +26,14 @@ TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
 
 
 
+# ── Tier 0 trending (cold start) ──────────────────────────────────────────────
+# How far back "trending" looks, measured from the newest paper in the corpus
+# rather than from today (the corpus is a static snapshot ending 2025-05-30).
+# Ranking by all-time citations instead returns the same canonical papers to
+# every user forever — Adam, scikit-learn, BatchNorm — which is a poor first
+# impression for a feed that claims to surface current research.
+TRENDING_RECENCY_MONTHS = int(os.getenv("TRENDING_RECENCY_MONTHS", "24"))
+
 # ── Recommendation settings ───────────────────────────────────────────────────
 REC_LIMIT = 10                  # how many recommendations to show
 REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant
@@ -52,7 +60,17 @@ ENCODE_CACHE_SIZE = 128  # LRU cache for encoded queries
 
 # ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "10"))  # cap to preserve CPU latency
+# How many fused candidates get cross-encoded.
+#
+# This MUST exceed the number of results returned or the stage is pointless:
+# at 10 it re-ordered exactly the set that was already going to be shown, so it
+# could never pull a better paper up from the rest of the retrieved pool.
+# Retrieval fetches limit * SEARCH_FETCH_K_MULTIPLIER (= 60 at limit 10), so 50
+# covers the overwhelming majority of the pool.
+#
+# Latency: cross-encoding is CPU-bound and roughly linear in this number.
+# Dial down to ~30 if p95 needs it.
+SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "50"))
 
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator

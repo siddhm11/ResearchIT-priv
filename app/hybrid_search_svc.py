@@ -193,30 +193,36 @@ async def search(
                 lambda: reranker_bge_svc.rerank(query, papers_to_rerank, top_n=top_n)
             )
 
-            # Normalize and assign BGE scores back to fused list
-            max_rrf = fused[0]["rrf_score"] if fused else 1.0
-
-            # Map BGE scores back to their fused items
+            # Map each cross-encoder logit to a [0, 1] relevance probability.
+            # Sigmoid is monotonic, so this preserves the reranker's ordering;
+            # it just gives the downstream title/citation boost a bounded,
+            # well-behaved scale to work against.
             bge_scores_by_id = {}
             for p in reranked_papers:
                 bge_score = p.get("bge_rerank_score", 0.0)
-                # Map BGE logit score to a [0, 1] probability using sigmoid
                 try:
                     bge_prob = 1.0 / (1.0 + math.exp(-bge_score))
                 except OverflowError:
                     bge_prob = 0.0 if bge_score < 0 else 1.0
+                bge_scores_by_id[p["arxiv_id"]] = bge_prob
 
-                # Scale by max_rrf to align range
-                bge_scores_by_id[p["arxiv_id"]] = bge_prob * max_rrf
-
-            # Update rrf_score for reranked items
-            for item in fused[:top_n]:
-                aid = item["arxiv_id"]
-                if aid in bge_scores_by_id:
-                    item["rrf_score"] = bge_scores_by_id[aid]
-
-            # Re-sort fused list by the new rrf_score before passing to title match boost
-            fused.sort(key=lambda x: x["rrf_score"], reverse=True)
+            # Narrow to the cross-encoded window.
+            #
+            # Previously the un-scored tail stayed in the list carrying raw RRF
+            # scores while the top items carried sigmoid-scaled ones, and both
+            # were sorted together.  ms-marco logits are often strongly
+            # negative, so a paper the cross-encoder merely disliked collapsed
+            # toward zero and sank below papers the cross-encoder had never
+            # looked at.  Dropping the tail keeps every remaining score on one
+            # comparable scale.
+            scored = [
+                it for it in fused[:top_n] if it["arxiv_id"] in bge_scores_by_id
+            ]
+            if scored:
+                for item in scored:
+                    item["rrf_score"] = bge_scores_by_id[item["arxiv_id"]]
+                scored.sort(key=lambda x: x["rrf_score"], reverse=True)
+                fused = scored
 
         except Exception as e:
             print(f"[hybrid_search] BGE reranking stage failed: {e}")
@@ -228,14 +234,19 @@ async def search(
     # Use the user's ORIGINAL query (not the LLM rewrite) for title matching —
     # the user's literal text is what should match a paper title.
     t0_rerank = time.perf_counter()
-    ranked = await _title_match_rerank(fused, query, top_n_for_boost=50)
+    rerank_timings: dict = {}
+    ranked = await _title_match_rerank(
+        fused, query, top_n_for_boost=50, timings=rerank_timings
+    )
     rerank_total = int((time.perf_counter() - t0_rerank) * 1000)
     search_meta["rerank_time_ms"] = rerank_total
-    # Extract sub-timings stashed by _title_match_rerank
-    if ranked:
-        turso_boost_ms = ranked[0].pop("_turso_boost_fetch_ms", 0)
-        search_meta["turso_boost_fetch_ms"] = turso_boost_ms
-        search_meta["rerank_compute_ms"] = max(0, rerank_total - turso_boost_ms)
+    # Sub-timings come back via the timings dict.  They used to be stashed on
+    # fused[0], but _title_match_rerank re-sorts the list before returning, so
+    # the caller was popping from a different dict and always read 0 — which
+    # silently folded the Turso round-trip into "rerank_compute_ms".
+    turso_boost_ms = rerank_timings.get("turso_boost_fetch_ms", 0)
+    search_meta["turso_boost_fetch_ms"] = turso_boost_ms
+    search_meta["rerank_compute_ms"] = max(0, rerank_total - turso_boost_ms)
 
     # ── Step 6: Return top results ───────────────────────────────────────
     final_results = [item["arxiv_id"] for item in ranked[:limit]]
@@ -434,6 +445,7 @@ async def _title_match_rerank(
     fused: list[dict],
     user_query: str,
     top_n_for_boost: int = 50,
+    timings: dict | None = None,
 ) -> list[dict]:
     """
     Boost candidates by title overlap + citation popularity.
@@ -473,13 +485,17 @@ async def _title_match_rerank(
         citations = {aid: (m.get("citation_count") or 0) for aid, m in meta.items()}
     except Exception as e:
         print(f"[hybrid_search] Metadata fetch for boost failed: {e}")
+        if timings is not None:
+            timings["turso_boost_fetch_ms"] = int(
+                (_time.perf_counter() - _t0_turso_boost) * 1000
+            )
         for item in fused:
             item["final_score"] = item["rrf_score"]
         return fused
-    _turso_boost_ms = int((_time.perf_counter() - _t0_turso_boost) * 1000)
-    # Stash on first item so the caller can extract it
-    if fused:
-        fused[0]["_turso_boost_fetch_ms"] = _turso_boost_ms
+    if timings is not None:
+        timings["turso_boost_fetch_ms"] = int(
+            (_time.perf_counter() - _t0_turso_boost) * 1000
+        )
 
     max_rrf = max(item["rrf_score"] for item in fused)
 
