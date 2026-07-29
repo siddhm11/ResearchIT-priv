@@ -108,6 +108,21 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
     if not misses:
         return output
 
+    # Sidecar layer — a local SQLite mirror shipped in the image.  Sits between
+    # the in-process cache and the network so every caller benefits without a
+    # call-site change.  Anything it does not have falls through to Turso, so a
+    # missing or partially-built sidecar only costs us the speedup.
+    from app import local_meta
+    if local_meta.is_available():
+        for row in local_meta.fetch_rows(misses):
+            paper = _to_paper_dict(row)
+            if paper:
+                output[paper["arxiv_id"]] = paper
+                _cache_put(paper["arxiv_id"], paper)
+        misses = [aid for aid in misses if aid not in output]
+        if not misses:
+            return output
+
     fetched = await _fetch_metadata_batch_uncached(misses)
     output.update(fetched)
     return output
@@ -235,11 +250,27 @@ def _to_paper_dict(row: dict) -> dict | None:
         author_list = [a.strip() for a in authors_raw.split(",") if a.strip()][:5]
         authors_json = json.dumps(author_list)
 
-    # Use primary_topic as category, fall back to first in categories list
-    category = row.get("primary_topic") or ""
-    if not category:
-        cats = row.get("categories") or ""
-        category = cats.split()[0] if cats else ""
+    # `category` is the primary arXiv code ("cs.CL"), taken as the first entry
+    # of the space-separated categories list per arXiv's own convention.
+    #
+    # It used to be primary_topic, which stores coarse friendly labels
+    # ("AI/ML", "Pure Mathematics", "Other Technical") — about 15 buckets for
+    # 1.6M papers.  That broke three things at once:
+    #
+    #   1. Suppression (db.get_suppressed_categories groups by this field)
+    #      operated at ~15-bucket granularity, so three dismissals inside
+    #      "AI/ML" suppressed ~20% of the entire corpus.
+    #   2. arxiv_svc's fallback sets this field to the real primary_category
+    #      term, so the same column carried two different taxonomies depending
+    #      on which source happened to serve the paper.
+    #   3. The templates branch on `paper.category.startswith("cs.")` and render
+    #      `category.split('.')[0]`, which silently never matched a friendly
+    #      label.
+    #
+    # The friendly label is still available as `topic_label`.
+    cats_raw = row.get("categories") or ""
+    cat_codes = cats_raw.split()
+    category = cat_codes[0] if cat_codes else (row.get("primary_topic") or "")
 
     # Extract year from update_date (YYYY-MM-DD format)
     update_date = row.get("update_date") or ""
@@ -269,14 +300,13 @@ def _to_paper_dict(row: dict) -> dict | None:
         "abstract": (row.get("abstract_preview") or "").replace("\n", " "),
         "authors": authors_json,
         "category": category,
-        # Raw space-separated arXiv codes ("cs.CL cs.LG").
-        #
-        # `category` above comes from primary_topic, which stores friendly
-        # labels ("AI/ML", "NLP/Computational Linguistics") rather than arXiv
-        # codes.  Anything that needs to compare against CATEGORY_GROUPS — which
-        # is defined in arXiv codes — must use this field instead, or the
-        # comparison silently never matches.
-        "arxiv_categories": row.get("categories") or "",
+        # Full space-separated arXiv code list ("cs.CL cs.LG").  A paper can sit
+        # in several categories; onboarding matching checks all of them, while
+        # `category` above is just the primary one.
+        "arxiv_categories": cats_raw,
+        # Turso's coarse friendly label ("AI/ML").  Kept for display and
+        # analytics only — never compare it against arXiv codes.
+        "topic_label": row.get("primary_topic") or "",
         "published": update_date,
         "year": year,
         "citation_count": citation_count,
@@ -319,6 +349,23 @@ async def fetch_trending_by_categories(
     cached = _TRENDING_CACHE.get(cache_key)
     if cached is not None and (time.time() - cached[0]) < _TRENDING_TTL_SECONDS:
         return cached[1]
+
+    # Sidecar first.  This is the query that hurts most: on Turso it is a
+    # LIKE '%code%' full scan plus a temp B-tree sort over 1.6M rows, and it
+    # runs during onboarding, so the very first thing a new user does is wait
+    # on it.  The TTL cache only helps the *second* user of a given category
+    # combination, and with 20 groups there are far too many combinations for
+    # that to hit often.  The sidecar indexes (code, citation_count DESC), so
+    # this becomes an index range read.
+    from app import local_meta
+    if local_meta.is_available():
+        rows = local_meta.fetch_trending(set(categories), limit=limit)
+        if rows:
+            papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
+            for p in papers:
+                _cache_put(p["arxiv_id"], p)
+            _TRENDING_CACHE[cache_key] = (time.time(), papers)
+            return papers
 
     url = config.TURSO_URL
     token = config.TURSO_DB_TOKEN
