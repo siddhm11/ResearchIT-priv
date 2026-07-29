@@ -359,7 +359,10 @@ async def fetch_trending_by_categories(
     # this becomes an index range read.
     from app import local_meta
     if local_meta.is_available():
-        rows = local_meta.fetch_trending(set(categories), limit=limit)
+        rows = local_meta.fetch_trending(
+            set(categories), limit=limit,
+            recency_months=config.TRENDING_RECENCY_MONTHS,
+        )
         if rows:
             papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
             for p in papers:

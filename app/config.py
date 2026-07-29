@@ -26,6 +26,14 @@ TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
 
 
 
+# ── Tier 0 trending (cold start) ──────────────────────────────────────────────
+# How far back "trending" looks, measured from the newest paper in the corpus
+# rather than from today (the corpus is a static snapshot ending 2025-05-30).
+# Ranking by all-time citations instead returns the same canonical papers to
+# every user forever — Adam, scikit-learn, BatchNorm — which is a poor first
+# impression for a feed that claims to surface current research.
+TRENDING_RECENCY_MONTHS = int(os.getenv("TRENDING_RECENCY_MONTHS", "24"))
+
 # ── Recommendation settings ───────────────────────────────────────────────────
 REC_LIMIT = 10                  # how many recommendations to show
 REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant

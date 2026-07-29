@@ -127,34 +127,146 @@ def fetch_rows(arxiv_ids: list[str]) -> list[dict]:
     return out
 
 
-def fetch_trending(codes: set[str], limit: int = 10) -> list[dict]:
+def pub_year_month(arxiv_id: str) -> tuple[int, int] | None:
+    """Publication (year, month) decoded from the arXiv identifier.
+
+    `update_date` is the *last revision* date, not publication, so filtering on
+    it surfaces old landmarks that happen to have a recent vN — "Attention Is
+    All You Need" (2017) carries update_date 2023-08-03 and outranks everything
+    actually new.  The identifier itself is a reliable publication stamp:
+
+        2407.21783        -> 2024-07   (post-2007 scheme, YYMM.NNNNN)
+        0704.0002         -> 2007-04
+        math/0309136      -> 2003-09   (pre-2007 scheme, archive/YYMMNNN)
+
+    Returns None for anything unparseable, and callers treat that as "unknown"
+    rather than excluding the paper.
     """
-    Most-cited papers in any of `codes`.
+    if not arxiv_id:
+        return None
+    tail = arxiv_id.split("/")[-1]
+    if len(tail) < 4 or not tail[:4].isdigit():
+        return None
+    yy, mm = int(tail[:2]), int(tail[2:4])
+    if not 1 <= mm <= 12:
+        return None
+    # arXiv began in 1991; two-digit years below ~50 are 20xx.
+    return (2000 + yy if yy < 50 else 1900 + yy), mm
 
-    Uses the paper_categories side table, which stores one row per
-    (paper, arXiv code) and is indexed on (code, citation_count DESC).  That
-    turns Turso's full-scan-plus-sort into an index range read.
 
-    Returns [] when unavailable so the caller can fall back.
+def _months_before(anchor: str, months: int) -> tuple[int, int] | None:
+    """(year, month) that is `months` before the YYYY-MM-DD `anchor`."""
+    if not anchor or len(anchor) < 7:
+        return None
+    try:
+        y, m = int(anchor[:4]), int(anchor[5:7])
+    except ValueError:
+        return None
+    total = y * 12 + (m - 1) - months
+    return total // 12, total % 12 + 1
+
+
+_max_date: str | None = None
+
+
+def newest_update_date() -> str | None:
+    """Most recent update_date in the corpus, computed once and memoised.
+
+    Cheap here (~50 ms against the indexed column) and impossible upstream —
+    the same aggregate does not complete on Turso.
+    """
+    global _max_date
+    if _max_date is not None:
+        return _max_date
+    if not _probe() or _conn is None:
+        return None
+    try:
+        _max_date = _conn.execute(
+            "SELECT MAX(update_date) FROM papers").fetchone()[0]
+    except Exception:
+        _max_date = None
+    return _max_date
+
+
+def fetch_trending(
+    codes: set[str],
+    limit: int = 10,
+    recency_months: int = 24,
+) -> list[dict]:
+    """
+    Well-cited *recent* papers in any of `codes`.
+
+    Ordering by all-time citations returns the same canonical papers to every
+    user forever — for cs.LG that is Adam (2014), scikit-learn (2011) and
+    BatchNorm (2015).  Those are famous, not trending, and this feeds Tier 0,
+    which is the very first thing a new user sees.  Restricting to a recent
+    window over the same data returns Llama 3, DPO and DeepSeek-R1 instead.
+
+    Two details that matter:
+
+      * The window is measured back from the newest paper in the corpus, not
+        from today.  The corpus is a static snapshot ending 2025-05-30, so an
+        absolute cutoff would silently empty out; anchoring to the data means
+        this keeps working if ingestion is added later.
+      * Categories are wildly uneven (~302k papers in cs.LG vs ~7.9k in
+        q-bio.NC), so a fixed window starves the thin ones.  The window widens
+        and finally drops away entirely rather than returning a short list.
+
+    Returns [] when unavailable so the caller can fall back to Turso.
     """
     if not codes or not _probe() or _conn is None:
         return []
+
     ph = ",".join("?" * len(codes))
+    # Read the most-cited papers in these categories in one index-ordered pass,
+    # then apply the publication-date window in Python.  The date cannot be
+    # filtered in SQL because it is derived from the identifier rather than
+    # stored; the pool is sized so the window still has plenty to choose from.
+    pool = max(2000, limit * 200)
     try:
         cur = _conn.execute(
-            f"""SELECT {', '.join('p.' + c for c in _COLUMNS)}
+            f"""SELECT {', '.join('p.' + c for c in _COLUMNS)}, t.cit
                 FROM papers p
                 JOIN (
-                    SELECT DISTINCT arxiv_id FROM paper_categories
+                    SELECT arxiv_id, MAX(citation_count) AS cit
+                    FROM paper_categories
                     WHERE code IN ({ph})
-                    ORDER BY citation_count DESC
+                    GROUP BY arxiv_id
+                    ORDER BY cit DESC
                     LIMIT ?
                 ) t ON t.arxiv_id = p.arxiv_id
-                ORDER BY p.citation_count DESC""",
-            (*codes, limit * 4),
+                ORDER BY t.cit DESC""",
+            (*codes, pool),
         )
-        rows = [dict(zip(_COLUMNS, r)) for r in cur.fetchall()]
-        return rows[:limit]
+        candidates = [dict(zip(_COLUMNS, r[:len(_COLUMNS)])) for r in cur.fetchall()]
     except Exception as e:
         print(f"[local_meta] trending failed ({e}) — deferring to Turso")
         return []
+
+    if not candidates:
+        return []
+
+    anchor = newest_update_date()
+    if not anchor:
+        return candidates[:limit]
+
+    # Widen rather than return a short list: categories range from ~302k papers
+    # (cs.LG) to ~7.9k (q-bio.NC), so one fixed window cannot serve both.
+    # `candidates` is already ordered by citations, so each filtered subset
+    # keeps that ordering.
+    best: list[dict] = []
+    for months in (recency_months, recency_months * 2, recency_months * 4):
+        cutoff = _months_before(anchor, months)
+        if cutoff is None:
+            break
+        picked = [
+            row for row in candidates
+            if (ym := pub_year_month(row["arxiv_id"])) is not None and ym >= cutoff
+        ]
+        if len(picked) >= limit:
+            return picked[:limit]
+        if len(picked) > len(best):
+            best = picked
+
+    # No window could fill the slots — fall back to plain citation order.
+    return (best or candidates)[:limit]
