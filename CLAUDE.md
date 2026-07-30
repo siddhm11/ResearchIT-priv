@@ -38,6 +38,7 @@ There are six research documents in `docs/research/`, four walkthroughs in `docs
 | `PHASE1-Zero-ML-Recommender.md` | What Phase 1 built (Qdrant, arXiv API, HTMX) |
 | `PHASE2-Hybrid-Search-Plan.md` | Prototype reference for search pipeline (superseded by Phase 3 doc) |
 | `PHASE3-Hybrid-Semantic-Search.md` | **Active Phase 3 implementation plan** — BGE-M3 + Qdrant dense + Zilliz sparse + RRF |
+| `PHASE7-Data-Freshness-And-Capacity.md` | **Active** — arXiv ingestion, abstract truncation, Qdrant free-tier capacity. Read before touching the data stores or proposing a reranker retrain. Contains the measured per-point disk cost and the eviction analysis. |
 
 ### Walkthroughs (`docs/walkthroughs/`)
 

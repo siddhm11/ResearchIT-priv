@@ -98,6 +98,23 @@ The implementation surface looks almost identical to Doc 03 from 50 feet away �
 
 ## Changelog
 
+### 2026-07-30 — Corpus freshness becomes a first-class constraint
+**Decision:** The corpus is no longer treated as a fixed snapshot. arXiv ingestion is a standing requirement, and corpus recency ranks above further ranking-model work in priority.
+**Supersedes:** Nothing explicitly, but it reorders the Phase 7-9 roadmap: Phase 8 (reranker retrain) is now gated behind Phase 7 (freshness + persistence).
+**Rationale:** Measured 2026-07-30, the newest paper in the index was published 2025-05 while live arXiv holds 290,672 papers in our configured categories that we lack. For cs.AI, arXiv published nearly half again as many papers in that window as the entire index contains. No ranking improvement can surface a paper that is absent, so the ceiling on recommendation quality is currently the data, not the model.
+**Action items:**
+- `scripts/ingest_arxiv.py` + `scripts/ingest_backends.py` — fetch, encode, upsert to all three stores.
+- New embeddings must reuse the original text construction (`title[:256] + abstract[:1024]`, `max_length=512`) so they share the existing vectors' distribution.
+- Stored abstracts are no longer truncated. The 500-char cap left 90.0% of rows cut off, discarding ~60% of each abstract from the cross-encoder's input.
+- Full plan and capacity analysis in `docs/phases/PHASE7-Data-Freshness-And-Capacity.md`.
+
+### 2026-07-30 — Do not evict pre-2010 papers to reclaim disk
+**Decision:** Rejected as a capacity remedy. Disk pressure is addressed by narrowing ingest scope, not by deleting history.
+**Rationale:** Removing all 180,197 pre-2010 papers frees only 0.46 GB against the 0.75 GB the ingest needs, so it does not even net out. It is also expensive and irreversible: 86% of those papers have citations, 17,776 have 100+, and the damage concentrates in quant-ph (35,763), astro-ph (30,329), hep-th and mathematics — fields whose literature ages slowly and which our onboarding taxonomy offers as first-class choices. Those users would lose the foundations of their field while ML users lose nothing.
+**Action items:**
+- If disk is genuinely constrained, narrow ingest to the 8 core CS/ML categories (170,668 papers, 0.44 GB) instead.
+- Settle the disk-usage measurement discrepancy in PHASE7 §4.2 before any deletion is considered again.
+
 ### 2026-05-29 — Direct BGE Cross-Encoder Search Reranker Integration
 **Decision:** BAAI/bge-reranker-v2-m3 (cross-encoder) is integrated into the Search hot path.
 **Supersedes:** Section "Reranking" (above) which strictly forbade BGE-reranker on serving path due to latency.
