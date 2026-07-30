@@ -137,6 +137,16 @@ class TestPhase6FeatureWiring:
 
     def test_per_candidate_medoid_distance(self):
         """Feature 24 must differ when different medoids are provided."""
+        # Seeded deliberately, and BEFORE _make_candidates, because the
+        # candidate embeddings are drawn randomly too and the asserted gap
+        # depends on both them and the medoid.
+        #
+        # In 1024 dimensions the cosine between two independent random vectors
+        # concentrates near zero (sigma ~ 0.031), so the asserted gap of 0.01
+        # only appears on a lucky sample -- measured at roughly 1 failure in 12
+        # unseeded runs. That intermittent red was mistaken for a real
+        # regression more than once.
+        np.random.seed(20260730)
         ids, embs, meta = _make_candidates(4)
 
         medoid_a = np.random.randn(1024).astype(np.float32)

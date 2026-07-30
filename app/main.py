@@ -24,6 +24,15 @@ from app.routers import search, events, recommendations, saved, onboarding, heal
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.init_db()
+
+    # Restore user data from Turso and start replicating.
+    # DB_PATH is /tmp on HF Spaces, so without this every save, EWMA profile,
+    # cluster and onboarding record is destroyed on each rebuild.
+    try:
+        from app import turso_sync
+        await turso_sync.start()
+    except Exception as e:
+        print(f"[main] Turso sync unavailable ({e}) -- user data is ephemeral")
     # Phase 3: Warm up BGE-M3 at startup (graceful — app works without it)
     try:
         import asyncio
@@ -52,6 +61,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[main] Snapshot pruning skipped: {e}")
     yield
+
+    # Final flush so the last sync interval is not lost on shutdown.
+    try:
+        from app import turso_sync
+        await turso_sync.stop()
+    except Exception as e:
+        print(f"[main] Turso final flush skipped: {e}")
 
 
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
