@@ -30,11 +30,18 @@ async def healthz_reranker():
         json.dumps(_rr.FEATURE_NAMES).encode()
     ).hexdigest()[:12]
 
+    # model_loaded and scoring_with are deliberately separate. The model can be
+    # present and healthy while not being used, because RERANKER_MODE defaults
+    # to "heuristic" — the trained model has zero splits on features 20-30 and
+    # so cannot respond to the user. Without both fields a policy choice is
+    # indistinguishable from a failed deployment.
     return {
         "model_loaded": _rr.is_model_loaded(),
         "model_path": _rr.get_loaded_model_path(),
         "model_version": "phase6.v1",
-        "fallback_active": not _rr.is_model_loaded(),
+        "reranker_mode": config.RERANKER_MODE,
+        "scoring_with": "lightgbm" if _rr.use_lightgbm() else "heuristic",
+        "fallback_active": not _rr.use_lightgbm(),
         "feature_count": _rr.NUM_FEATURES,
         "feature_schema_hash": schema_hash,
         "n_trees": _rr.get_num_trees(),

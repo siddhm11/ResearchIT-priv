@@ -24,6 +24,8 @@ from pathlib import Path
 
 import numpy as np
 
+from app import config
+
 
 # ── LightGBM model loading (graceful fallback) ──────────────────────────────
 
@@ -417,8 +419,32 @@ def heuristic_score(features: np.ndarray) -> np.ndarray:
 # ── Model Accessors (Phase 6.3) ──────────────────────────────────────────────
 
 def is_model_loaded() -> bool:
-    """True iff a LightGBM Booster is loaded and active."""
+    """True iff a LightGBM Booster is loaded and active.
+
+    Reports whether the model *loaded*, independent of whether it is being used
+    for scoring — see use_lightgbm(). /healthz/reranker reports both so a
+    deployment can be told apart from a policy choice.
+    """
     return _USE_LGB and _lgb_model is not None
+
+
+def use_lightgbm() -> bool:
+    """True iff LightGBM should actually score this request.
+
+    Requires both a loaded model and config.RERANKER_MODE permitting it. The
+    default mode is "heuristic" because the trained model has zero splits on
+    features 20-30 and therefore cannot respond to the user at all; see the
+    comment on RERANKER_MODE in app/config.py.
+    """
+    if not is_model_loaded():
+        return False
+    mode = getattr(config, "RERANKER_MODE", "auto")
+    if mode == "heuristic":
+        return False
+    if mode in ("lightgbm", "auto"):
+        return True
+    print(f"[reranker] unknown RERANKER_MODE {mode!r} -- using heuristic")
+    return False
 
 
 def get_loaded_model_path() -> str | None:
@@ -512,11 +538,15 @@ def rerank_candidates(
         print(
             f"[reranker] features: {active_count}/37 active, "
             f"n_candidates={features.shape[0]}, "
-            f"model={'lgb' if _USE_LGB else 'heuristic'}"
+            f"model={'lgb' if use_lightgbm() else 'heuristic'}"
         )
 
     # ── Score: LightGBM or heuristic ─────────────────────────────────────
-    if _USE_LGB and _lgb_model is not None:
+    # config.RERANKER_MODE decides. See the comment on that setting for why the
+    # default is "heuristic": the trained model has zero splits on features
+    # 20-30, so it cannot respond to the user at all, while heuristic_score()
+    # reads the EWMA similarities directly.
+    if use_lightgbm():
         try:
             scores = _lgb_model.predict(features)
         except Exception as e:

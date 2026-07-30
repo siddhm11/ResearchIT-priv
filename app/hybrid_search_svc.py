@@ -64,17 +64,53 @@ async def search(
     import time
     search_meta = {"rewritten_query": None, "groq_time_ms": 0, "groq_status": "off"}
 
-    # ── Step 1: LLM rewrite (optional, never blocks) ─────────────────────
+    loop = asyncio.get_running_loop()
+
+    # ── Step 1: LLM rewrite — started now, collected after the first encode ──
+    #
+    # This used to `await` here, ahead of everything else, costing 161-329ms
+    # (measured) before any retrieval could begin. Telemetry showed the status
+    # was frequently "called, kept original", so that was often paid for a query
+    # that came back unchanged.
+    #
+    # It now runs concurrently with encoding the original query. When the rewrite
+    # is a no-op we get its latency back entirely; when it does rewrite, the
+    # extra encode+search happens after, exactly as before.
+    start_groq = time.perf_counter()
+    rewrite_task = (
+        asyncio.create_task(groq_svc.rewrite(query)) if use_rewrite else None
+    )
+
+    # ── Step 2: BGE-M3 encode the original AND rewrite ──────────────────
+    # Why both: The rewriter improves recall on conceptual/casual queries
+    # ("when AI makes up fake facts" -> "LLM hallucination ...") but it
+    # paraphrases away from literal title wording on known-item queries
+    # ("attention is all you need" -> "Transformer self-attention ..."),
+    # which can drop the actual famous paper out of the candidate pool
+    # entirely. Searching both forms and RRF-fusing all result lists
+    # gives us recall on both axes.
+    # BGE-M3 inference is 285-642ms of synchronous CPU work. Called inline it
+    # blocks the event loop for that whole time, which serialises every
+    # concurrent request and would also stop the rewrite task above from making
+    # progress. It belongs in an executor, as the cross-encoder stage already is.
+    t0_encode = time.perf_counter()
+    encoded: list[tuple] = []
+    try:
+        d, s = await loop.run_in_executor(None, embed_svc.encode_query, query)
+        encoded.append((d, s))
+    except Exception as e:
+        print(f"[hybrid_search] Encoding failed for {query!r}: {e}")
+
+    # Collect the rewrite, which has been running throughout the encode above.
     rewritten_query = query
-    if use_rewrite:
-        start_groq = time.perf_counter()
+    if rewrite_task is not None:
         try:
-            rewritten_query = await groq_svc.rewrite(query)
-            if rewritten_query != query:
+            rewritten_query = await rewrite_task
+            if rewritten_query and rewritten_query != query:
                 search_meta["rewritten_query"] = rewritten_query
                 search_meta["groq_status"] = "rewritten"
             else:
-                # Groq returned same query — either skipped by heuristic or LLM kept it
+                rewritten_query = query
                 word_count = len(query.strip().split())
                 if word_count <= 2:
                     search_meta["groq_status"] = f"skipped (query too short: {word_count} words)"
@@ -85,28 +121,18 @@ async def search(
         except Exception:
             rewritten_query = query  # Fallback guaranteed
             search_meta["groq_status"] = "error (fallback)"
-        search_meta["groq_time_ms"] = int((time.perf_counter() - start_groq) * 1000)
+    search_meta["groq_time_ms"] = int((time.perf_counter() - start_groq) * 1000)
+    # groq_time_ms now OVERLAPS encode_time_ms rather than preceding it, so the
+    # stage timings must not be summed to reconstruct the total.
+    search_meta["groq_overlapped"] = True
 
-    # ── Step 2: BGE-M3 encode the original AND rewrite ──────────────────
-    # Why both: The rewriter improves recall on conceptual/casual queries
-    # ("when AI makes up fake facts" -> "LLM hallucination ...") but it
-    # paraphrases away from literal title wording on known-item queries
-    # ("attention is all you need" -> "Transformer self-attention ..."),
-    # which can drop the actual famous paper out of the candidate pool
-    # entirely. Searching both forms and RRF-fusing all result lists
-    # gives us recall on both axes.
-    queries_to_encode: list[str] = [query]
-    if rewritten_query and rewritten_query != query:
-        queries_to_encode.append(rewritten_query)
-
-    t0_encode = time.perf_counter()
-    encoded: list[tuple] = []
-    for q in queries_to_encode:
+    if rewritten_query != query:
         try:
-            d, s = embed_svc.encode_query(q)
+            d, s = await loop.run_in_executor(
+                None, embed_svc.encode_query, rewritten_query)
             encoded.append((d, s))
         except Exception as e:
-            print(f"[hybrid_search] Encoding failed for {q!r}: {e}")
+            print(f"[hybrid_search] Encoding failed for {rewritten_query!r}: {e}")
     search_meta["encode_time_ms"] = int((time.perf_counter() - t0_encode) * 1000)
 
     if not encoded:

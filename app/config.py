@@ -26,6 +26,29 @@ TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
 
 
 
+# ── Recommendation reranker selection ─────────────────────────────────────────
+# "heuristic" | "lightgbm" | "auto"
+#
+# Default is "heuristic", and that is a deliberate downgrade on paper.
+#
+# Parsing models/reranker-phase6/production_model/reranker_v1.txt shows features
+# 20-30 have ZERO splits across all 141 trees — every EWMA similarity, both
+# cluster features, the suppression and onboarding flags, and all four
+# interaction counts. A gradient-boosted tree only reads features it splits on,
+# so changing a user's entire profile provably cannot change the model's output.
+# It is a citation-and-recency ranker wearing a personalisation schema.
+# Compounding that, candidate_num_cited_by carries 65.2% of total importance and
+# is hardcoded to 0 at serving time (docs/PHASE6-HANDOFF.md:173).
+#
+# heuristic_score() in app/recommend/reranker.py does read features 20-22, so
+# the "fallback" responds to the user where the model cannot.
+#
+# This is a reasoned choice, not a measured one — there is no engagement data to
+# A/B against yet, which is itself a consequence of the ephemeral database. Flip
+# to "lightgbm" to compare once real interactions accumulate. "auto" restores
+# the previous behaviour (model when loaded, heuristic otherwise).
+RERANKER_MODE = os.getenv("RERANKER_MODE", "heuristic").strip().lower()
+
 # ── Tier 0 trending (cold start) ──────────────────────────────────────────────
 # How far back "trending" looks, measured from the newest paper in the corpus
 # rather than from today (the corpus is a static snapshot ending 2025-05-30).
