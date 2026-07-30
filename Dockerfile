@@ -3,7 +3,7 @@
 FROM python:3.12-slim
 
 # System dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ && \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc g++ curl && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,6 +30,27 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN python -c "from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel('BAAI/bge-m3', use_fp16=False)"
 # MiniLM cross-encoder for search reranking (~80MB)
 RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+
+# ── Metadata sidecar (optional but strongly recommended) ─────────────────────
+# A local SQLite mirror of the Turso `papers` table, built by
+# scripts/build_metadata_sidecar.py and hosted as an HF dataset.
+#
+# Turso has a single index (arxiv_id), so category and recency queries are full
+# scans of 1.6M rows — trending alone is ~15s cold and lands on new users during
+# onboarding. The sidecar carries the missing indexes locally.
+#
+# Download failure is non-fatal: app/local_meta.py falls back to Turso, so the
+# build still produces a working image. Set to "" to skip entirely.
+ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/main/metadata.sqlite
+ENV METADATA_SIDECAR_PATH=/app/data/metadata.sqlite
+RUN mkdir -p /app/data && \
+    if [ -n "$METADATA_SIDECAR_URL" ]; then \
+      echo "Fetching metadata sidecar..." && \
+      (curl -fSL --retry 3 "$METADATA_SIDECAR_URL" -o /app/data/metadata.sqlite \
+        && ls -lh /app/data/metadata.sqlite) \
+      || (echo "WARNING: sidecar download failed — falling back to Turso at runtime" \
+          && rm -f /app/data/metadata.sqlite); \
+    fi
 
 # Copy application code
 COPY . .
