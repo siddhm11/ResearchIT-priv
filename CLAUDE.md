@@ -39,6 +39,7 @@ There are six research documents in `docs/research/`, four walkthroughs in `docs
 | `PHASE2-Hybrid-Search-Plan.md` | Prototype reference for search pipeline (superseded by Phase 3 doc) |
 | `PHASE3-Hybrid-Semantic-Search.md` | **Active Phase 3 implementation plan** — BGE-M3 + Qdrant dense + Zilliz sparse + RRF |
 | `PHASE7-Data-Freshness-And-Capacity.md` | **Active** — arXiv ingestion, abstract truncation, Qdrant free-tier capacity. Read before touching the data stores or proposing a reranker retrain. Contains the measured per-point disk cost and the eviction analysis. |
+| `PHASE8-Search-And-Recommendation-Design.md` | **Active** — the exact search and recommendation pipelines: every stage, constant and threshold, what is live vs pending, and the rules that must not change. Read before altering either pipeline. |
 
 ### Walkthroughs (`docs/walkthroughs/`)
 
