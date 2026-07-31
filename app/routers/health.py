@@ -48,6 +48,89 @@ async def healthz_reranker():
     }
 
 
+@router.get("/healthz/ab")
+async def healthz_ab(q: str = "", limit: int = 10):
+    """
+    Online A/B: run one query against both Qdrant backends and diff the results.
+
+        GET /healthz/ab?q=transformer+attention+mechanism
+
+    Needs QDRANT_B_URL / QDRANT_B_API_KEY (plus QDRANT_B_UINT8_* if backend B
+    stores uint8). Without them it reports "not configured" and does nothing.
+
+    Deliberately one process rather than a second Space: standing up a duplicate
+    deployment would compare containers, hosts and cache states as well as the
+    clusters. Here the query is encoded ONCE and the only difference between the
+    two runs is which cluster answered.
+    """
+    if not q.strip():
+        return {"error": "pass ?q=<query>"}
+    if not config.qdrant_b_configured():
+        return {"error": "backend B not configured",
+                "need": ["QDRANT_B_URL", "QDRANT_B_API_KEY",
+                         "QDRANT_B_UINT8_LO", "QDRANT_B_UINT8_SCALE"]}
+
+    import time as _t
+    from app import embed_svc, qdrant_svc, turso_svc
+
+    loop = asyncio.get_running_loop()
+    t0 = _t.perf_counter()
+    try:
+        dense, _sparse = await loop.run_in_executor(
+            None, embed_svc.encode_query, q.strip())
+    except Exception as e:
+        return {"error": f"encode failed: {e}"}
+    encode_ms = int((_t.perf_counter() - t0) * 1000)
+    qvec = dense.tolist()
+
+    async def run(backend: str) -> dict:
+        t = _t.perf_counter()
+        try:
+            with qdrant_svc.use_backend(backend):
+                hits = await qdrant_svc.search_dense(qvec, limit=limit)
+        except Exception as e:
+            return {"error": str(e)[:200]}
+        ms = int((_t.perf_counter() - t) * 1000)
+        ids = [h["arxiv_id"] for h in hits]
+        meta = await turso_svc.fetch_metadata_batch(ids)
+        return {
+            "ms": ms,
+            "results": [
+                {"arxiv_id": h["arxiv_id"],
+                 "score": round(float(h["score"]), 5),
+                 "title": (meta.get(h["arxiv_id"], {}).get("title") or "")[:90]}
+                for h in hits
+            ],
+        }
+
+    a = await run("a")
+    b = await run("b")
+
+    out = {
+        "query": q.strip(),
+        "encode_ms": encode_ms,
+        "A": {"url": config.QDRANT_URL.split("//")[-1][:24],
+              "uint8": config.qdrant_is_uint8(), **a},
+        "B": {"url": config.QDRANT_B_URL.split("//")[-1][:24],
+              "uint8": config.QDRANT_B_UINT8_SCALE > 0, **b},
+    }
+
+    ra = [r["arxiv_id"] for r in a.get("results", [])]
+    rb = [r["arxiv_id"] for r in b.get("results", [])]
+    if ra and rb:
+        sa, sb = set(ra), set(rb)
+        out["overlap"] = round(len(sa & sb) / max(1, len(sa | sb)), 3)
+        out["same_top1"] = ra[0] == rb[0]
+        out["only_in_A"] = sorted(sa - sb)[:5]
+        out["only_in_B"] = sorted(sb - sa)[:5]
+        # Scores from a uint8 collection sit in a much narrower band because of
+        # the DC offset, so compare spreads rather than absolute values.
+        for k, rs in (("A", a["results"]), ("B", b["results"])):
+            if rs:
+                out[k]["score_spread"] = round(rs[0]["score"] - rs[-1]["score"], 5)
+    return out
+
+
 @router.get("/healthz/deep")
 async def healthz_deep():
     """

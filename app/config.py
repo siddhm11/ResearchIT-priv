@@ -55,6 +55,28 @@ def qdrant_is_uint8() -> bool:
     return QDRANT_UINT8_SCALE > 0
 
 
+# ── Backend B: online A/B comparison ──────────────────────────────────────────
+# Optional second Qdrant cluster, used only by GET /healthz/ab. Leave unset and
+# the endpoint reports "not configured" and nothing else changes.
+#
+# Comparing two clusters by standing up a second Space would confound the
+# result: different container, different host, cold caches. Routing both from
+# one process holds every other variable fixed, so the cluster is the only
+# difference being measured.
+#
+# When B wins, promote it by copying these values into the primary QDRANT_*
+# variables — no code change, and rollback is the same move reversed.
+QDRANT_B_URL = os.getenv("QDRANT_B_URL", "").strip()
+QDRANT_B_API_KEY = os.getenv("QDRANT_B_API_KEY", "").strip()
+QDRANT_B_COLLECTION = os.getenv("QDRANT_B_COLLECTION", QDRANT_COLLECTION)
+QDRANT_B_UINT8_LO = float(os.getenv("QDRANT_B_UINT8_LO", "0") or 0)
+QDRANT_B_UINT8_SCALE = float(os.getenv("QDRANT_B_UINT8_SCALE", "0") or 0)
+
+
+def qdrant_b_configured() -> bool:
+    return bool(QDRANT_B_URL and QDRANT_B_API_KEY)
+
+
 # ── Recommendation reranker selection ─────────────────────────────────────────
 # "heuristic" | "lightgbm" | "auto"
 #
