@@ -374,6 +374,23 @@ def compute_features(
 
 # ── Heuristic Scorer (permanent fallback) ────────────────────────────────────
 
+def _unit_spread(x: np.ndarray) -> np.ndarray:
+    """Rescale a feature column to [0, 1] across the candidate set.
+
+    Monotonic, so it never changes the ordering the values imply — it only
+    makes the term's contribution independent of the absolute range the
+    backend happens to produce. Returns zeros when every candidate is
+    identical, so a degenerate column contributes nothing rather than NaN.
+    """
+    if x.size == 0:
+        return x
+    lo = float(np.min(x))
+    hi = float(np.max(x))
+    if hi - lo < 1e-9:
+        return np.zeros_like(x)
+    return (x - lo) / (hi - lo)
+
+
 def heuristic_score(features: np.ndarray) -> np.ndarray:
     """
     Hand-tuned scoring function.  Used before LightGBM model is available
@@ -391,12 +408,30 @@ def heuristic_score(features: np.ndarray) -> np.ndarray:
     neg_sim = features[:, 22]   # ewma_negative_similarity
     qdrant_cosine = features[:, 0]  # qdrant_cosine_score
 
-    # If EWMA profiles are zero (no user data), use Qdrant cosine as proxy
+    # If EWMA profiles are zero (no user data), use Qdrant cosine as proxy.
+    #
+    # The cosine is rescaled across the candidate set rather than used raw.
+    # What ranks candidates is the SPREAD of a term, not its absolute value,
+    # and the raw spread here is tiny compared with the recency and position
+    # terms it competes against:
+    #
+    #   float16 collection : scores ~0.68..0.75  -> 0.65 * spread ~= 0.02
+    #   uint8 collection   : scores ~0.986..1.000 -> 0.65 * spread ~= 0.001
+    #   recency term       : contributes up to 0.15
+    #
+    # So even on float16 this branch was already ranking mostly by recency and
+    # position, and on uint8 — where mapping to 0..255 adds a constant offset
+    # to every vector and compresses the band ~16x — relevance would vanish
+    # entirely. Rescaling makes the term encoding-agnostic and restores its
+    # intended weight. Ranking within the branch is unchanged: min-max is
+    # monotonic.
+    #
+    # This is the cold-start path, so it is exactly what a brand-new user gets.
     has_ewma = np.any(lt_sim != 0)
     if has_ewma:
         relevance = 0.40 * lt_sim + 0.25 * st_sim
     else:
-        relevance = 0.65 * qdrant_cosine
+        relevance = 0.65 * _unit_spread(qdrant_cosine)
 
     # Recency: exponential decay with ~365-day half-life
     recency = features[:, 6]  # candidate_recency_score (pre-computed)

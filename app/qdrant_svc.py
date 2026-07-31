@@ -10,6 +10,8 @@ The collection is 'arxiv_bgem3_dense' with integer point IDs and 1024-dim BGE-M3
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 from collections import OrderedDict
 from functools import lru_cache
 
@@ -56,16 +58,119 @@ _SEARCH_PARAMS = SearchParams(
     quantization=QuantizationSearchParams(rescore=True, oversampling=1.0),
 )
 
+
+# ── uint8 collection support ─────────────────────────────────────────────────
+#
+# When the collection stores vectors as uint8 the encoding is NOT transparent:
+# Qdrant keeps the raw 0..255 integers and returns them unchanged. Both
+# directions have to be converted or the results are silently wrong.
+#
+# Measured against a real uint8 collection:
+#   query sent as raw float   -> 0 of the correct top-5 returned
+#   vector read back raw      -> cos(raw, original) = 0.21  (0.996 dequantised)
+#
+# The read side matters more than it looks. Those vectors feed Ward clustering,
+# MMR, the EWMA similarity features, and profile updates — and a raw uint8
+# vector written into a user profile corrupts it permanently.
+#
+# No-ops entirely when config.QDRANT_UINT8_SCALE is 0, so the same code works
+# against a float16 collection and a migration can be rolled back by changing
+# environment variables alone.
+
+# Which backend the current task is talking to. A ContextVar rather than a
+# global because requests are concurrent: /healthz/ab flips to "b" for one
+# await and must not affect a search running in parallel.
+_BACKEND: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "qdrant_backend", default="a")
+
+
+@contextlib.contextmanager
+def use_backend(name: str):
+    """Route Qdrant calls in this block to backend 'a' (default) or 'b'."""
+    token = _BACKEND.set(name)
+    try:
+        yield
+    finally:
+        _BACKEND.reset(token)
+
+
+def _params() -> tuple[str, str, str, float, float]:
+    """(url, api_key, collection, uint8_lo, uint8_scale) for the active backend."""
+    if _BACKEND.get() == "b" and config.qdrant_b_configured():
+        return (config.QDRANT_B_URL, config.QDRANT_B_API_KEY,
+                config.QDRANT_B_COLLECTION,
+                config.QDRANT_B_UINT8_LO, config.QDRANT_B_UINT8_SCALE)
+    return (config.QDRANT_URL, config.QDRANT_API_KEY, config.QDRANT_COLLECTION,
+            config.QDRANT_UINT8_LO, config.QDRANT_UINT8_SCALE)
+
+
+def _collection() -> str:
+    return _params()[2]
+
+
+def _quantize_query(vec: list[float]) -> list[float]:
+    """Float vector -> the uint8 domain the collection is stored in."""
+    _, _, _, lo, scale = _params()
+    if scale <= 0:
+        return vec
+    import numpy as np
+    a = np.asarray(vec, dtype=np.float32)
+    n = float(np.linalg.norm(a))
+    if n > 1e-9:
+        a = a / n                       # stored vectors were normalised first
+    q = np.clip(np.round((a - lo) / scale), 0, 255)
+    return q.astype(np.float32).tolist()
+
+
+def _dequantize(vec: list[float]) -> list[float]:
+    """Raw 0..255 -> the original embedding space, L2-normalised."""
+    _, _, _, lo, scale = _params()
+    if scale <= 0 or not vec:
+        return vec
+    import numpy as np
+    a = np.asarray(vec, dtype=np.float32)
+    # Guard: a float16 collection returns unit-norm vectors. Only convert when
+    # the values are actually in the uint8 range, so a misconfigured env var
+    # cannot mangle good vectors.
+    if float(np.abs(a).max()) <= 2.0:
+        return vec
+    a = a * scale + lo
+    n = float(np.linalg.norm(a))
+    return (a / n).tolist() if n > 1e-9 else a.tolist()
+
+
+async def _in_executor(fn, *args):
+    """Run a sync Qdrant helper in a worker thread, preserving the backend.
+
+    loop.run_in_executor does NOT propagate contextvars, so _BACKEND would read
+    its default inside the worker and /healthz/ab would silently compare a
+    against a. Copying the context explicitly carries the selection across.
+    """
+    loop = asyncio.get_event_loop()
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(None, lambda: ctx.run(fn, *args))
+
+
 # ── Client (sync, thread-safe, reused across requests) ───────────────────────
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=4)
+def _client_for(url: str, api_key: str) -> QdrantClient:
+    return QdrantClient(url=url, api_key=api_key, timeout=30,
+                        check_compatibility=False)
+
+
 def _client() -> QdrantClient:
-    return QdrantClient(
-        url=config.QDRANT_URL,
-        api_key=config.QDRANT_API_KEY,
-        timeout=30,
-        check_compatibility=False,
-    )
+    """Client for whichever backend this task is routed to."""
+    url, key, _, _, _ = _params()
+    return _client_for(url, key)
+
+
+# _client used to BE the lru_cache'd function, and callers (including the test
+# suite) invalidate it with _client.cache_clear() after patching config. The
+# cache now lives on _client_for, so forward the attribute to keep that
+# contract intact.
+_client.cache_clear = _client_for.cache_clear
+_client.cache_info = _client_for.cache_info
 
 
 # ── ID lookup ─────────────────────────────────────────────────────────────────
@@ -87,9 +192,7 @@ async def lookup_qdrant_ids(arxiv_ids: list[str]) -> dict[str, int]:
         # 2. Ask Qdrant: filter by arxiv_id
         loop = asyncio.get_event_loop()
         try:
-            results = await loop.run_in_executor(
-                None,
-                _scroll_by_arxiv_ids,
+            results = await _in_executor(_scroll_by_arxiv_ids,
                 missing,
             )
         except Exception:
@@ -110,7 +213,7 @@ def _scroll_by_arxiv_ids(arxiv_ids: list[str]) -> dict[str, int]:
     """
     client = _client()
     pts, _ = client.scroll(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=_collection(),
         scroll_filter=Filter(
             must=[FieldCondition(key="arxiv_id", match=MatchAny(any=arxiv_ids))]
         ),
@@ -149,9 +252,7 @@ async def recommend(
     # We can only filter on payload fields — seen list applied in Python
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None,
-            _run_recommend,
+        results = await _in_executor(_run_recommend,
             pos_ids,
             neg_ids,
             limit * 2,   # fetch extra so we can filter seen in Python
@@ -178,7 +279,7 @@ def _run_recommend(
     """Sync helper — uses query_points with RecommendQuery (modern API)."""
     client = _client()
     result = client.query_points(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=_collection(),
         query=RecommendQuery(
             recommend=RecommendInput(
                 positive=pos_ids,
@@ -270,8 +371,7 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
 
     loop = asyncio.get_event_loop()
     try:
-        points = await loop.run_in_executor(
-            None, _get_vectors_by_ids, point_ids
+        points = await _in_executor(_get_vectors_by_ids, point_ids
         )
     except Exception as e:
         print(f"[qdrant_svc] get_paper_vectors error: {e}")
@@ -283,6 +383,7 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
             # p.vector may be a dict if named vectors are used
             vec = p.vector if isinstance(p.vector, list) else p.vector.get("dense", p.vector)
             if isinstance(vec, list):
+                vec = _dequantize(vec)
                 result[aid] = vec
                 _vec_cache_put(aid, vec)
     return result
@@ -292,7 +393,7 @@ def _get_vectors_by_ids(point_ids: list[int]) -> list:
     """Sync helper: retrieve points with their vectors."""
     client = _client()
     points = client.retrieve(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=_collection(),
         ids=point_ids,
         with_payload=True,
         with_vectors=True,
@@ -313,8 +414,7 @@ async def search_by_vector(
     """
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, _run_vector_search, query_vector, (limit * 2) if exclude_ids else limit,
+        results = await _in_executor(_run_vector_search, query_vector, (limit * 2) if exclude_ids else limit,
         )
     except Exception as e:
         print(f"[qdrant_svc] search_by_vector error: {e}")
@@ -348,8 +448,7 @@ async def search_by_vector_with_scores(
     """
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, _run_vector_search, query_vector,
+        results = await _in_executor(_run_vector_search, query_vector,
             (limit * 2) if exclude_ids else limit,
             with_vectors,
         )
@@ -368,7 +467,7 @@ async def search_by_vector_with_scores(
             # Named vectors return a dict; unnamed returns a list.
             vec = r.vector if isinstance(r.vector, list) else r.vector.get("dense", r.vector)
             if isinstance(vec, list):
-                item["vector"] = vec
+                item["vector"] = _dequantize(vec)
         out.append(item)
         if len(out) >= limit:
             break
@@ -381,8 +480,8 @@ def _run_vector_search(
     """Sync helper: nearest-neighbour search by vector."""
     client = _client()
     result = client.query_points(
-        collection_name=config.QDRANT_COLLECTION,
-        query=query_vector,
+        collection_name=_collection(),
+        query=_quantize_query(query_vector),
         limit=limit,
         with_payload=True,
         with_vectors=with_vectors,
@@ -406,8 +505,7 @@ async def search_dense(
     """
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None, _run_dense_search, dense_vec, limit,
+        results = await _in_executor(_run_dense_search, dense_vec, limit,
         )
     except Exception as e:
         print(f"[qdrant_svc] search_dense error: {e}")
@@ -424,8 +522,8 @@ def _run_dense_search(query_vector: list[float], limit: int) -> list:
     """Sync helper: ANN search returning scored results for RRF."""
     client = _client()
     result = client.query_points(
-        collection_name=config.QDRANT_COLLECTION,
-        query=query_vector,
+        collection_name=_collection(),
+        query=_quantize_query(query_vector),
         limit=limit,
         with_payload=True,
         with_vectors=False,
@@ -465,14 +563,14 @@ async def multi_interest_search(
     prefetches = []
     for vec, limit in interest_vectors:
         prefetches.append(Prefetch(
-            query=vec,
+            query=_quantize_query(vec),
             limit=limit,
         ))
 
     # Add short-term session vector if available
     if short_term_vector is not None:
         prefetches.append(Prefetch(
-            query=short_term_vector,
+            query=_quantize_query(short_term_vector),
             limit=25,
         ))
 
@@ -481,9 +579,7 @@ async def multi_interest_search(
 
     loop = asyncio.get_event_loop()
     try:
-        results = await loop.run_in_executor(
-            None,
-            _run_prefetch_rrf,
+        results = await _in_executor(_run_prefetch_rrf,
             prefetches,
             total_limit * 2 if exclude_ids else total_limit,
         )
@@ -504,7 +600,7 @@ def _run_prefetch_rrf(prefetches: list[Prefetch], limit: int) -> list:
     """Sync helper: execute prefetch queries with RRF fusion."""
     client = _client()
     result = client.query_points(
-        collection_name=config.QDRANT_COLLECTION,
+        collection_name=_collection(),
         prefetch=prefetches,
         query=FusionQuery(fusion=Fusion.RRF),
         limit=limit,
