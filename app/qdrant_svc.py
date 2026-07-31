@@ -56,6 +56,54 @@ _SEARCH_PARAMS = SearchParams(
     quantization=QuantizationSearchParams(rescore=True, oversampling=1.0),
 )
 
+
+# ── uint8 collection support ─────────────────────────────────────────────────
+#
+# When the collection stores vectors as uint8 the encoding is NOT transparent:
+# Qdrant keeps the raw 0..255 integers and returns them unchanged. Both
+# directions have to be converted or the results are silently wrong.
+#
+# Measured against a real uint8 collection:
+#   query sent as raw float   -> 0 of the correct top-5 returned
+#   vector read back raw      -> cos(raw, original) = 0.21  (0.996 dequantised)
+#
+# The read side matters more than it looks. Those vectors feed Ward clustering,
+# MMR, the EWMA similarity features, and profile updates — and a raw uint8
+# vector written into a user profile corrupts it permanently.
+#
+# No-ops entirely when config.QDRANT_UINT8_SCALE is 0, so the same code works
+# against a float16 collection and a migration can be rolled back by changing
+# environment variables alone.
+
+def _quantize_query(vec: list[float]) -> list[float]:
+    """Float vector -> the uint8 domain the collection is stored in."""
+    if not config.qdrant_is_uint8():
+        return vec
+    import numpy as np
+    a = np.asarray(vec, dtype=np.float32)
+    n = float(np.linalg.norm(a))
+    if n > 1e-9:
+        a = a / n                       # stored vectors were normalised first
+    q = np.clip(np.round((a - config.QDRANT_UINT8_LO) / config.QDRANT_UINT8_SCALE),
+                0, 255)
+    return q.astype(np.float32).tolist()
+
+
+def _dequantize(vec: list[float]) -> list[float]:
+    """Raw 0..255 -> the original embedding space, L2-normalised."""
+    if not config.qdrant_is_uint8() or not vec:
+        return vec
+    import numpy as np
+    a = np.asarray(vec, dtype=np.float32)
+    # Guard: a float16 collection returns unit-norm vectors. Only convert when
+    # the values are actually in the uint8 range, so a misconfigured env var
+    # cannot mangle good vectors.
+    if float(np.abs(a).max()) <= 2.0:
+        return vec
+    a = a * config.QDRANT_UINT8_SCALE + config.QDRANT_UINT8_LO
+    n = float(np.linalg.norm(a))
+    return (a / n).tolist() if n > 1e-9 else a.tolist()
+
 # ── Client (sync, thread-safe, reused across requests) ───────────────────────
 
 @lru_cache(maxsize=1)
@@ -283,6 +331,7 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
             # p.vector may be a dict if named vectors are used
             vec = p.vector if isinstance(p.vector, list) else p.vector.get("dense", p.vector)
             if isinstance(vec, list):
+                vec = _dequantize(vec)
                 result[aid] = vec
                 _vec_cache_put(aid, vec)
     return result
@@ -368,7 +417,7 @@ async def search_by_vector_with_scores(
             # Named vectors return a dict; unnamed returns a list.
             vec = r.vector if isinstance(r.vector, list) else r.vector.get("dense", r.vector)
             if isinstance(vec, list):
-                item["vector"] = vec
+                item["vector"] = _dequantize(vec)
         out.append(item)
         if len(out) >= limit:
             break
@@ -382,7 +431,7 @@ def _run_vector_search(
     client = _client()
     result = client.query_points(
         collection_name=config.QDRANT_COLLECTION,
-        query=query_vector,
+        query=_quantize_query(query_vector),
         limit=limit,
         with_payload=True,
         with_vectors=with_vectors,
@@ -425,7 +474,7 @@ def _run_dense_search(query_vector: list[float], limit: int) -> list:
     client = _client()
     result = client.query_points(
         collection_name=config.QDRANT_COLLECTION,
-        query=query_vector,
+        query=_quantize_query(query_vector),
         limit=limit,
         with_payload=True,
         with_vectors=False,
@@ -465,14 +514,14 @@ async def multi_interest_search(
     prefetches = []
     for vec, limit in interest_vectors:
         prefetches.append(Prefetch(
-            query=vec,
+            query=_quantize_query(vec),
             limit=limit,
         ))
 
     # Add short-term session vector if available
     if short_term_vector is not None:
         prefetches.append(Prefetch(
-            query=short_term_vector,
+            query=_quantize_query(short_term_vector),
             limit=25,
         ))
 
