@@ -77,6 +77,40 @@ def qdrant_b_configured() -> bool:
     return bool(QDRANT_B_URL and QDRANT_B_API_KEY)
 
 
+# ── Recent-papers shard ───────────────────────────────────────────────────────
+# The main collection is a static snapshot whose newest paper is from 2025-05.
+# The ~202k papers published since then live in a separate small collection on a
+# second cluster, and dense retrieval queries both and merges.
+#
+# Split rather than one big collection because the primary is full: float16 for
+# 1.8M papers needs ~4.5 GB against a 4 GB limit, and it is already degraded.
+# Re-encoding everything into uint8 to fit was measured and rejected — dropping
+# binary quantization to gain recall also removes the in-RAM traversal path, and
+# cold queries went from 927 ms to 3093 ms.
+#
+# The shard mirrors the primary's config (float16, binary quantization, Cosine,
+# same m/ef_construct) for one specific reason: scores are then directly
+# comparable, so merging is a plain sort. Fan-out is concurrent, so the added
+# latency is the slower of the two rather than their sum, and the shard is small
+# enough to keep its whole HNSW graph in RAM.
+QDRANT_RECENT_URL = os.getenv("QDRANT_RECENT_URL", "").strip()
+QDRANT_RECENT_API_KEY = os.getenv("QDRANT_RECENT_API_KEY", "").strip()
+QDRANT_RECENT_COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
+
+# Off by default: the shard is inert until this is set, so it can be uploaded,
+# indexed and verified in production without affecting a single user request.
+SEARCH_FANOUT_RECENT = os.getenv("SEARCH_FANOUT_RECENT", "0").strip().lower() in (
+    "1", "true", "yes")
+
+
+def qdrant_recent_configured() -> bool:
+    return bool(QDRANT_RECENT_URL and QDRANT_RECENT_API_KEY)
+
+
+def fanout_enabled() -> bool:
+    return SEARCH_FANOUT_RECENT and qdrant_recent_configured()
+
+
 # ── Recommendation reranker selection ─────────────────────────────────────────
 # "heuristic" | "lightgbm" | "auto"
 #
