@@ -5,6 +5,7 @@ search results, a ContextVar leak that sends both queries to the same cluster,
 and a merge that drops or duplicates papers.
 """
 import asyncio
+import json
 
 import pytest
 
@@ -128,3 +129,31 @@ def test_fanout_requires_configuration(monkeypatch):
     monkeypatch.setattr(config, "QDRANT_RECENT_URL", "")
     monkeypatch.setattr(config, "QDRANT_RECENT_API_KEY", "")
     assert config.fanout_enabled() is False
+
+
+# ── author parsing ───────────────────────────────────────────────────────────
+
+def test_authors_split_on_semicolon():
+    """Stored rows join names with '; '; splitting on ',' made one blob author."""
+    from app import turso_svc
+    out = turso_svc._to_paper_dict(
+        {"arxiv_id": "2601.0001", "title": "T",
+         "authors": "Yao Xiao; Qiqian Fu; Heyi Tao", "categories": "cs.CV"})
+    assert json.loads(out["authors"]) == ["Yao Xiao", "Qiqian Fu", "Heyi Tao"]
+
+
+def test_authors_still_split_on_comma_when_no_semicolon():
+    """arxiv_svc's fallback path supplies comma-separated names."""
+    from app import turso_svc
+    out = turso_svc._to_paper_dict(
+        {"arxiv_id": "2601.0002", "title": "T",
+         "authors": "Ada Lovelace, Alan Turing", "categories": "cs.LG"})
+    assert json.loads(out["authors"]) == ["Ada Lovelace", "Alan Turing"]
+
+
+def test_authors_capped_at_five():
+    from app import turso_svc
+    out = turso_svc._to_paper_dict(
+        {"arxiv_id": "2601.0003", "title": "T",
+         "authors": "; ".join(f"A{i}" for i in range(9)), "categories": "cs.LG"})
+    assert len(json.loads(out["authors"])) == 5
