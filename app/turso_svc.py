@@ -246,8 +246,15 @@ def _to_paper_dict(row: dict) -> dict | None:
         # Already JSON — leave as is
         authors_json = authors_raw
     else:
-        # Comma-separated → JSON array (take first 5)
-        author_list = [a.strip() for a in authors_raw.split(",") if a.strip()][:5]
+        # Stored rows join names with '; ', but arxiv_svc's fallback path
+        # supplies comma-separated ones, so pick the separator per row.
+        #
+        # Splitting on ',' alone collapsed every stored paper into a single
+        # blob "author", because a semicolon-joined string contains no commas
+        # to split on — and where it did split, it split inside names
+        # ("Smith, J."). Prefer ';' whenever the row uses it.
+        sep = ";" if ";" in authors_raw else ","
+        author_list = [a.strip() for a in authors_raw.split(sep) if a.strip()][:5]
         authors_json = json.dumps(author_list)
 
     # `category` is the primary arXiv code ("cs.CL"), taken as the first entry
