@@ -170,6 +170,45 @@ async def healthz_deep():
             "time_ms": int((time.perf_counter() - t0) * 1000),
         }
 
+    # ── Recent-papers shard ──────────────────────────────────────────────
+    # Reported separately from the main collection, and "skipped" rather than
+    # "error" when absent: the shard adds papers published after the snapshot,
+    # so losing it costs freshness, not availability. Marking the deployment
+    # degraded for it would hide a real outage behind an optional feature.
+    t0 = time.perf_counter()
+    try:
+        if config.qdrant_recent_configured():
+            from app import qdrant_svc
+            with qdrant_svc.use_backend("recent"):
+                client = qdrant_svc._client()
+                coll = config.QDRANT_RECENT_COLLECTION
+                info = await loop.run_in_executor(None, client.get_collection, coll)
+            results["services"]["qdrant_recent"] = {
+                "status": "ok",
+                "collection": coll,
+                "points_count": info.points_count,
+                "indexed_vectors_count": info.indexed_vectors_count,
+                "collection_status": str(getattr(info, "status", "")),
+                # Points can be present and searchable while fan-out is still
+                # off; without this the two are indistinguishable.
+                "fanout_enabled": config.fanout_enabled(),
+                "time_ms": int((time.perf_counter() - t0) * 1000),
+            }
+        else:
+            results["services"]["qdrant_recent"] = {
+                "status": "skipped",
+                "reason": "QDRANT_RECENT_URL / QDRANT_RECENT_API_KEY not set",
+                "fanout_enabled": False,
+                "time_ms": 0,
+            }
+    except Exception as e:
+        results["services"]["qdrant_recent"] = {
+            "status": "skipped",
+            "error": str(e)[:200],
+            "fanout_enabled": config.fanout_enabled(),
+            "time_ms": int((time.perf_counter() - t0) * 1000),
+        }
+
     # ── Ping Zilliz ──────────────────────────────────────────────────────
     t0 = time.perf_counter()
     try:

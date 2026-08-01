@@ -96,10 +96,16 @@ def use_backend(name: str):
 
 def _params() -> tuple[str, str, str, float, float]:
     """(url, api_key, collection, uint8_lo, uint8_scale) for the active backend."""
-    if _BACKEND.get() == "b" and config.qdrant_b_configured():
+    backend = _BACKEND.get()
+    if backend == "b" and config.qdrant_b_configured():
         return (config.QDRANT_B_URL, config.QDRANT_B_API_KEY,
                 config.QDRANT_B_COLLECTION,
                 config.QDRANT_B_UINT8_LO, config.QDRANT_B_UINT8_SCALE)
+    # The recent shard stores float16, so no uint8 conversion — passing 0/0 here
+    # is what makes _quantize_query and _dequantize no-op for it.
+    if backend == "recent" and config.qdrant_recent_configured():
+        return (config.QDRANT_RECENT_URL, config.QDRANT_RECENT_API_KEY,
+                config.QDRANT_RECENT_COLLECTION, 0.0, 0.0)
     return (config.QDRANT_URL, config.QDRANT_API_KEY, config.QDRANT_COLLECTION,
             config.QDRANT_UINT8_LO, config.QDRANT_UINT8_SCALE)
 
@@ -516,6 +522,66 @@ async def search_dense(
         for r in results
         if r.payload.get("arxiv_id")
     ]
+
+
+def _merge_scored(lists: list[list[dict]], limit: int) -> list[dict]:
+    """Merge scored hits from several collections into one ranking.
+
+    A plain sort is only valid because the shards share a storage datatype,
+    distance and quantization config. Were one uint8, its scores would sit in a
+    much narrower band from the DC offset and the merge would silently favour
+    the other shard.
+
+    Deduplicates by arxiv_id keeping the better score. The backfill was filtered
+    against the main corpus so an overlap should not exist, but a paper
+    appearing twice in results is a visible bug and cheap to prevent here.
+    """
+    best: dict[str, dict] = {}
+    for lst in lists:
+        for r in lst:
+            a = r.get("arxiv_id")
+            if not a:
+                continue
+            if a not in best or r["score"] > best[a]["score"]:
+                best[a] = r
+    return sorted(best.values(), key=lambda r: r["score"], reverse=True)[:limit]
+
+
+async def search_dense_merged(
+    dense_vec: list[float],
+    limit: int = 50,
+) -> list[dict]:
+    """search_dense over the main collection plus the recent-papers shard.
+
+    Identical to search_dense() when the shard is unconfigured or disabled, so
+    callers can use it unconditionally.
+
+    Both shards are queried for the full `limit` rather than a split quota: the
+    age boundary is arbitrary with respect to relevance, and pre-allocating
+    slots would either starve a genuinely better-matching era or pad results
+    with weak hits. Merging full result sets lets score decide.
+    """
+    if not config.fanout_enabled():
+        return await search_dense(dense_vec, limit)
+
+    async def one(backend: str) -> list[dict]:
+        with use_backend(backend):
+            return await search_dense(dense_vec, limit)
+
+    # Each gather() branch becomes a Task with its own copy of the context, so
+    # the two use_backend() scopes cannot observe each other's ContextVar.
+    main, recent = await asyncio.gather(
+        one("a"), one("recent"), return_exceptions=True)
+
+    if isinstance(main, BaseException):
+        print(f"[qdrant_svc] main shard failed: {main}")
+        main = []
+    # Freshness must never be able to take search down: a failing shard costs
+    # recent papers, not the response.
+    if isinstance(recent, BaseException):
+        print(f"[qdrant_svc] recent shard failed: {recent}")
+        recent = []
+    return _merge_scored([main, recent], limit)
 
 
 def _run_dense_search(query_vector: list[float], limit: int) -> list:

@@ -147,7 +147,9 @@ async def search(
     tasks = []
     task_labels = []
     for i, (dense_vec, sparse_dict) in enumerate(encoded):
-        tasks.append(qdrant_svc.search_dense(dense_vec.tolist(), limit=fetch_k))
+        # _merged also covers the recent-papers shard; identical to
+        # search_dense() while SEARCH_FANOUT_RECENT is off.
+        tasks.append(qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k))
         task_labels.append(f"qdrant_q{i}")
         tasks.append(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k))
         task_labels.append(f"zilliz_q{i}")
