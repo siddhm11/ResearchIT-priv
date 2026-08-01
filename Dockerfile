@@ -41,7 +41,12 @@ RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cro
 #
 # Download failure is non-fatal: app/local_meta.py falls back to Turso, so the
 # build still produces a working image. Set to "" to skip entirely.
-ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/main/metadata.sqlite
+# Pinned to a dataset commit rather than `main` for two reasons: the build is
+# reproducible, and publishing a new sidecar changes this line, which
+# invalidates the Docker layer below. Pointing at `main` meant a rebuild
+# silently reused the cached copy and shipped stale metadata.
+# daf2ecc = 1,799,348 papers (adds everything published after 2025-05).
+ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/daf2ecc2913c33c69ecb24100eaad33620d5f1e1/metadata.sqlite
 ENV METADATA_SIDECAR_PATH=/app/data/metadata.sqlite
 RUN mkdir -p /app/data && \
     if [ -n "$METADATA_SIDECAR_URL" ]; then \
