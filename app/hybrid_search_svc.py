@@ -27,6 +27,7 @@ from app import config
 from app import embed_svc
 from app import qdrant_svc
 from app import zilliz_svc
+from app import fts_svc
 from app import groq_svc
 from app import turso_svc
 from app import arxiv_svc
@@ -146,13 +147,30 @@ async def search(
     t0_retrieval = time.perf_counter()
     tasks = []
     task_labels = []
-    for i, (dense_vec, sparse_dict) in enumerate(encoded):
+    # Query text per encoded form, so the sparse arm can run on text. Built in
+    # the same order `encoded` was appended to, and zipped defensively below in
+    # case an encode failed and left the lists different lengths.
+    encoded_texts = [query]
+    if rewritten_query != query:
+        encoded_texts.append(rewritten_query)
+
+    use_fts = config.SPARSE_BACKEND == "fts" and fts_svc.is_available()
+    search_meta["sparse_backend"] = "fts5" if use_fts else "zilliz"
+
+    for i, ((dense_vec, sparse_dict), text) in enumerate(zip(encoded, encoded_texts)):
         # _merged also covers the recent-papers shard; identical to
         # search_dense() while SEARCH_FANOUT_RECENT is off.
         tasks.append(qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k))
         task_labels.append(f"qdrant_q{i}")
-        tasks.append(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k))
-        task_labels.append(f"zilliz_q{i}")
+        # FTS5 indexes the same corpus as the dense arm; Zilliz indexes only the
+        # pre-2025-06 snapshot, which makes RRF penalise every newer paper for
+        # being absent from a list that could never contain it.
+        if use_fts:
+            tasks.append(fts_svc.search_sparse(text, limit=fetch_k))
+            task_labels.append(f"fts_q{i}")
+        else:
+            tasks.append(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k))
+            task_labels.append(f"zilliz_q{i}")
 
     # Time each task individually
     import asyncio as _aio
