@@ -77,6 +77,18 @@ def qdrant_b_configured() -> bool:
     return bool(QDRANT_B_URL and QDRANT_B_API_KEY)
 
 
+# Backend B was originally an A/B comparison slot. It is now the second half of
+# the split old corpus: shard A on the primary cluster, shard B here, and the
+# recent-papers shard alongside. Inert until QDRANT_B_URL is set, so this can be
+# uploaded and verified before anything routes to it.
+SEARCH_FANOUT_B = os.getenv("SEARCH_FANOUT_B", "1").strip().lower() in (
+    "1", "true", "yes")
+
+
+def fanout_b_enabled() -> bool:
+    return SEARCH_FANOUT_B and qdrant_b_configured()
+
+
 # ── Recent-papers shard ───────────────────────────────────────────────────────
 # The main collection is a static snapshot whose newest paper is from 2025-05.
 # The ~202k papers published since then live in a separate small collection on a
@@ -194,6 +206,13 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 # Latency: cross-encoding is CPU-bound and roughly linear in this number.
 # Dial down to ~30 if p95 needs it.
 SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "50"))
+
+# How many candidates the binary-quantized index proposes per requested result
+# before rescoring against the full vectors. See qdrant_svc._SEARCH_PARAMS for
+# the measurements. Env-tunable because the right value depends on where the
+# HNSW graph lives: free on a RAM-resident graph, not free on an on-disk one.
+# Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
+SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
 
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator

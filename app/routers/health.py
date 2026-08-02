@@ -131,6 +131,78 @@ async def healthz_ab(q: str = "", limit: int = 10):
     return out
 
 
+@router.get("/healthz/shards")
+async def healthz_shards():
+    """Assert every dense shard shares an identical retrieval configuration.
+
+    Merging results across shards is a plain sort on score, which is only valid
+    while the shards produce comparable scores. If one drifts -- a different
+    datatype, distance, quantization or HNSW setting -- nothing errors and no
+    request fails. Ranking just gets quietly worse, in a way that looks like a
+    relevance problem rather than a config problem.
+
+    This is the only failure mode in the fan-out design with no natural alarm,
+    so it gets an explicit one. Also checks that the arxiv_id payload index
+    exists, since without it recommendation lookups silently return nothing.
+    """
+    from app import config, qdrant_svc
+
+    def _probe(backend: str) -> dict:
+        with qdrant_svc.use_backend(backend):
+            url, key, coll, _, _ = qdrant_svc._params()
+            client = qdrant_svc._client_for(url, key)
+            info = client.get_collection(coll)
+        params = info.config.params
+        vec = params.vectors
+        hnsw = info.config.hnsw_config
+        quant = info.config.quantization_config
+        return {
+            "collection": coll,
+            "points": info.points_count,
+            "status": str(info.status),
+            "datatype": str(getattr(vec, "datatype", None)),
+            "distance": str(getattr(vec, "distance", None)),
+            "quantization": type(quant.binary).__name__ if quant and getattr(quant, "binary", None) else None,
+            "hnsw_m": getattr(hnsw, "m", None),
+            "hnsw_ef_construct": getattr(hnsw, "ef_construct", None),
+            "hnsw_on_disk": getattr(hnsw, "on_disk", None),
+            "has_arxiv_id_index": "arxiv_id" in (info.payload_schema or {}),
+        }
+
+    loop = asyncio.get_running_loop()
+    backends = qdrant_svc._active_backends()
+    shards: dict[str, dict] = {}
+    for b in backends:
+        try:
+            shards[b] = await loop.run_in_executor(None, _probe, b)
+        except Exception as e:
+            shards[b] = {"error": str(e)[:200]}
+
+    # Every field here must match across shards for the score merge to be sound.
+    COMPARED = ("datatype", "distance", "quantization",
+                "hnsw_m", "hnsw_ef_construct")
+    live = {b: s for b, s in shards.items() if "error" not in s}
+    drift = {
+        field: {b: s.get(field) for b, s in live.items()}
+        for field in COMPARED
+        if len({repr(s.get(field)) for s in live.values()}) > 1
+    }
+    missing_index = [b for b, s in live.items() if not s.get("has_arxiv_id_index")]
+    on_disk_graph = [b for b, s in live.items() if s.get("hnsw_on_disk")]
+
+    return {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "backends": backends,
+        "shards": shards,
+        "config_drift": drift or None,
+        "missing_arxiv_id_index": missing_index or None,
+        # Not a correctness problem, but it is the difference between ~70 ms and
+        # multiple seconds of search compute, so it is worth surfacing.
+        "hnsw_graph_on_disk": on_disk_graph or None,
+        "overall": "healthy" if not drift and not missing_index else "degraded",
+    }
+
+
 @router.get("/healthz/deep")
 async def healthz_deep():
     """
