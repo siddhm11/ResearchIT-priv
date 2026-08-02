@@ -77,6 +77,18 @@ def qdrant_b_configured() -> bool:
     return bool(QDRANT_B_URL and QDRANT_B_API_KEY)
 
 
+# Backend B was originally an A/B comparison slot. It is now the second half of
+# the split old corpus: shard A on the primary cluster, shard B here, and the
+# recent-papers shard alongside. Inert until QDRANT_B_URL is set, so this can be
+# uploaded and verified before anything routes to it.
+SEARCH_FANOUT_B = os.getenv("SEARCH_FANOUT_B", "1").strip().lower() in (
+    "1", "true", "yes")
+
+
+def fanout_b_enabled() -> bool:
+    return SEARCH_FANOUT_B and qdrant_b_configured()
+
+
 # ── Recent-papers shard ───────────────────────────────────────────────────────
 # The main collection is a static snapshot whose newest paper is from 2025-05.
 # The ~202k papers published since then live in a separate small collection on a

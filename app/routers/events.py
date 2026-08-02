@@ -48,7 +48,10 @@ async def save_paper(
     )
 
     us.record_positive(user_id, paper_id)
-    asyncio.create_task(qdrant_svc.lookup_qdrant_ids([paper_id]))
+    # The point-id warm that used to live here is gone: get_paper_vectors now
+    # resolves arxiv_id -> vector in one filtered call, so the arxiv_id -> point_id
+    # cache it populated is no longer on any read path. _update_profile_on_save
+    # warms the in-process vector cache, which is the one that still matters.
     asyncio.create_task(_update_profile_on_save(user_id, paper_id))
 
     resp = templates.TemplateResponse(

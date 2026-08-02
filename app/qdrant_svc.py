@@ -144,6 +144,82 @@ def _collection() -> str:
     return _params()[2]
 
 
+# ── Shard fan-out ─────────────────────────────────────────────────────────────
+#
+# The old corpus is split across two clusters and the recent papers live on a
+# third collection. Nearest-neighbour search cannot know in advance which shard
+# holds the closest vectors -- there is no hash(key) -> shard function for
+# similarity -- so every shard sees every query and the scores decide.
+#
+# Two consequences worth stating, because both are easy to get wrong:
+#
+#   * Each shard is asked for the FULL limit, never limit/N. All of the best
+#     results may legitimately live in one shard.
+#   * Merging is a plain sort on score, which is only valid while every shard
+#     shares a datatype, distance and quantization config. A shard that drifts
+#     does not error -- it silently ranks worse. /healthz/deep asserts this.
+
+
+def _active_backends() -> list[str]:
+    """Backend keys to fan out over, in order. Always includes the primary."""
+    backends = ["a"]
+    if config.fanout_b_enabled():
+        backends.append("b")
+    if config.fanout_enabled():
+        backends.append("recent")
+    return backends
+
+
+async def _fanout(make_coro, label: str) -> list:
+    """Run make_coro() once per active backend, concurrently.
+
+    `make_coro` is a zero-arg callable returning a NEW coroutine per call --
+    a coroutine object cannot be awaited twice.
+
+    Returns one result per backend, with failures replaced by []. A failing
+    shard costs its share of the corpus, never the whole response: freshness
+    must never be able to take search down.
+    """
+    backends = _active_backends()
+
+    async def one(backend: str):
+        # Each gather() branch becomes a Task with its own copy of the context,
+        # so these use_backend() scopes cannot observe each other's ContextVar.
+        with use_backend(backend):
+            return await make_coro()
+
+    if len(backends) == 1:
+        try:
+            return [await one(backends[0])]
+        except Exception as e:
+            print(f"[qdrant_svc] {label}: backend {backends[0]} failed: {e}")
+            return [[]]
+
+    settled = await asyncio.gather(
+        *(one(b) for b in backends), return_exceptions=True)
+    out = []
+    for backend, res in zip(backends, settled):
+        if isinstance(res, BaseException):
+            print(f"[qdrant_svc] {label}: shard {backend} failed: {res}")
+            out.append([])
+        else:
+            out.append(res)
+    return out
+
+
+def _merge_by_score(lists: list[list[dict]], limit: int) -> list[dict]:
+    """Dedupe dicts by arxiv_id keeping the best score, then sort desc."""
+    best: dict[str, dict] = {}
+    for lst in lists:
+        for r in lst or []:
+            a = r.get("arxiv_id")
+            if not a:
+                continue
+            if a not in best or r["score"] > best[a]["score"]:
+                best[a] = r
+    return sorted(best.values(), key=lambda r: r["score"], reverse=True)[:limit]
+
+
 def _quantize_query(vec: list[float]) -> list[float]:
     """Float vector -> the uint8 domain the collection is stored in."""
     _, _, _, lo, scale = _params()
@@ -274,52 +350,57 @@ async def recommend(
     Returns a list of arxiv_ids (up to `limit`) sorted by Qdrant score,
     excluding papers the user has already seen.
     """
-    # Translate arxiv_ids → integer point IDs
+    # Resolve arxiv_ids to VECTORS, not point IDs.
+    #
+    # Qdrant's Recommend API accepts either, but a point ID is only meaningful
+    # inside the collection being queried. A user whose saved papers span eras
+    # would have those papers on different shards, and sending shard B's point
+    # ID to shard A silently drops it. Vectors are shard-portable, so the same
+    # request is valid against every shard.
     all_ids = list(dict.fromkeys(positive_arxiv_ids + negative_arxiv_ids))
-    id_map = await lookup_qdrant_ids(all_ids)
+    vecs = await get_paper_vectors(all_ids)
 
-    pos_ids = [id_map[aid] for aid in positive_arxiv_ids if aid in id_map]
-    neg_ids = [id_map[aid] for aid in negative_arxiv_ids if aid in id_map]
+    pos = [vecs[aid] for aid in positive_arxiv_ids if aid in vecs]
+    neg = [vecs[aid] for aid in negative_arxiv_ids if aid in vecs]
 
-    if not pos_ids:
+    if not pos:
         return []
 
-    # Build must-not filter: exclude already-seen papers
-    # We can only filter on payload fields — seen list applied in Python
-    loop = asyncio.get_event_loop()
-    try:
-        results = await _in_executor(_run_recommend,
-            pos_ids,
-            neg_ids,
-            limit * 2,   # fetch extra so we can filter seen in Python
-        )
-    except Exception as e:
-        # Log and return empty rather than crashing the page
-        print(f"[qdrant_svc] recommend error: {e}")
-        return []
+    # BEST_SCORE stays correct under sharding: the max over per-shard bests is
+    # the global best. Seen papers are filtered in Python -- the payload holds
+    # no per-user state to filter on.
+    per_backend = await _fanout(
+        lambda: _in_executor(_run_recommend, pos, neg, limit * 2),
+        "recommend",
+    )
 
-    # Filter out seen papers, return top `limit`
-    filtered = [
-        r.payload["arxiv_id"]
-        for r in results
-        if r.payload.get("arxiv_id") and r.payload["arxiv_id"] not in seen_arxiv_ids
+    scored = [
+        {"arxiv_id": r.payload["arxiv_id"], "score": float(r.score)}
+        for results in per_backend
+        for r in (results or [])
+        if (r.payload or {}).get("arxiv_id")
+        and r.payload["arxiv_id"] not in seen_arxiv_ids
     ]
-    return filtered[:limit]
+    return [r["arxiv_id"] for r in _merge_by_score([scored], limit)]
 
 
 def _run_recommend(
-    pos_ids: list[int],
-    neg_ids: list[int],
+    pos_vectors: list[list[float]],
+    neg_vectors: list[list[float]],
     limit: int,
 ) -> list:
-    """Sync helper — uses query_points with RecommendQuery (modern API)."""
+    """Sync helper — RecommendQuery over raw vectors, not point IDs.
+
+    Vectors are quantised per-backend, so this stays correct if a shard ever
+    stores a different datatype than the one the vectors came from.
+    """
     client = _client()
     result = client.query_points(
         collection_name=_collection(),
         query=RecommendQuery(
             recommend=RecommendInput(
-                positive=pos_ids,
-                negative=neg_ids if neg_ids else [],
+                positive=[_quantize_query(v) for v in pos_vectors],
+                negative=[_quantize_query(v) for v in neg_vectors] if neg_vectors else [],
                 strategy=RecommendStrategy.BEST_SCORE,
             )
         ),
@@ -398,31 +479,54 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
     if not misses:
         return result
 
-    id_map = await lookup_qdrant_ids(misses)
-    if not id_map:
-        return result
+    # One call per shard: filter by arxiv_id AND return the vector.
+    #
+    # This used to be two steps -- resolve arxiv_id -> point_id, then fetch by
+    # point_id. That cannot survive sharding: point IDs are only unique WITHIN a
+    # collection, and arxiv_recent numbers from 0 exactly as the old-corpus
+    # shards do. Point 5 exists in more than one place and nothing recorded
+    # which was meant, so the two-step would return another paper's vector --
+    # silently, into a user's EWMA profile. Filtering by arxiv_id removes the
+    # ambiguity by construction, and costs one round trip instead of two.
+    per_backend = await _fanout(
+        lambda: _in_executor(_scroll_vectors_by_arxiv_ids, misses),
+        "get_paper_vectors",
+    )
 
-    point_ids = list(id_map.values())
-    arxiv_by_point = {v: k for k, v in id_map.items()}
-
-    loop = asyncio.get_event_loop()
-    try:
-        points = await _in_executor(_get_vectors_by_ids, point_ids
-        )
-    except Exception as e:
-        print(f"[qdrant_svc] get_paper_vectors error: {e}")
-        return result
-
-    for p in points:
-        aid = p.payload.get("arxiv_id") or arxiv_by_point.get(p.id)
-        if aid and p.vector:
-            # p.vector may be a dict if named vectors are used
-            vec = p.vector if isinstance(p.vector, list) else p.vector.get("dense", p.vector)
+    for points in per_backend:
+        for p in points or []:
+            aid = (p.payload or {}).get("arxiv_id")
+            if not aid or aid in result:
+                continue
+            vec = p.vector
+            if isinstance(vec, dict):  # named-vector collections
+                vec = vec.get("dense") or next(iter(vec.values()), None)
             if isinstance(vec, list):
                 vec = _dequantize(vec)
                 result[aid] = vec
                 _vec_cache_put(aid, vec)
     return result
+
+
+def _scroll_vectors_by_arxiv_ids(arxiv_ids: list[str]) -> list:
+    """Sync helper: fetch points by arxiv_id WITH their vectors, in one call.
+
+    Requires the arxiv_id keyword payload index. Without it Qdrant cannot match
+    on a payload field at all when on_disk_payload is set -- it does not fall
+    back to a scan -- so the filter returns nothing for papers that are plainly
+    present. That failure is silent: no error, no log, just an empty result.
+    """
+    client = _client()
+    points, _ = client.scroll(
+        collection_name=_collection(),
+        scroll_filter=Filter(
+            must=[FieldCondition(key="arxiv_id", match=MatchAny(any=arxiv_ids))]
+        ),
+        limit=len(arxiv_ids),
+        with_payload=True,
+        with_vectors=True,
+    )
+    return points
 
 
 def _get_vectors_by_ids(point_ids: list[int]) -> list:
@@ -447,22 +551,12 @@ async def search_by_vector(
     Returns list of arxiv_ids, excluding any in exclude_ids.
 
     Used when EWMA profile vectors are available (Phase 2a+).
-    """
-    loop = asyncio.get_event_loop()
-    try:
-        results = await _in_executor(_run_vector_search, query_vector, (limit * 2) if exclude_ids else limit,
-        )
-    except Exception as e:
-        print(f"[qdrant_svc] search_by_vector error: {e}")
-        return []
 
-    exclude = exclude_ids or set()
-    filtered = [
-        r.payload["arxiv_id"]
-        for r in results
-        if r.payload.get("arxiv_id") and r.payload["arxiv_id"] not in exclude
-    ]
-    return filtered[:limit]
+    Implemented on top of the scored variant so the shard merge happens in one
+    place: ordering across shards needs scores, which the id-only form discards.
+    """
+    scored = await search_by_vector_with_scores(query_vector, limit, exclude_ids)
+    return [r["arxiv_id"] for r in scored]
 
 
 async def search_by_vector_with_scores(
@@ -481,33 +575,34 @@ async def search_by_vector_with_scores(
     1024-dim BGE-M3 embedding. Returning vectors in the search response
     avoids a separate `client.retrieve()` round-trip later — that retrieve
     was ~9-18s on cold candidates because BQ rescore reads from disk.
+
+    Fans out across shards. Each shard is asked for the full limit rather than
+    a share of it: the age boundary between shards is arbitrary with respect to
+    relevance, so pre-allocating slots would starve whichever era matched best.
     """
-    loop = asyncio.get_event_loop()
-    try:
-        results = await _in_executor(_run_vector_search, query_vector,
-            (limit * 2) if exclude_ids else limit,
-            with_vectors,
-        )
-    except Exception as e:
-        print(f"[qdrant_svc] search_by_vector_with_scores error: {e}")
-        return []
+    fetch = (limit * 2) if exclude_ids else limit
+    per_backend = await _fanout(
+        lambda: _in_executor(_run_vector_search, query_vector, fetch, with_vectors),
+        "search_by_vector_with_scores",
+    )
 
     exclude = exclude_ids or set()
-    out: list[dict] = []
-    for r in results:
-        aid = r.payload.get("arxiv_id")
-        if not aid or aid in exclude:
-            continue
-        item = {"arxiv_id": aid, "score": float(r.score)}
-        if with_vectors and r.vector:
-            # Named vectors return a dict; unnamed returns a list.
-            vec = r.vector if isinstance(r.vector, list) else r.vector.get("dense", r.vector)
-            if isinstance(vec, list):
-                item["vector"] = _dequantize(vec)
-        out.append(item)
-        if len(out) >= limit:
-            break
-    return out
+    lists: list[list[dict]] = []
+    for results in per_backend:
+        out: list[dict] = []
+        for r in results or []:
+            aid = (r.payload or {}).get("arxiv_id")
+            if not aid or aid in exclude:
+                continue
+            item = {"arxiv_id": aid, "score": float(r.score)}
+            if with_vectors and r.vector:
+                # Named vectors return a dict; unnamed returns a list.
+                vec = r.vector if isinstance(r.vector, list) else r.vector.get("dense", r.vector)
+                if isinstance(vec, list):
+                    item["vector"] = _dequantize(vec)
+            out.append(item)
+        lists.append(out)
+    return _merge_by_score(lists, limit)
 
 
 def _run_vector_search(
@@ -591,27 +686,8 @@ async def search_dense_merged(
     slots would either starve a genuinely better-matching era or pad results
     with weak hits. Merging full result sets lets score decide.
     """
-    if not config.fanout_enabled():
-        return await search_dense(dense_vec, limit)
-
-    async def one(backend: str) -> list[dict]:
-        with use_backend(backend):
-            return await search_dense(dense_vec, limit)
-
-    # Each gather() branch becomes a Task with its own copy of the context, so
-    # the two use_backend() scopes cannot observe each other's ContextVar.
-    main, recent = await asyncio.gather(
-        one("a"), one("recent"), return_exceptions=True)
-
-    if isinstance(main, BaseException):
-        print(f"[qdrant_svc] main shard failed: {main}")
-        main = []
-    # Freshness must never be able to take search down: a failing shard costs
-    # recent papers, not the response.
-    if isinstance(recent, BaseException):
-        print(f"[qdrant_svc] recent shard failed: {recent}")
-        recent = []
-    return _merge_scored([main, recent], limit)
+    lists = await _fanout(lambda: search_dense(dense_vec, limit), "search_dense")
+    return _merge_scored(lists, limit)
 
 
 def _run_dense_search(query_vector: list[float], limit: int) -> list:
