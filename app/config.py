@@ -111,6 +111,21 @@ def fanout_enabled() -> bool:
     return SEARCH_FANOUT_RECENT and qdrant_recent_configured()
 
 
+# ── Sparse retrieval backend ──────────────────────────────────────────────────
+# "fts"    -- BM25 over the local metadata sidecar (covers all 1.8M papers)
+# "zilliz" -- BGE-M3 lexical weights on Zilliz (covers only the 1.6M snapshot)
+#
+# Coverage is the reason to prefer "fts". RRF sums 1/(k+rank) across lists, so a
+# paper missing from one list scores half of one present in both. With Zilliz
+# indexing only the pre-2025-06 snapshot, every newer paper was penalised for
+# being absent from a list that could never have contained it — at k=60, a new
+# paper at dense rank 1 lost to any old paper above rank 62 in both lists.
+#
+# Falls back to Zilliz automatically when the sidecar has no FTS index, so an
+# older sidecar keeps working.
+SPARSE_BACKEND = os.getenv("SPARSE_BACKEND", "fts").strip().lower()
+
+
 # ── Recommendation reranker selection ─────────────────────────────────────────
 # "heuristic" | "lightgbm" | "auto"
 #
