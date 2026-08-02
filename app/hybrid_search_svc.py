@@ -202,7 +202,7 @@ async def search(
     t0_bge = time.perf_counter()
     bge_time_ms = 0
 
-    if fused:
+    if fused and config.SEARCH_BGE_RERANK:
         top_n = min(len(fused), config.SEARCH_RERANK_TOP_N)
         top_candidates = fused[:top_n]
         top_ids = [item["arxiv_id"] for item in top_candidates]

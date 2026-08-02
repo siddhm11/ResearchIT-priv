@@ -205,7 +205,33 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 #
 # Latency: cross-encoding is CPU-bound and roughly linear in this number.
 # Dial down to ~30 if p95 needs it.
-SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "50"))
+# How deep the cross-encoder reranks. Measured 2026-08-02 against a 60-query
+# known-item eval set on the live Space:
+#
+#   depth   recall@10   MRR@10   rank-1   rerank latency
+#      50       66.7%    0.352    20.0%        2,279 ms
+#      25       73.3%    0.401    25.0%          993 ms
+#      10       85.0%    0.476    30.0%          ~400 ms
+#
+# Quality improves MONOTONICALLY as the window narrows, and it is not noise:
+# comparing 50 vs 25 on targets found in both runs, 14 moved up and 0 moved down
+# (sign test p = 0.000122).
+#
+# The reason is that first-stage retrieval already reaches 99.7% recall@60, so
+# candidates below ~10 are near-misses. Letting an imperfect cross-encoder reach
+# into them only creates chances to promote a wrong paper over the right one.
+# Note the code drops the un-scored tail, so this ALSO caps how many results can
+# be returned -- values below ARXIV_MAX_RESULTS would shrink the result page.
+SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "10"))
+
+# Whether to run the cross-encoder at all.
+#
+# It costs ~58% of end-to-end latency, and the depth sweep above shows its
+# influence is negatively correlated with quality. This flag exists so that
+# "is it earning its cost?" is an experiment rather than an argument: set it to
+# 0 and results become the fusion ordering, with the title boost still applied.
+SEARCH_BGE_RERANK = os.getenv("SEARCH_BGE_RERANK", "1").strip().lower() in (
+    "1", "true", "yes")
 
 # How many candidates the binary-quantized index proposes per requested result
 # before rescoring against the full vectors. See qdrant_svc._SEARCH_PARAMS for
