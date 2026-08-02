@@ -195,6 +195,13 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 # Dial down to ~30 if p95 needs it.
 SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "50"))
 
+# How many candidates the binary-quantized index proposes per requested result
+# before rescoring against the full vectors. See qdrant_svc._SEARCH_PARAMS for
+# the measurements. Env-tunable because the right value depends on where the
+# HNSW graph lives: free on a RAM-resident graph, not free on an on-disk one.
+# Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
+SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
+
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator
 SEARCH_FETCH_K_MULTIPLIER = 6     # candidates = top_k × 6 before rerank

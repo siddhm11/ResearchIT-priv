@@ -54,8 +54,38 @@ from app import config, db
 # So 4.6x faster at identical recall. Rescore stays ON deliberately: binary
 # codes alone lose 43% of the correct results, because 1024 dims compressed to
 # 1024 bits is far too lossy to rank on directly.
+#
+# ── 2026-08-02 revision: oversampling 1.0 -> 8.0 ────────────────────────────
+#
+# The measurements above are correct but they are all recall@10, and recall@10
+# is not the metric this pipeline runs on. Dense retrieval fetches 60 candidates
+# (limit * SEARCH_FETCH_K_MULTIPLIER); those 60 feed RRF and then the reranker,
+# which can only reorder what it is given. So the number that caps final quality
+# is recall@60, and nobody had measured it.
+#
+# Re-measured on arxiv_recent (202k, float16 + BQ, HNSW in RAM), 12 real query
+# vectors, ground truth = server-side exact search:
+#
+#   oversampling=1.0    recall@10 91.7%   recall@60 67.1%    751 ms
+#   oversampling=4.0    recall@10 98.3%   recall@60 90.1%    754 ms
+#   oversampling=8.0    recall@10 99.2%   recall@60 96.0%    749 ms
+#
+# recall@10 was indeed already fine — the earlier conclusion holds. But a third
+# of the candidate pool was being filled with papers that do not belong in it,
+# invisibly, because the first page of results never changed.
+#
+# Raising hnsw_ef does NOT substitute for this (ef 64->256 alone moved recall@60
+# by -0.8 points). Oversampling is the operative knob because the loss is in the
+# coarseness of the binary codes, not in how much of the graph gets explored.
+#
+# Caveat, and why this is env-tunable: the extra work is only free when the HNSW
+# graph is RAM-resident. arxiv_recent has hnsw_config.on_disk=false and shows no
+# latency cost at 8x. Cluster 1 has on_disk=true, and the note above records
+# oversampling 1.0->2.0 costing +175 ms there. On an on-disk graph, lower this.
 _SEARCH_PARAMS = SearchParams(
-    quantization=QuantizationSearchParams(rescore=True, oversampling=1.0),
+    quantization=QuantizationSearchParams(
+        rescore=True, oversampling=config.SEARCH_OVERSAMPLING
+    ),
 )
 
 
