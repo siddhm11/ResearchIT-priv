@@ -387,3 +387,7 @@ def expand_category_groups(group_keys: list[str]) -> set[str]:
         if grp:
             cats.update(grp["arxiv"])
     return cats
+
+# Optional bearer token for the researchit-space JSON API (app/routers/space.py).
+# Unset means the router is open, matching the rest of the app today.
+SPACE_SERVICE_TOKEN = os.getenv("SPACE_SERVICE_TOKEN", "").strip()
