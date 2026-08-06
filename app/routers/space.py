@@ -22,7 +22,7 @@ import time
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
-from app import config, hybrid_search_svc, local_meta, qdrant_svc
+from app import config, hybrid_search_svc, local_meta, map_locate_svc, qdrant_svc
 
 router = APIRouter(prefix="/api/space")
 
@@ -104,6 +104,50 @@ async def space_search(
             "backends": qdrant_svc._active_backends(),
         },
     }
+
+
+@router.get("/locate")
+async def space_locate(
+    arxiv_ids: str = Query(..., description="comma-separated arXiv ids"),
+    infer: bool = Query(True, description="estimate a position for papers the map never contained"),
+    authorization: str | None = Header(default=None),
+):
+    """
+    Map positions for a batch of papers -- the replacement for soarXiv's locate.
+
+    Two differences that matter. It answers a whole batch in one round trip,
+    where upstream costs one call per paper and semantic search asks for up to
+    100 at a time. And it can answer for papers the spatial corpus never
+    contained, which upstream can only 404, by placing them at the centroid of
+    their nearest neighbours in embedding space.
+
+    `source` is always returned so the caller can tell a real coordinate from an
+    estimated one; they must never be presented as the same thing.
+    """
+    _authorize(authorization)
+    ids = [value.strip() for value in arxiv_ids.split(",") if value.strip()][:_MAX_LIMIT]
+    if not ids:
+        return {"results": [], "found": 0, "requested": 0}
+    try:
+        located = await map_locate_svc.locate(ids, infer=infer)
+    except Exception as exc:
+        print(f"[space] locate failed ({exc})")
+        raise HTTPException(status_code=502, detail="map position store unavailable") from exc
+    return {
+        "requested": len(ids),
+        "found": len(located),
+        # Input order preserved: the client zips these against its own list.
+        "results": [located.get(aid) for aid in ids],
+    }
+
+
+@router.get("/locate/health")
+async def space_locate_health(authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    try:
+        return await map_locate_svc.collection_stats()
+    except Exception as exc:
+        return {"collection": map_locate_svc.MAP_COLLECTION, "error": str(exc)}
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
