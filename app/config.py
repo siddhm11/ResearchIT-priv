@@ -391,3 +391,19 @@ def expand_category_groups(group_keys: list[str]) -> set[str]:
 # Optional bearer token for the researchit-space JSON API (app/routers/space.py).
 # Unset means the router is open, matching the rest of the app today.
 SPACE_SERVICE_TOKEN = os.getenv("SPACE_SERVICE_TOKEN", "").strip()
+
+# ── Map-position store ────────────────────────────────────────────────────────
+# Deliberately its own cluster. The position collection is a bulk-loaded lookup
+# table whose arxiv_id payload index is held in RAM, and Qdrant loads payload
+# indexes at startup -- so an oversized one does not merely slow a node down, it
+# can stop it booting. Sharing a node with the live search index means that
+# failure takes search down with it, which is exactly what happened once.
+# Falls back to the main cluster only if no dedicated one is configured.
+MAP_QDRANT_URL = os.getenv("MAP_QDRANT_URL", "").strip() or QDRANT_URL
+MAP_QDRANT_API_KEY = os.getenv("MAP_QDRANT_API_KEY", "").strip() or QDRANT_API_KEY
+MAP_QDRANT_COLLECTION = os.getenv("MAP_QDRANT_COLLECTION", "arxiv_map_positions").strip()
+
+
+def map_store_is_dedicated() -> bool:
+    """True when positions live somewhere other than the search cluster."""
+    return bool(os.getenv("MAP_QDRANT_URL", "").strip())

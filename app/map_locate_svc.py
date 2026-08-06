@@ -16,6 +16,11 @@ Two things this does that the upstream endpoint cannot:
     which is a real semantic estimate rather than a guess, and is written back
     so the placement is stable from then on.
 
+Titles are deliberately absent. They accounted for roughly 345MB of a 500MB
+collection and a position lookup has no use for them -- the caller already has
+local_meta for that. Payload size is not free here: the arxiv_id index is a RAM
+structure loaded at startup.
+
 Inferred placements are flagged `inferred: true` in the payload and never
 silently mixed with real ones: a caller has to be able to tell "this is where
 the paper is" from "this is where a paper like it would sit".
@@ -29,7 +34,7 @@ from qdrant_client.models import FieldCondition, Filter, MatchAny, PointStruct
 
 from app import config, qdrant_svc
 
-MAP_COLLECTION = "arxiv_map_positions"
+MAP_COLLECTION = config.MAP_QDRANT_COLLECTION
 
 # How many semantic neighbours vote on an inferred position. Small enough that
 # one outlier cannot drag the estimate far, large enough to average out the
@@ -41,7 +46,7 @@ INFERRED_ID_BASE = 1_000_000_000
 
 
 def _map_client():
-    return qdrant_svc._client_for(config.QDRANT_URL, config.QDRANT_API_KEY)
+    return qdrant_svc._client_for(config.MAP_QDRANT_URL, config.MAP_QDRANT_API_KEY)
 
 
 def _row(point) -> dict:
@@ -52,7 +57,6 @@ def _row(point) -> dict:
         "position": [float(v) for v in vector] if len(vector) == 3 else None,
         "clusterId": int(payload.get("cluster_id") or 0),
         "tileId": payload.get("tile_id"),
-        "title": payload.get("title") or "",
         "source": "inferred" if payload.get("inferred") else "map",
     }
 
@@ -115,7 +119,6 @@ async def _infer_one(arxiv_id: str, vector: list[float]) -> dict | None:
         "position": centroid,
         "clusterId": cluster,
         "tileId": None,
-        "title": "",
         "source": "inferred",
         "inferredFrom": count,
     }
@@ -143,7 +146,6 @@ def _persist_inferred(rows: list[dict]) -> None:
                 "arxiv_id": row["arxivId"],
                 "cluster_id": row["clusterId"],
                 "tile_id": None,
-                "title": row["title"],
                 "inferred": True,
                 "inferred_from": row.get("inferredFrom", 0),
             },
