@@ -52,6 +52,18 @@
       <a href="/" class="rit-nav-link">Home</a>
       <a href="/search" class="rit-nav-link">Search</a>
       <a href="/saved" class="rit-nav-link">Saved</a>
+      {% if space_app_url %}
+      {# New tab on purpose: the map is a WebGL scene that streams in over a few
+         seconds, and losing the current recommendations to go look at it would
+         be a bad trade. #}
+      <a href="{{ space_app_url }}" target="_blank" rel="noopener"
+         class="rit-nav-link inline-flex items-center gap-1.5" title="Explore these papers in 3D space">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10" opacity=".55"/>
+        </svg>
+        3D Map
+      </a>
+      {% endif %}
       <div class="w-px h-5 bg-base-content/10 mx-2"></div>
       <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
               onclick="toggleTheme()">
@@ -71,6 +83,10 @@
         <a href="/" class="btn btn-ghost btn-sm justify-start">Home</a>
         <a href="/search" class="btn btn-ghost btn-sm justify-start">Search</a>
         <a href="/saved" class="btn btn-ghost btn-sm justify-start">Saved</a>
+        {% if space_app_url %}
+        <a href="{{ space_app_url }}" target="_blank" rel="noopener"
+           class="btn btn-ghost btn-sm justify-start">3D Map ↗</a>
+        {% endif %}
         <div class="divider my-1 opacity-20"></div>
         <button class="btn btn-ghost btn-sm justify-start" onclick="toggleTheme()">
           <span class="theme-text-dark hidden">Switch to Light ☀️</span>

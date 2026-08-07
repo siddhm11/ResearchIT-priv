@@ -407,3 +407,29 @@ MAP_QDRANT_COLLECTION = os.getenv("MAP_QDRANT_COLLECTION", "arxiv_map_positions"
 def map_store_is_dedicated() -> bool:
     """True when positions live somewhere other than the search cluster."""
     return bool(os.getenv("MAP_QDRANT_URL", "").strip())
+
+
+# ── researchit-space (the 3D map client) ──────────────────────────────────────
+# Public URL of the companion spatial app. Unset means the app is not deployed
+# yet, and every link to it stays hidden rather than pointing at a dead page --
+# the same rule the rest of this config follows for optional services.
+SPACE_APP_URL = os.getenv("SPACE_APP_URL", "").strip().rstrip("/")
+
+
+def space_app_enabled() -> bool:
+    return bool(SPACE_APP_URL)
+
+
+def space_paper_url(arxiv_id: str) -> str:
+    """
+    Deep link to one paper in the 3D map.
+
+    The map client reads ?paper=<id> on load and flies the camera there, so a
+    link can drop someone at a specific paper instead of the default origin.
+    Returns "" when the map is not configured, which keeps the caller from
+    having to special-case it.
+    """
+    if not SPACE_APP_URL or not arxiv_id:
+        return ""
+    from urllib.parse import quote
+    return f"{SPACE_APP_URL}/?paper={quote(str(arxiv_id), safe='')}"

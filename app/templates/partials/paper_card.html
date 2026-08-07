@@ -58,6 +58,21 @@
 
     <span class="text-xs text-base-content/40 font-mono font-medium">[{{ paper.arxiv_id }}]</span>
 
+    {% if space_app_url %}
+    {# Deep link, not just a link to the map's front door: the client reads
+       ?paper=<id> and flies the camera to that paper, so this answers "what sits
+       near this one?" directly. Papers outside the spatial corpus get placed by
+       their nearest semantic neighbours, so the link is never a dead end. #}
+    <a href="{{ space_paper_url(paper.arxiv_id) }}" target="_blank" rel="noopener"
+       class="text-xs text-primary/70 hover:text-primary inline-flex items-center gap-1"
+       title="Show this paper in the 3D map">
+      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10" opacity=".55"/>
+      </svg>
+      in 3D
+    </a>
+    {% endif %}
+
     {% if authors_list %}
       <span class="text-xs text-base-content/60">·</span>
       <span class="text-xs text-base-content/70">
