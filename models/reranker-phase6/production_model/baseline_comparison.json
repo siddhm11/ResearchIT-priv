@@ -1,0 +1,44 @@
+{
+  "ndcg@5": {
+    "heuristic": 0.1819,
+    "lightgbm": 0.825,
+    "delta": 0.6432,
+    "pct_improvement": 353.59
+  },
+  "ndcg@10": {
+    "heuristic": 0.2641,
+    "lightgbm": 0.8791,
+    "delta": 0.615,
+    "pct_improvement": 232.83
+  },
+  "ndcg@20": {
+    "heuristic": 0.3296,
+    "lightgbm": 0.8857,
+    "delta": 0.5561,
+    "pct_improvement": 168.7
+  },
+  "recall@10": {
+    "heuristic": 0.4384,
+    "lightgbm": 0.9825,
+    "delta": 0.5442,
+    "pct_improvement": 124.13
+  },
+  "recall@50": {
+    "heuristic": 1.0,
+    "lightgbm": 1.0,
+    "delta": 0.0,
+    "pct_improvement": 0.0
+  },
+  "hr@10": {
+    "heuristic": 0.6638,
+    "lightgbm": 1.0,
+    "delta": 0.3362,
+    "pct_improvement": 50.65
+  },
+  "mrr": {
+    "heuristic": 0.2906,
+    "lightgbm": 0.8795,
+    "delta": 0.5889,
+    "pct_improvement": 202.69
+  }
+}

@@ -1,0 +1,567 @@
+# ResearchIT — Master Task Tracker
+
+> **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
+> **Last updated**: 2026-05-05  
+> **Current phase**: Phase 6.5 (Instrumentation) — COMPLETE ✔ | Phase 7 next  
+
+---
+
+## Legend
+
+- `[x]` — Done
+- `[/]` — In progress
+- `[ ]` — Not started
+- `[~]` — Intentionally deferred (blocked by data/users/scale)
+- `[!]` — Backlog item (documented, not yet coded)
+
+---
+
+## Phase 1: Zero-ML Recommender ✅ COMPLETE
+
+> *Built the foundation: Qdrant connection, arXiv search, save/dismiss, cookie identity, HTMX frontend.*
+
+- [x] Qdrant Cloud connection (1.6M BGE-M3 papers, BQ, HNSW m=32)
+  - Collection: `arxiv_bgem3_dense`, 1024-dim dense vectors
+  - File: `app/qdrant_svc.py` → `_get_client()`
+- [x] BEST_SCORE Recommend API (raw paper IDs → Qdrant)
+  - File: `app/qdrant_svc.py` → `recommend()`
+- [x] arXiv keyword API search (placeholder — replaced in Phase 3)
+  - File: `app/arxiv_svc.py` → `search()`
+- [x] arXiv metadata fetching + SQLite cache
+  - File: `app/arxiv_svc.py` → `fetch_metadata_batch()`
+- [x] SQLite database schema (interactions, paper_metadata)
+  - File: `app/db.py` → `init_db()`
+  - WAL mode, async via aiosqlite
+- [x] Cookie-based user identity
+  - File: `app/config.py` → `COOKIE_NAME`
+- [x] User state management (positive/negative deques)
+  - File: `app/user_state.py` → `UserState`
+- [x] Save/Dismiss event logging
+  - File: `app/routers/events.py`
+- [x] HTMX + Jinja2 frontend (search, recs, save, dismiss)
+  - Files: `app/templates/` (base.html, index.html, search.html, saved.html, partials/)
+- [x] Test suite — **55 tests passing**
+
+**Gaps**: None.
+
+---
+
+## Phase 2a: EWMA Profile Embeddings ✅ COMPLETE
+
+> *Replaced raw ID-list approach with temporal decay vectors so recent interests outweigh old ones.*
+
+- [x] Create `app/recommend/` module with `__init__.py`
+- [x] Create `app/recommend/profiles.py` — EWMA computation + storage
+  - Long-term: α=0.03 ✅ (corrected from 0.10 per Doc 06)
+  - Short-term: α=0.40
+  - Negative: α=0.15
+  - All embeddings L2-normalized
+- [x] Modify `app/db.py` — add `user_profiles` table + `user_clusters` table
+- [x] Modify `app/qdrant_svc.py` — add `get_paper_vectors()` and `search_by_vector()`
+- [x] Modify `app/routers/events.py` — trigger EWMA updates on save/dismiss
+- [x] Modify `app/routers/recommendations.py` — EWMA vector search with Tier 2 fallback
+- [x] Add `numpy` + `scipy` to `requirements.txt`
+- [x] Tests for profiles module — **11 passed**
+- [x] Full test suite — no regressions
+
+**Doc 06 correction applied**: α_long 0.10 → 0.03 (PinnerSage rejected 0.10 as too recent-biased).
+
+**Gaps**: None.
+
+---
+
+## Phase 2b: Ward Clustering + Multi-Interest Retrieval ✅ COMPLETE
+
+> *Detect distinct user interests via hierarchical clustering, retrieve candidates per interest.*
+
+- [x] Create `app/recommend/clustering.py` — Ward clustering + medoid extraction
+  - L2-normalize embeddings before Ward ✅ (Doc 06 correction)
+  - Adaptive gap-based threshold (no fixed K)
+  - Medoid representation (real papers, not centroids) ✅
+  - Dynamic K (1–7 clusters, auto-determined)
+  - Recency-weighted importance scores
+- [x] Modify `app/qdrant_svc.py` — add `multi_interest_search()` with prefetch+RRF
+- [x] Modify `app/routers/recommendations.py` — 3-tier cascading pipeline
+  - Tier 1 (≥5 saves): Multi-interest clustering → prefetch + RRF
+  - Tier 2 (≥3 saves): EWMA long-term vector → single ANN search
+  - Tier 3 (≥1 save): Qdrant BEST_SCORE Recommend API
+- [x] Tests for clustering module — **10 passed**
+- [x] Full test suite — no regressions
+
+**Doc 06 corrections applied**: L2-normalization before Ward, medoid not centroid.
+
+**Gaps (deferred to Phase 4)**:
+- [!] RRF → quota fusion (dominant clusters can swamp minority interests)
+- [!] Hungarian matching for cluster ID stability across reclusterings
+
+---
+
+## Phase 2c: Heuristic Re-ranking + MMR Diversity ✅ COMPLETE
+
+> *Added scoring and diversity layers on top of retrieval to produce the final feed.*
+
+- [x] Create `app/recommend/reranker.py` — 5-feature heuristic scorer
+  - Feature 1: cosine_sim_longterm (weight 0.40)
+  - Feature 2: cosine_sim_shortterm (weight 0.25)
+  - Feature 3: paper_age_days / recency (weight 0.15)
+  - Feature 4: rrf_position (weight 0.10)
+  - Feature 5: cosine_sim_negative (weight -0.15) ✅ (Doc 06 addition)
+- [x] Create `app/recommend/diversity.py` — MMR + exploration injection
+  - MMR with λ=0.6
+  - 2 serendipitous exploration papers per feed
+- [x] Modify `app/routers/recommendations.py` — full 5-step pipeline
+  - Step 1: Clustering → Step 2: Retrieval → Step 3: Rerank → Step 4: MMR → Step 5: Exploration
+- [x] Tests for reranker + diversity — **13 passed**
+- [x] Full test suite — **88 passed** (86 + 2 pre-existing live Qdrant failures resolved)
+
+**Doc 06 correction applied**: Negative EWMA profile wired as Feature 5 with 0.15 penalty.
+
+**Gaps**: None. LightGBM model now integrated (Phase 6 ✅).
+
+---
+
+## Phase 2d: Advanced Models ❌ DEFERRED (Blocked by data/users)
+
+> *These logically belong to the recommendation engine but cannot be built without real user data or scale.*
+
+- [~] LightGBM lambdarank model — requires ≥500 labeled save/dismiss interactions → Phase 6
+- [~] Collaborative filtering features — requires ≥500 users → Phase 9
+- [~] DPP diversity — explicitly ruled out for v1 by Doc 06 → Phase 9+
+- [~] Two-Tower model — requires GPU + large dataset → Phase 9+
+
+---
+
+## Phase 3: Hybrid Semantic Search ✅ COMPLETE
+
+> *Replace the arXiv keyword API placeholder with real vector-based semantic search using Qdrant dense + Zilliz sparse + RRF.*  
+> *Detailed plan: `docs/phases/PHASE3-Hybrid-Semantic-Search.md`*  
+> *Prototype reference: `docs/phases/PHASE2-Hybrid-Search-Plan.md`*  
+> *Deployment target: Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs)*
+
+### New files created
+- [x] `app/embed_svc.py` — BGE-M3 model singleton (load BAAI/bge-m3 once at startup, ~570MB, ~15s cold)
+  - `encode_query(text)` → `(dense: np.ndarray[1024], sparse: dict)`
+  - LRU cache for repeat queries
+  - Thread-safe, lazy loading with double-check locking
+- [x] `app/zilliz_svc.py` — Zilliz Cloud sparse search client
+  - Collection: `arxiv_bgem3_sparse`
+  - Schema: `id` (INT64 auto PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR)
+  - Index: SPARSE_INVERTED_INDEX, metric_type=IP
+  - Sparse format: `{int_token_id: float_weight}` (BGE-M3 lexical weights, NOT string words)
+  - `search_sparse(sparse_dict, limit)` → `list[dict]` with arxiv_id + score
+  - gRPC reconnect handling
+- [x] `app/groq_svc.py` — LLM query rewriter (Groq / llama-3.3-70b)
+  - `rewrite(user_query)` → academic query string
+  - Graceful fallback to original query on error
+  - Academic-detection heuristic to skip unnecessary rewrites
+  - 2s hard timeout
+- [x] `app/hybrid_search_svc.py` — search orchestrator
+  - Rewrite → Encode → Parallel (Qdrant dense + Zilliz sparse) → RRF → Rerank
+  - Each step has independent failure handling
+  - Recency reranking: 0.80 RRF + 0.20 recency
+
+### Files modified
+- [x] `app/config.py` — added `ZILLIZ_URI`, `ZILLIZ_TOKEN`, `ZILLIZ_COLLECTION`, `GROQ_API_KEY`, `BGE_M3_MODEL`, `BGE_M3_DEVICE`, `ENCODE_CACHE_SIZE`, search weights, `APP_PORT`
+- [x] `app/qdrant_svc.py` — added `search_dense(dense_vec, limit)` for raw vector search returning scores
+- [x] `app/routers/search.py` — swapped `arxiv_svc.search()` → `hybrid_search_svc.search()` with arXiv fallback
+- [x] `app/main.py` — added graceful BGE-M3 warm-up to lifespan
+- [x] `requirements.txt` — added `FlagEmbedding`, `pymilvus`, `groq`
+- [x] `run.py` — configurable port (7860 default for HF Spaces)
+
+### Deployment files created
+- [x] `Dockerfile` — HF Spaces Docker SDK, CPU-only PyTorch, pre-baked BGE-M3 model
+- [x] `.dockerignore` — excludes notebooks, PDFs, databases, caches
+
+### Implementation steps completed
+- [x] Step 1: BGE-M3 model service (`embed_svc.py`) + unit tests
+- [x] Step 2: Zilliz client (`zilliz_svc.py`)
+- [x] Step 3: Dense search in Qdrant service
+- [x] Step 4: Groq rewriter (`groq_svc.py`)
+- [x] Step 5: Hybrid search orchestrator (`hybrid_search_svc.py`)
+- [x] Step 6: Swap search router
+- [x] Step 7: Model warm-up + deployment config
+- [x] Step 8: Tests — **21 new tests passing** (RRF, recency, Groq heuristics, embed edge cases, orchestrator mocks)
+
+### Test results
+- 88 original tests: ✅ All pass (zero regressions)
+- 21 Phase 3 unit tests: ✅ All pass (RRF, recency, Groq, embed, orchestrator mocks)
+- 6 search router tests: ✅ All pass (ranking, fallback, HTMX, saved state)
+- 8 live service tests: ✅ All pass (Qdrant dense, Zilliz sparse, Groq rewrite, parallel)
+- **Total: 123 tests passing**
+
+### Latency budget
+| Stage | Time |
+|---|---|
+| LLM rewrite (Groq) | ~300ms (skippable) |
+| BGE-M3 encode (CPU) | ~300ms first, ~0ms cached |
+| Qdrant + Zilliz (parallel) | ~300ms |
+| RRF + rerank | <5ms |
+| **Total (warm)** | **~600ms** |
+
+---
+
+## Phase 3.5: Turso ArXiv Metadata DB ✅ COMPLETE
+
+> *Bulk-loaded 1.23 GB of arXiv paper metadata + citation data to Turso (libSQL) cloud DB.*  
+> *Eliminates the unstable arXiv API dependency for metadata fetching (Phase 4.2 solved early).*  
+> *Integrated into codebase and deployed to HF Spaces.*
+
+### Infrastructure
+- [x] Turso cloud DB created: `arxiv-data` on `aws-ap-south-1`
+  - URL: `https://arxiv-data-siddhm11.aws-ap-south-1.turso.io`
+  - Auth: Platform token + DB auth token (minted via CLI)
+- [x] Table: `papers` with columns:
+  - `arxiv_id` (TEXT, UNIQUE INDEX `idx_papers_arxiv_id`)
+  - `title` (TEXT)
+  - `authors` (TEXT)
+  - `categories` (TEXT)
+  - `primary_topic` (TEXT)
+  - `update_date` (TEXT)
+  - `abstract_preview` (TEXT, truncated to 500 chars)
+  - `citation_count` (INTEGER, default 0)
+  - `influential_citations` (INTEGER, default 0)
+- [x] Data sources:
+  - `arxiv_comprehensive_papers.csv` (Kaggle: siddhm11/arxivdata)
+  - `arxiv_citations_summary.csv` (Kaggle: siddhm11/citation-data-letsgoo)
+  - Joined on `id` = `arxiv_id_clean`, deduplicated
+- [x] Row count verified: local ↔ remote match
+- [x] Unique index on `arxiv_id` for fast lookups
+
+### Integration (DONE)
+- [x] Added `TURSO_URL` and `TURSO_DB_TOKEN` to `config.py` / `.env` / HF Secrets
+- [x] Created `app/turso_svc.py` — metadata lookup service
+  - `fetch_metadata_batch(arxiv_ids)` → `{arxiv_id: paper_dict}`
+  - Uses Turso HTTP pipeline API (zero new Python deps — just httpx)
+  - Includes citation_count + influential_citations
+- [x] `app/routers/search.py` — Turso primary, arXiv API fallback (only for IDs not in Turso)
+- [x] Created `tests/test_turso_timing.py` — timing benchmark
+- [x] **Verified**: 10/10 title match, 6.1x end-to-end speedup on HF Spaces
+- [x] **Impact**: Avg search time dropped from ~10.7s to ~1.75s on HF Spaces
+
+---
+
+## Phase 4: Recommendation Pipeline Fixes ✅ COMPLETE
+
+> *Fixed the known architectural debt in the recommendation pipeline.*  
+> *Detailed plan: `docs/phases/PHASE4-Recommendation-Pipeline-Fixes.md`*
+
+### 4.1 — Replace RRF with Importance-Weighted Quota Fusion
+- [x] Create `app/recommend/fusion.py` — quota allocation logic
+  - `w_k = importance_k / sum(importance_k)`
+  - `slot_k = max(floor(F × w_k), F_min=3)` — every cluster gets at least 3 slots
+  - Distribute remainder by largest fractional part
+- [x] Create `tests/test_fusion.py` — **20 unit tests** for quota allocation
+  - Proportionality, floor enforcement, total invariant, edge cases, Doc 06 worked examples
+- [x] Refactor `_multi_interest_recommend()` in `recommendations.py`
+  - Replace `multi_interest_search()` with per-cluster separate ANN queries
+  - Use `asyncio.gather()` for concurrent searches (~15ms wall-clock)
+  - Allocate feed slots proportionally via `allocate_quotas()`
+  - Deduplicate across clusters (first-occurrence = highest-ranked cluster wins)
+  - MMR over merged union (unchanged)
+- [x] Keep `qdrant_svc.multi_interest_search()` in codebase (no deletion)
+
+### 4.2 — Pre-populate Metadata Store ✅ DONE (via Turso)
+- [x] Bulk-loaded arXiv metadata from Kaggle to Turso cloud DB (Phase 3.5)
+- [x] 1.23 GB, includes citation counts from Semantic Scholar
+- [x] Wired Turso service into `search.py` (Turso primary, arXiv API fallback)
+- [x] arXiv API is now fallback only for genuinely new papers
+- [x] **Impact**: Search time dropped from ~10.7s to ~1.75s on HF Spaces
+
+### 4.3 — Hungarian Matching for Cluster Stability
+- [x] Add `stabilize_cluster_ids()` function to `clustering.py`
+  - Uses `scipy.optimize.linear_sum_assignment` (already a dependency)
+  - Cost matrix: `1 - cosine_sim(new_medoid, old_medoid)` — trivial at K≤7
+  - Matched clusters keep old indices; new clusters get next available
+  - Min cosine threshold (0.5) rejects unrelated matches
+- [x] Call between `compute_clusters()` and `save_clusters_to_db()` in recommendations.py
+- [x] **10 tests** in `test_clustering.py` — perturbed clusters preserve indices,
+  unrelated match rejection, K growth/shrink, custom thresholds
+
+### 4.4 — Category-Level Negative Suppression
+- [x] Add `get_suppressed_categories()` to `db.py`
+  - Joins `interactions` + `paper_metadata` to find categories with ≥3 dismissals
+  - **Primary category only** (decision: avoid over-suppression)
+  - **14-day window** (standard default, τ_neg = 14 days)
+- [x] Add suppression filter in `_multi_interest_recommend()` after reranking
+- [x] Cache Turso metadata to `paper_metadata` via `cache_turso_metadata_batch()`
+- [x] **8 tests** in `test_db.py` — threshold, partitioning, user isolation, custom threshold
+- [~] Per-item short-term decay → **deferred to Phase 6** (LightGBM feature)
+
+**Gaps**: None.
+
+---
+
+## Phase 4.5: Instrumentation Foundation ✅ COMPLETE
+
+> *Added telemetry columns to the interactions table so every saved/dismissed paper*
+> *can be attributed to its pipeline tier, cluster origin, and ranker version.*
+> *Doc 07 (ADR A4) identified this as the single most valuable early investment —*
+> *retrofitting these fields after real user data exists is painful and blocks all*
+> *later counterfactual evaluation.*
+
+### Schema changes
+- [x] Add `ranker_version TEXT` to `interactions` table — pipeline version tag
+- [x] Add `candidate_source TEXT` to `interactions` — e.g. `cluster_0`, `exploration`, `ewma_longterm`, `qdrant_recommend`, `short_term_supplement`
+- [x] Add `cluster_id INTEGER` to `interactions` — interest cluster index (NULL if N/A)
+- [x] ALTER TABLE migration for existing DBs (safe try/except, idempotent)
+
+### Pipeline tagging
+- [x] Add `_RANKER_VERSION` constant to `recommendations.py`
+- [x] Tag Tier 1 papers with cluster origin, exploration status, short-term supplement
+- [x] Tag Tier 2 papers as `ewma_longterm`
+- [x] Tag Tier 3 papers as `qdrant_recommend`
+- [x] Build `paper_cluster_map` before quota merge (first-occurrence = cluster attribution)
+- [x] Exploration papers tagged as `candidate_source='exploration'`
+
+### End-to-end flow
+- [x] `recommendations.py` embeds tags in paper dicts
+- [x] `action_buttons.html` includes tags in `hx-vals` JSON
+- [x] `events.py` accepts `ranker_version`, `candidate_source`, `cluster_id` Form fields
+- [x] `db.log_interaction()` stores all three new columns
+
+**Files modified**: `app/db.py`, `app/routers/events.py`, `app/routers/recommendations.py`, `app/templates/partials/action_buttons.html`
+
+**Gaps**: None. `propensity` and `policy_id` fields deferred until ε-greedy exploration (Phase 9).
+
+---
+
+## Phase 5: Cold-Start Onboarding ✅ COMPLETE
+
+> *Onboarding wizard for new users — category selection + seed paper search + trending fallback.*  
+> *Reference: Doc 06 — "4-37% lift even once behavioral data exists"*
+
+### 5.1 — arXiv Category Multi-Select ✅
+- [x] UI screen on first visit: select 1-8 arXiv category groups
+- [x] Store selections in SQLite (`user_onboarding` table)
+- [x] Use as pool filter for recommendations (via `get_user_category_filter()`)
+- [x] Preserve as LightGBM feature permanently (Feature 26: `onboarding_category_match`)
+- [x] Does NOT create "subject vectors" — just filters
+
+### 5.2 — Seed Paper Import ✅
+- [x] Let users search for and save seed papers during onboarding
+- [x] Immediately create EWMA profiles + Ward clusters on next feed request
+- [x] Uses hybrid search (Phase 3) for discovery
+
+### ~~5.3 — ORCID / Semantic Scholar Import~~ ❌ REMOVED
+> S2 author import was implemented but removed — not the onboarding direction we want.
+> Onboarding focuses on category selection + manual seed paper search.
+
+### 5.4 — Popularity Fallback ✅
+- [x] Category-filtered trending papers served via `turso_svc.fetch_trending_by_categories()`
+- [x] 1-hour TTL trending cache for performance
+
+---
+
+## Phase 6: LightGBM Re-ranker ✅ COMPLETE
+
+> *Replaced heuristic scorer with a trained LightGBM lambdarank model.*  
+> *Unblocked via citation-graph pseudo-labels from Semantic Scholar.*  
+> *Handoff doc: `docs/PHASE6-HANDOFF.md`*  
+> *Model repo: [siddhm11/researchit-reranker-phase6](https://huggingface.co/siddhm11/researchit-reranker-phase6)*
+
+### 6.1 — ML Intern: Data Pipeline + Model Training ✅
+- [x] Export 1.6M arXiv IDs from Turso → `arxiv_ids.txt` (`scripts/export_arxiv_ids.py`)
+- [x] Fetch 242K citation edges from Semantic Scholar Batch API (`01_fetch_citation_edges.py`)
+- [x] Generate 98K training triples with pseudo-labels: cited=2, co-cited=1, negative=0 (`02_generate_training_triples.py`)
+- [x] 37-feature schema (20 content, 11 user behavior, 6 cross-features)
+- [x] Train LightGBM LambdaRank model: 141 trees, 63 leaves, lr=0.05 (`03_train_lightgbm.py`)
+- [x] nDCG@10 = 0.879 (+233% vs heuristic baseline)
+- [x] All artifacts pushed to HuggingFace
+
+### 6.2 — Opus: Integration into ResearchIT ✅
+- [x] Rewrite `app/recommend/reranker.py` — 5 features → 37 features
+- [x] LightGBM model loading at import time with heuristic fallback
+- [x] Multi-path model file search (env var → relative → absolute)
+- [x] Backward-compatible `rerank_candidates()` signature (old callers unaffected)
+- [x] Add `lightgbm>=4.0,<5.0` to `requirements.txt`
+- [x] Fix CRLF→LF line endings in model file (Windows Git issue)
+- [x] 7 integration tests — **all passing** (`tests/test_reranker_integration.py`)
+- [x] Latency verified: **0.223ms per 100 candidates** (target: <1ms) ✅
+
+### 6.3 — Antigravity: Feature Wiring + Deployment Verification ✅
+- [x] Wire all 37 features into `recommendations.py` caller (was legacy 6-arg signature)
+- [x] Per-candidate `cluster_importance` (N,) from `paper_cluster_map`
+- [x] Per-candidate `cluster_medoid` (N, 1024) per source cluster
+- [x] Pre-computed `is_suppressed_category` and `onboarding_category_match` arrays
+- [x] Pass `qdrant_scores`, `user_total_saves`, `user_total_dismissals`
+- [x] `reranker.py` supports both scalar broadcast and per-candidate arrays
+- [x] Add model accessors: `is_model_loaded()`, `get_num_trees()`, `get_loaded_model_path()`
+- [x] Add per-request feature activation logging
+- [x] Create `GET /healthz/reranker` endpoint (`app/routers/health.py`)
+- [x] Bug B fix: persist `medoid_embedding_blob` BLOB in `user_clusters` table
+- [x] Bug B fix: fall back to persisted blob instead of zero vector in Hungarian matching
+- [x] DB migration: `ALTER TABLE user_clusters ADD COLUMN medoid_embedding_blob BLOB`
+- [x] 9 new tests — **all passing** (`tests/test_phase6_feature_wiring.py`)
+- [x] Full suite: **203+ tests passing, 0 failures**
+- [x] Updated `CLAUDE.md`, `PHASE6-HANDOFF.md`, `README.md`
+
+### 6.4 — Retraining [~] DEFERRED
+> **Phase 6.4 retraining is deferred.** The published model `siddhm11/researchit-reranker-phase6` was trained on citation pseudo-labels with features 23–30 zero. Retraining is gated on either (a) the synthetic-user simulator (Phase 6.4b, ~30 days out) or (b) crossing 100 real users with ≥10 saves each. **Until then, Phase 6.1+6.2+6.3 plumbing is the unit of deliverable work.**
+
+- [~] Synthetic user simulator (`scripts/simulate_users.py`) — target: +30d
+- [~] Real-user retrain at 100-user threshold — target: +90d or threshold
+- [~] HF model card backfill (library_name, pipeline_tag, metrics, schema)
+
+## Phase 6.5: Instrumentation ✅ COMPLETE
+
+> **Purpose**: Stabilize the recommendation pipeline and prepare telemetry substrate for Phase 7 evaluation.
+
+### A1 — Real Qdrant cosine scores
+- [x] Switch `search_by_vector()` → `search_by_vector_with_scores()` in per-cluster + short-term searches
+- [x] Build `qdrant_score_map` from real cosines (replaces fake `1.0 - rank*0.01` linear decay)
+- [x] Feature 0 (`qdrant_cosine_score`) now receives actual cosine similarities
+
+### A2 — Deployment verification
+- [x] `curl /healthz/reranker` → `model_loaded=true, n_trees=141, fallback_active=false`
+- [x] Verification timestamp added to `PHASE6-Reranker-Framing.md`
+
+### B1 — query_id linkage
+- [x] Generate `query_id` (UUID) once per feed request in `get_recommendations()`
+- [x] Thread through all 4 tiers: trending, Tier 1, Tier 2, Tier 3
+- [x] Generate `query_id` in `search.py` per search request
+- [x] Add `query_id` + `position` to `action_buttons.html` hx-vals
+
+### B2 — Propensity logging
+- [x] Add `propensity REAL` + `policy_id TEXT` migration to `interactions` table
+- [x] Extend `db.log_interaction()` with propensity + policy_id params
+- [x] Compute propensity: 1.0 (deterministic) vs `n_explore/pool_size` (exploration)
+- [x] Thread through templates + `events.py` Form params
+
+### B3 — Cluster snapshot versioning
+- [x] Add `cluster_snapshots` table (append-only, content-addressed via `paper_ids_hash`)
+- [x] `save_cluster_snapshot()` called after each `save_clusters_to_db()`
+- [x] `prune_old_snapshots(30)` on startup in `main.py` lifespan
+
+### ~~B4 — S2 author import~~ ❌ REMOVED
+> S2 author import was implemented and then removed — not the onboarding direction we want.
+> `app/s2_svc.py`, the `/api/onboarding/import-author` endpoint, and the quick-import UI
+> have all been deleted. Onboarding uses category selection + manual seed search only.
+
+### Documentation
+- [x] `CLAUDE.md`: Rule 3.11 — interaction instrumentation invariants
+- [x] `_RANKER_VERSION` bumped to `v6.5_lightgbm_real_cosines`
+- [x] Phase status updated to 6.5 COMPLETE
+- [x] Tests: 203+ passing
+
+### Test suite
+- `tests/test_reranker_integration.py` — 7 tests (smoke, features, heuristic, E2E, latency, backward compat, comparison)
+- `tests/test_phase6_feature_wiring.py` — 9 tests (per-candidate arrays, broadcast medoid, model accessors, aggregate activation)
+- `tests/demo_reranker.py` — interactive demo with 20 realistic papers
+
+---
+
+## Phase 7: Evaluation Framework 📋 NOT STARTED
+
+> *Build offline and online evaluation before scaling users.*  
+> *Estimated effort: ~1 week*
+
+- [ ] Offline metrics: nDCG@10, Recall@50, HR@10, ILS, category entropy
+- [ ] Time-split evaluation on unarXive 2022 + S2ORC
+- [ ] Online metrics (once users exist): CTR, save rate, dwell time, return rate
+
+---
+
+## Phase 8: LLM Interest Summaries + Distilled Re-ranker 📋 NOT STARTED
+
+> *Estimated effort: ~10-12 weeks (Doc 07)*  
+> *Detailed research plan: `docs/research/07-LLM-Summaries-Reranker-and-Scaling-Research.md`*  
+> *Entry criteria: Phase 7 eval producing stable nDCG@10; cluster stability Jaccard ≥0.7 over 7 days*
+
+### 8a — Claude-generated per-cluster interest summaries (Doc 07 §A)
+- [ ] Cluster snapshot versioning (ADR A1)
+- [ ] Content-addressed caching: `sha256(sorted(paper_ids) + prompt_version + model)`
+- [ ] Shared summaries (not per-user) — Haiku 4.5 + Batch API (~$50-80/month @ 1K users)
+- [ ] Nightly regeneration job with 7-day TTL + event-triggered refresh
+- [ ] "You're reading about X" UI framing with sub-theme bullets
+- [ ] Anthropic Citations API for hallucination prevention
+
+### 8b — Distilled cross-encoder reranker (Doc 07 §B)
+- [ ] Deploy `cross-encoder/ms-marco-TinyBERT-L-2-v2` INT8 ONNX as MVP
+- [ ] 6ms budget for 20 pairs on CPU (AVX-512 VNNI)
+- [ ] TinyBERT score as LightGBM feature (Option C architecture)
+- [ ] Custom distillation from BGE-reranker-v2-m3 only if held-out gap >3 nDCG
+- [ ] MarginMSE loss + SciNCL citation-graph hard negatives
+
+### 8c — Use-cases and information-gain design doc (Doc 07 §C)
+- [ ] 8 user personas (P1 cold-start through P8 stay-current)
+- [ ] Information-gain table (save=3-5×, dismiss-as-label=−3-4×, passive skip=−0.1×)
+- [ ] Mode-switching UI: "Stay Current" vs "Lit Review" toggle
+- [ ] Failure mode detection rules (feed collapse, stale profile, filter bubble)
+
+---
+
+## Phase 9: Exploration + Collaborative Filtering 📋 NOT STARTED
+
+> *Blocked by: ≥500 users*
+
+- [ ] Epsilon-greedy exploration (ε=0.25 new users, ε=0.05 established)
+- [ ] LightFM hybrid CF model with switching strategy
+- [ ] Category-level negative suppression
+- [ ] Retrain LightGBM with dismissals as negative labels
+
+---
+
+## Appendix: Infrastructure Status
+
+| Component | Status | Details |
+|---|---|---|
+| **Qdrant Cloud** | ✅ Live | 1.6M papers, BGE-M3 1024-dim, BQ enabled, HNSW m=32 |
+| **Zilliz Cloud** | ✅ Live | 1.6M papers, BGE-M3 sparse vectors, collection `arxiv_bgem3_sparse` |
+| **Turso (libSQL)** | ✅ Live | 1.23 GB arXiv metadata + citations, `arxiv-data` DB, `papers` table, unique index on `arxiv_id` |
+| **SQLite** | ✅ Live | interactions, paper_metadata (local cache), user_profiles, user_clusters |
+| **HF Spaces** | ✅ Deployed | Docker SDK, free tier, port 7860 — https://siddhm11-researchit.hf.space |
+| **Render** | ⚠️ Previous target (512MB RAM too small for BGE-M3) | May still be used for non-ML services |
+| **arXiv API** | ✅ Fallback only | Keyword search + metadata for papers not in Turso |
+| **BGE-M3 Model** | ✅ Live | Pre-baked in Docker image, warm-up at startup |
+| **Groq API** | ✅ Live + HF Secret | `app/groq_svc.py` — 2s timeout, academic heuristic skip |
+| **Notebooks** | ✅ Organized | `notebooks/` — 01-upload, 02-test, 03-search-benchmark |
+
+### Credentials Status
+
+| Credential | Status | Env Var | Notes |
+|---|---|---|---|
+| **Qdrant Cloud** | ✅ In `.env` | `QDRANT_URL`, `QDRANT_API_KEY` | Already wired |
+| **Zilliz Cloud** | ✅ In `.env` | `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Phase 3, wired |
+| **Turso (libSQL)** | ✅ In `.env` + HF | `TURSO_URL`, `TURSO_DB_TOKEN` | Phase 3.5, wired + deployed |
+| **Groq** | ✅ In `.env` + HF | `GROQ_API_KEY` | Phase 3, wired + deployed |
+| **HF Spaces** | ✅ Deployed | Secrets panel | All env vars set ✔ |
+
+---
+
+## Appendix: Test Suite
+
+| Test File | Count | Status |
+|---|---|---|
+| `tests/test_profiles.py` | 11 | ✅ Passing |
+| `tests/test_clustering.py` | 21 | ✅ Passing | (9 compute + 10 Hungarian + 2 persistence) |
+| `tests/test_reranker_diversity.py` | 13 | ✅ Passing |
+| `tests/test_reranker_integration.py` | 7 | ✅ Passing | (Phase 6: smoke, features, E2E, latency) |
+| `tests/test_phase6_feature_wiring.py` | 9 | ✅ Passing | (Phase 6.3: per-candidate arrays, medoids, accessors) |
+| `tests/test_fusion.py` | 20 | ✅ Passing | (Phase 4.1) |
+| `tests/test_db.py` | 19 | ✅ Passing | (includes 4 Turso cache + 8 suppression) |
+| `tests/test_qdrant_svc.py` | — | ✅ Passing |
+| `tests/test_arxiv_svc.py` | — | ✅ Passing |
+| `tests/test_integration.py` | — | ✅ Passing | (includes quota pipeline E2E) |
+| `tests/test_user_state.py` | — | ✅ Passing |
+| `tests/test_saved.py` | — | ✅ Passing |
+| `tests/test_hybrid_search.py` | 21 | ✅ Passing |
+| `tests/test_search_router.py` | 6 | ✅ Passing |
+| `tests/test_live_search.py` | 8 | ✅ Passing |
+| **Total** | **203+** | ✅ |
+| `test_e2e_recs.py` (standalone) | 1 | ✅ E2E simulation |
+
+---
+
+## Appendix: Doc 06 Corrections — Tracking
+
+| Correction | Status | Where |
+|---|---|---|
+| α_long 0.10 → 0.03 | ✅ Applied | `app/recommend/profiles.py:30` |
+| L2-normalize before Ward clustering | ✅ Applied | `app/recommend/clustering.py` |
+| Medoid not centroid | ✅ Applied | `app/recommend/clustering.py` → `_find_medoid()` |
+| Negative EWMA wired into reranking | ✅ Applied | `app/recommend/reranker.py` → Feature 5 |
+| RRF → quota fusion for recommendations | ✅ Applied | `app/recommend/fusion.py` (Phase 4.1) |
+| Hungarian cluster matching | ✅ Applied | `app/recommend/clustering.py` → `stabilize_cluster_ids()` (Phase 4.3) |
+| Per-item short-term negative decay | [!] Backlog | Phase 6 (LightGBM feature) |
+| Category-level suppression | ✅ Applied | `app/db.py` → `get_suppressed_categories()` (Phase 4.4) |
+| BGE-reranker NEVER in hot path | ✅ Followed | Heuristic scorer used instead |

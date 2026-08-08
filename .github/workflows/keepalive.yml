@@ -1,0 +1,44 @@
+# Keepalive cron — prevents free-tier services from sleeping.
+#
+# Runs every 25 minutes and hits /healthz/deep on the HF Space.
+# That single request cascades into pinging:
+#   - HuggingFace Spaces (kept awake by the HTTP request itself)
+#   - Qdrant Cloud (pinged internally by the endpoint)
+#   - Zilliz Cloud (pinged internally by the endpoint)
+#   - Turso (pinged internally by the endpoint)
+#
+# GitHub Actions free tier: 2000 min/month for private repos.
+# 25-min interval = ~1728 runs/month × ~1 min each = ~1728 min (within budget).
+
+name: Keepalive
+
+on:
+  schedule:
+    # Every 25 minutes
+    - cron: "*/25 * * * *"
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping /healthz/deep
+        run: |
+          echo "Pinging HF Space deep health check..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 90 \
+            "https://siddhm11-researchit.hf.space/healthz/deep")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response:"
+          echo "$BODY" | python3 -m json.tool 2>/dev/null || echo "$BODY"
+
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "::warning::Health check returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "All services pinged successfully."

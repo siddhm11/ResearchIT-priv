@@ -1,0 +1,15 @@
+.git
+.pytest_cache
+.qodo
+.claude
+__pycache__
+*.pyc
+*.pyo
+*.db
+*.sqlite
+data/
+*.ipynb
+pdf_images/
+notebooks/
+*.pdf
+.env

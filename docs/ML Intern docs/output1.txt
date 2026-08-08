@@ -1,0 +1,139 @@
+Let me think through this properly. The dataset is the most critical piece — a bad dataset means a bad reranker no matter how good the model is. Let me research what's actually available.
+
+research
+
+60 tools · 64.2k tokens · 7m 58s
+Now let me also check what you already have in Turso, since that's citation data you've already collected.
+
+hf_repo_files
+
+hf_inspect_dataset
+
+hf_inspect_dataset
+
+hf_inspect_dataset
+
+hub_repo_details
+
+Those are on Kaggle, not HF. Let me check the notebook that uploaded the data to understand what you already have.
+
+hf_repo_files
+
+OK, now I have the full picture. Here's the complete, step-by-step plan:
+
+Building the LightGBM Training Dataset — Step by Step
+What You Already Have
+Asset	Details
+1.6M arXiv papers in Qdrant	BGE-M3 1024-dim embeddings, searchable
+1.6M papers in Turso	Metadata + citation_count + influential_citations from Semantic Scholar
+Source CSV on Kaggle	arxiv_comprehensive_papers.csv (titles, abstracts, authors, categories)
+Citation summary on Kaggle	arxiv_citations_summary.csv (citation counts per paper)
+What You're Missing
+You have citation counts but not citation edges. Your Turso DB knows "paper X has 47 citations" but NOT "paper X cites papers Y, Z, W." The edges are the critical piece — that's the training signal.
+
+The Plan (3 stages)
+Stage 1: Build the Citation Edge Graph
+You need a table of (citing_paper, cited_paper) pairs where both are arXiv IDs in your 1.6M corpus.
+
+Best option: Semantic Scholar API (batch endpoint)
+
+Why this over the other datasets:
+
+unarXive (saier/unarXive_citrec) — uses OpenAlex IDs as labels, not arXiv IDs. You'd need an extra join step through OpenAlex to resolve them. Also only 44% of references are linked. Messy.
+Science Data Lake (J0nasW/science-datalake) — 20GB of OpenAlex citation edges, but again OpenAlex IDs, not arXiv IDs. Requires DOI-based mapping.
+Semantic Scholar API — you query with arXiv:2303.14957 and get back references with externalIds.ArXiv directly. No ID translation needed. And you already used S2 for your citation counts.
+The concrete steps:
+
+1. Export all 1.6M arxiv_ids from your Qdrant/Turso corpus
+2. Hit S2 batch endpoint: POST /graph/v1/paper/batch
+   - Send 500 IDs per request
+   - Fields: references.externalIds
+   - Rate: 1000 req/sec with free API key
+   - 1.6M papers ÷ 500 per batch = 3,200 requests
+   - Total time: ~5-10 minutes
+3. For each paper, extract outgoing references where the cited paper
+   also has an arXiv ID AND is in your 1.6M corpus
+4. Store as: citations.parquet → (citing_arxiv_id, cited_arxiv_id)
+Expected yield: ~20-40M citation edges within your corpus (based on typical arXiv citation density of ~25 refs/paper, ~50% in-corpus hit rate).
+
+Where to run this: A simple Python script. Kaggle notebook, Claude Code, or your local machine — it's just HTTP requests, no GPU needed. Takes ~30 minutes including rate limit pauses.
+
+Stage 2: Generate Training Triples
+This is where you turn citation edges into LightGBM training data. The idea: each paper in your corpus pretends to be a "user", and its reference list is what that "user" would save.
+
+For each "query paper" P (sample ~100K from your 1.6M):
+
+  1. DIRECT CITATIONS (label = 2)
+     R = {papers P cites that are in your Qdrant corpus}
+     These are strong positives — the author explicitly chose them
+     
+  2. CO-CITATIONS (label = 1)  
+     For each paper r in R:
+       Get r's own references → papers that share references with P
+     These are weak positives — topically related but not directly chosen
+     
+  3. RETRIEVAL CANDIDATES (label = 0 by default)
+     Use P's BGE-M3 embedding → Qdrant ANN search → top 50 results
+     Any retrieved paper NOT in R and NOT co-cited → label = 0
+     Any retrieved paper IN R → label = 2 (override)
+     Any retrieved paper co-cited → label = 1 (override)
+
+  4. COMPUTE FEATURES for each (P, candidate) pair:
+     - qdrant_cosine_score (from ANN search)
+     - citation_count of candidate (from Turso)
+     - paper_age_days difference
+     - category_match (same primary arXiv category?)
+     - shared_author_count
+     - co_citation_count (how many papers cite both P and candidate?)
+     ... (~30 features total)
+
+  5. OUTPUT ROW:
+     (query_id=P, candidate_id, label, feature_1, feature_2, ..., feature_30)
+Volume: 100K queries × 50 candidates = 5M training rows. That's plenty for LightGBM.
+
+Where to run this: This needs Qdrant access (ANN searches). Run on Kaggle with your Qdrant API key, or use Claude Code / your machine. The Qdrant searches are the bottleneck — at ~15ms each, 100K queries ≈ 25 minutes.
+
+Stage 3: Train LightGBM
+Once you have the 5M-row feature matrix:
+
+import lightgbm as lgb
+
+# Group sizes: 50 candidates per query
+group_sizes = [50] * 100_000  # 100K queries, 50 candidates each
+
+train_data = lgb.Dataset(
+    features_matrix,      # shape (5M, 30)
+    label=labels,         # 0, 1, or 2
+    group=group_sizes,
+)
+
+params = {
+    'objective': 'lambdarank',
+    'metric': 'ndcg',
+    'eval_at': [10],            # optimize for your REC_LIMIT
+    'num_leaves': 63,
+    'learning_rate': 0.05,
+    'min_data_in_leaf': 50,
+    'feature_fraction': 0.8,
+}
+
+model = lgb.train(params, train_data, num_boost_round=500)
+model.save_model('reranker_v1.txt')  # ~100KB file
+Training takes 2-5 minutes on CPU. LightGBM is fast.
+
+Where to Run Each Stage
+Stage	Compute Need	Best Option	Time
+Stage 1: S2 API → citation edges	CPU, internet	Claude Code, local, or Kaggle	~30 min
+Stage 2: Qdrant ANN + feature extraction	CPU, Qdrant API access	Kaggle notebook (you're familiar with it) or Claude Code	~1-2 hours
+Stage 3: LightGBM training	CPU only	Anywhere — Kaggle, local, Claude Code	~5 min
+My recommendation: Use Claude Code (since you have Pro) for Stages 1-2 as a single script. It can hit the S2 API, talk to your Qdrant, and build the dataset in one session. Then train LightGBM right there. Or if you prefer, I can build the scripts here and you run them on Kaggle.
+
+Summary
+You have:  1.6M papers with embeddings + metadata + citation COUNTS
+You need:  Citation EDGES (paper A → paper B)
+Get from:  Semantic Scholar batch API (direct arXiv ID support, free)
+Then:      Each paper = pseudo-user, its references = saves
+Result:    5M training rows with 30 features + graded labels (0/1/2)
+Train:     LightGBM lambdarank, 5 minutes, ~100KB model file
+Deploy:    Replace heuristic_score() with model.predict(), ~20 lines changed
+Want me to write the scripts when you're ready to start?

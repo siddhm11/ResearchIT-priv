@@ -1,0 +1,983 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   ResearchIT — Master Stylesheet
+   Premium dark-first design system for a personalized research feed.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Typography ────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --rit-accent: #0EA5E9;
+  --rit-accent-light: #38BDF8;
+  --rit-accent-dim: #0284C7;
+  --rit-accent-glow: rgba(14, 165, 233, 0.12);
+  --rit-accent-glow-strong: rgba(14, 165, 233, 0.25);
+  --rit-brand-from: #0EA5E9;
+  --rit-brand-via: #06B6D4;
+  --rit-brand-to: #22D3EE;
+  --rit-radius: 14px;
+  --rit-radius-sm: 10px;
+  --rit-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
+}
+
+h1, h2, h3, .font-display {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+code, .mono, .font-mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── 2. DaisyUI Theme Overrides ───────────────────────────────────────────── */
+/* Override DaisyUI primary color to teal/sky for dark and light themes */
+[data-theme="dark"] {
+  --p: 68.5% 0.163 221.4;    /* oklch: sky-500 */
+  --pf: 60% 0.163 221.4;     /* primary-focus: darker */
+  --pc: 98% 0.01 221.4;      /* primary-content: near white */
+  --b1: 15.7% 0.02 262;      /* base-100: deep navy-black */
+  --b2: 12.5% 0.02 262;      /* base-200: darker */
+  --b3: 10% 0.02 262;        /* base-300: darkest */
+  --bc: 91% 0.01 260;        /* base-content */
+  --rounded-btn: 10px;
+}
+
+[data-theme="light"] {
+  --p: 59% 0.18 221.4;
+  --pf: 52% 0.18 221.4;
+  --pc: 98% 0.005 0;
+  --b1: 98% 0.003 260;
+  --b2: 96% 0.005 260;
+  --b3: 93% 0.008 260;
+  --bc: 22% 0.02 260;
+  --rounded-btn: 10px;
+}
+
+/* ── 3. Base & Resets ─────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+html, body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+::selection {
+  background: var(--rit-accent);
+  color: white;
+}
+
+/* ── 4. Navbar ────────────────────────────────────────────────────────────── */
+.rit-navbar {
+  background: rgba(11, 13, 20, 0.8);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background var(--rit-transition);
+}
+
+[data-theme="light"] .rit-navbar {
+  background: rgba(255, 255, 255, 0.82);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.rit-nav-link {
+  position: relative;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  transition: all var(--rit-transition);
+}
+
+.rit-nav-link:hover, .rit-nav-link.active {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rit-nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 2px;
+  background: var(--rit-accent);
+  border-radius: 1px;
+}
+
+[data-theme="light"] .rit-nav-link {
+  color: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] .rit-nav-link:hover,
+[data-theme="light"] .rit-nav-link.active {
+  color: rgba(0, 0, 0, 0.9);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ── 5. Brand ─────────────────────────────────────────────────────────────── */
+.brand-text {
+  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.brand-text-sm {
+  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-to));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 600;
+}
+
+/* ── 6. Paper Card ────────────────────────────────────────────────────────── */
+.paper-card {
+  position: relative;
+  border-radius: var(--rit-radius);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: all var(--rit-transition);
+  overflow: hidden;
+}
+
+.paper-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rit-card-accent, var(--rit-accent));
+  opacity: 0;
+  transition: opacity var(--rit-transition);
+}
+
+.paper-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(14, 165, 233, 0.15);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2),
+              0 0 0 1px rgba(14, 165, 233, 0.08);
+}
+
+.paper-card:hover::before {
+  opacity: 1;
+}
+
+[data-theme="light"] .paper-card {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .paper-card:hover {
+  border-color: rgba(14, 165, 233, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06),
+              0 0 0 1px rgba(14, 165, 233, 0.1);
+}
+
+/* Card accent colors per category domain */
+.paper-card[data-cat^="cs"]      { --rit-card-accent: #38BDF8; }
+.paper-card[data-cat^="hep"],
+.paper-card[data-cat^="physics"],
+.paper-card[data-cat^="astro"],
+.paper-card[data-cat^="quant"],
+.paper-card[data-cat^="cond"]    { --rit-card-accent: #C084FC; }
+.paper-card[data-cat^="math"],
+.paper-card[data-cat^="stat"]    { --rit-card-accent: #34D399; }
+.paper-card[data-cat^="q-bio"]   { --rit-card-accent: #FBBF24; }
+.paper-card[data-cat^="econ"]    { --rit-card-accent: #FB7185; }
+.paper-card[data-cat^="eess"]    { --rit-card-accent: #FB923C; }
+
+/* Paper card title link */
+.paper-title {
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--rit-accent-light);
+  text-decoration: none;
+  transition: color var(--rit-transition);
+}
+
+.paper-title:hover {
+  color: var(--rit-accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(14, 165, 233, 0.3);
+  text-underline-offset: 3px;
+}
+
+[data-theme="light"] .paper-title {
+  color: var(--rit-accent-dim);
+}
+
+[data-theme="light"] .paper-title:hover {
+  color: #0369A1;
+}
+
+/* Abstract expand/collapse */
+.abstract-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.abstract-text.expanded {
+  -webkit-line-clamp: unset;
+  display: block;
+}
+
+.abstract-toggle {
+  cursor: pointer;
+  color: var(--rit-accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.8;
+  transition: opacity var(--rit-transition);
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.abstract-toggle:hover {
+  opacity: 1;
+}
+
+/* ── 7. Category Badges ───────────────────────────────────────────────────── */
+.cat-badge {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.cat-cs    { background: rgba(56,189,248,0.12);  color: #38BDF8; }
+.cat-phys  { background: rgba(192,132,252,0.12); color: #C084FC; }
+.cat-math  { background: rgba(52,211,153,0.12);  color: #34D399; }
+.cat-bio   { background: rgba(251,191,36,0.12);  color: #FBBF24; }
+.cat-econ  { background: rgba(251,113,133,0.12); color: #FB7185; }
+.cat-stat  { background: rgba(34,211,238,0.12);  color: #22D3EE; }
+.cat-eess  { background: rgba(251,146,60,0.12);  color: #FB923C; }
+.cat-other { background: rgba(148,163,184,0.1);  color: #94A3B8; }
+
+[data-theme="light"] .cat-cs    { background: rgba(14,165,233,0.1);  color: #0284C7; }
+[data-theme="light"] .cat-phys  { background: rgba(168,85,247,0.1);  color: #7C3AED; }
+[data-theme="light"] .cat-math  { background: rgba(16,185,129,0.1);  color: #059669; }
+[data-theme="light"] .cat-bio   { background: rgba(245,158,11,0.1);  color: #B45309; }
+[data-theme="light"] .cat-econ  { background: rgba(244,63,94,0.1);   color: #E11D48; }
+[data-theme="light"] .cat-stat  { background: rgba(6,182,212,0.1);   color: #0891B2; }
+[data-theme="light"] .cat-eess  { background: rgba(249,115,22,0.1);  color: #C2410C; }
+[data-theme="light"] .cat-other { background: rgba(100,116,139,0.08); color: #475569; }
+
+/* ── 8. Action Buttons ────────────────────────────────────────────────────── */
+.rit-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--rit-transition);
+  background: none;
+}
+
+.rit-action-btn .btn-icon {
+  font-size: 0.875rem;
+  transition: transform 0.2s ease;
+}
+
+.rit-btn-save {
+  color: var(--rit-accent);
+  border-color: rgba(14, 165, 233, 0.2);
+  background: rgba(14, 165, 233, 0.06);
+}
+
+.rit-btn-save:hover {
+  background: rgba(14, 165, 233, 0.15);
+  border-color: rgba(14, 165, 233, 0.3);
+  transform: translateY(-1px);
+}
+
+.rit-btn-save:hover .btn-icon {
+  transform: scale(1.15);
+}
+
+.rit-btn-save.saved {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10B981;
+}
+
+.rit-btn-dismiss {
+  color: rgba(255, 255, 255, 0.4);
+  border-color: transparent;
+}
+
+.rit-btn-dismiss:hover {
+  color: #EF4444;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+.rit-btn-link {
+  color: rgba(255, 255, 255, 0.4);
+  border-color: transparent;
+}
+
+.rit-btn-link:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="light"] .rit-btn-save {
+  color: #0284C7;
+  border-color: rgba(14, 165, 233, 0.25);
+  background: rgba(14, 165, 233, 0.06);
+}
+
+[data-theme="light"] .rit-btn-dismiss {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .rit-btn-link {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .rit-btn-link:hover {
+  color: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ── 9. Skeleton Loaders ──────────────────────────────────────────────────── */
+.skeleton-card {
+  border-radius: var(--rit-radius);
+  padding: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="light"] .skeleton-card {
+  border-color: rgba(0, 0, 0, 0.04);
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.skeleton-line {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.06) 25%,
+    rgba(148, 163, 184, 0.12) 50%,
+    rgba(148, 163, 184, 0.06) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+}
+
+[data-theme="light"] .skeleton-line {
+  background: linear-gradient(
+    90deg,
+    rgba(100, 116, 139, 0.08) 25%,
+    rgba(100, 116, 139, 0.14) 50%,
+    rgba(100, 116, 139, 0.08) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite ease-in-out;
+}
+
+.skeleton-line-title { height: 18px; width: 65%; }
+.skeleton-line-badge { height: 14px; width: 48px; border-radius: 4px; }
+.skeleton-line-meta  { height: 12px; width: 45%; }
+.skeleton-line-text  { height: 12px; width: 100%; }
+.skeleton-line-text-md { height: 12px; width: 82%; }
+.skeleton-line-text-sm { height: 12px; width: 55%; }
+.skeleton-line-btn   { height: 28px; width: 72px; border-radius: 8px; }
+
+/* ── 10. Toast Notifications ──────────────────────────────────────────────── */
+#toast-container {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+@media (min-width: 768px) {
+  #toast-container {
+    bottom: 24px;
+    right: 24px;
+  }
+}
+
+.rit-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: rgba(30, 35, 50, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #E2E8F0;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  animation: toastIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  max-width: 340px;
+}
+
+[data-theme="light"] .rit-toast {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 0, 0, 0.08);
+  color: #1E293B;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+.rit-toast.toast-exit {
+  animation: toastOut 0.25s ease-in forwards;
+}
+
+.rit-toast-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.rit-toast-success { border-left: 3px solid #10B981; }
+.rit-toast-error   { border-left: 3px solid #EF4444; }
+.rit-toast-info    { border-left: 3px solid var(--rit-accent); }
+
+/* ── 11. Coming Soon Badges ───────────────────────────────────────────────── */
+.coming-soon-wrapper {
+  position: relative;
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
+.coming-soon-wrapper.interactive {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.coming-soon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(14, 165, 233, 0.1);
+  color: var(--rit-accent);
+  border: 1px solid rgba(14, 165, 233, 0.15);
+  white-space: nowrap;
+}
+
+.coming-soon-section {
+  position: relative;
+  padding: 1rem;
+  border-radius: var(--rit-radius);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+[data-theme="light"] .coming-soon-section {
+  border-color: rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.01);
+}
+
+/* ── 12. Mobile Bottom Nav ────────────────────────────────────────────────── */
+.rit-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: none;
+  background: rgba(11, 13, 20, 0.92);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 6px 0 env(safe-area-inset-bottom, 8px);
+}
+
+[data-theme="light"] .rit-bottom-nav {
+  background: rgba(255, 255, 255, 0.92);
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+@media (max-width: 767px) {
+  .rit-bottom-nav { display: flex; }
+  body { padding-bottom: 68px; }
+}
+
+.rit-bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color var(--rit-transition);
+}
+
+.rit-bottom-nav-item svg {
+  width: 22px;
+  height: 22px;
+  transition: transform var(--rit-transition);
+}
+
+.rit-bottom-nav-item:hover,
+.rit-bottom-nav-item.active {
+  color: var(--rit-accent);
+}
+
+.rit-bottom-nav-item.active svg {
+  transform: scale(1.1);
+}
+
+[data-theme="light"] .rit-bottom-nav-item {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .rit-bottom-nav-item:hover,
+[data-theme="light"] .rit-bottom-nav-item.active {
+  color: var(--rit-accent-dim);
+}
+
+/* ── 13. Onboarding ───────────────────────────────────────────────────────── */
+.category-tile {
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all var(--rit-transition);
+  user-select: none;
+  text-align: center;
+  position: relative;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+[data-theme="light"] .category-tile {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.category-tile:hover {
+  border-color: rgba(14, 165, 233, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px var(--rit-accent-glow);
+}
+
+.category-tile.selected {
+  border-color: var(--rit-accent);
+  background: rgba(14, 165, 233, 0.06);
+  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.2),
+              0 4px 20px var(--rit-accent-glow);
+}
+
+.category-tile .tile-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.category-tile .tile-name {
+  font-weight: 600;
+  font-size: 0.8rem;
+  margin-bottom: 0.2rem;
+}
+
+.category-tile .tile-desc {
+  font-size: 0.65rem;
+  opacity: 0.5;
+  line-height: 1.3;
+}
+
+.category-tile .check-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--rit-accent);
+  color: white;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  animation: checkPop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.category-tile.selected .check-mark {
+  display: flex;
+}
+
+/* Onboarding progress dots */
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.2);
+  transition: all 0.3s ease;
+}
+
+.step-dot.active {
+  background: var(--rit-accent);
+  box-shadow: 0 0 10px var(--rit-accent-glow-strong);
+  transform: scale(1.3);
+}
+
+.step-dot.completed {
+  background: #10B981;
+}
+
+/* Onboarding seed progress bar */
+.seed-progress-track {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.seed-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--rit-brand-from), var(--rit-brand-to));
+  border-radius: 2px;
+  transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── 14. AI Summary Card ──────────────────────────────────────────────────── */
+.ai-summary-card {
+  position: relative;
+  background: rgba(14, 165, 233, 0.04);
+  border-radius: var(--rit-radius);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(14, 165, 233, 0.1);
+}
+
+[data-theme="light"] .ai-summary-card {
+  background: rgba(14, 165, 233, 0.03);
+  border-color: rgba(14, 165, 233, 0.12);
+}
+
+.ai-summary-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
+  background-size: 200% auto;
+  animation: shimmer 3s linear infinite;
+}
+
+/* ── 15. Search Enhancements ──────────────────────────────────────────────── */
+.rit-search-wrapper {
+  position: relative;
+}
+
+.rit-search-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: calc(var(--rit-radius) + 2px);
+  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: -1;
+}
+
+.rit-search-wrapper:focus-within::before {
+  opacity: 0.15;
+}
+
+.rit-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 1rem;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  color: inherit;
+}
+
+.rit-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="light"] .rit-search-input::placeholder {
+  color: rgba(0, 0, 0, 0.3);
+}
+
+/* ── 16. Pills & Badges ───────────────────────────────────────────────────── */
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.year-pill {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(148, 163, 184, 0.1);
+  color: #94A3B8;
+}
+
+.year-pill.recent {
+  background: rgba(16, 185, 129, 0.1);
+  color: #34D399;
+}
+
+[data-theme="light"] .year-pill {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+}
+
+[data-theme="light"] .year-pill.recent {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+}
+
+.cite-count {
+  font-size: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #94A3B8;
+}
+
+[data-theme="light"] .cite-count {
+  color: #64748B;
+}
+
+/* ── 17. Progress Messages ────────────────────────────────────────────────── */
+.rit-progress-container {
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.rit-progress-msg {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  animation: fadeInUp 0.4s ease;
+}
+
+[data-theme="light"] .rit-progress-msg {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.rit-progress-dots {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.rit-progress-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--rit-accent);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.rit-progress-dots span:nth-child(2) { animation-delay: 0.2s; }
+.rit-progress-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ── 18. Seed Card ────────────────────────────────────────────────────────── */
+.seed-card {
+  padding: 0.75rem 1rem;
+  border-radius: var(--rit-radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  transition: all var(--rit-transition);
+}
+
+[data-theme="light"] .seed-card {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+.seed-card:hover {
+  border-color: rgba(14, 165, 233, 0.2);
+  background: rgba(14, 165, 233, 0.02);
+}
+
+/* ── 19. Footer ───────────────────────────────────────────────────────────── */
+.app-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  margin-top: 4rem;
+  padding: 2rem 0;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.75rem;
+}
+
+[data-theme="light"] .app-footer {
+  border-top-color: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.footer-tech-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="light"] .footer-tech-badge {
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.4);
+  border-color: rgba(0, 0, 0, 0.04);
+}
+
+/* ── 20. Scrollbar ────────────────────────────────────────────────────────── */
+[data-theme="dark"] ::-webkit-scrollbar { width: 6px; }
+[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(14, 165, 233, 0.2);
+  border-radius: 3px;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(14, 165, 233, 0.35);
+}
+
+/* ── 21. HTMX Transitions ─────────────────────────────────────────────────── */
+.htmx-swapping {
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.htmx-added {
+  opacity: 0;
+}
+
+.htmx-settling {
+  opacity: 1;
+  transition: opacity 0.25s ease-in;
+}
+
+/* ── 22. Mobile Menu ──────────────────────────────────────────────────────── */
+.mobile-menu-toggle:checked ~ .mobile-menu {
+  display: flex;
+}
+
+.mobile-menu {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: rgba(11, 13, 20, 0.96);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.75rem;
+  z-index: 50;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme="light"] .mobile-menu {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom-color: rgba(0, 0, 0, 0.06);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* ── 23. Utilities ─────────────────────────────────────────────────────────── */
+.fade-in {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Error state */
+.rit-error-state {
+  text-align: center;
+  padding: 3rem 1.5rem;
+  border-radius: var(--rit-radius);
+  border: 1px dashed rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.03);
+}
+
+/* Hero gradient background */
+.rit-hero-glow {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--rit-accent-glow) 0%, transparent 70%);
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Pipeline details */
+.rit-pipeline-detail {
+  padding: 0.75rem 1rem;
+  border-radius: var(--rit-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="light"] .rit-pipeline-detail {
+  background: rgba(0, 0, 0, 0.015);
+  border-color: rgba(0, 0, 0, 0.04);
+}
+
+/* ── 24. Save animation ───────────────────────────────────────────────────── */
+.save-success {
+  animation: savePulse 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}

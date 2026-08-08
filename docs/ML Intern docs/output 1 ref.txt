@@ -1,0 +1,257 @@
+I now have a comprehensive picture. Let me compile the complete research report.
+
+Citation Graph Datasets for ResearchIT LambdaRank Training Data
+Executive Summary
+Five viable citation data sources exist, ranging from directly usable HF datasets to large-scale APIs. The winning pipeline is: unarXive citation edges + Semantic Scholar API for arXiv-specific citation graphs, augmented by OpenAlex referenced_works for scale. Below is the complete breakdown.
+
+Dataset-by-Dataset Analysis
+1. 🥇 saier/unarXive_citrec — BEST STARTING POINT
+Status: ✅ Live on HF Hub, CC-BY-SA 4.0, directly loadable
+
+Property	Value
+Size	2.5M items (train: 2,043,192 / dev: 225,084 / test: 225,348)
+Total storage	6.6 GB (JSONL)
+arXiv coverage	~1.9M arXiv papers (57% physics, 20% math, 17% CS, 5% other)
+Citation edges	63M references, 28M linked to OpenAlex IDs (44.4% link rate)
+Schema:
+
+{
+  '_id':           str,      # UUID
+  'text':          str,      # paragraph text containing citation
+  'marker':        str,      # citation marker e.g. "[1]"
+  'marker_offsets': [[int]], # char offsets of marker in text
+  'label':         str       # OpenAlex URL of cited paper e.g. "https://openalex.org/W3000054715"
+}
+Critical limitation: label is an OpenAlex ID, NOT an arXiv ID. You must join through OpenAlex to get arXiv IDs of cited papers. The license_info.jsonl file gives paper_arxiv_id for each sample — this is your bridge key.
+
+Usage for LTR triples:
+
+Each sample = (citing_paper's paragraph, cited_paper OpenAlex ID)
+Group by paper_arxiv_id from license_info.jsonl → get reference lists per paper
+Cross-reference OpenAlex IDs → arXiv IDs to map to your Qdrant corpus
+Build co-citation: papers citing the same work → shared citations = co-cited pairs
+from datasets import load_dataset
+citrec = load_dataset('saier/unarXive_citrec')
+# license_info.jsonl contains: {'paper_arxiv_id': '2011.09852', 'sample_ids': [...]}
+Full unarXive dump (for raw citation graph): Zenodo doi:10.5281/zenodo.7752615 (open subset, ~165k papers) and full restricted-access version (zenodo.7752754, ~1.9M papers — request access).
+
+2. 🥈 J0nasW/science-datalake — BEST FOR SCALE
+Status: ✅ Live on HF Hub (CC0/CC-BY), 960 GB total, Parquet format
+
+This is the Science Data Lake (paper 2603.03126) — a unified DuckDB-on-Parquet infrastructure integrating Semantic Scholar S2AG + OpenAlex + SciSciNet with 293M unique DOIs.
+
+Config/Split	Size	Content
+openalex_works	128 GB	479M works with id, doi, title, abstract, cited_by_count, arXiv linkable via DOI
+openalex_works_referenced_works	20 GB	Full citation edges: work_id → referenced_work_id (OpenAlex IDs)
+s2ag_papers	varies	S2AG papers with influential citation flags
+The key split for you:
+
+# Schema: openalex_works_referenced_works
+{
+  'work_id':             str,   # e.g. "https://openalex.org/W139517439"
+  'referenced_work_id':  str    # e.g. "https://openalex.org/W2114449116"
+}
+
+# Schema: openalex_works (join target)
+{
+  'id':               str,    # OpenAlex ID
+  'doi':              str,    # DOI — use to map to arXiv IDs
+  'title':            str,
+  'abstract':         str,
+  'cited_by_count':   int64,
+  'publication_year': int32
+}
+arXiv coverage: OpenAlex has ~50M arXiv-linked papers. DOI mapping works for papers on arXiv with assigned DOIs. Filter openalex_works where doi LIKE '%arxiv%' or use arXiv metadata snapshot to get the DOI↔arXiv ID mapping.
+
+Key advantage: openalex_works_referenced_works at 20 GB is the largest freely-available citation edge list on HF. Gives you the full (paper_A_cites_paper_B) bipartite graph. With 479M works and ~2B citation edges implied, this covers virtually all arXiv papers.
+
+3. 🥉 allenai/scirepeval (cite_prediction configs) — READY-TO-USE TRIPLETS
+Status: ✅ Live on HF Hub, Apache-2.0
+
+Config	Size	Format
+cite_prediction/train	1.4 GB	{query, pos, neg} triplets
+cite_prediction_new/train	13.6 GB	{query, pos, neg} triplets (2023 refresh)
+Schema:
+
+{
+  'query': {'title': str, 'abstract': str},  # or adds 'doc_id' (S2 corpus ID)
+  'pos':   {'title': str, 'abstract': str},  # directly cited paper
+  'neg':   {'title': str, 'abstract': str}   # random uncited paper
+}
+Key limitation: Triplets only, no graded relevance (no co-citation signal). Positives = direct citations, negatives = random. No arXiv IDs — uses S2 corpus IDs. The doc_id in cite_prediction maps to Semantic Scholar corpus IDs; you'd need S2 API to resolve to arXiv IDs.
+
+Best use case: Validation set for your LTR model. The cite_prediction_new (13.6 GB) is large enough for training a binary ranker but needs adaptation for 3-class graded (cited=2, co-cited=1, not-cited=0).
+
+4. Bibek/scidocs-reranking-train / mteb/scidocs-reranking — RERANKING BENCHMARK
+Status: ✅ Live on HF Hub
+
+Dataset	Split	Size	Format
+Bibek/scidocs-reranking-train	train/val	11 MB	{query: str, positive: [str], negative: [str]} (titles only!)
+mteb/scidocs-reranking	test/val	10 MB	same schema
+Direct reranking format — queries are paper titles, positives/negatives are paper title lists. Very small, useful only for eval. No arXiv IDs, no abstracts in the base split.
+
+5. leminda-ai/s2orc_small — S2ORC SAMPLE
+Status: ✅ Live on HF Hub (sample, not full)
+
+Property	Value
+Size	2 GB (small sample — not the full S2ORC)
+Full S2ORC	81.1M papers, NOT on HF Hub (request at https://api.semanticscholar.org/corpus/)
+Schema (S2ORC format):
+
+{
+  'id':           str,    # S2 hash ID
+  'title':        str,
+  'paperAbstract': str,
+  'inCitations':  [str],  # list of S2 paper IDs citing this paper
+  'outCitations': [str],  # list of S2 paper IDs cited by this paper ← KEY FIELD
+  'year':         int,
+  'doi':          str,
+  'pmid':         str,
+  'magId':        str
+}
+outCitations is exactly what you need! Full S2ORC (81M papers) is available for free download after request at: https://api.semanticscholar.org/corpus/. The HF sample is medicine-heavy, not arXiv-focused.
+
+Semantic Scholar Academic Graph (S2AG) API
+Not a dataset — a live API. No HF Hub equivalent exists for the full citation graph.
+
+Key endpoints for your use case:
+
+# Get citations for a paper (paginated, 1000/page)
+curl "https://api.semanticscholar.org/graph/v1/paper/arXiv:2303.14957/references?fields=title,externalIds,year&limit=100"
+
+# Batch lookup - most efficient for your 1.6M papers
+curl -X POST "https://api.semanticscholar.org/graph/v1/paper/batch" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["arXiv:2303.14957", "arXiv:2004.07180"], "fields": "references,citations,externalIds"}'
+
+# Free tier: 100 req/sec unauthenticated, 1000 req/sec with API key (free registration)
+# Full bulk download: https://api.semanticscholar.org/corpus/ (S2ORC + S2AG dumps)
+S2AG bulk download (datasets.semanticscholar.org): Available as JSON Lines, ~230GB compressed. Contains:
+
+papers.jsonl.gz: paper metadata + externalIds (includes arXiv IDs!)
+citations.jsonl.gz: full citation edge list with citingPaperId + citedPaperId
+arXiv linking: S2AG's externalIds.ArXiv field maps S2 corpus IDs to arXiv IDs directly.
+
+OpenAlex API (Free, No Auth)
+OpenAlex is the most comprehensive free source with arXiv linking:
+
+# Filter to arXiv papers and get their references — free, no API key
+curl "https://api.openalex.org/works?filter=locations.source.id:S4306400194&select=id,doi,referenced_works,cited_by_count&per_page=200"
+
+# Batch by arXiv IDs via DOI
+curl "https://api.openalex.org/works/doi:10.48550/arXiv.2303.14957"
+# Returns: {'referenced_works': ['https://openalex.org/W...', ...]}
+
+# Rate limit: 10 req/sec unauthenticated; 100k/day; use polite pool with email param
+curl "https://api.openalex.org/works?filter=...&mailto=you@example.com"
+The J0nasW/science-datalake dataset is essentially a pre-downloaded bulk snapshot of this API.
+
+Recommended Pipeline for Building LTR Triples
+Phase 1: Build the arXiv citation graph (2–4 days)
+Option A (Fastest) — Use openalex_works_referenced_works (20 GB Parquet):
+
+import duckdb
+# Filter to arXiv papers only using DOI pattern
+conn = duckdb.connect()
+conn.execute("""
+    INSTALL httpfs; LOAD httpfs;
+    -- Load OpenAlex works to get arXiv papers
+    CREATE TABLE arxiv_works AS
+    SELECT id, doi, title, abstract 
+    FROM read_parquet('hf://datasets/J0nasW/science-datalake/openalex_works/train/*.parquet')
+    WHERE doi LIKE '%arxiv%' OR doi LIKE '%10.48550%';
+    
+    -- Load citation edges
+    CREATE TABLE citations AS
+    SELECT work_id, referenced_work_id
+    FROM read_parquet('hf://datasets/J0nasW/science-datalake/openalex_works_referenced_works/train/*.parquet');
+    
+    -- Build citation graph for arXiv subset
+    SELECT c.work_id AS citing, c.referenced_work_id AS cited
+    FROM citations c
+    INNER JOIN arxiv_works w1 ON c.work_id = w1.id
+    INNER JOIN arxiv_works w2 ON c.referenced_work_id = w2.id;
+""")
+Option B (arXiv-only, smaller) — Use saier/unarXive_citrec + license_info.jsonl:
+
+from datasets import load_dataset
+import json
+
+# Get the paper_arxiv_id → sample_ids mapping
+license_info = {}
+with open('license_info.jsonl') as f:  # downloaded from HF repo
+    for line in f:
+        rec = json.loads(line)
+        license_info[rec['paper_arxiv_id']] = rec['sample_ids']
+
+# Load citation dataset
+citrec = load_dataset('saier/unarXive_citrec', split='train')
+# Each row: text paragraph from arxiv_id paper, citing label (OpenAlex ID)
+# Group by paper_arxiv_id to get full reference list per paper
+Phase 2: Generate (user_proxy, candidate, label) triples
+# For each arXiv paper P in your Qdrant corpus:
+# 1. Get P's reference list R = {papers P cites} → label=2 (direct citation)
+# 2. For each r in R, get r's references = co-cited candidates → label=1 
+# 3. ANN search from Qdrant with P's BGE-M3 embedding → retrieve top-K
+# 4. Label retrieved papers: 2 if in R, 1 if co-cited, 0 otherwise
+
+def build_ltr_sample(paper_id, qdrant_client, citation_graph, top_k=50):
+    direct_cites = citation_graph.get_references(paper_id)  # Set of arXiv IDs
+    co_cited = set()
+    for ref in direct_cites:
+        co_cited.update(citation_graph.get_references(ref))
+    co_cited -= direct_cites  # exclude direct citations
+    
+    # ANN retrieval
+    query_vec = get_embedding(paper_id)  # from Qdrant
+    candidates = qdrant_client.search(collection_name="arxiv", query_vector=query_vec, limit=top_k)
+    
+    rows = []
+    for c in candidates:
+        cid = c.payload['arxiv_id']
+        if cid in direct_cites:
+            label = 2
+        elif cid in co_cited:
+            label = 1
+        else:
+            label = 0
+        rows.append({'query': paper_id, 'candidate': cid, 'label': label, 'score': c.score})
+    return rows
+Phase 3: LightGBM LambdaRank features
+Features to extract per (query_paper, candidate_paper) pair:
+
+BGE-M3 cosine similarity (already from Qdrant ANN score)
+Title/abstract BM25 score
+Publication year difference
+Shared author count
+Field-of-study overlap (from OpenAlex topics in openalex_works_topics)
+Citation count of candidate (from openalex_works.cited_by_count)
+Co-citation frequency (from citation graph)
+Dataset Comparison Table
+Dataset	arXiv Coverage	Citation Edges	Format	HF Available	Size	Best Use
+saier/unarXive_citrec	~1.9M arXiv papers	28M linked refs	JSONL, paragraph+label	✅ Yes (CC-BY-SA)	6.6 GB	arXiv-specific citation pairs
+J0nasW/science-datalake openalex_works_referenced_works	~50M arXiv-linked	~2B edges	Parquet	✅ Yes (CC0)	20 GB	Largest citation edge table
+allenai/scirepeval cite_prediction_new	Multi-domain	13.6GB triplets	Parquet, query/pos/neg	✅ Yes (Apache-2)	13.6 GB	Ready triplets (no graded labels)
+leminda-ai/s2orc_small	Partial	inCitations/outCitations	Parquet	✅ Yes (sample only)	2 GB	Schema reference; use full S2ORC instead
+Full S2ORC / S2AG	81M papers, arXiv IDs	Full graph	JSONL.gz	❌ Request at S2	~230 GB	Complete graph with arXiv linking
+OpenAlex API	479M works	referenced_works per call	REST JSON	N/A	Unlimited	Real-time lookups for missing papers
+Semantic Scholar API	231M papers	references+citations per call	REST JSON	N/A	Unlimited	arXiv ID → citations, batch 500/req
+Recommendations
+Recommended starting strategy (least effort, highest ROI):
+Use saier/unarXive_citrec first — it's 6.6 GB, directly loadable, covers 1.9M arXiv papers with 28M resolved citation edges. The license_info.jsonl gives you the arXiv ID for each paragraph's source paper. This gets you ~60-70% of your 1.6M Qdrant corpus covered.
+
+Fill gaps with the Semantic Scholar API — for papers not covered by unarXive (newer than 2022, or restricted license), use POST /graph/v1/paper/batch with batches of 500 arXiv IDs. Free API key gives 1000 req/sec → can cover 1.6M papers in ~90 minutes.
+
+Use J0nasW/science-datalake openalex_works_referenced_works for building the co-citation graph at scale. At 20 GB Parquet, it's queryable with DuckDB locally. The openalex_works_topics split (7.8 GB) gives you the topic/field features for LightGBM.
+
+arXiv ID mapping cheat sheet:
+unarXive_citrec → license_info.jsonl gives paper_arxiv_id; labels are OpenAlex IDs → resolve via OpenAlex API
+scirepeval → doc_id = S2 corpus ID → resolve via https://api.semanticscholar.org/graph/v1/paper/{doc_id}?fields=externalIds
+science-datalake openalex_works → doi field; arXiv papers have DOI 10.48550/arXiv.XXXX.XXXXX
+S2AG bulk → externalIds.ArXiv field directly
+What's missing / watch out for:
+unarXive only links 44% of references to OpenAlex (the rest are unresolved raw strings) — you'll have ~56% citation noise
+Science Data Lake OpenAlex IDs ≠ arXiv IDs — requires DOI join, adds ~1 join step
+scirepeval triplets have no graded relevance; co-citation requires building it yourself from the citation graph
+Full S2ORC is the gold standard (outCitations field = arXiv ID linkable) but requires email request — 2-3 day wait for approval
+For papers after 2023: unarXive coverage drops; use S2AG API as primary source

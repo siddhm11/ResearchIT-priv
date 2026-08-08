@@ -1,0 +1,37 @@
+{#
+  Reusable skeleton loader — matches the shape of paper cards.
+  Include N times for N placeholder cards. Each card has:
+  - Title line + category badge
+  - Meta line (year + arxiv id + authors)
+  - 3 abstract text lines (varying widths)
+  - Action buttons row
+  All lines use the shimmer animation.
+#}
+<div class="space-y-4">
+  {% for i in range(count | default(3)) %}
+  <div class="skeleton-card animate-card-in" style="animation-delay: {{ i * 0.08 }}s">
+    <!-- Title row -->
+    <div class="flex items-start justify-between gap-3 mb-3">
+      <div class="skeleton-line skeleton-line-title"></div>
+      <div class="skeleton-line skeleton-line-badge flex-shrink-0"></div>
+    </div>
+    <!-- Meta row -->
+    <div class="flex items-center gap-2 mb-3">
+      <div class="skeleton-line" style="height: 14px; width: 36px; border-radius: 5px;"></div>
+      <div class="skeleton-line skeleton-line-meta"></div>
+    </div>
+    <!-- Abstract lines -->
+    <div class="space-y-2 mb-3">
+      <div class="skeleton-line skeleton-line-text"></div>
+      <div class="skeleton-line skeleton-line-text-md"></div>
+      <div class="skeleton-line skeleton-line-text-sm"></div>
+    </div>
+    <!-- Action buttons row -->
+    <div class="flex gap-2">
+      <div class="skeleton-line skeleton-line-btn"></div>
+      <div class="skeleton-line skeleton-line-btn"></div>
+      <div class="skeleton-line" style="height: 28px; width: 56px; border-radius: 8px;"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
