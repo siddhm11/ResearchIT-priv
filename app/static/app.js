@@ -170,6 +170,45 @@
     if (t) setTimeout(function () { closeToast(t); }, 4000);
   }
 
+  /* ── Infinite scroll ───────────────────────────────────────────────────
+     The loader button carries only hx-trigger="click"; this observer supplies
+     the scroll half by clicking it when it comes near the viewport.
+
+     Both htmx built-ins were tried against the deployed build first and are
+     documented in rec_page.html: `revealed` cannot fire when combined with a
+     second trigger (htmx's poller matches the attribute exactly), and
+     `intersect once` wired its handler but never fired on real scrolling.
+     Owning the observer is deterministic and testable.
+
+     rootMargin pre-loads a screen early so the next page is usually already
+     in place by the time the user reaches the bottom. */
+
+  var feedObserver = null;
+
+  function watchLoader() {
+    var more = document.querySelector('.feed-more');
+    if (!more) return;
+    if (!feedObserver) {
+      feedObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          var el = e.target;
+          feedObserver.unobserve(el);           // one shot per loader
+          if (!el.classList.contains('htmx-request')) el.click();
+        });
+      }, { rootMargin: '800px 0px' });
+    }
+    if (more.dataset.watched !== '1') {
+      more.dataset.watched = '1';
+      feedObserver.observe(more);
+    }
+  }
+
+  /* Each appended page brings its own loader, so re-arm after every swap. */
+  document.body.addEventListener('htmx:afterSwap', watchLoader);
+  document.addEventListener('DOMContentLoaded', watchLoader);
+  watchLoader();
+
   /* ── Keep the feed populated ───────────────────────────────────────────
      Dismissing shrinks the list. Without this the feed drains toward empty
      as the user triages, which is the opposite of what a feed should do. */
