@@ -60,9 +60,17 @@
           data-paper-id="{{ pid }}"
           data-vals='{{ _vals | tojson }}'>Remove</button>
 {% else %}
+  {#
+    The target MUST be the attribute-selector form, not "#actions-{{ pid }}".
+    Every arXiv id contains a dot (1706.03762), and in a CSS selector that dot
+    starts a class token — so "#actions-1706.03762" parses as
+    id="actions-1706" AND class="03762", which matches nothing. A class token
+    also cannot begin with a digit, so querySelector raises a SyntaxError
+    rather than merely missing. [id='…'] compares the literal string.
+  #}
   <button type="button" class="btn btn-sm btn-save"
           hx-post="/api/papers/{{ pid }}/save"
-          hx-target="#actions-{{ pid }}"
+          hx-target="[id='actions-{{ pid }}']"
           hx-swap="innerHTML"
           hx-vals='{{ _vals | tojson }}'>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"

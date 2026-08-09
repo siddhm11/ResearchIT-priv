@@ -18,7 +18,9 @@
         </div>
         <button type="button" class="btn btn-sm btn-save"
                 hx-post="/api/papers/{{ paper.arxiv_id }}/save"
-                hx-target="#seed-paper-{{ paper.arxiv_id }}"
+                {# Attribute selector, not "#seed-paper-…": the dot in an arXiv
+                   id would be read as a CSS class token. See action_buttons.html. #}
+                hx-target="[id='seed-paper-{{ paper.arxiv_id }}']"
                 hx-swap="outerHTML"
                 hx-vals='{"source": "onboarding", "position": {{ loop.index0 }}}'
                 onclick="if (window.bumpSeedCount) window.bumpSeedCount()">Save</button>
