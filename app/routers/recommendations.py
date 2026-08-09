@@ -16,8 +16,11 @@ Phase 4 changes vs Phase 2b:
   - Category-level suppression filters strongly disliked topics (4.3)
 """
 import asyncio
+import random
 import time
 import uuid
+from collections import OrderedDict
+
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
@@ -34,13 +37,17 @@ from app.recommend.clustering import (
 )
 from app.recommend.fusion import allocate_quotas, merge_quota_results
 from app.recommend.reranker import rerank_candidates
-from app.recommend.diversity import mmr_rerank, inject_exploration
+# inject_exploration is no longer imported here: exploration is now drawn per
+# page in _build_page() from a pre-shuffled pool, so that doc 06 §3.5's "two
+# serendipitous papers per feed" holds for every page rather than once per pool.
+from app.recommend.diversity import mmr_rerank
 
 router = APIRouter(prefix="/api")
 
 # Phase 4.5: Pipeline version tag for instrumentation.  Bump this on any
 # change to the ranking logic so A/B attribution is possible.
-_RANKER_VERSION = "v6.5_lightgbm_real_cosines"
+# v7 = paginated serving; ranking itself is unchanged.
+_RANKER_VERSION = "v7.0_paginated_feed"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -51,165 +58,317 @@ _OVERSAMPLE = 3
 # Short-term session context: fixed supplementary pool size
 _ST_SUPPLEMENT = 20
 
+# ── Paginated feed ───────────────────────────────────────────────────────────
+#
+# The feed used to terminate: REC_LIMIT (10) papers plus 2 exploration picks,
+# then a dead end with a "show different recommendations" button. Dismissing
+# shrank it further, so triaging drained the page toward empty.
+#
+# Rather than re-running the pipeline per page — it reclusters, re-retrieves
+# and rescores, and its exploration step is random, so page 2 would both cost
+# seconds and risk repeating page 1 — the first request ranks a deep pool once
+# and caches the ORDER under its query_id. Later pages are then a metadata
+# fetch and nothing else.
+#
+# Keying on query_id rather than user_id is deliberate: query_id already exists
+# to group one feed's impressions for per-feed CTR (Phase 6.5 B1), so a feed
+# and its cache entry share a lifetime, and two tabs get two independent feeds.
+
+_PAGE_SIZE = REC_LIMIT          # ranked papers per page
+_FEED_POOL = 60                 # how deep MMR ranks on the first request
+_N_EXPLORE = 2                  # exploration picks PER PAGE (doc 06 §3.5)
+
+# Tier 0 gets a shallower pool than the behavioural tiers. Trending is a
+# LIKE '%code%' scan plus a temp B-tree sort over 1.6M rows — the single most
+# expensive query in the system, and the one that lands on brand-new users.
+# Asking it for 60 rows instead of 10 made it time out entirely against Turso
+# without the local sidecar. Three pages is plenty before behavioural signal
+# takes over, and the sidecar makes this an index range read in production.
+_TRENDING_POOL = 30
+
+_FEED_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_FEED_CACHE_MAX = 200
+
+
+def _cache_put(query_id: str, entry: dict) -> None:
+    _FEED_CACHE[query_id] = entry
+    _FEED_CACHE.move_to_end(query_id)
+    while len(_FEED_CACHE) > _FEED_CACHE_MAX:
+        _FEED_CACHE.popitem(last=False)
+
+
+def _cache_get(query_id: str) -> dict | None:
+    entry = _FEED_CACHE.get(query_id)
+    if entry is not None:
+        _FEED_CACHE.move_to_end(query_id)
+    return entry
+
+
+def feed_cache_stats() -> dict:
+    """For diagnostics parity with the other in-process caches."""
+    return {"size": len(_FEED_CACHE), "max": _FEED_CACHE_MAX}
+
+
+def _take(pool: list[str], entry: dict, seen: set[str], n: int) -> list[str]:
+    """Pull the next n unserved ids from `pool`.
+
+    Tracks what has already been emitted on the entry rather than slicing by
+    page index, because `seen` grows while the user reads: a paper saved on
+    page 1 disappears from the pool, and index arithmetic would then silently
+    skip its neighbour.
+    """
+    out: list[str] = []
+    emitted = entry["emitted"]
+    for aid in pool:
+        if len(out) >= n:
+            break
+        if aid in emitted or aid in seen:
+            continue
+        out.append(aid)
+        emitted.add(aid)
+    return out
+
 
 @router.get("/recommendations", response_class=HTMLResponse)
 async def get_recommendations(
     request: Request,
+    page: int = 1,
+    query_id: str | None = None,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
+    """
+    Serve one page of the feed.
+
+    page=1 (or an unknown query_id) runs the full pipeline, ranks a deep pool
+    and caches the ordering. Later pages replay that ordering, so they cost a
+    metadata fetch instead of a recluster + re-retrieve + rescore.
+    """
     user_id = user_id or str(uuid.uuid4())
     state = await us.ensure_loaded(user_id)
+    page = max(1, page)
 
-    # Phase 6.5 B1: one query_id per feed request for per-feed CTR analysis
-    query_id = str(uuid.uuid4())
+    def _with_cookie(resp):
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        return resp
 
     def _empty_resp():
-        r = templates.TemplateResponse(
-            request,
-            "partials/empty_recs.html",
-            {"min_saves": REC_MIN_POSITIVES},
-        )
-        r.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
-        return r
+        return _with_cookie(templates.TemplateResponse(
+            request, "partials/empty_recs.html", {"min_saves": REC_MIN_POSITIVES},
+        ))
 
+    # Continue an existing feed only when the loader asks for a later page AND
+    # we still hold its ordering. A cache miss (restart, eviction) falls through
+    # to a fresh feed rather than erroring — the user sees new papers, which is
+    # the correct failure mode for a feed.
+    entry = _cache_get(query_id) if (query_id and page > 1) else None
+
+    if entry is None:
+        query_id = str(uuid.uuid4())
+        page = 1
+        entry = await _build_feed(user_id, state, query_id)
+        if entry is None:
+            return _empty_resp()
+        _cache_put(query_id, entry)
+
+    seen = us.all_seen(user_id)
+    papers, has_more = await _build_page(entry, seen)
+
+    if not papers:
+        return _empty_resp() if page == 1 else _with_cookie(
+            templates.TemplateResponse(
+                request, "partials/rec_page.html",
+                {"papers": [], "has_more": False,
+                 "next_page": page + 1, "query_id": query_id},
+            ))
+
+    # Page 1 brings the .feed wrapper; later pages are bare fragments that the
+    # loader button swaps itself out for.
+    template = "partials/recommendations.html" if page == 1 else "partials/rec_page.html"
+
+    return _with_cookie(templates.TemplateResponse(
+        request, template,
+        {
+            "papers": papers,
+            "has_more": has_more,
+            "next_page": page + 1,
+            "query_id": entry["query_id"],
+            "trending": entry.get("trending", False),
+        },
+    ))
+
+
+# ── Feed construction ────────────────────────────────────────────────────────
+
+async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
+    """
+    Run the tier cascade once and return a cacheable feed entry, or None when
+    there is nothing to show.
+
+    entry = {
+        ranked   ordered ids — the MMR-diversified feed
+        explore  shuffled leftover candidates, drawn from for serendipity
+        tags     {arxiv_id: instrumentation dict}
+        emitted  ids already served on some page of this feed
+        position running global rank, so `position` is continuous across pages
+    }
+    """
+    base = {
+        "query_id": query_id,
+        "emitted": set(),
+        "position": 0,
+        "trending": False,
+    }
+
+    # ── Tier 0: category trending (cold start, Phase 5) ──────────────────
     if not state.has_enough_for_recs():
-        # ── Tier 0: Category-filtered trending (Phase 5 cold-start) ──────
-        # If user has onboarded with category selections but hasn't saved
-        # enough papers yet, serve trending papers in their areas.
         category_filter = await db.get_user_category_filter(user_id)
         if category_filter:
             trending = await turso_svc.fetch_trending_by_categories(
-                category_filter, limit=REC_LIMIT,
+                category_filter, limit=_TRENDING_POOL,
             )
             if trending:
-                papers = []
-                for idx, paper in enumerate(trending):
-                    paper["saved"] = False
-                    paper["dismissed"] = False
-                    paper["ranker_version"] = _RANKER_VERSION
-                    paper["candidate_source"] = "trending_category_fallback"
-                    paper["cluster_id"] = ""
-                    paper["query_id"] = query_id
-                    paper["position"] = idx
-                    paper["propensity"] = 1.0  # deterministic
-                    paper["policy_id"] = _RANKER_VERSION
-                    papers.append(paper)
-
-                r = templates.TemplateResponse(
-                    request,
-                    "partials/recommendations.html",
-                    {"papers": papers, "source": "recommendation", "trending": True},
-                )
-                r.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
-                return r
-
-        return _empty_resp()
+                ids = [p["arxiv_id"] for p in trending if p.get("arxiv_id")]
+                if ids:
+                    return {
+                        **base,
+                        "trending": True,
+                        "ranked": ids,
+                        "explore": [],
+                        "tags": {
+                            aid: {
+                                "ranker_version": _RANKER_VERSION,
+                                "candidate_source": "trending_category_fallback",
+                                "cluster_id": "",
+                                "query_id": query_id,
+                                "propensity": 1.0,
+                                "policy_id": _RANKER_VERSION,
+                            } for aid in ids
+                        },
+                    }
+        return None
 
     seen = us.all_seen(user_id)
 
-    # Phase 4.5: paper_tags maps arxiv_id → instrumentation metadata
-    # populated by whichever tier serves the result.
-    paper_tags: dict[str, dict] = {}
-    rec_arxiv_ids: list[str] = []
-    rerank_time_ms = 0
-    timing_breakdown: dict = {}
-
-    # ── Tier 1: Multi-interest clustering + quota fusion (≥5 saves) ──────
-    rec_arxiv_ids, paper_tags, rerank_time_ms, timing_breakdown = await _multi_interest_recommend(
-        user_id, state, seen, REC_LIMIT, query_id=query_id,
+    # ── Tier 1: multi-interest clustering + quota fusion (≥5 saves) ──────
+    ranked, explore, tags, _rerank_ms, _timing = await _multi_interest_recommend(
+        user_id, state, seen, _FEED_POOL, query_id=query_id,
     )
 
-    # ── Tier 2: EWMA single-vector search (≥3 saves) ──────────────────────
-    if not rec_arxiv_ids:
-        rec_arxiv_ids = await _ewma_recommend(user_id, seen, REC_LIMIT)
-        for aid in rec_arxiv_ids:
-            paper_tags[aid] = {
+    # ── Tier 2: EWMA single-vector search (≥3 saves) ─────────────────────
+    if not ranked:
+        ranked = await _ewma_recommend(user_id, seen, _FEED_POOL)
+        explore, tags = [], {
+            aid: {
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": "ewma_longterm",
                 "cluster_id": "",
                 "query_id": query_id,
                 "propensity": 1.0,
                 "policy_id": _RANKER_VERSION,
-            }
+            } for aid in ranked
+        }
 
-    # ── Tier 3: Qdrant Recommend API (≥1 save fallback) ───────────────────
-    if not rec_arxiv_ids:
-        rec_arxiv_ids = await qdrant_svc.recommend(
+    # ── Tier 3: Qdrant Recommend API (≥1 save) ───────────────────────────
+    if not ranked:
+        ranked = await qdrant_svc.recommend(
             positive_arxiv_ids=state.positive_list,
             negative_arxiv_ids=state.negative_list,
             seen_arxiv_ids=seen,
-            limit=REC_LIMIT,
+            limit=_FEED_POOL,
         )
-        for aid in rec_arxiv_ids:
-            paper_tags[aid] = {
+        explore, tags = [], {
+            aid: {
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": "qdrant_recommend",
                 "cluster_id": "",
                 "query_id": query_id,
                 "propensity": 1.0,
                 "policy_id": _RANKER_VERSION,
-            }
+            } for aid in ranked
+        }
 
-    if not rec_arxiv_ids:
-        return _empty_resp()
+    if not ranked:
+        return None
 
-    # Phase 3.5: Turso primary, arXiv API fallback
-    t0_meta = time.time()
-    meta = await turso_svc.fetch_metadata_batch(rec_arxiv_ids)
-    missing = [aid for aid in rec_arxiv_ids if aid not in meta]
+    # Shuffled once, then drawn from in order. Doc 06 §3.5 calls for
+    # SERENDIPITOUS picks — taking the pool's head instead would just serve
+    # "next best by score", which is not the same thing. Shuffling here rather
+    # than sampling per page keeps picks non-repeating across pages for free.
+    explore = list(explore)
+    random.shuffle(explore)
+
+    return {**base, "ranked": ranked, "explore": explore, "tags": tags}
+
+
+async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
+    """Materialise the next page: _PAGE_SIZE ranked papers + _N_EXPLORE picks."""
+    core = _take(entry["ranked"], entry, seen, _PAGE_SIZE)
+    # Exploration rides along with ranked papers; it never carries a page on its
+    # own. Without this guard the feed could report "that's everything" (has_more
+    # is computed over `ranked`) and then still hand back an exploration-only
+    # page to anyone who asked for the next one.
+    explore = (
+        _take(entry["explore"], entry, seen, _N_EXPLORE)
+        if core and entry["explore"] else []
+    )
+    ids = core + explore
+    if not ids:
+        return [], False
+
+    # Phase 3.5: Turso primary (sidecar-backed), arXiv API fallback.
+    meta = await turso_svc.fetch_metadata_batch(ids)
+    missing = [aid for aid in ids if aid not in meta]
     if missing:
         try:
-            arxiv_meta = await arxiv_svc.fetch_metadata_batch(missing)
-            meta.update(arxiv_meta)
+            meta.update(await arxiv_svc.fetch_metadata_batch(missing))
         except Exception as e:
             print(f"[recommendations] arXiv fallback for {len(missing)} IDs failed: {e}")
-    t1_meta = time.time()
-    meta_time_ms = int((t1_meta - t0_meta) * 1000)
 
-    # Cache to SQLite so category suppression JOINs work (Phase 4.3)
+    # Cache to SQLite so category-suppression JOINs work (Phase 4.3)
     await db.cache_turso_metadata_batch(list(meta.values()))
 
-    papers = []
-    for idx, aid in enumerate(rec_arxiv_ids):
+    explore_set = set(explore)
+    # Phase 6.5 B2: probability this policy chose to show an exploration paper
+    # on this page — the fraction of the pool drawn. Deterministic slots are 1.0.
+    explore_propensity = (
+        len(explore) / len(entry["explore"]) if entry["explore"] else 0.0
+    )
+
+    papers: list[dict] = []
+    for aid in ids:
         if aid not in meta:
             continue
-        tags = paper_tags.get(aid, {})
+        tags = entry["tags"].get(aid, {})
+        is_explore = aid in explore_set
         papers.append({
             **meta[aid],
             "saved": False,
             "dismissed": False,
-            # Phase 4.5 instrumentation — embedded in card, flows back via HTMX
             "ranker_version": tags.get("ranker_version", _RANKER_VERSION),
-            "candidate_source": tags.get("candidate_source", ""),
-            "cluster_id": tags.get("cluster_id", ""),
-            # Phase 6.5 B1: query_id + position for per-feed CTR
-            "query_id": tags.get("query_id", query_id),
-            "position": idx,
-            # Phase 6.5 B2: propensity + policy_id for counterfactual eval
-            "propensity": tags.get("propensity", 1.0),
+            # Serving as an exploration pick overrides the retrieval origin —
+            # the same paper is only "exploration" by virtue of how it was shown.
+            "candidate_source": "exploration" if is_explore
+                                else tags.get("candidate_source", ""),
+            "cluster_id": "" if is_explore else tags.get("cluster_id", ""),
+            "query_id": entry["query_id"],
+            "position": entry["position"],
+            "propensity": explore_propensity if is_explore
+                          else tags.get("propensity", 1.0),
             "policy_id": tags.get("policy_id", _RANKER_VERSION),
         })
+        entry["position"] += 1
 
-    resp = templates.TemplateResponse(
-        request,
-        "partials/recommendations.html",
-        {
-            "papers": papers,
-            "rerank_time_ms": rerank_time_ms,
-            "meta_time_ms": meta_time_ms,
-            "timing": timing_breakdown,
-        },
+    has_more = any(
+        aid not in entry["emitted"] and aid not in seen
+        for aid in entry["ranked"]
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
-    return resp
-
-
+    return papers, has_more
 # ── Tier 1: Multi-interest clustering + quota fusion ─────────────────────────
 
 async def _multi_interest_recommend(
     user_id: str, state, seen: set[str], limit: int,
     *, query_id: str = "",
-) -> tuple[list[str], dict[str, dict]]:
+) -> tuple[list[str], list[str], dict[str, dict], int, dict]:
     """
     Full recommendation pipeline (Phase 2b + Phase 4 corrections):
       1. Ward clustering → identify distinct interests
@@ -226,13 +385,13 @@ async def _multi_interest_recommend(
     """
     positives = state.positive_list
     if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
-        return [], {}, 0, {}
+        return [], [], {}, 0, {}
 
     try:
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
         if len(vectors) < MIN_PAPERS_FOR_CLUSTERING:
-            return [], {}, 0, {}
+            return [], [], {}, 0, {}
 
         timing = {}  # Collect per-stage timing breakdown
 
@@ -355,7 +514,7 @@ async def _multi_interest_recommend(
                     qdrant_score_map[aid] = float(hit["score"])
 
         if not candidate_ids:
-            return [], {}, 0, {}
+            return [], [], {}, 0, {}
         timing["ann_retrieval_ms"] = int((time.time() - t0_ann) * 1000)
 
         # ── Step 5: Fetch candidate vectors + metadata ────────────────────
@@ -379,7 +538,7 @@ async def _multi_interest_recommend(
         # Only process candidates with both vectors and metadata
         valid_ids = [cid for cid in candidate_ids if cid in cand_vectors and cid in cand_meta]
         if not valid_ids:
-            return candidate_ids[:limit], {}, 0, {}
+            return candidate_ids[:limit], [], {}, 0, {}
         timing["candidate_meta_ms"] = int((time.time() - t0_cand_meta) * 1000)
 
         valid_embs = np.array([cand_vectors[cid] for cid in valid_ids], dtype=np.float32)
@@ -508,31 +667,24 @@ async def _multi_interest_recommend(
         )
         timing["mmr_ms"] = int((time.time() - t0_mmr) * 1000)
 
-        # ── Step 8: Exploration injection ─────────────────────────────────
-        final = inject_exploration(
-            selected_ids=mmr_selected,
-            all_candidate_ids=reranked_ids,
-            n_explore=2,
-        )
-        final = final[:limit + 2]
-
-        # Phase 4.5 + 6.5: Build per-paper instrumentation tags
-        exploration_set = set(final) - set(mmr_selected)
-
-        # Phase 6.5 B2: Compute propensity for counterfactual evaluation
-        # MMR-selected papers are deterministic → propensity = 1.0
-        # Exploration papers are randomly sampled → propensity = n_explore / pool_size
+        # ── Step 8: Split into the ranked feed and the exploration pool ───
+        # Exploration is NOT injected here any more. Doc 06 §3.5 specifies two
+        # serendipitous papers per FEED, and with pagination a "feed" is one
+        # page — so the injection happens per page in _build_page(), against
+        # this pool. Injecting once over a 60-deep pool would have both diluted
+        # the ratio and stranded every exploration pick on the last page,
+        # because inject_exploration appends.
         mmr_set = set(mmr_selected)
-        explore_pool_size = max(1, len(reranked_ids) - len(mmr_set))
-        n_actual_explore = len(exploration_set)
-        explore_propensity = n_actual_explore / explore_pool_size if explore_pool_size > 0 else 0.0
+        explore_pool = [aid for aid in reranked_ids if aid not in mmr_set]
 
+        # Phase 4.5 + 6.5: per-paper instrumentation, for the whole pool.
+        # candidate_source here is the RETRIEVAL origin; papers served as an
+        # exploration pick get that overridden at page-build time, since the
+        # same paper is an exploration pick only by virtue of how it was served.
         paper_tags: dict[str, dict] = {}
-        for aid in final:
+        for aid in mmr_selected + explore_pool:
             cluster_idx = paper_cluster_map.get(aid)
-            if aid in exploration_set:
-                source = "exploration"
-            elif cluster_idx == -1:
+            if cluster_idx == -1:
                 source = "short_term_supplement"
             elif cluster_idx is not None:
                 source = f"cluster_{cluster_idx}"
@@ -543,15 +695,15 @@ async def _multi_interest_recommend(
                 "candidate_source": source,
                 "cluster_id": str(cluster_idx) if cluster_idx is not None and cluster_idx >= 0 else "",
                 "query_id": query_id,
-                "propensity": explore_propensity if aid in exploration_set else 1.0,
+                "propensity": 1.0,          # deterministic unless served as exploration
                 "policy_id": _RANKER_VERSION,
             }
 
-        return final, paper_tags, rerank_time_ms, timing
+        return mmr_selected, explore_pool, paper_tags, rerank_time_ms, timing
 
     except Exception as e:
         print(f"[recommendations] multi-interest preprocessing failed: {e}")
-        return [], {}, 0, {}
+        return [], [], {}, 0, {}
 
 
 # ── Tier 2: EWMA single-vector search ────────────────────────────────────────

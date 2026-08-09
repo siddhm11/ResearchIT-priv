@@ -1,98 +1,33 @@
 {% extends "base.html" %}
 
-{% block title %}ResearchIT — Your AI Research Feed{% endblock %}
+{% block title %}ResearchIT{% endblock %}
+
+{#
+  Feed page.
+
+  The hero is gone. It previously ran py-8/py-14 with a brand headline, a
+  strapline naming the embedding model and reranker, a search box and three
+  vendor badges — so on a phone the first paper sat entirely below the fold.
+  A feed's job is to show the feed. Search has its own page and is one tap away
+  in both navs.
+#}
 
 {% block content %}
-<div class="space-y-10 fade-in">
+<div class="wrap wrap--feed">
 
-  <!-- ═══ Hero Section ═══ -->
-  <div class="py-8 md:py-14 text-center relative">
-    <!-- Decorative glow -->
-    <div class="rit-hero-glow animate-glow" style="top: -100px; left: 50%; transform: translateX(-50%);"></div>
-
-    <h1 class="text-3xl md:text-5xl font-extrabold mb-4 tracking-tight relative z-10 font-display">
-      <span class="brand-text">Your AI Research Feed</span>
-    </h1>
-    <p class="text-sm md:text-base text-base-content/50 mb-8 max-w-xl mx-auto leading-relaxed relative z-10">
-      Personalized paper recommendations powered by multi-interest clustering, BGE-M3 embeddings, and LightGBM reranking — across 1.6M arXiv papers.
-    </p>
-
-    <!-- Search bar -->
-    <div class="max-w-2xl mx-auto relative z-10">
-      <div class="rit-search-wrapper">
-        <div class="card bg-base-100 shadow-lg rounded-xl">
-          <form action="/search" method="get" class="flex gap-2 p-2 items-center">
-            <svg class="w-5 h-5 ml-3 text-base-content/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
-            </svg>
-            <input type="text"
-                   name="q"
-                   placeholder="e.g. efficient transformers for edge devices…"
-                   class="rit-search-input text-base md:text-lg py-3"
-                   autofocus />
-            <button class="btn btn-primary btn-md rounded-lg px-5 flex-shrink-0" type="submit">
-              Search
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tech badges -->
-    <div class="flex flex-wrap justify-center gap-4 mt-6 text-xs text-base-content/40 relative z-10">
-      <span class="flex items-center gap-1.5">
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-        Qdrant + Zilliz Vector Search
-      </span>
-      <span class="flex items-center gap-1.5">
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-        Groq AI Summaries
-      </span>
-      <span class="flex items-center gap-1.5">
-        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" /></svg>
-        LightGBM Reranker
-      </span>
-    </div>
+  <div class="sec-head">
+    <h1 class="sec-title">Your feed</h1>
+    {% if save_count %}
+      <span class="pill">{{ save_count }} saved</span>
+    {% endif %}
   </div>
 
-  <!-- ═══ Recommendations Section ═══ -->
-  <div>
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-lg md:text-xl font-semibold font-display">Recommended for You</h2>
-      {% if save_count %}
-      <span class="stat-pill bg-primary/10 text-primary text-xs">
-        {{ save_count }} paper{{ "s" if save_count != 1 else "" }} saved
-      </span>
-      {% endif %}
-    </div>
-
-    <!-- Progress messages (above skeleton/content) -->
-    <div id="rec-progress-msgs" class="rit-progress-container"></div>
-
-    <div id="rec-section-wrapper" class="relative">
-      <div id="rec-section"
-           hx-get="/api/recommendations"
-           hx-trigger="load"
-           hx-swap="innerHTML">
-        <!-- Skeleton loaders while recommendations load -->
-        {% set count = 4 %}
-        {% include "partials/skeleton.html" %}
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══ Coming Soon: Collaborative Filtering ═══ -->
-  <div class="coming-soon-section" onclick="handleComingSoon(event)">
-    <div class="flex items-center gap-3">
-      <span class="text-2xl opacity-50">👥</span>
-      <div>
-        <div class="flex items-center gap-2 mb-0.5">
-          <span class="text-sm font-medium text-base-content/50">Researchers like you also read…</span>
-          <span class="coming-soon-badge">🔒 Coming Soon</span>
-        </div>
-        <p class="text-xs text-base-content/30">Collaborative filtering recommendations based on similar research profiles.</p>
-      </div>
-    </div>
+  <div id="rec-section"
+       hx-get="/api/recommendations"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    {% set count = 4 %}
+    {% include "partials/skeleton.html" %}
   </div>
 
 </div>

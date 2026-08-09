@@ -1,0 +1,38 @@
+{#
+  One appendable page of the feed: cards, then the loader for the page after it.
+
+  Swapped in via hx-swap="outerHTML" onto the previous loader button, so this
+  fragment replaces the button that requested it and brings its own successor.
+  That makes the chain self-perpetuating with no JavaScript, exactly as the
+  htmx infinite-scroll example prescribes.
+
+  The loader is a real <button>, not a bare sentinel div, and carries
+  hx-trigger="revealed, click". NN/g's infinite-scroll findings are that
+  screen-reader users "will only see the first chunk of the list, without being
+  able to trigger the loading of new content", and that an endless list also
+  destroys footer access and any sense of whether more content exists. One
+  focusable, clickable element that also auto-fires on scroll answers all three.
+
+  Note on `revealed`: it does NOT fire inside a CSS overflow-y:scroll container
+  — htmx's docs prescribe `intersect once` there. This layout scrolls the
+  document body, so `revealed` is correct. If a scrolling wrapper is ever
+  introduced around the feed, this trigger has to change with it.
+#}
+{% for paper in papers %}
+  {% set source = "recommendation" %}
+  {% set position = paper.position %}
+  {% include "partials/paper_card.html" %}
+{% endfor %}
+
+{% if has_more %}
+  <button type="button" class="feed-more"
+          hx-get="/api/recommendations?page={{ next_page }}&amp;query_id={{ query_id }}"
+          hx-trigger="revealed, click"
+          hx-target="this"
+          hx-swap="outerHTML transition:true">
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="label">More papers</span>
+  </button>
+{% else %}
+  <p class="feed-end">That's everything for now — save a few papers and the feed will refill.</p>
+{% endif %}

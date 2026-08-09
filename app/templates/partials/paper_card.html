@@ -1,115 +1,91 @@
 {#
-  Reusable paper card.
-  Expects variables:
-    paper  – dict with arxiv_id, title, abstract, authors (JSON str), category, published, year
-    source – "search" | "recommendation"  (default "search")
-    position – integer rank in the list
+  Paper card.
+
+  Expects:
+    paper     dict — arxiv_id, title, abstract, authors (JSON str), category,
+                     published, year, citation_count, saved, plus the Phase 4.5 /
+                     6.5 instrumentation keys (ranker_version, candidate_source,
+                     cluster_id, query_id, position, propensity, policy_id)
+    source    "search" | "recommendation" | "saved"   (default "search")
+    position  int — GLOBAL rank in the feed, not the index within a page
+
+  Anatomy, top to bottom: meta line / title / authors / abstract / actions.
+  The previous card gave five facts five competing treatments — a coloured
+  badge pulled to the right of the title, a year pill, a mono arXiv id, the
+  author list and a citation count with its own icon — none of which anyone
+  scans for, all of which outweighed the title.
 #}
 {% set source = source | default("search") %}
-{% set position = position | default(0) %}
-{% set authors_list = paper.authors | default("[]") | tojson_parse | default([]) %}
-
-{# Fallback: if tojson_parse returned empty but authors is a non-empty string, split by comma #}
+{% set position = position if position is defined else (paper.position | default(0)) %}
+{% set authors_list = paper.authors | default("[]") | tojson_parse %}
 {% if not authors_list and paper.authors %}
   {% set authors_list = paper.authors.split(", ") %}
 {% endif %}
+{% set lead = paper.abstract | lead %}
+{% set rest = paper.abstract | lead_rest %}
+{% set cites = paper.citation_count | default(0) %}
+{% set pub_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
 
-{# Category badge colour mapping #}
-{% set cat = paper.category | default("") %}
-{% if cat.startswith("cs.") %}
-  {% set cat_class = "cat-cs" %}
-{% elif cat.startswith("hep") or cat.startswith("physics") or cat.startswith("astro") or cat.startswith("quant") or cat.startswith("cond-mat") %}
-  {% set cat_class = "cat-phys" %}
-{% elif cat.startswith("math") or cat.startswith("stat") %}
-  {% set cat_class = "cat-math" %}
-{% elif cat.startswith("q-bio") %}
-  {% set cat_class = "cat-bio" %}
-{% elif cat.startswith("econ") %}
-  {% set cat_class = "cat-econ" %}
-{% elif cat.startswith("eess") %}
-  {% set cat_class = "cat-eess" %}
-{% else %}
-  {% set cat_class = "cat-other" %}
-{% endif %}
+<article class="card" id="paper-{{ paper.arxiv_id }}" data-arxiv-id="{{ paper.arxiv_id }}">
 
-<div class="paper-card bg-base-100 p-4 md:p-5 space-y-2.5 animate-card-in"
-     id="paper-{{ paper.arxiv_id }}"
-     data-cat="{{ cat }}">
-
-  <!-- Title + category badge -->
-  <div class="flex items-start justify-between gap-3">
-    <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
-       target="_blank"
-       rel="noopener"
-       class="paper-title leading-snug flex-1">
-      {{ paper.title }}
-    </a>
+  <div class="card-meta">
     {% if paper.category %}
-    <span class="cat-badge {{ cat_class }} shrink-0 mt-0.5">{{ paper.category }}</span>
+      <span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>
+    {% endif %}
+    {% if pub_year %}<span>{{ pub_year }}</span>{% endif %}
+    {% if cites %}
+      <span class="sep">·</span>
+      <span>{{ cites | commafy }} citations</span>
     {% endif %}
   </div>
 
-  <!-- Meta: year pill · arXiv ID · authors · citations -->
-  <div class="flex flex-wrap items-center gap-2">
-    {% set p_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
-    {% if p_year %}
-      <span class="year-pill {% if p_year in ['2024', '2025', '2026'] %}recent{% endif %}">{{ p_year }}</span>
+  <a class="card-title"
+     href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+     target="_blank" rel="noopener">{{ paper.title }}</a>
+
+  {% if authors_list %}
+    <div class="card-authors">
+      {{ authors_list[:3] | join(", ") }}{% if authors_list | length > 3 %} &amp; {{ authors_list | length - 3 }} more{% endif %}
+    </div>
+  {% endif %}
+
+  {% if lead or rest %}
+    <p class="card-abstract{% if rest %} is-clamped{% endif %}" id="abs-{{ paper.arxiv_id }}">
+      {%- if lead %}<span class="lead">{{ lead }}</span>{% endif -%}
+      {%- if rest %} <span class="rest">{{ rest }}</span>{% endif -%}
+    </p>
+    {% if rest %}
+      <button type="button" class="card-more"
+              aria-expanded="false" aria-controls="abs-{{ paper.arxiv_id }}"
+              onclick="toggleAbstract(this)">Read more</button>
     {% endif %}
+  {% endif %}
 
-    <span class="text-xs text-base-content/40 font-mono font-medium">[{{ paper.arxiv_id }}]</span>
-
-    {% if space_app_url %}
-    {# Deep link, not just a link to the map's front door: the client reads
-       ?paper=<id> and flies the camera to that paper, so this answers "what sits
-       near this one?" directly. Papers outside the spatial corpus get placed by
-       their nearest semantic neighbours, so the link is never a dead end. #}
-    <a href="{{ space_paper_url(paper.arxiv_id) }}" target="_blank" rel="noopener"
-       class="text-xs text-primary/70 hover:text-primary inline-flex items-center gap-1"
-       title="Show this paper in the 3D map">
-      <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10" opacity=".55"/>
-      </svg>
-      in 3D
-    </a>
-    {% endif %}
-
-    {% if authors_list %}
-      <span class="text-xs text-base-content/60">·</span>
-      <span class="text-xs text-base-content/70">
-        {{ authors_list[:3] | join(", ") }}
-        {% if authors_list | length > 3 %}
-          <span class="opacity-60 italic">+{{ authors_list | length - 3 }} more</span>
-        {% endif %}
-      </span>
-    {% endif %}
-
-    {% if paper.citation_count %}
-      <span class="text-xs text-base-content/60 hidden sm:inline">·</span>
-      <span class="cite-count" title="{{ paper.influential_citations|default(0) }} influential">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-        {{ paper.citation_count }} citations
-      </span>
-    {% endif %}
-  </div>
-
-  <!-- Abstract (expandable) -->
-  <p class="abstract-text text-sm text-base-content/75">
-    {{ paper.abstract[:500] }}{% if paper.abstract | length > 500 %}…{% endif %}
-  </p>
-  <button class="abstract-toggle" onclick="toggleAbstract(this)">↓ Show more</button>
-
-  <!-- Action buttons (HTMX-powered, swap themselves on click) -->
-  <div id="actions-{{ paper.arxiv_id }}">
+  <div class="card-actions" id="actions-{{ paper.arxiv_id }}">
     {% include "partials/action_buttons.html" %}
   </div>
 
-  <!-- Why this paper? — Coming Soon -->
-  <div class="coming-soon-wrapper interactive" onclick="handleComingSoon(event)">
-    <div class="flex items-center gap-2 pt-1 cursor-pointer">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-base-content/40" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-      <span class="text-xs text-base-content/50">Why this paper?</span>
-      <span class="coming-soon-badge">Coming Soon</span>
-    </div>
-  </div>
+  {% if space_app_url %}
+  {# Deep link, not just a link to the map's front door: the client reads
+     ?paper=<id> and flies the camera to that paper, so this answers "what sits
+     near this one?" directly. Papers outside the spatial corpus get placed by
+     their nearest semantic neighbours, so the link is never a dead end.
+     Sits outside #actions-… so it survives the htmx swap after a save. #}
+  <a class="card-map" href="{{ space_paper_url(paper.arxiv_id) }}"
+     target="_blank" rel="noopener" title="Show this paper in the 3D map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" /><path d="m3 7 9 5 9-5M12 12v10" opacity=".55" />
+    </svg>
+    See it in 3D
+  </a>
+  {% endif %}
 
-</div>
+  {# Reason panel lives outside #actions-… so it survives the htmx swap that
+     replaces the buttons after a save. #}
+  {% set reason = paper.candidate_source | default("") | why_shown %}
+  {% if reason %}
+    <p class="card-reason hidden" id="why-{{ paper.arxiv_id }}">{{ reason }}</p>
+  {% endif %}
+
+</article>

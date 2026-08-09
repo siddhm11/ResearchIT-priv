@@ -7,8 +7,16 @@ dist/
 build/
 
 # Environment
+# Match every dotenv variant (.env.local, .env.production, ...), not just .env —
+# a bare `.env` rule leaves `.env.local` committable, which is how live keys leak.
 .env
+.env.*
+!.env.example
 *.db
+
+# Virtualenvs
+.venv/
+venv/
 
 # IDE
 .vscode/
