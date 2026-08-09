@@ -5,6 +5,11 @@ All credentials live in .env locally; override with env vars in production.
 import os
 from dotenv import load_dotenv
 
+# .env.local first, then .env. load_dotenv does not overwrite a name that is
+# already set, so the first file to define a key wins — which makes .env.local
+# the local override and .env the shared default. Real environment variables
+# still beat both, so nothing changes in the container.
+load_dotenv(".env.local")
 load_dotenv()  # reads .env file if present (won't override existing env vars)
 
 # ── Qdrant (BGE-M3 dense, 1 024-dim) ─────────────────────────────────────────
@@ -387,3 +392,4 @@ def expand_category_groups(group_keys: list[str]) -> set[str]:
         if grp:
             cats.update(grp["arxiv"])
     return cats
+

@@ -54,10 +54,26 @@ async def save_paper(
     # warms the in-process vector cache, which is the one that still matters.
     asyncio.create_task(_update_profile_on_save(user_id, paper_id))
 
+    # The response replaces the whole actions row, so it has to carry enough
+    # context to re-render every control in it — including "Why this?", which
+    # is derived from candidate_source. Without these the button silently
+    # disappeared the moment a user saved the paper.
     resp = templates.TemplateResponse(
         request,
         "partials/action_buttons.html",
-        {"paper_id": paper_id, "saved": True, "dismissed": False, "source": source},
+        {
+            "paper_id": paper_id,
+            "saved": True,
+            "dismissed": False,
+            "source": source,
+            "position": position,
+            "query_id": query_id,
+            "ranker_version": ranker_version,
+            "candidate_source": candidate_source,
+            "cluster_id": cluster_id,
+            "propensity": propensity,
+            "policy_id": policy_id,
+        },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp

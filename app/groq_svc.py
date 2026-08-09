@@ -34,7 +34,18 @@ def _get_client():
         if _client is not None:
             return _client
 
-        from groq import Groq
+        # Returning None rather than raising when the package is absent. Every
+        # other optional dependency here degrades quietly — BGE-M3, Zilliz,
+        # LightGBM and the metadata sidecar all fall back — but this one raised
+        # ModuleNotFoundError straight out of the request, so /api/search/summary
+        # answered 500 and the page showed "Something went wrong" instead of
+        # simply omitting the overview. The rewriter has the same call path, so
+        # a missing groq also broke search itself, not just the summary.
+        try:
+            from groq import Groq
+        except ImportError:
+            print("[groq_svc] groq not installed -- summaries and rewrite disabled")
+            return None
 
         _client = Groq(api_key=config.GROQ_API_KEY)
         print("[groq_svc] Groq client initialized")

@@ -1,983 +1,737 @@
 /* ═══════════════════════════════════════════════════════════════════════════
-   ResearchIT — Master Stylesheet
-   Premium dark-first design system for a personalized research feed.
+   ResearchIT — design system
+   ---------------------------------------------------------------------------
+   Single hand-written stylesheet. Replaces Tailwind Play CDN + DaisyUI +
+   animations.css + the Google Fonts @import.
+
+   Why no Tailwind CDN: tailwindcss.com/docs/installation/play-cdn states the
+   Play CDN is a development tool, not for production. The maintainer's reason
+   (tailwindlabs/tailwindcss#7637) is that it applies styles at RUNTIME, with
+   the worst case being elements added to the page after first load — which is
+   exactly every htmx-swapped paper card. On an infinite feed that means a
+   flash of unstyled content on every appended page.
+
+   Why no webfont: a @font-face CDN link is a render-blocking cross-origin
+   round trip, and the previous @import sat INSIDE this stylesheet, so fonts
+   could not even begin loading until this file was fetched and parsed. System
+   stacks render instantly with zero network. If a brand face is wanted later,
+   self-host it (woff2, subset, font-display: swap, preload) rather than
+   reintroducing a CDN.
+
+   Identity — "reading room": warm near-black rather than the blue-black every
+   research tool uses (warm dark also reduces halation around light text), one
+   restrained green accent reserved for Save, content set in a serif and
+   interface chrome in sans/mono so the two never compete.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Typography ────────────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+/* ── 1. Tokens ─────────────────────────────────────────────────────────────
+   Three theme states, per the artifact spec:
+     :root                                  complete LIGHT palette (base)
+     @media dark + :not([data-theme=light]) dark for "system" users
+     :root[data-theme="dark"]               dark when explicitly toggled
+   Every colour is defined in the bare :root first, so nothing depends on a
+   media query or attribute being present.                                   */
 
 :root {
-  --rit-accent: #0EA5E9;
-  --rit-accent-light: #38BDF8;
-  --rit-accent-dim: #0284C7;
-  --rit-accent-glow: rgba(14, 165, 233, 0.12);
-  --rit-accent-glow-strong: rgba(14, 165, 233, 0.25);
-  --rit-brand-from: #0EA5E9;
-  --rit-brand-via: #06B6D4;
-  --rit-brand-to: #22D3EE;
-  --rit-radius: 14px;
-  --rit-radius-sm: 10px;
-  --rit-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* surfaces */
+  --bg:         #FBFAF8;
+  --bg-2:       #F4F1EC;
+  --surface:    #FFFFFF;
+  --surface-2:  #F2EFEA;
+  --border:     #E5E1D9;
+  --border-2:   #D3CDC2;
+
+  /* text */
+  --text:       #1C1A16;
+  --text-2:     #58524A;
+  --text-3:     #8A837A;
+
+  /* accent — Save, active nav, focus */
+  --accent:     #2C5638;
+  --accent-2:   #3E7A4E;
+  --accent-bg:  #E4EFE5;
+  --accent-br:  #CADFCD;
+
+  /* semantic */
+  --danger:     #8E3033;
+  --danger-bg:  #F9E3E3;
+  --info:       #13528C;
+  --info-bg:    #DDEAFA;
+
+  /* highlight behind the abstract's lead sentence */
+  --mark:       #DDE9DA;
+
+  --shadow-1:   0 1px 2px rgba(28, 26, 22, .05);
+  --shadow-2:   0 1px 2px rgba(28, 26, 22, .05), 0 8px 24px -16px rgba(28, 26, 22, .25);
+
+  /* type */
+  --font-ui:    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-read:  Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* metrics — feed width is set for READING measure (~68ch at .95rem serif),
+     not for filling the viewport. The old max-w-4xl (896px) ran well past the
+     line length reading research supports. */
+  --feed-w:     42rem;
+  --page-w:     64rem;
+  --radius:     10px;
+  --radius-sm:  6px;
+  --topbar-h:   3.25rem;
 }
 
-body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  letter-spacing: -0.01em;
-}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #14120F;
+    --bg-2:      #100E0C;
+    --surface:   #1C1916;
+    --surface-2: #24211C;
+    --border:    #2C2823;
+    --border-2:  #3B3630;
 
-h1, h2, h3, .font-display {
-  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
-}
+    --text:      #E8E3DB;
+    --text-2:    #A9A197;
+    --text-3:    #7C756B;
 
-code, .mono, .font-mono {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-}
+    --accent:    #7FB58C;
+    --accent-2:  #A7D4B2;
+    --accent-bg: #263B2C;
+    --accent-br: #37543F;
 
-/* ── 2. DaisyUI Theme Overrides ───────────────────────────────────────────── */
-/* Override DaisyUI primary color to teal/sky for dark and light themes */
-[data-theme="dark"] {
-  --p: 68.5% 0.163 221.4;    /* oklch: sky-500 */
-  --pf: 60% 0.163 221.4;     /* primary-focus: darker */
-  --pc: 98% 0.01 221.4;      /* primary-content: near white */
-  --b1: 15.7% 0.02 262;      /* base-100: deep navy-black */
-  --b2: 12.5% 0.02 262;      /* base-200: darker */
-  --b3: 10% 0.02 262;        /* base-300: darkest */
-  --bc: 91% 0.01 260;        /* base-content */
-  --rounded-btn: 10px;
-}
+    --danger:    #E89B8C;
+    --danger-bg: #38201B;
+    --info:      #7FB6E8;
+    --info-bg:   #16283A;
 
-[data-theme="light"] {
-  --p: 59% 0.18 221.4;
-  --pf: 52% 0.18 221.4;
-  --pc: 98% 0.005 0;
-  --b1: 98% 0.003 260;
-  --b2: 96% 0.005 260;
-  --b3: 93% 0.008 260;
-  --bc: 22% 0.02 260;
-  --rounded-btn: 10px;
-}
+    --mark:      #2E3B2C;
 
-/* ── 3. Base & Resets ─────────────────────────────────────────────────────── */
-html {
-  scroll-behavior: smooth;
-}
-
-html, body {
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-::selection {
-  background: var(--rit-accent);
-  color: white;
-}
-
-/* ── 4. Navbar ────────────────────────────────────────────────────────────── */
-.rit-navbar {
-  background: rgba(11, 13, 20, 0.8);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  transition: background var(--rit-transition);
-}
-
-[data-theme="light"] .rit-navbar {
-  background: rgba(255, 255, 255, 0.82);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-}
-
-.rit-nav-link {
-  position: relative;
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 0.875rem;
-  font-weight: 500;
-  padding: 0.4rem 0.75rem;
-  border-radius: 8px;
-  transition: all var(--rit-transition);
-}
-
-.rit-nav-link:hover, .rit-nav-link.active {
-  color: rgba(255, 255, 255, 0.95);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.rit-nav-link.active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 16px;
-  height: 2px;
-  background: var(--rit-accent);
-  border-radius: 1px;
-}
-
-[data-theme="light"] .rit-nav-link {
-  color: rgba(0, 0, 0, 0.5);
-}
-
-[data-theme="light"] .rit-nav-link:hover,
-[data-theme="light"] .rit-nav-link.active {
-  color: rgba(0, 0, 0, 0.9);
-  background: rgba(0, 0, 0, 0.04);
-}
-
-/* ── 5. Brand ─────────────────────────────────────────────────────────────── */
-.brand-text {
-  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-.brand-text-sm {
-  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-to));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  font-weight: 600;
-}
-
-/* ── 6. Paper Card ────────────────────────────────────────────────────────── */
-.paper-card {
-  position: relative;
-  border-radius: var(--rit-radius);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  transition: all var(--rit-transition);
-  overflow: hidden;
-}
-
-.paper-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--rit-card-accent, var(--rit-accent));
-  opacity: 0;
-  transition: opacity var(--rit-transition);
-}
-
-.paper-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(14, 165, 233, 0.15);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2),
-              0 0 0 1px rgba(14, 165, 233, 0.08);
-}
-
-.paper-card:hover::before {
-  opacity: 1;
-}
-
-[data-theme="light"] .paper-card {
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-[data-theme="light"] .paper-card:hover {
-  border-color: rgba(14, 165, 233, 0.2);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06),
-              0 0 0 1px rgba(14, 165, 233, 0.1);
-}
-
-/* Card accent colors per category domain */
-.paper-card[data-cat^="cs"]      { --rit-card-accent: #38BDF8; }
-.paper-card[data-cat^="hep"],
-.paper-card[data-cat^="physics"],
-.paper-card[data-cat^="astro"],
-.paper-card[data-cat^="quant"],
-.paper-card[data-cat^="cond"]    { --rit-card-accent: #C084FC; }
-.paper-card[data-cat^="math"],
-.paper-card[data-cat^="stat"]    { --rit-card-accent: #34D399; }
-.paper-card[data-cat^="q-bio"]   { --rit-card-accent: #FBBF24; }
-.paper-card[data-cat^="econ"]    { --rit-card-accent: #FB7185; }
-.paper-card[data-cat^="eess"]    { --rit-card-accent: #FB923C; }
-
-/* Paper card title link */
-.paper-title {
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--rit-accent-light);
-  text-decoration: none;
-  transition: color var(--rit-transition);
-}
-
-.paper-title:hover {
-  color: var(--rit-accent);
-  text-decoration: underline;
-  text-decoration-color: rgba(14, 165, 233, 0.3);
-  text-underline-offset: 3px;
-}
-
-[data-theme="light"] .paper-title {
-  color: var(--rit-accent-dim);
-}
-
-[data-theme="light"] .paper-title:hover {
-  color: #0369A1;
-}
-
-/* Abstract expand/collapse */
-.abstract-text {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.abstract-text.expanded {
-  -webkit-line-clamp: unset;
-  display: block;
-}
-
-.abstract-toggle {
-  cursor: pointer;
-  color: var(--rit-accent);
-  font-size: 0.75rem;
-  font-weight: 500;
-  opacity: 0.8;
-  transition: opacity var(--rit-transition);
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-.abstract-toggle:hover {
-  opacity: 1;
-}
-
-/* ── 7. Category Badges ───────────────────────────────────────────────────── */
-.cat-badge {
-  font-size: 0.625rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 6px;
-  white-space: nowrap;
-}
-
-.cat-cs    { background: rgba(56,189,248,0.12);  color: #38BDF8; }
-.cat-phys  { background: rgba(192,132,252,0.12); color: #C084FC; }
-.cat-math  { background: rgba(52,211,153,0.12);  color: #34D399; }
-.cat-bio   { background: rgba(251,191,36,0.12);  color: #FBBF24; }
-.cat-econ  { background: rgba(251,113,133,0.12); color: #FB7185; }
-.cat-stat  { background: rgba(34,211,238,0.12);  color: #22D3EE; }
-.cat-eess  { background: rgba(251,146,60,0.12);  color: #FB923C; }
-.cat-other { background: rgba(148,163,184,0.1);  color: #94A3B8; }
-
-[data-theme="light"] .cat-cs    { background: rgba(14,165,233,0.1);  color: #0284C7; }
-[data-theme="light"] .cat-phys  { background: rgba(168,85,247,0.1);  color: #7C3AED; }
-[data-theme="light"] .cat-math  { background: rgba(16,185,129,0.1);  color: #059669; }
-[data-theme="light"] .cat-bio   { background: rgba(245,158,11,0.1);  color: #B45309; }
-[data-theme="light"] .cat-econ  { background: rgba(244,63,94,0.1);   color: #E11D48; }
-[data-theme="light"] .cat-stat  { background: rgba(6,182,212,0.1);   color: #0891B2; }
-[data-theme="light"] .cat-eess  { background: rgba(249,115,22,0.1);  color: #C2410C; }
-[data-theme="light"] .cat-other { background: rgba(100,116,139,0.08); color: #475569; }
-
-/* ── 8. Action Buttons ────────────────────────────────────────────────────── */
-.rit-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 12px;
-  border-radius: 8px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all var(--rit-transition);
-  background: none;
-}
-
-.rit-action-btn .btn-icon {
-  font-size: 0.875rem;
-  transition: transform 0.2s ease;
-}
-
-.rit-btn-save {
-  color: var(--rit-accent);
-  border-color: rgba(14, 165, 233, 0.2);
-  background: rgba(14, 165, 233, 0.06);
-}
-
-.rit-btn-save:hover {
-  background: rgba(14, 165, 233, 0.15);
-  border-color: rgba(14, 165, 233, 0.3);
-  transform: translateY(-1px);
-}
-
-.rit-btn-save:hover .btn-icon {
-  transform: scale(1.15);
-}
-
-.rit-btn-save.saved {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: rgba(16, 185, 129, 0.3);
-  color: #10B981;
-}
-
-.rit-btn-dismiss {
-  color: rgba(255, 255, 255, 0.4);
-  border-color: transparent;
-}
-
-.rit-btn-dismiss:hover {
-  color: #EF4444;
-  background: rgba(239, 68, 68, 0.08);
-  border-color: rgba(239, 68, 68, 0.15);
-}
-
-.rit-btn-link {
-  color: rgba(255, 255, 255, 0.4);
-  border-color: transparent;
-}
-
-.rit-btn-link:hover {
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-[data-theme="light"] .rit-btn-save {
-  color: #0284C7;
-  border-color: rgba(14, 165, 233, 0.25);
-  background: rgba(14, 165, 233, 0.06);
-}
-
-[data-theme="light"] .rit-btn-dismiss {
-  color: rgba(0, 0, 0, 0.35);
-}
-
-[data-theme="light"] .rit-btn-link {
-  color: rgba(0, 0, 0, 0.35);
-}
-
-[data-theme="light"] .rit-btn-link:hover {
-  color: rgba(0, 0, 0, 0.7);
-  background: rgba(0, 0, 0, 0.04);
-}
-
-/* ── 9. Skeleton Loaders ──────────────────────────────────────────────────── */
-.skeleton-card {
-  border-radius: var(--rit-radius);
-  padding: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-[data-theme="light"] .skeleton-card {
-  border-color: rgba(0, 0, 0, 0.04);
-  background: rgba(0, 0, 0, 0.015);
-}
-
-.skeleton-line {
-  border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    rgba(148, 163, 184, 0.06) 25%,
-    rgba(148, 163, 184, 0.12) 50%,
-    rgba(148, 163, 184, 0.06) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.8s infinite ease-in-out;
-}
-
-[data-theme="light"] .skeleton-line {
-  background: linear-gradient(
-    90deg,
-    rgba(100, 116, 139, 0.08) 25%,
-    rgba(100, 116, 139, 0.14) 50%,
-    rgba(100, 116, 139, 0.08) 75%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.8s infinite ease-in-out;
-}
-
-.skeleton-line-title { height: 18px; width: 65%; }
-.skeleton-line-badge { height: 14px; width: 48px; border-radius: 4px; }
-.skeleton-line-meta  { height: 12px; width: 45%; }
-.skeleton-line-text  { height: 12px; width: 100%; }
-.skeleton-line-text-md { height: 12px; width: 82%; }
-.skeleton-line-text-sm { height: 12px; width: 55%; }
-.skeleton-line-btn   { height: 28px; width: 72px; border-radius: 8px; }
-
-/* ── 10. Toast Notifications ──────────────────────────────────────────────── */
-#toast-container {
-  position: fixed;
-  bottom: 80px;
-  right: 20px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: none;
-}
-
-@media (min-width: 768px) {
-  #toast-container {
-    bottom: 24px;
-    right: 24px;
+    --shadow-1:  0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-2:  0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -20px rgba(0, 0, 0, .9);
   }
 }
 
-.rit-toast {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-radius: 10px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  background: rgba(30, 35, 50, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #E2E8F0;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  animation: toastIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-  max-width: 340px;
+:root[data-theme="dark"] {
+  --bg:        #14120F;
+  --bg-2:      #100E0C;
+  --surface:   #1C1916;
+  --surface-2: #24211C;
+  --border:    #2C2823;
+  --border-2:  #3B3630;
+
+  --text:      #E8E3DB;
+  --text-2:    #A9A197;
+  --text-3:    #7C756B;
+
+  --accent:    #7FB58C;
+  --accent-2:  #A7D4B2;
+  --accent-bg: #263B2C;
+  --accent-br: #37543F;
+
+  --danger:    #E89B8C;
+  --danger-bg: #38201B;
+  --info:      #7FB6E8;
+  --info-bg:   #16283A;
+
+  --mark:      #2E3B2C;
+
+  --shadow-1:  0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2:  0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -20px rgba(0, 0, 0, .9);
 }
 
-[data-theme="light"] .rit-toast {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 0, 0, 0.08);
-  color: #1E293B;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+/* ── 2. Reset & base ─────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.rit-toast.toast-exit {
-  animation: toastOut 0.25s ease-in forwards;
+h1, h2, h3, h4, h5, p, figure { margin: 0; }
+ul, ol { margin: 0; padding: 0; }
+img, svg { display: block; max-width: 100%; }
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--accent-bg); color: var(--text); }
+
+/* One visible focus style everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
-.rit-toast-icon {
-  font-size: 1rem;
-  flex-shrink: 0;
+/* Screen-reader-only, but still focusable. Used by the skip link and by the
+   feed's "load more" control's helper text. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-.rit-toast-success { border-left: 3px solid #10B981; }
-.rit-toast-error   { border-left: 3px solid #EF4444; }
-.rit-toast-info    { border-left: 3px solid var(--rit-accent); }
-
-/* ── 11. Coming Soon Badges ───────────────────────────────────────────────── */
-.coming-soon-wrapper {
-  position: relative;
-  opacity: 0.5;
-  pointer-events: none;
-  cursor: default;
+.skip-link {
+  position: absolute; left: .5rem; top: -3rem; z-index: 200;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  padding: .5rem .85rem; font-size: .85rem; font-weight: 550;
+  transition: top .15s ease;
 }
+.skip-link:focus { top: .5rem; }
 
-.coming-soon-wrapper.interactive {
-  pointer-events: auto;
-  cursor: pointer;
-}
+/* ── 3. Layout ───────────────────────────────────────────────────────────── */
 
-.coming-soon-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.6rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: rgba(14, 165, 233, 0.1);
-  color: var(--rit-accent);
-  border: 1px solid rgba(14, 165, 233, 0.15);
-  white-space: nowrap;
-}
+.shell { display: flex; flex-direction: column; min-height: 100vh; }
 
-.coming-soon-section {
-  position: relative;
-  padding: 1rem;
-  border-radius: var(--rit-radius);
-  border: 1px dashed rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.01);
-}
-
-[data-theme="light"] .coming-soon-section {
-  border-color: rgba(0, 0, 0, 0.08);
-  background: rgba(0, 0, 0, 0.01);
-}
-
-/* ── 12. Mobile Bottom Nav ────────────────────────────────────────────────── */
-.rit-bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: none;
-  background: rgba(11, 13, 20, 0.92);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 6px 0 env(safe-area-inset-bottom, 8px);
-}
-
-[data-theme="light"] .rit-bottom-nav {
-  background: rgba(255, 255, 255, 0.92);
-  border-top-color: rgba(0, 0, 0, 0.06);
-}
-
-@media (max-width: 767px) {
-  .rit-bottom-nav { display: flex; }
-  body { padding-bottom: 68px; }
-}
-
-.rit-bottom-nav-item {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 0;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 0.625rem;
-  font-weight: 500;
-  text-decoration: none;
-  transition: color var(--rit-transition);
-}
-
-.rit-bottom-nav-item svg {
-  width: 22px;
-  height: 22px;
-  transition: transform var(--rit-transition);
-}
-
-.rit-bottom-nav-item:hover,
-.rit-bottom-nav-item.active {
-  color: var(--rit-accent);
-}
-
-.rit-bottom-nav-item.active svg {
-  transform: scale(1.1);
-}
-
-[data-theme="light"] .rit-bottom-nav-item {
-  color: rgba(0, 0, 0, 0.35);
-}
-
-[data-theme="light"] .rit-bottom-nav-item:hover,
-[data-theme="light"] .rit-bottom-nav-item.active {
-  color: var(--rit-accent-dim);
-}
-
-/* ── 13. Onboarding ───────────────────────────────────────────────────────── */
-.category-tile {
-  cursor: pointer;
-  border: 2px solid rgba(255, 255, 255, 0.06);
-  border-radius: 12px;
-  padding: 1rem;
-  transition: all var(--rit-transition);
-  user-select: none;
-  text-align: center;
-  position: relative;
-  background: rgba(255, 255, 255, 0.02);
-}
-
-[data-theme="light"] .category-tile {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-.category-tile:hover {
-  border-color: rgba(14, 165, 233, 0.3);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 20px var(--rit-accent-glow);
-}
-
-.category-tile.selected {
-  border-color: var(--rit-accent);
-  background: rgba(14, 165, 233, 0.06);
-  box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.2),
-              0 4px 20px var(--rit-accent-glow);
-}
-
-.category-tile .tile-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  display: block;
-}
-
-.category-tile .tile-name {
-  font-weight: 600;
-  font-size: 0.8rem;
-  margin-bottom: 0.2rem;
-}
-
-.category-tile .tile-desc {
-  font-size: 0.65rem;
-  opacity: 0.5;
-  line-height: 1.3;
-}
-
-.category-tile .check-mark {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--rit-accent);
-  color: white;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: 700;
-  animation: checkPop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.category-tile.selected .check-mark {
-  display: flex;
-}
-
-/* Onboarding progress dots */
-.step-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: rgba(148, 163, 184, 0.2);
-  transition: all 0.3s ease;
-}
-
-.step-dot.active {
-  background: var(--rit-accent);
-  box-shadow: 0 0 10px var(--rit-accent-glow-strong);
-  transform: scale(1.3);
-}
-
-.step-dot.completed {
-  background: #10B981;
-}
-
-/* Onboarding seed progress bar */
-.seed-progress-track {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.seed-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--rit-brand-from), var(--rit-brand-to));
-  border-radius: 2px;
-  transition: width 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-/* ── 14. AI Summary Card ──────────────────────────────────────────────────── */
-.ai-summary-card {
-  position: relative;
-  background: rgba(14, 165, 233, 0.04);
-  border-radius: var(--rit-radius);
-  padding: 1.25rem;
-  margin-bottom: 1rem;
-  overflow: hidden;
-  border: 1px solid rgba(14, 165, 233, 0.1);
-}
-
-[data-theme="light"] .ai-summary-card {
-  background: rgba(14, 165, 233, 0.03);
-  border-color: rgba(14, 165, 233, 0.12);
-}
-
-.ai-summary-card::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
-  background-size: 200% auto;
-  animation: shimmer 3s linear infinite;
-}
-
-/* ── 15. Search Enhancements ──────────────────────────────────────────────── */
-.rit-search-wrapper {
-  position: relative;
-}
-
-.rit-search-wrapper::before {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: calc(var(--rit-radius) + 2px);
-  background: linear-gradient(135deg, var(--rit-brand-from), var(--rit-brand-via), var(--rit-brand-to));
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  z-index: -1;
-}
-
-.rit-search-wrapper:focus-within::before {
-  opacity: 0.15;
-}
-
-.rit-search-input {
-  background: transparent;
-  border: none;
-  outline: none;
-  font-size: 1rem;
+.wrap {
   width: 100%;
-  padding: 0.75rem 1rem;
-  color: inherit;
+  max-width: var(--page-w);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2rem);
 }
 
-.rit-search-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+.wrap--feed { max-width: calc(var(--feed-w) + 4rem); }
+
+main { flex: 1; padding-block: 1.5rem 4rem; }
+
+/* Mobile bottom nav is fixed; keep content clear of it and of the home
+   indicator on iOS. */
+@media (max-width: 719px) {
+  main { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
 }
 
-[data-theme="light"] .rit-search-input::placeholder {
-  color: rgba(0, 0, 0, 0.3);
+.stack { display: flex; flex-direction: column; }
+.stack-2 { gap: .5rem; }
+.stack-3 { gap: .75rem; }
+.stack-4 { gap: 1rem; }
+.stack-6 { gap: 1.5rem; }
+.row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.grow { flex: 1; min-width: 0; }
+
+/* ── 4. Top bar ──────────────────────────────────────────────────────────
+   Solid, not glass. backdrop-filter blur+saturate is the default "AI SaaS"
+   navbar and it composites the whole scrolling feed underneath it on every
+   frame — a real cost on a 2-vCPU box with an infinite list below.        */
+
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  height: var(--topbar-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .wrap { height: 100%; display: flex; align-items: center; gap: 1rem; }
+
+.brand {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-weight: 640; font-size: 1.02rem; letter-spacing: -.015em;
+}
+.brand-mark {
+  width: 1.35rem; height: 1.35rem; flex: none;
+  color: var(--accent);
 }
 
-/* ── 16. Pills & Badges ───────────────────────────────────────────────────── */
-.stat-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 12px;
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 500;
+.nav { display: none; align-items: center; gap: .15rem; margin-left: auto; }
+@media (min-width: 720px) { .nav { display: flex; } }
+
+.nav-link {
+  position: relative;
+  padding: .4rem .7rem; border-radius: var(--radius-sm);
+  font-size: .89rem; font-weight: 520; color: var(--text-2);
+}
+.nav-link:hover { color: var(--text); background: var(--surface-2); }
+.nav-link[aria-current="page"] { color: var(--text); font-weight: 580; }
+.nav-link[aria-current="page"]::after {
+  content: ""; position: absolute; left: .7rem; right: .7rem; bottom: -.05rem;
+  height: 2px; background: var(--accent); border-radius: 1px;
 }
 
-.year-pill {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: rgba(148, 163, 184, 0.1);
-  color: #94A3B8;
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: var(--radius-sm);
+  color: var(--text-2);
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn svg { width: 1.05rem; height: 1.05rem; }
+
+/* Theme toggle shows exactly one icon; JS never has to guess. */
+.theme-toggle .i-moon { display: none; }
+.theme-toggle .i-sun  { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .i-moon { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .i-sun  { display: none; }
+}
+:root[data-theme="dark"] .theme-toggle .i-moon { display: block; }
+:root[data-theme="dark"] .theme-toggle .i-sun  { display: none; }
+:root[data-theme="light"] .theme-toggle .i-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .i-sun  { display: block; }
+
+/* ── 5. Bottom nav (mobile) ──────────────────────────────────────────────── */
+
+.botnav {
+  position: fixed; z-index: 60; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: stretch;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (min-width: 720px) { .botnav { display: none; } }
+
+.botnav-item {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .15rem; padding: .5rem 0 .45rem;
+  font-size: .68rem; font-weight: 540; color: var(--text-3);
+  min-height: 3.25rem;
+}
+.botnav-item svg { width: 1.25rem; height: 1.25rem; }
+.botnav-item[aria-current="page"] { color: var(--accent); }
+
+/* ── 6. Buttons ──────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4em;
+  font-family: var(--font-ui); font-size: .87rem; font-weight: 550;
+  padding: .5em 1em; border-radius: var(--radius-sm);
+  border: 1px solid transparent; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.btn svg { width: 1em; height: 1em; }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+:root[data-theme="dark"] .btn-primary,
+.btn-primary { color: #FBFAF8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-primary { color: #14120F; }
+}
+:root[data-theme="dark"] .btn-primary { color: #14120F; }
+.btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+.btn-quiet { background: transparent; color: var(--text-2); border-color: var(--border-2); }
+.btn-quiet:hover { background: var(--surface-2); color: var(--text); }
+
+.btn-ghost { background: transparent; color: var(--text-3); }
+.btn-ghost:hover { color: var(--text); background: var(--surface-2); }
+
+.btn-sm { font-size: .81rem; padding: .4em .8em; }
+
+/* ── 7. Paper card ───────────────────────────────────────────────────────
+   Anatomy, top to bottom:
+     meta line   one dim mono row — category, year, citations
+     title       the largest thing on the card; the only element users
+                 reliably read (NN/g F-pattern eyetracking)
+     authors     small, dim
+     abstract    lead sentence marked, remainder dimmed
+     actions     Save / Pass / Why this
+   The old card gave five facts five different visual treatments (coloured
+   badge pulled right, year pill, mono id, authors, citation count + icon)
+   and they competed with the title. */
+
+.feed { display: flex; flex-direction: column; gap: .85rem; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.05rem 1.1rem 0.95rem;
+  display: flex; flex-direction: column; gap: .55rem;
+  box-shadow: var(--shadow-1);
+  /* No fixed height anywhere: WCAG 2.2 SC 1.4.12 requires the layout to
+     survive a user forcing line-height 1.5x / spacing 2x / letter .12em /
+     word .16em without clipping. Everything here reflows. */
+}
+@media (min-width: 720px) { .card { padding: 1.25rem 1.35rem 1.1rem; } }
+
+.card-meta {
+  display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .02em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-meta .sep { opacity: .45; }
+
+.card-title {
+  font-family: var(--font-read);
+  font-size: 1.14rem; line-height: 1.32; font-weight: 600;
+  letter-spacing: -.005em; text-wrap: balance;
+  color: var(--text);
+}
+@media (min-width: 720px) { .card-title { font-size: 1.2rem; } }
+a.card-title:hover { color: var(--accent); }
+
+.card-authors { font-size: .82rem; color: var(--text-3); }
+
+.card-abstract {
+  font-family: var(--font-read);
+  font-size: .95rem; line-height: 1.62; color: var(--text-2);
+}
+/* The lead sentence carries the paper's claim ~always, and NN/g's eyetracking
+   shows attention decays sharply after the first couple of lines — so it is
+   emphasised rather than buried at character 400. Approximates Scholar
+   Inbox's "highlight the sentence most related to the core idea". */
+.card-abstract .lead {
+  color: var(--text); font-weight: 500;
+  box-shadow: inset 0 -.45em 0 var(--mark);
+}
+.card-abstract .rest { color: var(--text-3); }
+
+.card-abstract.is-clamped .rest { display: none; }
+
+.card-more {
+  align-self: flex-start;
+  font-size: .78rem; font-weight: 550; color: var(--text-3);
+  padding: .15rem 0;
+}
+.card-more:hover { color: var(--accent); }
+
+.card-actions {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding-top: .2rem;
+}
+.card-why { margin-left: auto; }
+
+.btn-save { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br); }
+.btn-save:hover { background: var(--accent-br); }
+.btn-save[disabled] { opacity: 1; cursor: default; }
+
+.btn-pass { background: transparent; color: var(--text-3); border-color: var(--border); }
+.btn-pass:hover { background: var(--surface-2); color: var(--text-2); }
+
+/* Deep link into the 3D map. Quiet by default — it is a side door, not a
+   primary action, and it must not compete with Save. */
+.card-map {
+  display: inline-flex; align-items: center; gap: .35rem;
+  align-self: flex-start;
+  font-size: .78rem; font-weight: 520; color: var(--text-3);
+}
+.card-map svg { width: .85rem; height: .85rem; }
+.card-map:hover { color: var(--accent); }
+
+/* "Why this?" — the serving tier already knows why each paper was retrieved
+   (candidate_source); this surfaces it instead of the old Coming Soon badge. */
+.card-reason {
+  font-size: .82rem; line-height: 1.5; color: var(--text-3);
+  border-left: 2px solid var(--accent-br);
+  padding: .1rem 0 .1rem .6rem; margin-top: .1rem;
 }
 
-.year-pill.recent {
-  background: rgba(16, 185, 129, 0.1);
-  color: #34D399;
-}
-
-[data-theme="light"] .year-pill {
-  background: rgba(100, 116, 139, 0.1);
-  color: #475569;
-}
-
-[data-theme="light"] .year-pill.recent {
-  background: rgba(16, 185, 129, 0.1);
-  color: #059669;
-}
-
-.cite-count {
-  font-size: 0.7rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: #94A3B8;
-}
-
-[data-theme="light"] .cite-count {
-  color: #64748B;
-}
-
-/* ── 17. Progress Messages ────────────────────────────────────────────────── */
-.rit-progress-container {
-  text-align: center;
-  padding: 1rem 0;
-}
-
-.rit-progress-msg {
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.5);
-  animation: fadeInUp 0.4s ease;
-}
-
-[data-theme="light"] .rit-progress-msg {
-  color: rgba(0, 0, 0, 0.45);
-}
-
-.rit-progress-dots {
-  display: inline-flex;
-  gap: 4px;
-  margin-left: 4px;
-}
-
-.rit-progress-dots span {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--rit-accent);
-  animation: dotPulse 1.4s ease-in-out infinite;
-}
-
-.rit-progress-dots span:nth-child(2) { animation-delay: 0.2s; }
-.rit-progress-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-/* ── 18. Seed Card ────────────────────────────────────────────────────────── */
-.seed-card {
-  padding: 0.75rem 1rem;
-  border-radius: var(--rit-radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(255, 255, 255, 0.02);
-  transition: all var(--rit-transition);
-}
-
-[data-theme="light"] .seed-card {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(0, 0, 0, 0.06);
-}
-
-.seed-card:hover {
-  border-color: rgba(14, 165, 233, 0.2);
-  background: rgba(14, 165, 233, 0.02);
-}
-
-/* ── 19. Footer ───────────────────────────────────────────────────────────── */
-.app-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
-  margin-top: 4rem;
-  padding: 2rem 0;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 0.75rem;
-}
-
-[data-theme="light"] .app-footer {
-  border-top-color: rgba(0, 0, 0, 0.04);
-  color: rgba(0, 0, 0, 0.35);
-}
-
-.footer-tech-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.625rem;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-[data-theme="light"] .footer-tech-badge {
-  background: rgba(0, 0, 0, 0.03);
-  color: rgba(0, 0, 0, 0.4);
-  border-color: rgba(0, 0, 0, 0.04);
-}
-
-/* ── 20. Scrollbar ────────────────────────────────────────────────────────── */
-[data-theme="dark"] ::-webkit-scrollbar { width: 6px; }
-[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
-[data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: rgba(14, 165, 233, 0.2);
-  border-radius: 3px;
-}
-[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: rgba(14, 165, 233, 0.35);
-}
-
-/* ── 21. HTMX Transitions ─────────────────────────────────────────────────── */
-.htmx-swapping {
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
-}
-
-.htmx-added {
-  opacity: 0;
-}
-
-.htmx-settling {
-  opacity: 1;
-  transition: opacity 0.25s ease-in;
-}
-
-/* ── 22. Mobile Menu ──────────────────────────────────────────────────────── */
-.mobile-menu-toggle:checked ~ .mobile-menu {
-  display: flex;
-}
-
-.mobile-menu {
-  display: none;
-  flex-direction: column;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: rgba(11, 13, 20, 0.96);
-  backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 0.75rem;
-  z-index: 50;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-}
-
-[data-theme="light"] .mobile-menu {
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom-color: rgba(0, 0, 0, 0.06);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
-}
-
-/* ── 23. Utilities ─────────────────────────────────────────────────────────── */
-.fade-in {
-  animation: fadeInUp 0.4s ease-out;
-}
-
-.line-clamp-1 {
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
+/* Dismiss animation. The card is only hidden here — the POST is deferred so
+   Undo can cancel it outright (see app.js). */
+.card.is-leaving {
+  animation: card-leave .18s ease forwards;
   overflow: hidden;
 }
-
-.line-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+@keyframes card-leave {
+  to { opacity: 0; transform: translateX(-8px); max-height: 0;
+       padding-block: 0; margin-bottom: -.85rem; }
 }
 
-/* Error state */
-.rit-error-state {
-  text-align: center;
-  padding: 3rem 1.5rem;
-  border-radius: var(--rit-radius);
-  border: 1px dashed rgba(239, 68, 68, 0.2);
-  background: rgba(239, 68, 68, 0.03);
+/* ── 8. Category chips ───────────────────────────────────────────────────
+   Radix Colors step semantics: step 3 as the chip background, step 11 as its
+   text, with a matched dark variant. Every chip therefore carries identical
+   visual weight and guaranteed legibility, and reassigning a category to a
+   different hue can never change its contrast. Green is deliberately absent —
+   it is reserved for Save, and a green chip would read as "saved". */
+
+.cat {
+  font-family: var(--font-mono); font-weight: 600;
+  font-size: .68rem; letter-spacing: .02em;
+  padding: .2em .45em; border-radius: 4px;
+  background: var(--surface-2); color: var(--text-2);
+}
+.cat-cl   { background: #D6EDF0; color: #0A5C66; }
+.cat-cv   { background: #DDEAFA; color: #13528C; }
+.cat-lg   { background: #E2E6F8; color: #31418D; }
+.cat-ai   { background: #EDE5F6; color: #612E88; }
+.cat-ro   { background: #F9E7D6; color: #8A4816; }
+.cat-phys { background: #F5EBD0; color: #75540C; }
+.cat-astro{ background: #F6E2ED; color: #892D5D; }
+.cat-math { background: #E8ECDB; color: #4D591C; }
+.cat-bio  { background: #D9EDEA; color: #0C5B4E; }
+.cat-eng  { background: #E4E8EA; color: #3E4C53; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cat-cl   { background: #0F2E33; color: #63CCD8; }
+  :root:not([data-theme="light"]) .cat-cv   { background: #12283F; color: #6EB6F5; }
+  :root:not([data-theme="light"]) .cat-lg   { background: #1A2140; color: #93A4F5; }
+  :root:not([data-theme="light"]) .cat-ai   { background: #271A3B; color: #C193F0; }
+  :root:not([data-theme="light"]) .cat-ro   { background: #33220F; color: #F0A468; }
+  :root:not([data-theme="light"]) .cat-phys { background: #2E2711; color: #DDBB55; }
+  :root:not([data-theme="light"]) .cat-astro{ background: #331A2A; color: #EE8CC0; }
+  :root:not([data-theme="light"]) .cat-math { background: #232811; color: #B8C96A; }
+  :root:not([data-theme="light"]) .cat-bio  { background: #0F2E2A; color: #63CCB4; }
+  :root:not([data-theme="light"]) .cat-eng  { background: #1E262A; color: #9BB0BA; }
+}
+:root[data-theme="dark"] .cat-cl   { background: #0F2E33; color: #63CCD8; }
+:root[data-theme="dark"] .cat-cv   { background: #12283F; color: #6EB6F5; }
+:root[data-theme="dark"] .cat-lg   { background: #1A2140; color: #93A4F5; }
+:root[data-theme="dark"] .cat-ai   { background: #271A3B; color: #C193F0; }
+:root[data-theme="dark"] .cat-ro   { background: #33220F; color: #F0A468; }
+:root[data-theme="dark"] .cat-phys { background: #2E2711; color: #DDBB55; }
+:root[data-theme="dark"] .cat-astro{ background: #331A2A; color: #EE8CC0; }
+:root[data-theme="dark"] .cat-math { background: #232811; color: #B8C96A; }
+:root[data-theme="dark"] .cat-bio  { background: #0F2E2A; color: #63CCB4; }
+:root[data-theme="dark"] .cat-eng  { background: #1E262A; color: #9BB0BA; }
+
+/* ── 9. Section headers, pills, notices ──────────────────────────────────── */
+
+.sec-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; margin-bottom: .8rem;
+}
+.sec-title { font-size: 1.02rem; font-weight: 620; letter-spacing: -.012em; }
+
+.pill {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .04em;
+  padding: .22em .5em; border-radius: 4px;
+  background: var(--surface-2); color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pill-accent { background: var(--accent-bg); color: var(--accent); }
+
+.notice {
+  display: flex; align-items: flex-start; gap: .6rem;
+  padding: .7rem .85rem; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: .87rem; color: var(--text-2);
 }
 
-/* Hero gradient background */
-.rit-hero-glow {
-  position: absolute;
-  width: 400px;
-  height: 400px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--rit-accent-glow) 0%, transparent 70%);
-  filter: blur(80px);
+/* ── 10. Empty / end states ──────────────────────────────────────────────── */
+
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: .7rem;
+  text-align: center; padding: 3.5rem 1rem; max-width: 30rem; margin-inline: auto;
+}
+.empty-title { font-family: var(--font-read); font-size: 1.15rem; font-weight: 600; }
+.empty-body { font-size: .9rem; color: var(--text-3); }
+
+.feed-end {
+  text-align: center; padding: 2rem 1rem 1rem;
+  font-size: .85rem; color: var(--text-3);
+}
+
+/* ── 11. Feed loader (infinite scroll) ───────────────────────────────────
+   A real <button>, not a bare sentinel div. NN/g's infinite-scroll findings:
+   screen-reader users "will only see the first chunk of the list, without
+   being able to trigger the loading of new content", and a list with no
+   terminus also breaks footer access and hides whether more exists.
+   Carrying hx-trigger="revealed, click" makes one element serve both — it
+   auto-fires on scroll and stays keyboard-focusable and activatable. */
+
+.feed-more {
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+  width: 100%; padding: .9rem 1rem; margin-top: .3rem;
+  border: 1px dashed var(--border-2); border-radius: var(--radius);
+  color: var(--text-3); font-size: .85rem; font-weight: 540;
+  background: transparent;
+}
+.feed-more:hover { color: var(--text-2); background: var(--surface-2); border-style: solid; }
+.feed-more .spinner { display: none; }
+.feed-more.htmx-request .spinner { display: block; }
+.feed-more.htmx-request .label { opacity: .55; }
+
+.spinner {
+  width: 1rem; height: 1rem; flex: none;
+  border: 2px solid var(--border-2); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 12. Skeletons ───────────────────────────────────────────────────────
+   Nielsen's response-time limits: under 0.1s feels instant, up to 1s keeps
+   flow, and beyond that the user needs feedback. Tier 1 of this pipeline is
+   multi-second, so a skeleton that mirrors the real card's geometry is
+   load-bearing, not decoration — it also prevents the layout shift that a
+   spinner-then-content swap causes. */
+
+.skel-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.05rem 1.1rem;
+  display: flex; flex-direction: column; gap: .6rem;
+}
+@media (min-width: 720px) { .skel-card { padding: 1.25rem 1.35rem; } }
+
+.skel {
+  height: .7rem; border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.skel-meta   { width: 42%; height: .6rem; }
+.skel-title  { width: 92%; height: 1.05rem; }
+.skel-title2 { width: 64%; height: 1.05rem; }
+.skel-auth   { width: 38%; height: .62rem; }
+.skel-text   { width: 100%; }
+.skel-text-2 { width: 96%; }
+.skel-text-3 { width: 71%; }
+.skel-btn    { width: 4.6rem; height: 1.9rem; border-radius: var(--radius-sm); }
+
+/* ── 13. Toast (undo) ────────────────────────────────────────────────────
+   NN/g on repetitive destructive actions: "if the action is highly repetitive
+   and asking for confirmations would be tedious, support easy undo. Make sure
+   that the undo option is highly salient on the screen." A confirm dialog
+   would tax every user who meant it. */
+
+.toasts {
+  position: fixed; z-index: 100; left: 50%; transform: translateX(-50%);
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column-reverse; gap: .5rem;
+  width: min(24rem, calc(100vw - 2rem));
   pointer-events: none;
-  z-index: 0;
+}
+@media (max-width: 719px) { .toasts { bottom: calc(4.6rem + env(safe-area-inset-bottom, 0px)); } }
+@media (min-width: 720px) { .toasts { left: auto; right: 1.25rem; transform: none; } }
+
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: .75rem;
+  padding: .65rem .75rem .65rem .95rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: var(--radius);
+  box-shadow: var(--shadow-2); font-size: .87rem;
+  animation: toast-in .18s ease;
+}
+.toast .msg { flex: 1; min-width: 0; }
+.toast .undo {
+  font-weight: 620; color: var(--accent); font-size: .85rem;
+  padding: .25rem .5rem; border-radius: var(--radius-sm);
+}
+.toast .undo:hover { background: var(--accent-bg); }
+.toast.is-out { animation: toast-out .16s ease forwards; }
+@keyframes toast-in  { from { opacity: 0; transform: translateY(6px); } }
+@keyframes toast-out { to   { opacity: 0; transform: translateY(6px); } }
+
+/* ── 14. Search ──────────────────────────────────────────────────────────── */
+
+.searchbar {
+  display: flex; align-items: center; gap: .5rem;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: var(--radius); padding: .35rem .35rem .35rem .8rem;
+  box-shadow: var(--shadow-1);
+}
+.searchbar:focus-within { border-color: var(--accent-2); }
+.searchbar svg { width: 1.05rem; height: 1.05rem; color: var(--text-3); flex: none; }
+.searchbar input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: none;
+  padding: .5rem 0; font-size: .97rem;
+}
+.searchbar input::placeholder { color: var(--text-3); }
+
+.search-meta {
+  font-family: var(--font-mono); font-size: .7rem; color: var(--text-3);
+  display: flex; flex-wrap: wrap; gap: .25rem .8rem;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Pipeline details */
-.rit-pipeline-detail {
-  padding: 0.75rem 1rem;
-  border-radius: var(--rit-radius-sm);
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+.ai-summary {
+  border-left: 2px solid var(--accent-br);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: .85rem 1rem;
+  font-family: var(--font-read); font-size: .93rem; line-height: 1.6;
+  color: var(--text-2);
+}
+.ai-summary strong { color: var(--text); font-weight: 620; }
+.ai-summary .label {
+  display: block; font-family: var(--font-mono); font-size: .64rem;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: .35rem;
 }
 
-[data-theme="light"] .rit-pipeline-detail {
-  background: rgba(0, 0, 0, 0.015);
-  border-color: rgba(0, 0, 0, 0.04);
+/* ── 15. Onboarding ──────────────────────────────────────────────────────── */
+
+.ob-step { display: flex; flex-direction: column; gap: 1.25rem; }
+.ob-head { display: flex; flex-direction: column; gap: .4rem; }
+.ob-kicker {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--accent);
+}
+.ob-title {
+  font-family: var(--font-read); font-size: 1.5rem; line-height: 1.2;
+  font-weight: 620; letter-spacing: -.01em; text-wrap: balance;
+}
+.ob-sub { font-size: .92rem; color: var(--text-3); max-width: 46ch; }
+
+.cat-grid {
+  display: grid; gap: .55rem;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+}
+.cat-opt {
+  display: flex; flex-direction: column; gap: .2rem; text-align: left;
+  padding: .7rem .8rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  transition: border-color .12s ease, background .12s ease;
+}
+.cat-opt:hover { border-color: var(--border-2); }
+.cat-opt[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-bg);
+}
+.cat-opt .name { font-size: .87rem; font-weight: 560; }
+.cat-opt .desc { font-size: .75rem; color: var(--text-3); line-height: 1.4; }
+.cat-opt[aria-pressed="true"] .name { color: var(--accent); }
+
+.ob-progress {
+  display: flex; align-items: center; gap: .5rem;
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.ob-bar { flex: 1; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.ob-bar > i { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
+
+.ob-actions { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+
+.ob-footer {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  background: var(--bg); border-top: 1px solid var(--border);
+  padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom, 0px));
 }
 
-/* ── 24. Save animation ───────────────────────────────────────────────────── */
-.save-success {
-  animation: savePulse 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+/* Seed picker rows — denser than a feed card, because this is a pick list and
+   the decision is "is this roughly my field?", not "do I want to read it now?" */
+.seed-row {
+  display: flex; align-items: flex-start; gap: .9rem;
+  padding: .8rem .95rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.seed-title {
+  font-family: var(--font-read); font-size: .95rem; line-height: 1.35;
+  font-weight: 560; color: var(--text); display: block;
+}
+.seed-title:hover { color: var(--accent); }
+
+/* ── 16. Utilities ───────────────────────────────────────────────────────── */
+
+.muted { color: var(--text-3); }
+.small { font-size: .85rem; }
+.mono  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.center { text-align: center; }
+.hidden { display: none !important; }
+
+/* Any wide content (tables, code, pre) scrolls inside itself so the page body
+   never scrolls sideways. */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* htmx indicator convention */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator { display: inline-block; }
+
+/* ── 17. Motion preferences ──────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card.is-leaving { animation: none; display: none; }
 }

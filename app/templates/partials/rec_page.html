@@ -1,0 +1,55 @@
+{#
+  One appendable page of the feed: cards, then the loader for the page after it.
+
+  Swapped in via hx-swap="outerHTML" onto the previous loader button, so this
+  fragment replaces the button that requested it and brings its own successor.
+  That makes the chain self-perpetuating with no JavaScript, exactly as the
+  htmx infinite-scroll example prescribes.
+
+  The loader is a real <button>, not a bare sentinel div, and carries
+  hx-trigger="revealed, click". NN/g's infinite-scroll findings are that
+  screen-reader users "will only see the first chunk of the list, without being
+  able to trigger the loading of new content", and that an endless list also
+  destroys footer access and any sense of whether more content exists. One
+  focusable, clickable element that also auto-fires on scroll answers all three.
+
+  The button carries ONLY hx-trigger="click"; the scroll-to-load behaviour is
+  driven by an IntersectionObserver in app.js that clicks it. That split is
+  deliberate, and both of htmx's built-in options were tried against the live
+  deployment first:
+
+    * `revealed` — htmx's poller collects elements with an exact attribute
+      match, querySelectorAll("[hx-trigger='revealed'],…"). This element also
+      needs a click trigger, so its attribute reads "revealed, click", which
+      that selector never matches. Verified dead: scrolled with the loader in
+      view (rect.top 745 < clientHeight 861), data-hx-revealed stayed null and
+      no request was made.
+    * `intersect once, click` — the handler wires up correctly (dispatching a
+      synthetic `intersect` did load the next page) but the observer never
+      fired on real scrolling in the deployed build.
+
+  Owning the observer removes the dependency on those internals entirely, and
+  keeps one real <button> serving both paths: pointer users and scrollers get
+  it automatically, keyboard and screen-reader users can focus and activate it.
+  NN/g's infinite-scroll finding is that screen-reader users otherwise "only
+  see the first chunk of the list, without being able to trigger the loading of
+  new content".
+#}
+{% for paper in papers %}
+  {% set source = "recommendation" %}
+  {% set position = paper.position %}
+  {% include "partials/paper_card.html" %}
+{% endfor %}
+
+{% if has_more %}
+  <button type="button" class="feed-more"
+          hx-get="/api/recommendations?page={{ next_page }}&amp;query_id={{ query_id }}"
+          hx-trigger="click"
+          hx-target="this"
+          hx-swap="outerHTML transition:true">
+    <span class="spinner" aria-hidden="true"></span>
+    <span class="label">More papers</span>
+  </button>
+{% else %}
+  <p class="feed-end">That's everything for now — save a few papers and the feed will refill.</p>
+{% endif %}

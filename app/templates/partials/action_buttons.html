@@ -1,65 +1,92 @@
 {#
   Action buttons for a paper card.
-  Expects: paper_id (or paper.arxiv_id), saved (bool), dismissed (bool)
-  Optional: source ("search" | "recommendation" | "saved"), position (int)
-  Phase 4.5: ranker_version, candidate_source, cluster_id (set by recommendations.py)
-  Phase 6.5: query_id (per-request UUID for feed-level CTR),
-             propensity (probability this paper was shown), policy_id
-  These are returned directly by the /api/papers/{id}/save endpoint
-  so they also work as a standalone partial.
+
+  Rendered two ways, and must work in both:
+    1. inline from paper_card.html, where `paper` is in scope
+    2. standalone as the response body of POST /api/papers/{id}/save, where
+       only paper_id / saved / source / candidate_source are passed
+
+  Save is htmx: non-destructive, immediately reversible via Remove, so it can
+  commit straight away.
+
+  Pass is NOT htmx. It defers the POST by a few seconds so Undo can cancel it
+  outright rather than compensating for it afterwards. That matters beyond UX:
+  a committed dismissal has already been folded into the negative EWMA profile,
+  and an EWMA is a lossy running average — there is no exact inverse. Deferring
+  keeps an undone dismissal out of the user's profile entirely. NN/g's guidance
+  for repetitive destructive actions is undo rather than confirmation, since a
+  confirm dialog taxes everyone who meant it.
 #}
 {% set pid = paper_id if paper_id is defined else paper.arxiv_id %}
 {% set is_saved = saved if saved is defined else (paper.saved | default(false)) %}
 {% set _source = source if source is defined else "search" %}
-{% set _ranker_version = paper.ranker_version | default("") if paper is defined else "" %}
-{% set _candidate_source = paper.candidate_source | default("") if paper is defined else "" %}
-{% set _cluster_id = paper.cluster_id | default("") if paper is defined else "" %}
-{% set _query_id = paper.query_id | default("") if paper is defined else "" %}
-{% set _position = paper.position | default(0) if paper is defined else 0 %}
-{% set _propensity = paper.propensity | default(0) if paper is defined else 0 %}
-{% set _policy_id = paper.policy_id | default("") if paper is defined else "" %}
+{% set _cand = candidate_source if candidate_source is defined
+               else (paper.candidate_source | default("") if paper is defined else "") %}
+
+{% if paper is defined %}
+  {% set _vals = {
+      "source": _source,
+      "position": paper.position | default(0),
+      "ranker_version": paper.ranker_version | default(""),
+      "candidate_source": paper.candidate_source | default(""),
+      "cluster_id": paper.cluster_id | default(""),
+      "query_id": paper.query_id | default(""),
+      "propensity": paper.propensity | default(0),
+      "policy_id": paper.policy_id | default("")
+  } %}
+{% else %}
+  {% set _vals = {
+      "source": _source,
+      "position": position | default(0),
+      "ranker_version": ranker_version | default(""),
+      "candidate_source": _cand,
+      "cluster_id": cluster_id | default(""),
+      "query_id": query_id | default(""),
+      "propensity": propensity | default(0),
+      "policy_id": policy_id | default("")
+  } %}
+{% endif %}
 
 {% if is_saved %}
-  <!-- Already saved — show saved state -->
-  <div class="flex items-center gap-2 flex-wrap">
-    <button class="rit-action-btn rit-btn-save saved save-success" disabled>
-      <span class="btn-icon">✓</span> Saved
-    </button>
-    <button class="rit-action-btn rit-btn-dismiss"
-            hx-post="/api/papers/{{ pid }}/not-interested"
-            hx-target="#paper-{{ pid }}"
-            hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      <span class="btn-icon">✕</span> Remove
-    </button>
-  </div>
+  <button type="button" class="btn btn-sm btn-save" disabled aria-label="Saved to your library">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m4.5 12.5 5 5 10-11" />
+    </svg>
+    Saved
+  </button>
+  <button type="button" class="btn btn-sm btn-pass"
+          data-dismiss
+          data-paper-id="{{ pid }}"
+          data-vals='{{ _vals | tojson }}'>Remove</button>
 {% else %}
-  <div class="flex items-center gap-2 flex-wrap">
-    <!-- Save -->
-    <button class="rit-action-btn rit-btn-save"
-            hx-post="/api/papers/{{ pid }}/save"
-            hx-target="[id='actions-{{ pid }}']"
-            hx-swap="innerHTML"
-            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      <span class="btn-icon">⭐</span> Save
-    </button>
-    <!-- Not interested (removes the whole card) -->
-    <button class="rit-action-btn rit-btn-dismiss"
-            hx-post="/api/papers/{{ pid }}/not-interested"
-            hx-target="#paper-{{ pid }}"
-            hx-swap="outerHTML swap:200ms"
-            hx-vals='{"source": "{{ _source }}", "position": "{{ _position }}", "ranker_version": "{{ _ranker_version }}", "candidate_source": "{{ _candidate_source }}", "cluster_id": "{{ _cluster_id }}", "query_id": "{{ _query_id }}", "propensity": "{{ _propensity }}", "policy_id": "{{ _policy_id }}"}'>
-      <span class="btn-icon">✕</span> Not interested
-    </button>
-    <!-- Open on arXiv -->
-    <a href="https://arxiv.org/abs/{{ pid }}"
-       target="_blank"
-       rel="noopener"
-       class="rit-action-btn rit-btn-link">
-      <span class="btn-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
-      </span>
-      arXiv
-    </a>
-  </div>
+  {#
+    The target MUST be the attribute-selector form, not "#actions-{{ pid }}".
+    Every arXiv id contains a dot (1706.03762), and in a CSS selector that dot
+    starts a class token — so "#actions-1706.03762" parses as
+    id="actions-1706" AND class="03762", which matches nothing. A class token
+    also cannot begin with a digit, so querySelector raises a SyntaxError
+    rather than merely missing. [id='…'] compares the literal string.
+  #}
+  <button type="button" class="btn btn-sm btn-save"
+          hx-post="/api/papers/{{ pid }}/save"
+          hx-target="[id='actions-{{ pid }}']"
+          hx-swap="innerHTML"
+          hx-vals='{{ _vals | tojson }}'>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z" />
+    </svg>
+    Save
+  </button>
+  <button type="button" class="btn btn-sm btn-pass"
+          data-dismiss
+          data-paper-id="{{ pid }}"
+          data-vals='{{ _vals | tojson }}'>Pass</button>
+{% endif %}
+
+{% if _cand | why_shown %}
+  <button type="button" class="btn btn-sm btn-ghost card-why"
+          aria-expanded="false" aria-controls="why-{{ pid }}"
+          onclick="toggleWhy(this, '{{ pid }}')">Why this?</button>
 {% endif %}
