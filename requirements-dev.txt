@@ -1,0 +1,16 @@
+# Development / test-only dependencies.
+#
+# Deliberately NOT in requirements.txt: the Dockerfile installs that file, and
+# `playwright install chromium` pulls ~95 MB of browser into the image for code
+# that never runs in production.
+#
+# Setup:
+#     pip install -r requirements-dev.txt
+#     playwright install chromium
+#
+# The browser suite skips itself when playwright is absent or no server is
+# reachable, so the unit suite still runs in an environment without either.
+-r requirements.txt
+
+playwright>=1.40
+pytest-playwright>=0.4
