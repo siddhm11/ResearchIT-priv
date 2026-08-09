@@ -13,10 +13,22 @@
   destroys footer access and any sense of whether more content exists. One
   focusable, clickable element that also auto-fires on scroll answers all three.
 
-  Note on `revealed`: it does NOT fire inside a CSS overflow-y:scroll container
-  — htmx's docs prescribe `intersect once` there. This layout scrolls the
-  document body, so `revealed` is correct. If a scrolling wrapper is ever
-  introduced around the feed, this trigger has to change with it.
+  The scroll trigger is `intersect once`, NOT `revealed`, and that is load
+  bearing. htmx's revealed poller finds its elements with an exact attribute
+  match:
+
+      querySelectorAll("[hx-trigger='revealed'],[data-hx-trigger='revealed']")
+
+  Because this element needs the click trigger too, its attribute reads
+  "revealed, click", which that selector never matches — so after the initial
+  registration check the trigger could never fire again. And the loader starts
+  below the fold, so the registration check misses as well. Net effect: the
+  feed only advanced if you clicked, silently, with no error anywhere.
+
+  `intersect` attaches a per-element IntersectionObserver instead, so it has no
+  global-selector dependency and composes with a second trigger. It is also
+  what htmx's docs prescribe inside overflow-y:scroll containers, so this stays
+  correct if the feed is ever wrapped in its own scroll box.
 #}
 {% for paper in papers %}
   {% set source = "recommendation" %}
@@ -27,7 +39,7 @@
 {% if has_more %}
   <button type="button" class="feed-more"
           hx-get="/api/recommendations?page={{ next_page }}&amp;query_id={{ query_id }}"
-          hx-trigger="revealed, click"
+          hx-trigger="intersect once, click"
           hx-target="this"
           hx-swap="outerHTML transition:true">
     <span class="spinner" aria-hidden="true"></span>
