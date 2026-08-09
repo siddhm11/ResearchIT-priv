@@ -1,187 +1,122 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+{#
+  Onboarding wizard. Standalone rather than extending base.html — the nav would
+  invite people out of a two-step flow — but it loads the same local stylesheet
+  and the same vendored htmx, so no external origins here either.
+#}
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Welcome to ResearchIT</title>
-
-  <!-- DaisyUI + TailwindCSS (CDN) -->
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Custom styles -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Welcome — ResearchIT</title>
   <link rel="stylesheet" href="/static/styles.css" />
-  <link rel="stylesheet" href="/static/animations.css" />
-
-  <!-- HTMX -->
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  
-  <style>
-    /* HTMX indicator visibility */
-    .htmx-request .htmx-indicator { display: inline-block !important; }
-    .htmx-indicator { display: none; }
-  </style>
-
-  <!-- Theme restore -->
   <script>
-    (function() {
-      const saved = localStorage.getItem('researchit-theme');
-      if (saved) document.documentElement.setAttribute('data-theme', saved);
+    (function () {
+      try {
+        var t = localStorage.getItem('researchit-theme');
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
     })();
   </script>
 </head>
-<body class="bg-base-200 min-h-screen flex items-center justify-center p-4">
+<body>
+  <main class="wrap" style="max-width:46rem;padding-block:clamp(2rem,7vh,4.5rem) 8rem">
 
-  <!-- Step Indicator -->
-  <div class="fixed top-8 left-1/2 -translate-x-1/2 flex items-center gap-4 z-50">
-    <div id="dot-1" class="step-dot active"></div>
-    <div class="w-16 h-0.5 bg-base-content/10"></div>
-    <div id="dot-2" class="step-dot"></div>
-  </div>
+    <div id="step-1" class="ob-step">
+      <div class="ob-progress">
+        <span>Step 1 of 2</span>
+        <span class="ob-bar"><i style="width:50%"></i></span>
+      </div>
 
-  <main class="w-full max-w-4xl pb-16 fade-in">
-    
-    <!-- ═══ Step 1: Category Selection ═══ -->
-    <div id="step-1">
-      <div class="text-center mb-10 relative">
-        <div class="rit-hero-glow animate-glow" style="top: -50px; left: 50%; transform: translateX(-50%);"></div>
-        <h1 class="text-3xl md:text-5xl font-extrabold mb-4 font-display relative z-10">
-          <span class="brand-text">Build Your Research Feed</span>
-        </h1>
-        <p class="text-base-content/60 max-w-lg mx-auto relative z-10">
-          Select your research areas to get personalized recommendations. Choose at least 1 topic.
+      <div class="ob-head">
+        <span class="ob-kicker">Pick your areas</span>
+        <h1 class="ob-title">What do you work on?</h1>
+        <p class="ob-sub">
+          This filters what you get shown and is one of the signals behind
+          ranking. Pick anything that looks close — you are not locked in.
         </p>
       </div>
 
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-10 relative z-10">
+      <div class="cat-grid">
         {% for key, cat in categories.items() %}
-        <div class="category-tile {% if key in selected %}selected{% endif %} animate-card-in" 
-             style="animation-delay: {{ loop.index0 * 0.03 }}s"
-             data-key="{{ key }}" 
-             onclick="toggleCategory(this)">
-          
-          <div class="check-mark">✓</div>
-          <span class="tile-icon">{{ cat.icon }}</span>
-          <h3 class="tile-name">{{ cat.name }}</h3>
-          <p class="tile-desc">{{ cat.desc }}</p>
-        </div>
+          <button type="button" class="cat-opt" data-key="{{ key }}"
+                  aria-pressed="{{ 'true' if key in selected else 'false' }}"
+                  onclick="toggleCategory(this)">
+            <span class="name">{{ cat.name }}</span>
+            <span class="desc">{{ cat.desc }}</span>
+          </button>
         {% endfor %}
       </div>
+    </div>
 
-      <!-- Action Footer -->
-      <div class="fixed bottom-0 left-0 right-0 p-4 bg-base-200/95 backdrop-blur-md border-t border-base-content/10 z-50">
-        <div class="max-w-4xl mx-auto flex items-center justify-between">
-          <div class="text-sm font-medium">
-            <span id="selected-count" class="badge badge-primary mr-2">{{ selected|length }}</span>
-            <span class="text-base-content/60">selected (max 8)</span>
-          </div>
-          <div class="flex gap-3">
-            <button onclick="skipOnboarding()" class="btn btn-ghost btn-sm md:btn-md text-base-content/50">
-              Skip for now
-            </button>
-            <button id="continue-btn" onclick="submitCategories()" class="btn btn-primary btn-sm md:btn-md px-6 shadow-lg shadow-primary/20" {% if selected|length == 0 %}disabled{% endif %}>
-              Continue
-              <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-            </button>
-          </div>
+    <div id="step-2" class="hidden"></div>
+  </main>
+
+  <div class="ob-footer">
+    <div class="wrap" style="max-width:46rem">
+      <div class="row-between">
+        <span class="small muted"><span id="selected-count">{{ selected|length }}</span> selected · max 8</span>
+        <div class="row">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="skipOnboarding()">Skip</button>
+          <button type="button" id="continue-btn" class="btn btn-primary btn-sm"
+                  onclick="submitCategories()" {% if selected|length == 0 %}disabled{% endif %}>Continue</button>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- ═══ Step 2: Seed Search ═══ -->
-    <div id="step-2" class="hidden">
-      <!-- Content loaded via HTMX from /api/onboarding/categories -->
-    </div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-  </main>
-
+  <script src="/static/htmx.min.js"></script>
   <script src="/static/app.js"></script>
   <script>
-    // Initialize selected set from Jinja template
-    let selectedCategories = new Set({{ selected | tojson }});
+    var selectedCategories = new Set({{ selected | tojson }});
 
-    function toggleCategory(element) {
-      const key = element.dataset.key;
-      
+    function toggleCategory(el) {
+      var key = el.dataset.key;
       if (selectedCategories.has(key)) {
         selectedCategories.delete(key);
-        element.classList.remove('selected');
+        el.setAttribute('aria-pressed', 'false');
       } else {
-        if (selectedCategories.size >= 8) {
-          showToast('Maximum 8 categories allowed', 'error');
-          return;
-        }
+        if (selectedCategories.size >= 8) return;
         selectedCategories.add(key);
-        element.classList.add('selected');
+        el.setAttribute('aria-pressed', 'true');
       }
-      updateUI();
-    }
-
-    function updateUI() {
-      const countEl = document.getElementById('selected-count');
-      const btn = document.getElementById('continue-btn');
-      
-      countEl.innerText = selectedCategories.size;
-      
-      if (selectedCategories.size > 0) {
-        btn.removeAttribute('disabled');
-        btn.classList.add('animate-pulse-once');
-      } else {
-        btn.setAttribute('disabled', 'true');
-        btn.classList.remove('animate-pulse-once');
-      }
+      document.getElementById('selected-count').textContent = selectedCategories.size;
+      var btn = document.getElementById('continue-btn');
+      if (selectedCategories.size > 0) btn.removeAttribute('disabled');
+      else btn.setAttribute('disabled', 'true');
     }
 
     async function submitCategories() {
-      if (selectedCategories.size === 0) return;
-      
-      const btn = document.getElementById('continue-btn');
-      const originalText = btn.innerHTML;
-      btn.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Saving...';
+      if (!selectedCategories.size) return;
+      var btn = document.getElementById('continue-btn');
       btn.setAttribute('disabled', 'true');
-
+      btn.textContent = 'Saving…';
       try {
-        const response = await fetch('/api/onboarding/categories', {
+        var res = await fetch('/api/onboarding/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories: Array.from(selectedCategories) })
         });
-        
-        if (response.ok) {
-          const html = await response.text();
-          
-          // Hide step 1, show step 2
-          document.getElementById('step-1').classList.add('hidden');
-          const step2 = document.getElementById('step-2');
-          step2.innerHTML = html;
-          step2.classList.remove('hidden');
-          step2.classList.add('fade-in');
-          
-          // Update dots
-          document.getElementById('dot-1').classList.replace('active', 'completed');
-          document.getElementById('dot-2').classList.add('active');
-          
-          // Initialize HTMX on the newly injected HTML
-          htmx.process(step2);
-        } else {
-          showToast('Failed to save categories. Please try again.', 'error');
-          btn.innerHTML = originalText;
-          btn.removeAttribute('disabled');
-        }
+        if (!res.ok) throw new Error('bad status');
+        var html = await res.text();
+        document.getElementById('step-1').classList.add('hidden');
+        document.querySelector('.ob-footer').classList.add('hidden');
+        var s2 = document.getElementById('step-2');
+        s2.innerHTML = html;
+        s2.classList.remove('hidden');
+        htmx.process(s2);
       } catch (e) {
-        showToast('Network error. Please try again.', 'error');
-        btn.innerHTML = originalText;
         btn.removeAttribute('disabled');
+        btn.textContent = 'Continue';
       }
     }
 
     async function skipOnboarding() {
-      try {
-        await fetch('/api/onboarding/skip', { method: 'POST' });
-        window.location.href = '/';
-      } catch (e) {
-        window.location.href = '/';
-      }
+      try { await fetch('/api/onboarding/skip', { method: 'POST' }); } catch (e) {}
+      window.location.href = '/';
     }
   </script>
 </body>

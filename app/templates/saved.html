@@ -1,80 +1,38 @@
 {% extends "base.html" %}
 
-{% block title %}Saved Papers — ResearchIT{% endblock %}
+{% block title %}Library — ResearchIT{% endblock %}
+
+{#
+  Both "Coming Soon" blocks are gone — Collections and Weekly Digest. They
+  occupied the most valuable space on the page to advertise things that do not
+  exist. The empty state now says what saving actually does instead.
+#}
 
 {% block content %}
-<div class="fade-in">
+<div class="wrap wrap--feed">
 
-  <!-- Header -->
-  <div class="flex items-center gap-3 mb-2">
-    <h1 class="text-2xl md:text-3xl font-bold font-display">Your Library</h1>
-    <span class="stat-pill bg-primary/10 text-primary">{{ count }}</span>
+  <div class="sec-head">
+    <h1 class="sec-title">Library</h1>
+    {% if count %}<span class="pill">{{ count }}</span>{% endif %}
   </div>
-  
-  {% if count > 0 %}
-  <p class="text-sm text-base-content/50 mb-8">
-    You've explored {{ count }} paper{{ "s" if count != 1 else "" }} so far.
-  </p>
-  {% endif %}
 
   {% if count > 0 %}
-    <div class="space-y-4">
+    <div class="feed">
       {% for paper in papers %}
         {% set position = loop.index0 %}
         {% set source = "saved" %}
         {% include "partials/paper_card.html" %}
       {% endfor %}
     </div>
-
-    <!-- Coming Soon: Collections -->
-    <div class="mt-8 coming-soon-section" onclick="handleComingSoon(event)">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <span class="text-2xl opacity-50">📁</span>
-          <div>
-            <div class="flex items-center gap-2 mb-0.5">
-              <span class="text-sm font-medium text-base-content/50">Collections</span>
-              <span class="coming-soon-badge">🔒 Coming Soon</span>
-            </div>
-            <p class="text-xs text-base-content/40">Organize your papers into named folders and reading lists.</p>
-          </div>
-        </div>
-        <button class="btn btn-ghost btn-sm btn-circle opacity-50 pointer-events-none">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-        </button>
-      </div>
-    </div>
   {% else %}
-    <!-- Empty State -->
-    <div class="text-center py-16 space-y-4 max-w-md mx-auto">
-      <div class="text-5xl mb-4 opacity-70">📚</div>
-      <h3 class="text-xl font-bold font-display">Your library is empty</h3>
-      <p class="text-base-content/50 leading-relaxed">
-        Papers you save while searching or browsing your feed will appear here. They are used to build your behavioral profile.
+    <div class="empty">
+      <p class="empty-title">Nothing saved yet</p>
+      <p class="empty-body">
+        Papers you save are what the feed learns from — every save sharpens
+        what shows up next. Five is roughly where it starts feeling personal.
       </p>
-      
-      <div class="pt-4">
-        <a href="/search" class="btn btn-primary px-6 shadow-lg shadow-primary/20">
-          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
-          </svg>
-          Start Searching
-        </a>
-      </div>
-    </div>
-
-    <!-- Coming Soon: Weekly Digest -->
-    <div class="mt-12 max-w-md mx-auto coming-soon-wrapper interactive" onclick="handleComingSoon(event)">
-      <div class="card bg-base-100 border border-base-content/5 p-5 text-center">
-        <div class="text-2xl mb-2">📬</div>
-        <div class="flex items-center justify-center gap-2 mb-2">
-          <h4 class="font-medium">Weekly Digest</h4>
-          <span class="coming-soon-badge">🔒 Soon</span>
-        </div>
-        <p class="text-xs text-base-content/50 mb-4">
-          Get a personalized email summary of new papers matching your interests every Monday.
-        </p>
-        <button class="btn btn-outline btn-sm w-full pointer-events-none opacity-50">Subscribe</button>
+      <div style="padding-top:.4rem">
+        <a href="/search" class="btn btn-primary btn-sm">Find papers</a>
       </div>
     </div>
   {% endif %}

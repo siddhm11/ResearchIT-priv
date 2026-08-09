@@ -1,37 +1,25 @@
 {#
-  Reusable skeleton loader — matches the shape of paper cards.
-  Include N times for N placeholder cards. Each card has:
-  - Title line + category badge
-  - Meta line (year + arxiv id + authors)
-  - 3 abstract text lines (varying widths)
-  - Action buttons row
-  All lines use the shimmer animation.
+  Skeleton loader. Mirrors the real card's geometry so the swap does not shift
+  layout — Nielsen's response-time limits put anything past ~1s in "needs
+  feedback" territory, and Tier 1 of this pipeline is multi-second.
+
+  Include with `count` set, e.g. {% set count = 4 %}{% include "partials/skeleton.html" %}
 #}
-<div class="space-y-4">
+<div class="feed" aria-hidden="true">
   {% for i in range(count | default(3)) %}
-  <div class="skeleton-card animate-card-in" style="animation-delay: {{ i * 0.08 }}s">
-    <!-- Title row -->
-    <div class="flex items-start justify-between gap-3 mb-3">
-      <div class="skeleton-line skeleton-line-title"></div>
-      <div class="skeleton-line skeleton-line-badge flex-shrink-0"></div>
+    <div class="skel-card">
+      <div class="skel skel-meta"></div>
+      <div class="skel skel-title"></div>
+      <div class="skel skel-title2"></div>
+      <div class="skel skel-auth"></div>
+      <div class="skel skel-text"></div>
+      <div class="skel skel-text-2"></div>
+      <div class="skel skel-text-3"></div>
+      <div class="row" style="gap:.4rem;padding-top:.3rem">
+        <div class="skel skel-btn"></div>
+        <div class="skel skel-btn"></div>
+      </div>
     </div>
-    <!-- Meta row -->
-    <div class="flex items-center gap-2 mb-3">
-      <div class="skeleton-line" style="height: 14px; width: 36px; border-radius: 5px;"></div>
-      <div class="skeleton-line skeleton-line-meta"></div>
-    </div>
-    <!-- Abstract lines -->
-    <div class="space-y-2 mb-3">
-      <div class="skeleton-line skeleton-line-text"></div>
-      <div class="skeleton-line skeleton-line-text-md"></div>
-      <div class="skeleton-line skeleton-line-text-sm"></div>
-    </div>
-    <!-- Action buttons row -->
-    <div class="flex gap-2">
-      <div class="skeleton-line skeleton-line-btn"></div>
-      <div class="skeleton-line skeleton-line-btn"></div>
-      <div class="skeleton-line" style="height: 28px; width: 56px; border-radius: 8px;"></div>
-    </div>
-  </div>
   {% endfor %}
 </div>
+<span class="sr-only" role="status">Loading recommendations…</span>

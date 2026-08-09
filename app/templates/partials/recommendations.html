@@ -1,72 +1,25 @@
-{# Partial: personalised recommendations #}
+{#
+  First page of the feed. Wraps the shared page fragment in the .feed column
+  so subsequent pages can append into the same flex container.
+
+  Gone from here: the "How we found these" panel that reported Ward Clustering
+  / ANN Retrieval / MMR timings in milliseconds. That is instrumentation for
+  the person who built the pipeline, not an answer to anything a reader wants
+  to know — per-paper "Why this?" replaces it. Timings still travel in the
+  response for anyone profiling; they are just no longer rendered.
+#}
 {% if papers %}
   {% if trending %}
-  <div class="flex items-center gap-2 mb-4">
-    <span class="stat-pill bg-warning/10 text-warning text-xs">🔥 Trending in your areas</span>
-    <span class="text-xs text-base-content/35">Save papers to get personalised recommendations</span>
-  </div>
-  {% endif %}
-
-  <div class="space-y-4">
-    {% for paper in papers %}
-      {% set position = loop.index0 %}
-      {% set source = "recommendation" %}
-      {% include "partials/paper_card.html" %}
-    {% endfor %}
-  </div>
-
-  {# Pipeline timing breakdown #}
-  {% if timing is defined and timing %}
-  <details class="mt-5 group">
-    <summary class="text-xs font-semibold text-base-content/40 cursor-pointer list-none flex items-center gap-1.5 w-fit hover:text-base-content/60 transition-colors">
-      <svg class="h-3 w-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" /></svg>
-      ⚡ How we found these
-      {% if timing.clustering_ms is defined %}
-        <span class="font-normal opacity-50">(pipeline)</span>
-      {% endif %}
-    </summary>
-    <div class="rit-pipeline-detail mt-2">
-      <div class="flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-mono text-base-content/50">
-        {% if timing.clustering_ms is defined %}
-          <span>Ward Clustering: <span class="text-primary">{{ timing.clustering_ms }}ms</span></span>
-        {% endif %}
-        {% if timing.ann_retrieval_ms is defined %}
-          <span>ANN Retrieval: <span class="text-primary">{{ timing.ann_retrieval_ms }}ms</span></span>
-        {% endif %}
-        {% if timing.candidate_meta_ms is defined %}
-          <span>Candidate Meta: <span class="text-primary">{{ timing.candidate_meta_ms }}ms</span></span>
-        {% endif %}
-        {% if rerank_time_ms is defined %}
-          <span>LightGBM Rerank: <span class="text-primary">{{ rerank_time_ms }}ms</span></span>
-        {% endif %}
-        {% if timing.mmr_ms is defined %}
-          <span>MMR Diversity: <span class="text-primary">{{ timing.mmr_ms }}ms</span></span>
-        {% endif %}
-        {% if meta_time_ms is defined %}
-          <span>Final Metadata: <span class="text-primary">{{ meta_time_ms }}ms</span></span>
-        {% endif %}
-      </div>
+    <div class="notice" style="margin-bottom:.85rem">
+      <span>
+        Popular in the areas you picked. Save a few papers and the feed starts
+        following your own reading instead.
+      </span>
     </div>
-  </details>
-  {% elif rerank_time_ms is defined and meta_time_ms is defined %}
-  <div class="text-center pt-3 text-xs text-base-content/30 font-mono">
-    ⚡ Reranking: {{ rerank_time_ms }}ms · Metadata: {{ meta_time_ms }}ms
-  </div>
   {% endif %}
 
-  <!-- Refresh button -->
-  <div class="text-center pt-4">
-    <button class="btn btn-ghost btn-sm text-base-content/50 hover:text-base-content/80"
-            hx-get="/api/recommendations"
-            hx-target="#rec-section"
-            hx-swap="innerHTML"
-            hx-indicator="#rec-refresh-spinner">
-      <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
-      </svg>
-      Show different recommendations
-      <span id="rec-refresh-spinner" class="htmx-indicator loading loading-spinner loading-xs ml-1"></span>
-    </button>
+  <div class="feed" id="feed">
+    {% include "partials/rec_page.html" %}
   </div>
 {% else %}
   {% include "partials/empty_recs.html" %}

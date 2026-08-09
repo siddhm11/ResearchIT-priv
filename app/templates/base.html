@@ -1,137 +1,121 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+{#
+  Base layout.
+
+  Loads NOTHING from an external origin. Previously this page pulled from four:
+  cdn.jsdelivr.net (DaisyUI), cdn.tailwindcss.com (Play CDN), unpkg.com (htmx)
+  and fonts.googleapis.com (via an @import inside styles.css, which serialised
+  the font request behind fetching and parsing that stylesheet).
+
+  The Play CDN in particular applies styles at runtime and its documented worst
+  case is "elements added to the page after first load" — i.e. every htmx-swapped
+  paper card on an infinite feed. See the note at the top of styles.css.
+#}
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="ResearchIT — AI-powered arXiv paper recommendations. Search, save, and discover research tailored to your interests." />
+  <meta name="description" content="ResearchIT — a personal reading feed for arXiv. Papers picked for the things you actually work on." />
+  <meta name="color-scheme" content="light dark" />
   <title>{% block title %}ResearchIT{% endblock %}</title>
 
-  <!-- DaisyUI + TailwindCSS (CDN, no build step) -->
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Custom styles -->
   <link rel="stylesheet" href="/static/styles.css" />
-  <link rel="stylesheet" href="/static/animations.css" />
 
-  <!-- HTMX -->
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-
-  <style>
-    /* HTMX indicator visibility */
-    .htmx-request .htmx-indicator { display: inline-block !important; }
-    .htmx-indicator { display: none; }
-  </style>
-
-  <!-- Theme restore (runs before body to prevent flash) -->
+  {#
+    Theme restore. Runs before first paint so an explicit choice never flashes.
+    Only an EXPLICIT choice is stamped — with nothing in localStorage the page
+    is left unstamped and follows the OS via prefers-color-scheme, which is the
+    correct default. The old build hardcoded data-theme="dark" on <html>, so a
+    light-mode user got a dark page regardless of their system setting.
+  #}
   <script>
-    (function() {
-      const saved = localStorage.getItem('researchit-theme');
-      if (saved) document.documentElement.setAttribute('data-theme', saved);
+    (function () {
+      try {
+        var t = localStorage.getItem('researchit-theme');
+        if (t === 'dark' || t === 'light') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* private mode — fall through to system preference */ }
     })();
   </script>
 
   {% block head %}{% endblock %}
 </head>
-<body class="bg-base-200 min-h-screen">
+<body>
+  {% set path = request.url.path if request else '/' %}
 
-  <!-- ═══ Navbar ═══ -->
-  <nav class="rit-navbar navbar sticky top-0 z-50 px-4 md:px-6">
-    <div class="flex-1">
-      <a href="/" class="flex items-center gap-2 text-xl group">
-        <svg class="w-7 h-7 text-sky-400 group-hover:text-sky-300 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-          <path d="M11 8v6M8 11h6" opacity="0.5"/>
-        </svg>
-        <span class="brand-text text-lg">ResearchIT</span>
-      </a>
-    </div>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-    <!-- Desktop Menu -->
-    <div class="hidden md:flex flex-none items-center gap-1">
-      <a href="/" class="rit-nav-link">Home</a>
-      <a href="/search" class="rit-nav-link">Search</a>
-      <a href="/saved" class="rit-nav-link">Saved</a>
-      <div class="w-px h-5 bg-base-content/10 mx-2"></div>
-      <button id="theme-toggle" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme"
-              onclick="toggleTheme()">
-        <svg class="theme-icon-sun w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-        <svg class="theme-icon-moon w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-      </button>
-    </div>
+  <div class="shell">
 
-    <!-- Mobile Menu Toggle -->
-    <div class="flex-none md:hidden relative">
-      <label class="btn btn-ghost btn-sm btn-circle swap swap-rotate">
-        <input type="checkbox" class="mobile-menu-toggle hidden" />
-        <svg class="swap-off fill-current" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 512 512"><path d="M64,384H448V341.33H64Zm0-106.67H448V234.67H64ZM64,128v42.67H448V128Z"/></svg>
-        <svg class="swap-on fill-current" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 512 512"><polygon points="400 145.49 366.51 112 256 222.51 145.49 112 112 145.49 222.51 256 112 366.51 145.49 400 256 289.49 366.51 400 400 366.51 289.49 256 400 145.49"/></svg>
-      </label>
-      <div class="mobile-menu hidden">
-        <a href="/" class="btn btn-ghost btn-sm justify-start">Home</a>
-        <a href="/search" class="btn btn-ghost btn-sm justify-start">Search</a>
-        <a href="/saved" class="btn btn-ghost btn-sm justify-start">Saved</a>
-        <div class="divider my-1 opacity-20"></div>
-        <button class="btn btn-ghost btn-sm justify-start" onclick="toggleTheme()">
-          <span class="theme-text-dark hidden">Switch to Light ☀️</span>
-          <span class="theme-text-light hidden">Switch to Dark 🌙</span>
-        </button>
+    <header class="topbar">
+      <div class="wrap">
+        <a href="/" class="brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
+            <path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z" />
+            <path d="M9 8h6M9 11.5h4" opacity=".55" />
+          </svg>
+          <span>ResearchIT</span>
+        </a>
+
+        <nav class="nav" aria-label="Main">
+          <a href="/" class="nav-link" {% if path == '/' %}aria-current="page"{% endif %}>Feed</a>
+          <a href="/search" class="nav-link" {% if path.startswith('/search') %}aria-current="page"{% endif %}>Search</a>
+          <a href="/saved" class="nav-link" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>Library</a>
+          <button type="button" class="icon-btn theme-toggle" onclick="toggleTheme()"
+                  aria-label="Switch between light and dark theme">
+            <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4.2" />
+              <path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" />
+            </svg>
+            <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20.5 13.4A8.5 8.5 0 1 1 10.6 3.5a6.7 6.7 0 0 0 9.9 9.9z" />
+            </svg>
+          </button>
+        </nav>
       </div>
-    </div>
-  </nav>
+    </header>
 
-  <!-- ═══ Main Content ═══ -->
-  <main class="container mx-auto px-4 py-6 md:py-10 max-w-4xl min-h-[70vh]">
-    {% block content %}{% endblock %}
-  </main>
+    <main id="main">
+      {% block content %}{% endblock %}
+    </main>
 
-  <!-- ═══ Footer ═══ -->
-  <footer class="app-footer">
-    <div class="container mx-auto px-4 max-w-4xl">
-      <p class="mb-2">
-        <span class="brand-text font-semibold">ResearchIT</span>
-        <span class="mx-2 opacity-30">·</span>
-        <span>Your personal research feed</span>
-      </p>
-      <div class="flex flex-wrap justify-center gap-2 mt-3">
-        <span class="footer-tech-badge">Qdrant</span>
-        <span class="footer-tech-badge">Zilliz</span>
-        <span class="footer-tech-badge">BGE-M3</span>
-        <span class="footer-tech-badge">LightGBM</span>
-        <span class="footer-tech-badge">Groq</span>
-        <span class="footer-tech-badge">Turso</span>
-      </div>
-    </div>
-  </footer>
+  </div>
 
-  <!-- ═══ Mobile Bottom Navigation ═══ -->
-  <div class="rit-bottom-nav">
-    <a href="/" class="rit-bottom-nav-item" data-page="home">
-      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-        <path stroke-linecap="round" stroke-linejoin="round" d="m3 12 2-2m0 0 7-7 7 7M5 10v10a1 1 0 0 0 1 1h3m10-11 2 2m-2-2v10a1 1 0 0 1-1 1h-3m-4 0a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-2Z"/>
+  <nav class="botnav" aria-label="Main">
+    <a href="/" class="botnav-item" {% if path == '/' %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H19v14H6.5A2.5 2.5 0 0 0 4 20.5z" />
+        <path d="M9 9h6" opacity=".55" />
       </svg>
-      <span>Home</span>
+      <span>Feed</span>
     </a>
-    <a href="/search" class="rit-bottom-nav-item" data-page="search">
-      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"/>
+    <a href="/search" class="botnav-item" {% if path.startswith('/search') %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
       </svg>
       <span>Search</span>
     </a>
-    <a href="/saved" class="rit-bottom-nav-item" data-page="saved">
-      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z"/>
+    <a href="/saved" class="botnav-item" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z" />
       </svg>
-      <span>Saved</span>
+      <span>Library</span>
     </a>
-  </div>
+  </nav>
 
-  <!-- ═══ Toast Container ═══ -->
-  <div id="toast-container"></div>
+  {# Undo toasts mount here. See app.js — dismissal is deferred, not confirmed. #}
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-  <!-- ═══ Scripts ═══ -->
+  <script src="/static/htmx.min.js"></script>
   <script src="/static/app.js"></script>
   {% block scripts %}{% endblock %}
-
 </body>
 </html>
