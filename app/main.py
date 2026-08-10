@@ -81,6 +81,14 @@ app.include_router(recommendations.router)
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)
+# researchit-space (3D map client) JSON API. Guarded the same way as the Turso
+# sync and BGE-M3 warmup above: this router is additive, and a fault inside it
+# must never stop the main app from serving.
+try:
+    from app.routers import space as _space
+    app.include_router(_space.router)
+except Exception as _e:
+    print(f"[main] space JSON API unavailable ({_e}) -- map client features disabled")
 
 
 @app.get("/", response_class=HTMLResponse)

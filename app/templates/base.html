@@ -64,6 +64,13 @@
           <a href="/" class="nav-link" {% if path == '/' %}aria-current="page"{% endif %}>Feed</a>
           <a href="/search" class="nav-link" {% if path.startswith('/search') %}aria-current="page"{% endif %}>Search</a>
           <a href="/saved" class="nav-link" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>Library</a>
+          {% if space_app_url %}
+          {# New tab on purpose: the map is a WebGL scene that streams in over a
+             few seconds, and losing the current feed to go look at it would be a
+             bad trade. #}
+          <a href="{{ space_app_url }}" target="_blank" rel="noopener"
+             class="nav-link" title="Explore these papers in 3D space">3D Map ↗</a>
+          {% endif %}
           <button type="button" class="icon-btn theme-toggle" onclick="toggleTheme()"
                   aria-label="Switch between light and dark theme">
             <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor"

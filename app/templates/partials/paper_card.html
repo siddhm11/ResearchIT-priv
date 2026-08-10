@@ -65,6 +65,21 @@
     {% include "partials/action_buttons.html" %}
   </div>
 
+  {% if space_app_url %}
+  {# Deep link, not just a link to the map's front door: the client reads
+     ?paper=<id> and flies the camera to that paper, so this answers "what sits
+     near this one?" directly. Papers outside the spatial corpus get placed by
+     their nearest semantic neighbours, so the link is never a dead end.
+     Sits outside #actions-… so it survives the htmx swap after a save. #}
+  <a class="card-map" href="{{ space_paper_url(paper.arxiv_id) }}"
+     target="_blank" rel="noopener" title="Show this paper in the 3D map">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" /><path d="m3 7 9 5 9-5M12 12v10" opacity=".55" />
+    </svg>
+    See it in 3D
+  </a>
+  {% endif %}
 
   {# Reason panel lives outside #actions-… so it survives the htmx swap that
      replaces the buttons after a save. #}
