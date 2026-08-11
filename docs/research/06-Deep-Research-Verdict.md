@@ -124,3 +124,51 @@ The implementation surface looks almost identical to Doc 03 from 50 feet away �
 - Eagerly warmed up BGE Reranker in `app/main.py` lifespan alongside BGE-M3.
 - Integrated BGE reranking stage in `app/hybrid_search_svc.py` after RRF and scaled its logit scores into RRF-compatible probabilities using a sigmoid function.
 - Updated `app/templates/partials/search_results.html` to display "BGE Rerank" timing in the search pipeline breakdown view.
+### 2026-08-12 — Keep RRF for search, but stop calling it settled
+**Decision:** Search continues to use RRF. Section 3.1's rule stands, with its
+justification narrowed: RRF is retained for robustness, not because it is the
+higher-relevance choice. Revisit once the sparse arm is live and an evaluation
+harness exists.
+**Supersedes:** Nothing yet. This records a contradiction rather than resolving
+it, per CLAUDE.md §6.3.
+**Rationale:** OpenSearch's published BEIR comparison has rank-based RRF scoring
+**3.86% lower NDCG@10 on average** than tuned score normalization, and **4.81%
+lower on SciDocs** — the dataset closest to this corpus (RRF 0.1525, min-max/L2
+normalization 0.1602). On SciDocs plain BM25 (0.155) also beat RRF hybrid. The
+usual defence, that RRF is cheaper, does not hold either: the same benchmark
+puts it 1.62% ahead at p50 and −0.033% on CPU, so the relevance cost buys
+essentially nothing in latency.
+
+Against that: the measurement is someone else's corpus and someone else's
+retrievers, and normalization only wins *tuned* — untuned weights can lose to
+RRF outright. This project currently has no ground truth to tune against beyond
+a 60-query known-item set, so switching now would mean fitting fusion weights to
+60 queries, which overfits more reliably than it improves.
+
+Note the sharper implication of the same table: search today runs the dense arm
+alone, and dense-only scores **0.1075** on SciDocs — 33% below the best hybrid.
+The fusion strategy is not the biggest lever; the missing sparse arm is.
+**Action items:**
+- Land the `[PENDING]` lexical arm (Zilliz sparse → FTS5) from PHASE8 §1 first.
+- Build the evaluation harness before touching fusion. Scholar Inbox's released
+  ratings and SciRepEval are both candidate ground truth (both unverified —
+  confirm before building on them).
+- Only then A/B RRF against weighted score normalization on this corpus, and
+  sweep `SEARCH_RRF_K` (currently 60) rather than leaving it at the copied
+  default.
+- If normalization wins on our own data, update section 3.1 and this changelog
+  together.
+
+### 2026-08-12 — Accept the 510-paper gap between the vector shards and the sidecar
+**Decision:** Not fixing it now. Documented, not chased.
+**Rationale:** `/healthz/shards` totals 1,798,838 vector points (899,456 +
+697,131 + 202,251) against 1,799,348 rows in the metadata sidecar — a 510-paper
+gap, 0.03% of the corpus. Those papers are reachable by lexical/FTS5 lookup and
+invisible to vector search. At that scale it cannot move any retrieval metric,
+and the diagnosis (which 510, and why) costs more than the outcome is worth
+while the sparse arm is still unbuilt.
+**Action items:**
+- Fold a reconciliation check into whatever ingest work Phase 7 produces, rather
+  than writing a one-off script for it now.
+- Re-measure after the next ingest. A gap that *grows* is a broken ingest and is
+  worth stopping for; a static 510 is not.

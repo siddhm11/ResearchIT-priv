@@ -77,7 +77,8 @@ These are the hard architectural commitments. **Violating any of these is a regr
 
 ### 3.1 Fusion
 
-- **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. RRF is correct here. Search is currently arXiv keyword API but will become hybrid semantic search in Phase 3.)
+- **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
+- **Search is currently dense-only.** The lexical arm (`[3b]` in PHASE8 §1) is still `[PENDING]`, so nothing is actually being fused. On SciDocs dense-only scores 0.1075 against 0.1602 for the best hybrid — the missing arm is a far bigger lever than the fusion strategy.
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
