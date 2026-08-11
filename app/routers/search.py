@@ -144,7 +144,20 @@ async def search_summary(
     if not papers:
         return ""
 
-    summary_html = await groq_svc.generate_search_summary(q, papers)
+    # The Turso fetch above is already guarded; this call was not. A Groq
+    # rate-limit, timeout or outage therefore escaped as a 500, and the client
+    # turns any non-2xx here into an htmx:responseError -> "Something went
+    # wrong. Please try again." on an otherwise perfectly good results page.
+    #
+    # The overview is strictly additive, so every failure mode degrades to
+    # "no overview" -- the same contract every other optional service in this
+    # app follows (BGE-M3, the cross-encoder, Zilliz, the sidecar).
+    try:
+        summary_html = await groq_svc.generate_search_summary(q, papers)
+    except Exception as e:
+        print(f"[search] summary generation failed: {e}")
+        return ""
+
     if not summary_html:
         return ""
 

@@ -32,7 +32,7 @@ def client(tmp_path, monkeypatch):
 
     from app.main import app
     import asyncio
-    asyncio.get_event_loop().run_until_complete(db_mod.init_db())
+    asyncio.run(db_mod.init_db())
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -230,3 +230,40 @@ def test_search_empty_query_no_hybrid_call(client, monkeypatch):
     assert resp.status_code == 200
     # Hybrid search should NOT have been called
     search_mock.assert_not_called()
+
+
+# ── AI overview degradation ──────────────────────────────────────────────────
+
+def test_search_summary_survives_groq_failure(client, monkeypatch):
+    """A failing Groq call must degrade to no overview, never a 500.
+
+    search_results.html fires this endpoint with hx-trigger="load", and app.js
+    turns any non-2xx into an htmx:responseError toast. So an unguarded
+    exception here puts "Something went wrong. Please try again." on top of a
+    results page that rendered perfectly.
+    """
+    import app.turso_svc as turso
+    import app.groq_svc as groq
+
+    async def fake_meta(ids):
+        return {
+            "1706.03762": {
+                "arxiv_id": "1706.03762",
+                "title": "Attention Is All You Need",
+                "abstract": "The original transformer paper.",
+                "authors": "[]",
+                "category": "cs.CL",
+                "published": "2017-06-12",
+                "year": 2017,
+            }
+        }
+
+    async def boom(query, papers):
+        raise RuntimeError("groq rate limit")
+
+    monkeypatch.setattr(turso, "fetch_metadata_batch", fake_meta)
+    monkeypatch.setattr(groq, "generate_search_summary", boom)
+
+    resp = client.get("/api/search/summary?q=transformer&ids=1706.03762")
+    assert resp.status_code == 200
+    assert resp.text == ""
