@@ -9,16 +9,26 @@ Tests:
   5. Latency benchmark — confirm < 1ms for 100 candidates
   6. Backward compatibility — old call signature still works
 """
+import importlib.util
 import sys
 import os
 import time
 import numpy as np
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# lightgbm is deliberately not installed in the local dev venv (it is several
+# hundred MB and app/recommend/reranker.py falls back to heuristic_score()
+# without it). Only the smoke test below actually needs the library -- the
+# rest of this file exercises the heuristic path and must still run, so the
+# skip is scoped to that one test rather than the whole module.
+_HAS_LIGHTGBM = importlib.util.find_spec("lightgbm") is not None
+
 # ── Test 1: Smoke Test ───────────────────────────────────────────────────────
 
+@pytest.mark.skipif(not _HAS_LIGHTGBM, reason="lightgbm not installed locally")
 def test_smoke():
     """Load the LightGBM model directly and predict on dummy input."""
     import lightgbm as lgb

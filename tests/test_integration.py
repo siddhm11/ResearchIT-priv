@@ -25,7 +25,7 @@ def client(tmp_path, monkeypatch):
 
     from app.main import app
     import asyncio
-    asyncio.get_event_loop().run_until_complete(db_mod.init_db())
+    asyncio.run(db_mod.init_db())
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -147,7 +147,7 @@ def test_recommendations_after_save(client, monkeypatch):
 
     # Pre-seed the Qdrant map so recommend() can find the paper
     import asyncio
-    asyncio.get_event_loop().run_until_complete(
+    asyncio.run(
         db_mod.save_qdrant_id("0704.0002", 0)
     )
 

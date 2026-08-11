@@ -125,7 +125,7 @@ def setup_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_profiles.db")
     monkeypatch.setattr(cfg, "DB_PATH", db_path)
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
-    asyncio.get_event_loop().run_until_complete(db_mod.init_db())
+    asyncio.run(db_mod.init_db())
     yield
 
 
@@ -141,7 +141,7 @@ def test_profile_save_and_load(setup_db):
         assert loaded is not None
         assert np.allclose(vec, loaded, atol=1e-7)
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
 
 
 def test_profile_interaction_count(setup_db):
@@ -155,7 +155,7 @@ def test_profile_interaction_count(setup_db):
         count = await profiles.get_interaction_count("user-2", "short_term")
         assert count == 12
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())
 
 
 def test_profile_not_found_returns_none(setup_db):
@@ -168,4 +168,4 @@ def test_profile_not_found_returns_none(setup_db):
         count = await profiles.get_interaction_count("nonexistent", "long_term")
         assert count == 0
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())

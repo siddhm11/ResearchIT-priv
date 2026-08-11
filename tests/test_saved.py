@@ -22,7 +22,7 @@ def client(tmp_path, monkeypatch):
     _client.cache_clear()
 
     from app.main import app
-    asyncio.get_event_loop().run_until_complete(db_mod.init_db())
+    asyncio.run(db_mod.init_db())
 
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -44,7 +44,10 @@ def test_saved_page_empty_for_new_user(client):
     """New user has no saves — shows the empty-state message."""
     resp = client.get("/saved")
     assert resp.status_code == 200
-    assert "No saved papers" in resp.text
+    # Must match the empty state in templates/saved.html. The redesign in
+    # 99c77d4 replaced "No saved papers" with this copy and the assertion was
+    # never updated, because this test was erroring out before it ran.
+    assert "Nothing saved yet" in resp.text
 
 
 def test_saved_page_shows_paper_after_save(client, monkeypatch):
@@ -97,7 +100,10 @@ def test_saved_page_shows_correct_count(client, monkeypatch):
     client.post("/api/papers/1512.03385/save", data={"source": "search"})
     resp = client.get("/saved")
     assert resp.status_code == 200
-    assert "2 saved" in resp.text
+    # saved.html renders the count as a bare pill: <span class="pill">2</span>.
+    # Asserting the markup rather than "2 saved" keeps this honest -- the old
+    # string stopped existing in 99c77d4 and nothing caught it.
+    assert '<span class="pill">2</span>' in resp.text
 
 
 # ── Remove from saved ─────────────────────────────────────────────────────────
@@ -138,7 +144,7 @@ def test_save_source_is_logged(client):
     user_id = client.cookies.get("arxiv_user_id")
     client.post("/api/papers/1706.03762/save", data={"source": "search", "position": "2"})
 
-    rows = asyncio.get_event_loop().run_until_complete(
+    rows = asyncio.run(
         db_mod.get_user_interactions(user_id, event_types=["save"])
     )
     assert len(rows) == 1
@@ -155,7 +161,7 @@ def test_dismiss_source_saved_is_logged(client):
     client.post("/api/papers/1706.03762/save", data={"source": "search"})
     client.post("/api/papers/1706.03762/not-interested", data={"source": "saved"})
 
-    rows = asyncio.get_event_loop().run_until_complete(
+    rows = asyncio.run(
         db_mod.get_user_interactions(user_id, event_types=["not_interested"])
     )
     assert len(rows) == 1
