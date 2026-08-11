@@ -1,0 +1,62 @@
+# Unit + integration tests on every push and PR.
+#
+# Budget note: this is affordable because keepalive.yml dropped from a 25-minute
+# to a 12-hour cadence (~1728 -> ~60 min/month), which freed most of the 2000
+# min/month Actions allowance. See the comment at the top of that file.
+#
+# ── What is deliberately NOT installed ───────────────────────────────────────
+#
+# requirements.txt pulls torch + FlagEmbedding + pymilvus + lightgbm, which is
+# several GB and many minutes per run. Every one of them has a graceful
+# ImportError fallback in the app, and the tests that need them skip themselves
+# (see tests/test_live_search.py and tests/test_reranker_integration.py).
+#
+# So CI installs only what the suite actually exercises. If you add a test that
+# needs a heavy dependency, guard it with importlib.util.find_spec rather than
+# adding the dependency here — a 10-minute CI run is one nobody waits for.
+#
+# `-m "not live"` deselects tests that hit Qdrant/Zilliz/Groq/Turso. Those need
+# real credentials, they fail on someone else's outage, and a unit suite that
+# goes red for reasons outside the diff is a suite people learn to ignore.
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A newer push makes an in-flight run irrelevant.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Mirrors requirements.txt minus the ML stack (see header).
+          pip install \
+            fastapi 'uvicorn>=0.30' jinja2 httpx aiosqlite \
+            'qdrant-client>=1.9' pydantic numpy scipy python-multipart \
+            python-dotenv \
+            pytest pytest-asyncio 'anyio[asyncio]'
+
+      - name: Run tests
+        # No credentials are provided on purpose: tests/conftest.py disables
+        # Turso replication, and anything else needing a live service carries
+        # the `live` marker and is deselected here.
+        run: python -m pytest tests/ -v -m "not live" --durations=10
