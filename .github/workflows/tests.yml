@@ -43,7 +43,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          # No `cache: pip`. Its default key is a hash of requirements.txt, and
+          # this job deliberately installs a different, much smaller set (see
+          # header), so the key would describe something the job never installs
+          # -- a cache that looks like it is working and mostly is not. The
+          # install is ~15s of small pure-Python wheels; not worth the fiction.
 
       - name: Install test dependencies
         run: |
