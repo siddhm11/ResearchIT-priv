@@ -4,16 +4,49 @@ Health check routes.
 Endpoints:
   /healthz/reranker  -- Phase 6.3: verify LightGBM model deployment status
   /healthz/deep      -- Deep health check: ping Qdrant, Zilliz, Turso (keepalive)
+  /healthz/client    -- what the rate limiter derives for the calling client
 """
 import asyncio
 import hashlib
 import json
 import time
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from app.recommend import reranker as _rr
 from app import config
 
 router = APIRouter()
+
+
+@router.get("/healthz/client")
+async def healthz_client(request: Request):
+    """Echo the identity the rate limiter derived for this request.
+
+    A Space runs behind Hugging Face's proxy, so request.client.host is the
+    proxy rather than the visitor. If the proxy does not forward the caller's
+    address, every visitor collapses into a single bucket and the limiter would
+    throttle the entire user base at once.
+
+    That assumption is not worth taking on trust, so this makes it checkable:
+
+        curl https://siddhm11-researchit.hf.space/healthz/client
+
+    client_key should differ between two networks. If it is the same everywhere,
+    set RATE_LIMIT_ENABLED=0 until the reason is understood.
+
+    Only the headers the limiter actually consults are echoed, so this cannot
+    become an incidental request-header dump.
+    """
+    from app import rate_limit
+
+    return {
+        "client_key": rate_limit.client_key(request),
+        "sources": {
+            "x_forwarded_for": request.headers.get("x-forwarded-for"),
+            "x_real_ip": request.headers.get("x-real-ip"),
+            "socket_peer": request.client.host if request.client else None,
+        },
+        "rate_limit": rate_limit.stats(),
+    }
 
 
 @router.get("/healthz/reranker")

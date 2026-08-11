@@ -449,3 +449,14 @@ def space_paper_url(arxiv_id: str) -> str:
         return ""
     from urllib.parse import quote
     return f"{SPACE_APP_URL}/?paper={quote(str(arxiv_id), safe='')}"
+
+
+# ── Rate limiting ────────────────────────────────────────────────────────────
+# Guards the Groq/Qdrant/Zilliz quotas and 2 vCPU against automated traffic.
+# See app/rate_limit.py for the limits, the fail-open design, and how to verify
+# client identification against the deployed Space (GET /healthz/client).
+#
+# Set to 0 to disable if that check shows every visitor resolving to the same
+# key -- a limiter that cannot tell clients apart is worse than none.
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in (
+    "1", "true", "yes")

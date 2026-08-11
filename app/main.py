@@ -13,7 +13,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Cookie
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
@@ -71,6 +71,30 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    """Throttle the quota-hungry endpoints; see app/rate_limit.py.
+
+    Wrapped in try/except on purpose. This sits in front of every request, so a
+    fault in the limiter would take down the whole app -- for a feature whose
+    only job is to shed load. Any error here allows the request through.
+    """
+    try:
+        from app import rate_limit
+        allowed, retry_after = rate_limit.check(
+            request.url.path, rate_limit.client_key(request))
+        if not allowed:
+            return PlainTextResponse(
+                "Too many requests. Please slow down.",
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[main] rate limiter skipped ({e})")
+    return await call_next(request)
+
 
 # Serve static files (CSS, JS, images)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

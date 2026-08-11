@@ -48,3 +48,26 @@ def _disable_turso_replication():
         yield
     finally:
         turso_sync.enabled = original
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _disable_rate_limiting():
+    """Rate limiting off by default for the suite.
+
+    app/rate_limit.py keeps its counters in module-level state, and the
+    TestClient presents the same client identity for every request, so the whole
+    session shares one bucket. Enough tests hitting /search would silently start
+    getting 429s -- a failure that would look like a routing or template bug and
+    would land on whichever test happened to run 31st.
+
+    tests/test_rate_limit.py re-enables it per-test with monkeypatch, so the
+    limiter itself is still covered.
+    """
+    from app import config
+
+    original = config.RATE_LIMIT_ENABLED
+    config.RATE_LIMIT_ENABLED = False
+    try:
+        yield
+    finally:
+        config.RATE_LIMIT_ENABLED = original
