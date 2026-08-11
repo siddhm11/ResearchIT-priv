@@ -1,11 +1,24 @@
 """
-Test script: Compare Turso DB vs arXiv API metadata fetch times.
+Benchmark script: Compare Turso DB vs arXiv API metadata fetch times.
 Run: python -m tests.test_turso_timing
+
+This is a benchmark, not an assertion suite -- pytest only collects it because
+the two functions happen to be named test_*. Both call live services (Turso and
+the arXiv API), and test_arxiv also writes to the local paper_metadata cache
+table, which does not exist unless db.init_db() has been run. So it fails
+anywhere without credentials and a seeded database, CI included.
+
+Marked `live` at module scope so `-m "not live"` skips it. Run it directly, by
+the command above, when you want the timing numbers.
 """
 import asyncio
 import time
 import sys
 import os
+
+import pytest
+
+pytestmark = pytest.mark.live
 
 # Ensure app module is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

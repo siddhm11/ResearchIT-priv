@@ -78,7 +78,13 @@ async def test_recommend_returns_empty_when_no_positive_ids(tmp_path, monkeypatc
 
 
 # ── Integration: real Qdrant calls ───────────────────────────────────────────
+#
+# Marked `live`: these hit the production Qdrant collection and assert on the
+# contents of specific point IDs. They pass on a developer machine only because
+# .env.local supplies credentials, and fail anywhere without them -- including
+# CI, which has no .env.local. Run them against a deploy, not on every push.
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_lookup_real_qdrant(tmp_path, monkeypatch):
     """Lookup a known arxiv_id in the live Qdrant collection."""
@@ -100,6 +106,7 @@ async def test_lookup_real_qdrant(tmp_path, monkeypatch):
     assert isinstance(result["0704.0002"], int)
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_recommend_with_real_qdrant(tmp_path, monkeypatch):
     """

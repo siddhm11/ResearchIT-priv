@@ -8,7 +8,7 @@ pinned: false
 short_description: A multi-interest arXiv recommender over 1.8M papers
 models:
   - BAAI/bge-m3
-  - cross-encoder/ms-marco-MiniLM-L-6-v2
+  - cross-encoder/ms-marco-MiniLM-L6-v2
   - siddhm11/researchit-reranker-phase6
 datasets:
   - siddhm11/researchit-metadata
@@ -23,6 +23,10 @@ datasets:
                      links the Space to BGE-M3, the MiniLM cross-encoder, the
                      Phase 6 reranker and the metadata sidecar explicitly, and
                      documents the dependency graph where a visitor looks first.
+                     The cross-encoder is listed under its canonical id,
+                     ms-marco-MiniLM-L6-v2. config.py and the Dockerfile use
+                     ms-marco-MiniLM-L-6-v2, which HF 307-redirects to the same
+                     repo -- both work; only this one links without a hop.
 
   Deliberately NOT set:
     app_port   defaults to 7860 for docker Spaces, which is what run.py binds.
