@@ -5,7 +5,36 @@ colorFrom: indigo
 colorTo: purple
 sdk: docker
 pinned: false
+short_description: A multi-interest arXiv recommender over 1.8M papers
+models:
+  - BAAI/bge-m3
+  - cross-encoder/ms-marco-MiniLM-L-6-v2
+  - siddhm11/researchit-reranker-phase6
+datasets:
+  - siddhm11/researchit-metadata
 ---
+
+<!--
+  Frontmatter notes (keys per https://huggingface.co/docs/hub/en/spaces-config-reference):
+
+  short_description  is the caption on the Space thumbnail. It was blank, so
+                     the card showed nothing to anyone discovering the project.
+  models / datasets  are parsed from code when omitted, but declaring them
+                     links the Space to BGE-M3, the MiniLM cross-encoder, the
+                     Phase 6 reranker and the metadata sidecar explicitly, and
+                     documents the dependency graph where a visitor looks first.
+
+  Deliberately NOT set:
+    app_port   defaults to 7860 for docker Spaces, which is what run.py binds.
+    storage    the persistent-storage feature is gone -- the docs state the
+               `suggested_storage` key "will be ignored". Durability comes from
+               app/turso_sync.py replicating to Turso, not from a volume.
+    license    the repo has no LICENSE file, so there is nothing to declare
+               yet. A public repo with no license is "all rights reserved" by
+               default, which forbids the reuse a research tool usually wants.
+               Add a LICENSE and then set this key to match it.
+-->
+
 
 # ResearchIT — Personalized ArXiv Paper Recommender
 

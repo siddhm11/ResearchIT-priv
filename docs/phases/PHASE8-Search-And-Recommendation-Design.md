@@ -41,7 +41,7 @@ query
 | 3a | Qdrant dense | `limit = 10 × SEARCH_FETCH_K_MULTIPLIER(6) = 60` | **~190 ms** |
 | 3b | Zilliz sparse | same limit | ~network |
 | 4 | RRF | `SEARCH_RRF_K = 60`, `1/(k+rank)` summed over all lists | ~0 ms |
-| 5 | Cross-encoder | `SEARCH_RERANK_TOP_N = 50`, sigmoid → [0,1] | 139–182 ms at n=10 |
+| 5 | Cross-encoder | `SEARCH_RERANK_TOP_N = 10`, sigmoid → [0,1]; `SEARCH_BGE_RERANK=0` disables | 139–182 ms at n=10 |
 | 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2 | ~1 ms |
 | 7 | Return | `ARXIV_MAX_RESULTS = 10` | |
 
@@ -50,10 +50,24 @@ query
 - **RRF is correct for search.** Many retrievers, one query — rank-based fusion
   needs no score calibration. Do not replace it with quota (that is the
   recommendation-side answer to a different problem).
-- **Rerank window must exceed the result count.** At `SEARCH_RERANK_TOP_N = 10`
-  the stage re-ordered exactly the set already being returned and could never
-  promote a better paper from the retrieved pool. 50 of 60 is the current
-  setting; below 10 it is worse than useless because it still costs CPU.
+- **~~Rerank window must exceed the result count.~~ SUPERSEDED 2026-08-02 by
+  commit `082e383`.** This rule said 50-of-60 was current and that a window of
+  10 was "worse than useless". The measured sweep says the opposite: recall@10
+  rose 66.7% → 73.3% → **85.0%** as the window narrowed 50 → 25 → 10, and the
+  50-vs-25 comparison moved 14 targets up and 0 down (sign test p = 0.000122).
+  `SEARCH_RERANK_TOP_N` now defaults to **10**.
+
+  Read the numbers carefully, because they do not mean the reranker got better.
+  `hybrid_search_svc.py` truncates with `fused[:top_n]`, and `ARXIV_MAX_RESULTS`
+  is also 10 — so at a window of 10 the cross-encoder **cannot change which
+  papers are returned, only their order**, and 85.0% is simply the recall of the
+  RRF ordering itself. The real finding is that at 50 the cross-encoder was
+  *destroying* recall, pulling 85% down to 66.7% by promoting near-misses over
+  correct papers.
+
+  Open question, not yet measured: whether the stage still earns ~58% of search
+  latency for the ordering-only benefit it can still provide. `SEARCH_BGE_RERANK=0`
+  turns it off; compare MRR@10, which is the only metric it can now move.
 - **Rescore stays on.** `rescore=False` is 615 ms vs 608 ms — no faster — and
   drops recall@10 from 100% to 57%. Binary codes alone cannot rank 1024-dim
   vectors.
