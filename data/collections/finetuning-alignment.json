@@ -1,0 +1,15 @@
+{
+  "slug": "finetuning-alignment",
+  "title": "Fine-tuning & Alignment",
+  "blurb": "How raw language models become usable assistants, and how tuning them got cheap enough to do on one GPU.",
+  "anchors": [
+    {"id": "1707.06347", "note": "The policy-gradient method the whole RLHF stack was built on. Read it before InstructGPT."},
+    {"id": "2009.01325", "note": "Human feedback beats supervised fine-tuning on summarisation. The proof of concept for RLHF."},
+    {"id": "2203.02155", "note": "RLHF applied at scale to instruction following. This is the recipe behind ChatGPT."},
+    {"id": "2212.08073", "note": "Replaces most human feedback with a written constitution and model self-critique."},
+    {"id": "2305.18290", "note": "Shows the RLHF objective has a closed-form solution — no reward model, no RL loop. Removed most of the machinery."},
+    {"id": "2101.00190", "note": "Tune a small continuous prefix rather than the model. The start of parameter-efficient tuning."},
+    {"id": "2106.09685", "note": "Low-rank updates to frozen weights. The single most widely deployed fine-tuning method."},
+    {"id": "2305.14314", "note": "4-bit base model plus LoRA adapters, so a 65B model fine-tunes on one consumer GPU."}
+  ]
+}

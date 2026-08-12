@@ -13,12 +13,13 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Cookie
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
-from app.routers import search, events, recommendations, saved, onboarding, health
+from app.routers import (search, events, recommendations, saved, onboarding,
+                         health, collections)
 
 
 @asynccontextmanager
@@ -60,6 +61,15 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old cluster snapshot rows")
     except Exception as e:
         print(f"[main] Snapshot pruning skipped: {e}")
+
+    # Feed impressions grow with every page served and are only a "do not show
+    # this again yet" set, so anything this old has no influence on the feed.
+    try:
+        pruned = await db.prune_impressions(retention_days=90)
+        if pruned:
+            print(f"[main] Pruned {pruned} old feed impression rows")
+    except Exception as e:
+        print(f"[main] Impression pruning skipped: {e}")
     yield
 
     # Final flush so the last sync interval is not lost on shutdown.
@@ -72,6 +82,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    """Throttle the quota-hungry endpoints; see app/rate_limit.py.
+
+    Wrapped in try/except on purpose. This sits in front of every request, so a
+    fault in the limiter would take down the whole app -- for a feature whose
+    only job is to shed load. Any error here allows the request through.
+    """
+    try:
+        from app import rate_limit
+        allowed, retry_after = rate_limit.check(
+            request.url.path, rate_limit.client_key(request))
+        if not allowed:
+            return PlainTextResponse(
+                "Too many requests. Please slow down.",
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[main] rate limiter skipped ({e})")
+    return await call_next(request)
+
+
 # Serve static files (CSS, JS, images)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -81,6 +115,7 @@ app.include_router(recommendations.router)
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)
+app.include_router(collections.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.

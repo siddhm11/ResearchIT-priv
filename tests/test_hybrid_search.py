@@ -222,7 +222,7 @@ class TestGroqRewriter:
         """Empty query returns empty string."""
         import asyncio
         from app.groq_svc import rewrite
-        result = asyncio.get_event_loop().run_until_complete(rewrite(""))
+        result = asyncio.run(rewrite(""))
         assert result == ""
 
     def test_rewrite_fallback_no_api_key(self):
@@ -234,7 +234,7 @@ class TestGroqRewriter:
             # Reset cached client
             import app.groq_svc as gs
             gs._client = None
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 rewrite("when AI makes up fake facts")
             )
             assert result == "when AI makes up fake facts"

@@ -40,7 +40,13 @@ e2e_output.txt
 
 # Metadata sidecar — ~1.5GB, built by scripts/build_metadata_sidecar.py and
 # fetched at image build time. Never commit it.
-data/
+#
+# `data/*` rather than `data/`: git cannot re-include a file whose parent
+# DIRECTORY is excluded, so excluding the directory itself would make the
+# negation below silently do nothing. Curated collections are small, hand-
+# written content and must be version-controlled.
+data/*
+!data/collections/
 *.sqlite
 
 # Generated / scratch

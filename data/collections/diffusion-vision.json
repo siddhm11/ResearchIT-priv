@@ -1,0 +1,15 @@
+{
+  "slug": "diffusion-vision",
+  "title": "Diffusion & Generative Vision",
+  "blurb": "The theory that made image generation work, then the engineering that made it fast enough to ship.",
+  "anchors": [
+    {"id": "2006.11239", "note": "The paper that made diffusion competitive. A simple noise-prediction objective, and suddenly it trains."},
+    {"id": "2011.13456", "note": "Unifies score matching and diffusion as one SDE. The theory the rest of the field is written in."},
+    {"id": "2207.12598", "note": "Drops the separate classifier and gets better control from the model itself. Every image model uses this."},
+    {"id": "2112.10752", "note": "Run diffusion in a compressed latent space instead of pixels. This is what made Stable Diffusion possible."},
+    {"id": "2205.11487", "note": "Shows a large frozen text encoder matters more than a bigger image model."},
+    {"id": "2212.09748", "note": "Replaces the U-Net with a transformer and shows it scales predictably. The backbone of current video models."},
+    {"id": "2302.05543", "note": "Adds spatial conditioning to a frozen model without destroying it. Turned generation into something directable."},
+    {"id": "2307.01952", "note": "The engineering write-up: what actually had to change to make latent diffusion production-grade."}
+  ]
+}

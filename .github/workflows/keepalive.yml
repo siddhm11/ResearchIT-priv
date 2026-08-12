@@ -1,21 +1,36 @@
 # Keepalive cron — prevents free-tier services from sleeping.
 #
-# Runs every 25 minutes and hits /healthz/deep on the HF Space.
-# That single request cascades into pinging:
+# Hits /healthz/deep on the HF Space. That single request cascades into pinging:
 #   - HuggingFace Spaces (kept awake by the HTTP request itself)
 #   - Qdrant Cloud (pinged internally by the endpoint)
 #   - Zilliz Cloud (pinged internally by the endpoint)
 #   - Turso (pinged internally by the endpoint)
 #
-# GitHub Actions free tier: 2000 min/month for private repos.
-# 25-min interval = ~1728 runs/month × ~1 min each = ~1728 min (within budget).
+# ── Why every 12 hours and not every 25 minutes ──────────────────────────────
+#
+# This ran on */25 against a 2000 min/month Actions budget, which its own
+# comment scored at ~1728 min/month — 86% of the allowance — to prevent a
+# sleep that does not happen on that timescale. Per the HF docs:
+#
+#   "If your Space runs on the default cpu-basic hardware, it will go to sleep
+#    if inactive for more than a set time (currently, 48 hours). Anyone
+#    visiting your Space will restart it automatically."
+#   https://huggingface.co/docs/hub/en/spaces-gpus#sleep-time
+#
+# Twice a day clears a 48-hour threshold by a factor of 24 even if a run is
+# skipped or delayed, and costs ~60 min/month instead of ~1728. The reclaimed
+# budget is what pays for tests.yml running on every push.
+#
+# Note GitHub does not guarantee punctual scheduled runs and drops them on
+# repos with no activity for 60 days — both fine at a 48-hour threshold, and
+# both reasons not to trim this margin further.
 
 name: Keepalive
 
 on:
   schedule:
-    # Every 25 minutes
-    - cron: "*/25 * * * *"
+    # 06:00 and 18:00 UTC — two pings a day against a 48-hour sleep threshold.
+    - cron: "0 6,18 * * *"
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:

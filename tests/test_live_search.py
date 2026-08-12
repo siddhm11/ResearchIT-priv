@@ -8,8 +8,24 @@ Run:   python -m pytest tests/test_live_search.py -v
 Skip:  These tests connect to live services — they will fail if
        credentials are invalid or services are down.
 """
+import importlib.util
+
 import pytest
 import numpy as np
+
+# Every test in this file hits a real cloud service. The `live` marker lets CI
+# deselect them (`-m "not live"`) so a Zilliz outage or an expired token fails
+# the deploy check rather than the unit suite.
+pytestmark = pytest.mark.live
+
+# pymilvus is deliberately absent from the local dev venv, and zilliz_svc
+# swallows the ImportError and returns [] -- which reads as "Zilliz returned
+# no results" rather than "the client isn't installed". Skip explicitly so the
+# distinction is visible.
+_HAS_PYMILVUS = importlib.util.find_spec("pymilvus") is not None
+requires_pymilvus = pytest.mark.skipif(
+    not _HAS_PYMILVUS, reason="pymilvus not installed locally"
+)
 
 
 # ── Qdrant dense search (live) ───────────────────────────────────────────────
@@ -55,6 +71,7 @@ async def test_qdrant_dense_search_scores_are_ordered():
 # ── Zilliz sparse search (live) ──────────────────────────────────────────────
 
 @pytest.mark.asyncio
+@requires_pymilvus
 async def test_zilliz_sparse_search_returns_results():
     """
     search_sparse() with a synthetic sparse dict should return results
@@ -147,6 +164,7 @@ async def test_groq_rewrite_academic_bypass():
 # ── Cross-service: Qdrant + Zilliz parallel ──────────────────────────────────
 
 @pytest.mark.asyncio
+@requires_pymilvus
 async def test_parallel_search_both_return():
     """
     Both Qdrant and Zilliz should return results when called in parallel,

@@ -397,7 +397,7 @@ def setup_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_cluster.db")
     monkeypatch.setattr(cfg, "DB_PATH", db_path)
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
-    asyncio.get_event_loop().run_until_complete(db_mod.init_db())
+    asyncio.run(db_mod.init_db())
     yield
 
 
@@ -418,4 +418,4 @@ def test_cluster_db_roundtrip(setup_db):
             assert db_row["medoid_paper_id"] == orig.medoid_paper_id
             assert abs(db_row["importance"] - orig.importance) < 1e-4
 
-    asyncio.get_event_loop().run_until_complete(_run())
+    asyncio.run(_run())

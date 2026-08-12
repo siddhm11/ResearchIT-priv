@@ -8,7 +8,17 @@
 
 ## 1. What this codebase is
 
-ResearchIT is a personalized arXiv paper recommendation engine. ~1.6M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud (dense, `arxiv_bgem3_dense` collection, BQ enabled, HNSW m=32) + Zilliz Cloud (sparse, `arxiv_bgem3_sparse` collection — wiring in Phase 3) for vectors, SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Single developer (Amin). Pre-launch — no real users yet.
+ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud + Zilliz Cloud (sparse, `arxiv_bgem3_sparse`) for vectors, SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Single developer (Amin). Pre-launch — no real users yet.
+
+**Qdrant is sharded — there is no single `arxiv_bgem3_dense` collection any more.** Verified against `/healthz/shards` on 2026-08-12:
+
+| Shard | Collection | Points | Notes |
+|---|---|---|---|
+| a | `arxiv_dense_a` | 899,456 | `hnsw_on_disk: true` — the only one |
+| b | `arxiv_dense_b` | 697,131 | in RAM |
+| recent | `arxiv_recent` | 202,251 | fanout, `SEARCH_FANOUT_RECENT` |
+
+All three are float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.7 GB SQLite metadata sidecar (1,799,348 rows + FTS5) is baked into the image; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
 
 **Endgame:** an "Instagram for research" — multi-interest aware feed that surfaces relevant papers across a user's distinct research areas without collapsing toward a dominant interest.
 
@@ -67,7 +77,8 @@ These are the hard architectural commitments. **Violating any of these is a regr
 
 ### 3.1 Fusion
 
-- **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. RRF is correct here. Search is currently arXiv keyword API but will become hybrid semantic search in Phase 3.)
+- **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
+- **Search is currently dense-only.** The lexical arm (`[3b]` in PHASE8 §1) is still `[PENDING]`, so nothing is actually being fused. On SciDocs dense-only scores 0.1075 against 0.1602 for the best hybrid — the missing arm is a far bigger lever than the fusion strategy.
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
@@ -113,6 +124,14 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - If a cross-encoder signal is wanted for recommendations: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
 - **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
 - Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
+
+### 3.4b Cold-start feed churn (Tier 0)
+
+- **A feed that never changes is a bug, not a stable ranking.** Tier 0 drops papers already **shown** to the user (`db.feed_impressions`, distinct from `seen`, which only covers saves and dismissals), then fills slots epsilon-greedily at `_COLD_START_EPSILON = 0.25`.
+- **Impressions are recorded for every tier** when a page is served, but only Tier 0 currently *uses* them. Tiers 1-3 are still deterministic given an unchanged profile — extending this is the obvious next step.
+- **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` returns the true per-paper selection probability; log that.
+- Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
+- `feed_impressions` is **not** replicated to Turso — high volume, low value per row, and losing it degrades to repeats rather than to anything broken.
 
 ### 3.5 Diversity
 

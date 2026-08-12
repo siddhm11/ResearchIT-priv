@@ -109,6 +109,41 @@ CREATE INDEX IF NOT EXISTS idx_snap_user_date
     ON cluster_snapshots(user_id, snapshot_date DESC);
 CREATE INDEX IF NOT EXISTS idx_snap_hash
     ON cluster_snapshots(paper_ids_hash);
+
+-- What the feed has SHOWN a user, as opposed to what they acted on.
+--
+-- `seen` (saves + dismissals) only remembers papers the user touched, so a
+-- reader who refreshes without clicking anything was served the identical page
+-- forever: the cold-start feed is a deterministic citation sort, and nothing
+-- recorded that its ten papers had already been on screen.
+--
+-- The primary key is (user_id, paper_id) rather than an event id: this is a
+-- "has this been on screen" set, not an event log, so re-showing a paper
+-- refreshes shown_at instead of appending a row. That bounds the table by
+-- distinct papers shown rather than by refresh count.
+--
+-- Deliberately NOT replicated to Turso by app/turso_sync.py. It is high-volume
+-- and low-value-per-row, and losing it on restart degrades to exactly today's
+-- behaviour (some repeats) rather than to anything broken.
+CREATE TABLE IF NOT EXISTS feed_impressions (
+    user_id   TEXT NOT NULL,
+    paper_id  TEXT NOT NULL,
+    shown_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, paper_id)
+);
+CREATE INDEX IF NOT EXISTS idx_impr_user_time
+    ON feed_impressions(user_id, shown_at DESC);
+
+-- Which curated collections a user follows. The collections themselves are
+-- repo content (data/collections/*.json); this is the user-data half.
+CREATE TABLE IF NOT EXISTS collection_follows (
+    user_id     TEXT NOT NULL,
+    slug        TEXT NOT NULL,
+    followed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_follow_user
+    ON collection_follows(user_id);
 """
 
 
@@ -535,3 +570,117 @@ async def prune_old_snapshots(retention_days: int = 30) -> int:
         )
         await conn.commit()
         return cur.rowcount
+
+
+# ── Feed impressions ─────────────────────────────────────────────────────────
+#
+# See the feed_impressions DDL for why this exists and why it is not replicated.
+
+async def record_impressions(user_id: str, paper_ids: list[str]) -> int:
+    """Mark papers as having been shown to this user. Returns rows written.
+
+    Upserts shown_at so a re-shown paper moves to the back of the eviction
+    queue rather than accumulating rows.
+    """
+    if not user_id or not paper_ids:
+        return 0
+    rows = [(user_id, str(pid)) for pid in paper_ids if pid]
+    if not rows:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.executemany(
+            "INSERT INTO feed_impressions (user_id, paper_id, shown_at) "
+            "VALUES (?, ?, datetime('now')) "
+            "ON CONFLICT(user_id, paper_id) DO UPDATE SET shown_at = datetime('now')",
+            rows,
+        )
+        await conn.commit()
+    return len(rows)
+
+
+async def get_impressed_ids(user_id: str, within_days: int | None = None) -> set[str]:
+    """Papers already shown to this user, optionally limited to a recent window.
+
+    `within_days=None` means "everything on record", which is what the feed
+    wants: a paper shown last week is still not news.
+    """
+    if not user_id:
+        return set()
+    sql = "SELECT paper_id FROM feed_impressions WHERE user_id = ?"
+    args: list = [user_id]
+    if within_days is not None:
+        sql += " AND shown_at >= datetime('now', ?)"
+        args.append(f"-{int(within_days)} days")
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(sql, args)
+        return {r[0] for r in await cur.fetchall()}
+
+
+async def forget_oldest_impressions(user_id: str, keep: int = 0) -> int:
+    """Drop this user's oldest impressions, keeping the `keep` most recent.
+
+    Called when the candidate pool is exhausted. Without it the feed would go
+    empty for anyone who has worked through everything their categories offer,
+    which is a far worse failure than showing an older paper again.
+    """
+    if not user_id:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "DELETE FROM feed_impressions WHERE user_id = ? AND paper_id NOT IN ("
+            "    SELECT paper_id FROM feed_impressions WHERE user_id = ?"
+            "    ORDER BY shown_at DESC LIMIT ?)",
+            (user_id, user_id, max(0, int(keep))),
+        )
+        await conn.commit()
+        return cur.rowcount
+
+
+async def prune_impressions(retention_days: int = 90) -> int:
+    """Delete impressions older than retention_days. Returns rows deleted."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "DELETE FROM feed_impressions WHERE shown_at < datetime('now', ?)",
+            (f"-{retention_days} days",),
+        )
+        await conn.commit()
+        return cur.rowcount
+
+
+# ── Collection follows ───────────────────────────────────────────────────────
+#
+# Which curated collections a user follows. The collections themselves live in
+# the repo (see app/collections_svc.py); this is the user-data half, so it is
+# replicated by turso_sync.
+
+async def follow_collection(user_id: str, slug: str) -> None:
+    if not user_id or not slug:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO collection_follows (user_id, slug, followed_at) "
+            "VALUES (?, ?, datetime('now')) "
+            "ON CONFLICT(user_id, slug) DO UPDATE SET followed_at = datetime('now')",
+            (user_id, slug),
+        )
+        await conn.commit()
+
+
+async def unfollow_collection(user_id: str, slug: str) -> None:
+    if not user_id or not slug:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM collection_follows WHERE user_id = ? AND slug = ?",
+            (user_id, slug),
+        )
+        await conn.commit()
+
+
+async def get_followed_slugs(user_id: str) -> set[str]:
+    if not user_id:
+        return set()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "SELECT slug FROM collection_follows WHERE user_id = ?", (user_id,))
+        return {r[0] for r in await cur.fetchall()}

@@ -47,7 +47,10 @@ router = APIRouter(prefix="/api")
 # Phase 4.5: Pipeline version tag for instrumentation.  Bump this on any
 # change to the ranking logic so A/B attribution is possible.
 # v7 = paginated serving; ranking itself is unchanged.
-_RANKER_VERSION = "v7.0_paginated_feed"
+# v8 = cold-start churn: Tier 0 drops already-shown papers and fills slots
+#      epsilon-greedily, so it now logs real propensities instead of 1.0.
+#      Tiers 1-3 are untouched; they record impressions but do not yet use them.
+_RANKER_VERSION = "v8.0_coldstart_churn"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -85,6 +88,37 @@ _N_EXPLORE = 2                  # exploration picks PER PAGE (doc 06 §3.5)
 # without the local sidecar. Three pages is plenty before behavioural signal
 # takes over, and the sidecar makes this an index range read in production.
 _TRENDING_POOL = 30
+
+# With the sidecar present the same query is an index range read rather than a
+# LIKE scan over 1.6M rows, so it can afford a much deeper pool -- and depth is
+# what buys refresh runway: at _PAGE_SIZE per refresh, a 30-paper pool is spent
+# after three refreshes and starts recycling, while 200 lasts twenty.
+# Falls back to the shallow limit exactly where the timeout risk is real.
+_TRENDING_POOL_SIDECAR = 200
+
+
+def _trending_pool_size() -> int:
+    try:
+        from app import local_meta
+        return _TRENDING_POOL_SIDECAR if local_meta.is_available() else _TRENDING_POOL
+    except Exception:  # pragma: no cover - defensive
+        return _TRENDING_POOL
+
+
+# ── Cold-start churn ─────────────────────────────────────────────────────────
+#
+# eps matches the value doc 06 already earmarks for new users (§4 lists
+# "epsilon-greedy exploration (eps=0.25 new users, eps=0.05 established)" under
+# Phase 9). Only the exposure-randomisation half is implemented here; there is
+# no bandit and nothing learns from the outcome, because that genuinely does
+# need users. What is borrowed early is the part that fixes a feed which never
+# changed and logged degenerate propensities.
+_COLD_START_EPSILON = 0.25
+
+# How many recent impressions to keep when the pool runs dry. Keeping roughly a
+# page means the papers just served do not immediately reappear at the top,
+# while everything older becomes eligible again.
+_IMPRESSION_KEEP = _PAGE_SIZE
 
 _FEED_CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _FEED_CACHE_MAX = 200
@@ -127,6 +161,96 @@ def _take(pool: list[str], entry: dict, seen: set[str], n: int) -> list[str]:
         out.append(aid)
         emitted.add(aid)
     return out
+
+
+async def _cold_start_order(
+    user_id: str, pool: list[str],
+) -> tuple[list[str], dict[str, float]]:
+    """Order the cold-start pool, and return each paper's selection probability.
+
+    Two problems this solves, both measured on the deployed Space.
+
+    1. The feed never changed. Tier 0 was a deterministic citation sort with
+       exploration explicitly disabled, so a user with no interactions was
+       served byte-identical papers in identical order on every refresh,
+       indefinitely. `seen` did not help: it tracks saves and dismissals, so a
+       reader who refreshes without clicking anything is remembered as having
+       done nothing.
+
+    2. Every impression logged propensity=1.0. A deterministic policy has no
+       support over the actions it did not take, so no amount of that data can
+       ever support IPS/SNIPS/DR later -- which is the whole point of the
+       query_id/propensity/policy_id invariant in CLAUDE.md §3.11.
+
+    The fix is impression memory plus epsilon-greedy slot filling:
+
+      * papers already SHOWN to this user are dropped, so a refresh advances
+        through the ranked backlog instead of reshuffling the same ten. For a
+        triage feed, refresh should mean "what else have you got", not
+        "shuffle" -- reordering the same papers is more disorienting than
+        leaving them still.
+      * each slot then takes the best remaining paper with probability 1-eps,
+        or a uniform pick from the rest with probability eps. That keeps
+        "best first" mostly intact while giving every paper non-zero exposure
+        probability, so two users with the same categories no longer get
+        identical feeds.
+
+    epsilon-greedy rather than a Plackett-Luce / softmax policy on purpose: its
+    propensities are exactly computable, in precisely the form §3.11 already
+    documents ("n_explore/pool_size for exploration"). A stochastic ranking
+    policy would need approximated top-k marginals, and an approximate
+    propensity is a silently biased IPS estimate later.
+
+    Returns (ordered_ids, propensity_by_id).
+    """
+    if not pool:
+        return [], {}
+
+    try:
+        impressed = await db.get_impressed_ids(user_id)
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[recs] impression lookup failed ({e}) -- serving unfiltered pool")
+        impressed = set()
+
+    fresh = [pid for pid in pool if pid not in impressed]
+
+    # Everything on offer has been shown. Forgetting the oldest impressions is
+    # the only option that keeps a feed alive -- an empty feed is a worse
+    # failure than a repeat, and this user has no behavioural signal yet to
+    # retrieve anything else with.
+    if len(fresh) < _PAGE_SIZE:
+        # How many to keep has to scale with the pool, not be a fixed page.
+        # Keeping a flat 10 against a 12-paper pool leaves 2 papers -- the reset
+        # starves the feed instead of refilling it. Retain only what still
+        # leaves a full page free.
+        keep = min(_IMPRESSION_KEEP, max(0, len(pool) - _PAGE_SIZE))
+        try:
+            await db.forget_oldest_impressions(user_id, keep=keep)
+            impressed = await db.get_impressed_ids(user_id)
+            fresh = [pid for pid in pool if pid not in impressed] or list(pool)
+        except Exception as e:  # pragma: no cover - defensive
+            print(f"[recs] impression reset failed ({e})")
+            fresh = list(pool)
+
+    rng = random.Random()
+    remaining = list(fresh)
+    ordered: list[str] = []
+    props: dict[str, float] = {}
+
+    while remaining:
+        n = len(remaining)
+        if n == 1 or rng.random() >= _COLD_START_EPSILON:
+            pick = 0                      # greedy: best remaining
+        else:
+            pick = rng.randrange(n)       # explore: uniform over the rest
+        aid = remaining.pop(pick)
+        ordered.append(aid)
+        # P(this paper filled this slot) = (1-eps)·[it was best] + eps·(1/n).
+        # Recorded once, at the slot it actually won.
+        greedy_share = (1.0 - _COLD_START_EPSILON) if pick == 0 else 0.0
+        props[aid] = round(greedy_share + _COLD_START_EPSILON / n, 6)
+
+    return ordered, props
 
 
 @router.get("/recommendations", response_class=HTMLResponse)
@@ -185,6 +309,16 @@ async def get_recommendations(
     # loader button swaps itself out for.
     template = "partials/recommendations.html" if page == 1 else "partials/rec_page.html"
 
+    # Remember what actually reached the screen, so the next refresh advances
+    # instead of repeating. Recorded here rather than in _build_feed because
+    # only papers on a served page were really shown -- a ranked pool is not an
+    # impression. Never fatal: a failure here costs churn, not correctness.
+    try:
+        await db.record_impressions(
+            user_id, [p["arxiv_id"] for p in papers if p.get("arxiv_id")])
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"[recs] impression write failed ({e})")
+
     return _with_cookie(templates.TemplateResponse(
         request, template,
         {
@@ -224,15 +358,16 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
         category_filter = await db.get_user_category_filter(user_id)
         if category_filter:
             trending = await turso_svc.fetch_trending_by_categories(
-                category_filter, limit=_TRENDING_POOL,
+                category_filter, limit=_trending_pool_size(),
             )
             if trending:
                 ids = [p["arxiv_id"] for p in trending if p.get("arxiv_id")]
                 if ids:
+                    ranked, props = await _cold_start_order(user_id, ids)
                     return {
                         **base,
                         "trending": True,
-                        "ranked": ids,
+                        "ranked": ranked,
                         "explore": [],
                         "tags": {
                             aid: {
@@ -240,9 +375,9 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
                                 "candidate_source": "trending_category_fallback",
                                 "cluster_id": "",
                                 "query_id": query_id,
-                                "propensity": 1.0,
+                                "propensity": props.get(aid, 1.0),
                                 "policy_id": _RANKER_VERSION,
-                            } for aid in ids
+                            } for aid in ranked
                         },
                     }
         return None

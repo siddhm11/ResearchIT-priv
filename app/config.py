@@ -114,9 +114,20 @@ QDRANT_RECENT_URL = os.getenv("QDRANT_RECENT_URL", "").strip()
 QDRANT_RECENT_API_KEY = os.getenv("QDRANT_RECENT_API_KEY", "").strip()
 QDRANT_RECENT_COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
 
-# Off by default: the shard is inert until this is set, so it can be uploaded,
-# indexed and verified in production without affecting a single user request.
-SEARCH_FANOUT_RECENT = os.getenv("SEARCH_FANOUT_RECENT", "0").strip().lower() in (
+# Was "0" while the shard was being uploaded and indexed, so it stayed inert in
+# production until verified. That rollout is done -- /healthz/shards reports
+# arxiv_recent green with 202,251 indexed vectors, and /healthz/deep reports
+# fanout_enabled: true -- so the default now matches what actually runs.
+#
+# Leaving it at "0" was a live hazard rather than a safe default: the running
+# Space only fans out because an HF Variable overrides it, so a rebuild from a
+# clean checkout would have quietly served a different, smaller corpus than the
+# one the pipeline was tuned against, with nothing failing to signal it.
+#
+# Flipping this cannot switch fanout on anywhere it is not wanted: fanout_enabled()
+# below also requires qdrant_recent_configured(), so an environment without the
+# recent-shard credentials stays off exactly as before.
+SEARCH_FANOUT_RECENT = os.getenv("SEARCH_FANOUT_RECENT", "1").strip().lower() in (
     "1", "true", "yes")
 
 
@@ -438,3 +449,14 @@ def space_paper_url(arxiv_id: str) -> str:
         return ""
     from urllib.parse import quote
     return f"{SPACE_APP_URL}/?paper={quote(str(arxiv_id), safe='')}"
+
+
+# ── Rate limiting ────────────────────────────────────────────────────────────
+# Guards the Groq/Qdrant/Zilliz quotas and 2 vCPU against automated traffic.
+# See app/rate_limit.py for the limits, the fail-open design, and how to verify
+# client identification against the deployed Space (GET /healthz/client).
+#
+# Set to 0 to disable if that check shows every visitor resolving to the same
+# key -- a limiter that cannot tell clients apart is worse than none.
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in (
+    "1", "true", "yes")

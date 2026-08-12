@@ -1,0 +1,13 @@
+{
+  "slug": "evaluation",
+  "title": "Evaluating Language Models",
+  "blurb": "How the field decides whether a model is any good — and the steady realisation that static benchmarks are not enough.",
+  "anchors": [
+    {"id": "2009.03300", "note": "57 subjects of multiple-choice knowledge. Flawed and saturating, but still the number everyone quotes."},
+    {"id": "2107.03374", "note": "Functional correctness on real programs instead of text overlap. Introduced pass@k."},
+    {"id": "2206.04615", "note": "204 tasks built to be hard for current models, and an honest look at where scaling does not help."},
+    {"id": "2211.09110", "note": "Argues evaluation should be multi-metric and transparent, not one accuracy number. As much a methodology paper as a benchmark."},
+    {"id": "2303.16634", "note": "Using a strong model as the judge, with the correlation study to justify it — and the biases that come with it."},
+    {"id": "2403.04132", "note": "Pairwise human preference at scale. The current answer to benchmark saturation."}
+  ]
+}

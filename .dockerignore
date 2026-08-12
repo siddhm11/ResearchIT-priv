@@ -7,7 +7,18 @@ __pycache__
 *.pyo
 *.db
 *.sqlite
-data/
+# data/ is deliberately NOT excluded wholesale. A blanket `data/` rule shipped
+# an image with an empty collections page: data/collections/*.json is curated
+# content that must be in the image, and a negation exception (`!data/...`)
+# depends on Docker's nested-path semantics, which are easy to get subtly wrong
+# and cannot be tested without a Docker daemon.
+#
+# The thing that actually needs excluding is the 2.7GB metadata sidecar, which
+# the image fetches at build time rather than copying from the host. The
+# *.sqlite and *.db rules above already cover it; these are explicit for
+# anyone reading this file in isolation.
+data/*.sqlite
+data/*.db
 *.ipynb
 pdf_images/
 notebooks/
