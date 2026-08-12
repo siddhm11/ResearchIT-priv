@@ -387,16 +387,52 @@ async def fetch_trending_by_categories(
     # don't share substrings (no code is a substring of another), so
     # plain LIKE '%code%' is safe.
     like_clauses = " OR ".join(["categories LIKE ?" for _ in cat_list])
-    sql = f"""SELECT arxiv_id, title, authors, categories, primary_topic,
+
+    # Recency window. This clause used to be missing entirely, which made the
+    # fallback a pure all-time citation sort -- exactly what the comment on
+    # TRENDING_RECENCY_MONTHS in config.py forbids ("the same canonical papers
+    # to every user forever"). Measured before the fix: a brand-new cs.LG+cs.CL
+    # user was served Attention Is All You Need, BERT, GPT-3, word2vec x2,
+    # Bahdanau, RoBERTa, GRU, T5, Seq2Seq -- nothing newer than 2020, presented
+    # as "trending".
+    #
+    # The sidecar path (local_meta.fetch_trending) already windowed correctly,
+    # so in production this only bites when the sidecar is absent. The Dockerfile
+    # treats a failed sidecar download as non-fatal and falls back here, so the
+    # bug's trigger is a silent one: nothing errors, the feed just quietly
+    # regresses to a museum.
+    #
+    # update_date is the last-revision date rather than the publication date the
+    # sidecar derives from the arxiv id, so this is an approximation of the same
+    # window. It is the only date column stored here, and approximating the
+    # window beats not having one.
+    months = max(1, int(config.TRENDING_RECENCY_MONTHS))
+    base_cols = """SELECT arxiv_id, title, authors, categories, primary_topic,
                      update_date, abstract_preview, citation_count, influential_citations
-              FROM papers
+              FROM papers"""
+    sql = f"""{base_cols}
               WHERE ({like_clauses})
                 AND citation_count > 0
+                AND update_date >= date('now', ?)
               ORDER BY citation_count DESC, update_date DESC
               LIMIT ?"""
 
     args = [{"type": "text", "value": f"%{c}%"} for c in cat_list]
+    args.append({"type": "text", "value": f"-{months} months"})
     args.append({"type": "integer", "value": str(limit)})
+
+    # If the window returns too little, drop it rather than serve a short feed.
+    # Categories are wildly uneven (~302k papers in cs.LG vs ~7.9k in q-bio.NC),
+    # and the corpus is a periodic snapshot, so a thin category or a stale
+    # ingest must degrade to "older but present" rather than to an empty feed --
+    # the same widen-then-drop strategy local_meta.fetch_trending already uses.
+    fallback_sql = f"""{base_cols}
+              WHERE ({like_clauses})
+                AND citation_count > 0
+              ORDER BY citation_count DESC, update_date DESC
+              LIMIT ?"""
+    fallback_args = [{"type": "text", "value": f"%{c}%"} for c in cat_list]
+    fallback_args.append({"type": "integer", "value": str(limit)})
 
     pipeline_url = url.rstrip("/")
     if pipeline_url.startswith("libsql://"):
@@ -406,9 +442,14 @@ async def fetch_trending_by_categories(
     elif not pipeline_url.startswith("https://"):
         pipeline_url = "https://" + pipeline_url
 
+    # Both statements go in one pipeline. The unwindowed query is the fallback
+    # for a thin category, and running it here costs one round trip instead of a
+    # second 15-25s cold scan.
     payload = {
         "requests": [
             {"type": "execute", "stmt": {"sql": sql, "args": args}},
+            {"type": "execute",
+             "stmt": {"sql": fallback_sql, "args": fallback_args}},
             {"type": "close"},
         ]
     }
@@ -449,15 +490,26 @@ async def fetch_trending_by_categories(
         if not results:
             return []
 
-        execute_result = results[0]
-        if execute_result.get("type") == "error":
-            print(f"[turso] trending query error: {execute_result.get('error')}")
-            return []
+        def _rows_of(idx: int) -> tuple[list, list]:
+            if idx >= len(results):
+                return [], []
+            res = results[idx]
+            if res.get("type") == "error":
+                print(f"[turso] trending query error: {res.get('error')}")
+                return [], []
+            rd = res.get("response", {}).get("result", {})
+            return [c["name"] for c in rd.get("cols", [])], rd.get("rows", [])
 
-        response = execute_result.get("response", {})
-        result_data = response.get("result", {})
-        cols = [c["name"] for c in result_data.get("cols", [])]
-        rows = result_data.get("rows", [])
+        cols, rows = _rows_of(0)
+        # Prefer the recency-windowed result; fall back only when the window
+        # cannot fill the request, so a thin category still gets a full feed.
+        if len(rows) < limit:
+            fb_cols, fb_rows = _rows_of(1)
+            if len(fb_rows) > len(rows):
+                windowed = len(rows)
+                cols, rows = fb_cols, fb_rows
+                print(f"[turso] trending: recency window gave {windowed}/{limit}"
+                      f" for {sorted(categories)} -- widened to all-time")
     except (KeyError, IndexError, TypeError) as e:
         print(f"[turso] trending parse error: {type(e).__name__}: {e!r}")
         return []
