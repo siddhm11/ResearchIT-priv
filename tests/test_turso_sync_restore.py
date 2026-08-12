@@ -211,3 +211,43 @@ async def test_restore_survives_a_remote_failure_without_losing_local_data(
 
     restored = await turso_sync.restore()
     assert restored == {}
+
+
+# ── Replication kill switch ──────────────────────────────────────────────────
+
+def test_sync_can_be_disabled_while_reads_stay_live(monkeypatch):
+    """TURSO_SYNC_DISABLED makes a session read-only for user data.
+
+    Reads and replication share one credential pair, so a developer running a
+    local server against real credentials -- needed to exercise search or the
+    feed -- also silently gets replication, and the shutdown flush pushes that
+    session's rows into production. This flag is what makes it safe to point a
+    dev server at live Turso.
+    """
+    monkeypatch.setattr(turso_sync.config, "TURSO_URL", "https://example.turso.io")
+    monkeypatch.setattr(turso_sync.config, "TURSO_DB_TOKEN", "token")
+
+    monkeypatch.delenv("TURSO_SYNC_DISABLED", raising=False)
+    assert turso_sync.enabled() is True
+
+    monkeypatch.setenv("TURSO_SYNC_DISABLED", "1")
+    assert turso_sync.enabled() is False
+
+
+async def test_disabled_sync_neither_restores_nor_pushes(local_db, monkeypatch):
+    """start() and stop() must both no-op, not just the periodic loop."""
+    monkeypatch.setattr(turso_sync.config, "TURSO_URL", "https://example.turso.io")
+    monkeypatch.setattr(turso_sync.config, "TURSO_DB_TOKEN", "token")
+    monkeypatch.setenv("TURSO_SYNC_DISABLED", "1")
+
+    called = []
+
+    async def tripwire(stmts, timeout=60):
+        called.append(stmts)
+        raise AssertionError("network call made while sync was disabled")
+
+    monkeypatch.setattr(turso_sync, "_execute", tripwire)
+
+    await turso_sync.start()
+    await turso_sync.stop()
+    assert called == []

@@ -115,6 +115,21 @@ _last: dict = {"ok": None, "at": None, "pushed": 0, "error": None}
 
 
 def enabled() -> bool:
+    """Whether user-data replication runs.
+
+    TURSO_SYNC_DISABLED exists because reads and replication share one pair of
+    credentials. A developer running a local server against real credentials --
+    to exercise search or the feed, which need Turso metadata -- also silently
+    gets replication, and the shutdown flush pushes whatever that session
+    created into the production database. That has happened; nine synthetic
+    saves reached production from a UI test.
+
+    Setting this to 1 keeps turso_svc metadata reads working while making the
+    session read-only with respect to user data.
+    """
+    if __import__("os").getenv("TURSO_SYNC_DISABLED", "").strip().lower() in (
+            "1", "true", "yes"):
+        return False
     return bool(config.TURSO_URL and config.TURSO_DB_TOKEN)
 
 

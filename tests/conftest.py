@@ -38,16 +38,19 @@ def _disable_turso_replication():
         yield
         return
 
-    from app import turso_sync
-
-    original = turso_sync.enabled
-    # enabled() is consulted at call time by both start() and stop(), so
-    # replacing it is sufficient to neutralise restore *and* push.
-    turso_sync.enabled = lambda: False
+    # Set the app's own kill switch rather than monkeypatching enabled(). Using
+    # the real mechanism means the tests exercise the code path that protects a
+    # dev server, instead of a stub that could drift away from it -- and it
+    # leaves enabled() itself testable.
+    previous = os.environ.get("TURSO_SYNC_DISABLED")
+    os.environ["TURSO_SYNC_DISABLED"] = "1"
     try:
         yield
     finally:
-        turso_sync.enabled = original
+        if previous is None:
+            os.environ.pop("TURSO_SYNC_DISABLED", None)
+        else:
+            os.environ["TURSO_SYNC_DISABLED"] = previous
 
 
 @pytest.fixture(autouse=True, scope="session")
