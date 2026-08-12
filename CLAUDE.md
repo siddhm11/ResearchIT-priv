@@ -125,6 +125,14 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
 - Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
 
+### 3.4b Cold-start feed churn (Tier 0)
+
+- **A feed that never changes is a bug, not a stable ranking.** Tier 0 drops papers already **shown** to the user (`db.feed_impressions`, distinct from `seen`, which only covers saves and dismissals), then fills slots epsilon-greedily at `_COLD_START_EPSILON = 0.25`.
+- **Impressions are recorded for every tier** when a page is served, but only Tier 0 currently *uses* them. Tiers 1-3 are still deterministic given an unchanged profile — extending this is the obvious next step.
+- **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` returns the true per-paper selection probability; log that.
+- Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
+- `feed_impressions` is **not** replicated to Turso — high volume, low value per row, and losing it degrades to repeats rather than to anything broken.
+
 ### 3.5 Diversity
 
 - MMR with `lambda = 0.6` over the merged feed, on BGE-M3 embeddings. Code in `app/recommend/diversity.py` via `mmr_rerank()`.

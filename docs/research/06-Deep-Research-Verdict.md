@@ -172,3 +172,61 @@ while the sparse arm is still unbuilt.
   than writing a one-off script for it now.
 - Re-measure after the next ingest. A gap that *grows* is a broken ingest and is
   worth stopping for; a static 510 is not.
+
+### 2026-08-12 — Cold-start feed churn: impression memory + epsilon-greedy Tier 0
+**Decision:** Tier 0 (zero-interaction cold start) drops papers it has already
+shown the user, then fills slots epsilon-greedily at eps=0.25, logging the true
+selection probability. Tiers 1-3 record impressions but do not yet use them.
+**Supersedes:** The Tier 0 branch of the Phase 5 cold-start design, which sorted
+deterministically with `explore: []` and logged `propensity=1.0`.
+**Rationale:** Measured on the deployed pipeline: a new cs.LG+cs.CL user
+refreshing the feed received byte-identical papers in identical order,
+indefinitely. `seen` tracks only saves and dismissals, so a reader who refreshes
+without clicking anything is remembered as having done nothing. Separately,
+`propensity=1.0` is a policy with no support over unchosen actions, so none of
+that data could ever support the IPS/SNIPS/DR analysis §3.11 exists to enable.
+
+Refresh for a triage feed should mean "what else have you got", not "shuffle" --
+reordering the same ten papers is more disorienting than leaving them still --
+so the churn comes from progressive discovery (impression memory), with only a
+light stochastic component on top.
+
+epsilon-greedy rather than Plackett-Luce/softmax specifically because its
+propensities are exactly computable, in the form §3.11 already documents
+("n_explore/pool_size for exploration"). A stochastic ranking policy needs
+approximated top-k marginals, and an approximate propensity is a silently biased
+estimate later.
+
+**Scope note:** §4 lists epsilon-greedy under Phase 9 (gated on 500+ users).
+Only the exposure-randomisation half is implemented; there is no bandit and
+nothing learns from outcomes, which is the part that genuinely needs users. What
+is borrowed early is what fixes a feed that never changed.
+
+**Measured after the change:** 5 refreshes x 10 papers = 50 distinct papers,
+zero repeats (was: 10 papers, repeated forever).
+**Action items:**
+- Extend impression memory to Tiers 1-3, which are also deterministic given an
+  unchanged profile. Data is already being recorded for them.
+- Revisit eps once real engagement exists; §4's 0.05 for established users is
+  the intended second value.
+- feed_impressions is deliberately not replicated to Turso; if restart-repeats
+  become a complaint, that is the knob.
+
+### 2026-08-12 — Turso trending fallback was missing its recency filter
+**Decision:** Fixed. The Turso path now applies TRENDING_RECENCY_MONTHS, with an
+unwindowed fallback in the same round trip for thin categories.
+**Rationale:** `local_meta.fetch_trending` (sidecar) windowed correctly, but the
+Turso SQL fallback had no date predicate at all -- it was a pure all-time
+citation sort, which is exactly what the comment on TRENDING_RECENCY_MONTHS
+forbids ("the same canonical papers to every user forever"). Reproduced: a new
+user was served Attention Is All You Need, BERT, GPT-3, word2vec x2, Bahdanau,
+RoBERTa, GRU, T5 and Seq2Seq -- nothing newer than 2020 -- labelled "trending".
+
+Production was unaffected because the sidecar is present, which is what made
+this dangerous: the Dockerfile treats a failed sidecar download as non-fatal and
+falls back here, so the trigger is silent. Nothing errors; the feed just
+regresses to a museum.
+**Action items:**
+- `update_date` is the last-revision date, not the publication date the sidecar
+  derives from the arxiv id, so the two paths window slightly differently.
+  Acceptable for a fallback; worth unifying if the fallback ever becomes primary.
