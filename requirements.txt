@@ -26,6 +26,24 @@ python-multipart>=0.0.9
 # before those releases -- any rebuild would have picked them up.
 FlagEmbedding==1.2.10
 transformers==4.44.2
+
+# sentence-transformers was never declared here -- it arrived transitively via
+# FlagEmbedding, so a rebuild floated it to whatever was newest. That is the
+# same drift the two pins above exist to stop, and it lands somewhere worse:
+# the Dockerfile instantiates a CrossEncoder at BUILD time
+#
+#     RUN python -c "from sentence_transformers import CrossEncoder; ..."
+#
+# and app/reranker_bge_svc.py's graceful ImportError fallback cannot help a
+# build step. A runtime failure degrades search to the RRF ordering; a failure
+# here means the image never ships at all.
+#
+# 5.7.0 is what the resolver currently picks. Verified 2026-08-12 against the
+# rest of this file on Python 3.12: CrossEncoder imports, instantiates
+# 'cross-encoder/ms-marco-MiniLM-L-6-v2' and predicts. Pinned so the next
+# rebuild cannot drift to a version nobody has run.
+sentence-transformers==5.7.0
+
 pymilvus>=2.4
 groq>=1.0  # 1.0+ drops the `proxies` kwarg internally so httpx>=0.28 works
 python-dotenv>=1.0
