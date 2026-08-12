@@ -1,0 +1,15 @@
+{
+  "slug": "agents-tools",
+  "title": "Agents & Tool Use",
+  "blurb": "From prompting tricks to systems that act. The through-line is giving a model a scratchpad, then a tool, then a loop.",
+  "anchors": [
+    {"id": "2201.11903", "note": "Ask for the reasoning and accuracy jumps on multi-step problems. The prompt as a scratchpad."},
+    {"id": "2203.11171", "note": "Sample several reasoning paths and take the majority. Cheap, and reliably better than one greedy chain."},
+    {"id": "2210.03629", "note": "Interleaves reasoning with actions so the model can look things up mid-thought. The template most agents still follow."},
+    {"id": "2302.04761", "note": "The model teaches itself when to call an API, in a self-supervised way. Tool use as a learned skill."},
+    {"id": "2303.11366", "note": "Verbal self-critique carried across attempts, as an alternative to weight updates."},
+    {"id": "2305.10601", "note": "Search over a tree of partial reasoning states rather than committing to one chain."},
+    {"id": "2304.03442", "note": "Memory, reflection and planning in a simulated society. Where the agent-architecture vocabulary comes from."},
+    {"id": "2305.16291", "note": "An open-ended agent that writes and stores its own skills. Lifelong learning without gradient updates."}
+  ]
+}

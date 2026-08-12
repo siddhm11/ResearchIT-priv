@@ -1,0 +1,17 @@
+{
+  "slug": "scaling-architecture",
+  "title": "Scaling & Architecture",
+  "blurb": "Why models got bigger, what the scaling laws actually said, and how anyone trains something that no longer fits on a GPU.",
+  "anchors": [
+    {"id": "1706.03762", "note": "The architecture everything else in this list is built on."},
+    {"id": "2001.08361", "note": "Loss falls as a power law in compute, data and parameters. The paper that made scaling a plan rather than a hope."},
+    {"id": "2005.14165", "note": "Few-shot behaviour emerging from scale alone. The empirical shock that set the agenda."},
+    {"id": "2203.15556", "note": "Corrects the earlier scaling laws: most large models were badly undertrained on data. Changed how everyone allocates compute."},
+    {"id": "1909.08053", "note": "Tensor parallelism — how to split a single layer across GPUs."},
+    {"id": "1910.02054", "note": "Shards optimiser state, gradients and parameters. The memory arithmetic behind most large-scale training."},
+    {"id": "2101.03961", "note": "Mixture of experts with a single expert per token, making trillion-parameter models trainable."},
+    {"id": "2401.04088", "note": "A sparse MoE that was genuinely good and openly released. Made MoE a practical choice rather than a curiosity."},
+    {"id": "2302.13971", "note": "Strong models trained only on public data, released to researchers. The open-weights era starts here."},
+    {"id": "2307.09288", "note": "The follow-up with the full RLHF pipeline documented, including the safety work."}
+  ]
+}

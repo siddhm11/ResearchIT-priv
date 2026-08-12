@@ -1,0 +1,17 @@
+{
+  "slug": "rag-retrieval",
+  "title": "RAG & Retrieval",
+  "blurb": "Retrieval-augmented generation from first principles: how to find the right passage, then how to use it.",
+  "anchors": [
+    {"id": "2004.04906", "note": "Dense passage retrieval beat BM25 with a dual encoder and hard negatives. The paper that made dense retrieval credible."},
+    {"id": "2002.08909", "note": "Trains the retriever jointly with the language model rather than bolting it on afterwards."},
+    {"id": "2005.11401", "note": "The paper that named RAG. Parametric memory plus a non-parametric index, trained end to end."},
+    {"id": "2007.01282", "note": "Encode passages separately, fuse in the decoder. Still the strongest simple recipe for reading many passages."},
+    {"id": "2004.12832", "note": "Late interaction: keep per-token vectors and match them at query time. More expressive than a single vector."},
+    {"id": "2112.01488", "note": "Makes late interaction affordable through residual compression. The version people actually deploy."},
+    {"id": "2112.09118", "note": "Unsupervised contrastive retrieval that transfers without in-domain labels — the zero-shot baseline to beat."},
+    {"id": "2212.10496", "note": "Have the LLM hallucinate a fake answer, then embed that instead of the query. Absurd and effective."},
+    {"id": "2310.11511", "note": "Teaches the model when to retrieve and to critique what it retrieved, rather than always retrieving."},
+    {"id": "2401.18059", "note": "Recursive summarisation into a tree, so retrieval can operate at several levels of abstraction."}
+  ]
+}

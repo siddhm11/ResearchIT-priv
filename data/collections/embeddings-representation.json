@@ -1,0 +1,14 @@
+{
+  "slug": "embeddings-representation",
+  "title": "Embeddings & Representation",
+  "blurb": "How text became vectors you can search. This is the stack ResearchIT itself runs on.",
+  "anchors": [
+    {"id": "1810.04805", "note": "Bidirectional pretraining. The starting point for almost every encoder that follows."},
+    {"id": "1908.10084", "note": "BERT embeddings are poor for similarity out of the box; a siamese objective fixes it. The paper that made semantic search practical."},
+    {"id": "2104.08821", "note": "Contrastive learning where dropout alone provides the positive pair. Startlingly simple, startlingly strong."},
+    {"id": "2212.03533", "note": "Weakly-supervised contrastive pretraining at scale, and a demonstration that data curation carries most of the gain."},
+    {"id": "2309.07597", "note": "The BGE family, including the BGE-M3 model this app encodes with. Multilingual, multi-granularity, dense plus sparse."},
+    {"id": "2210.07316", "note": "The benchmark that made embedding models comparable. Also a caution: leaderboard rank does not transfer to your domain."},
+    {"id": "2205.13147", "note": "Train one vector that can be truncated to many sizes. The way to cut vector storage without re-encoding a corpus."}
+  ]
+}
