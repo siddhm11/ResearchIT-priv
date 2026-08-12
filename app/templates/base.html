@@ -62,6 +62,7 @@
 
         <nav class="nav" aria-label="Main">
           <a href="/" class="nav-link" {% if path == '/' %}aria-current="page"{% endif %}>Feed</a>
+          <a href="/collections" class="nav-link" {% if path.startswith('/collections') %}aria-current="page"{% endif %}>Collections</a>
           <a href="/search" class="nav-link" {% if path.startswith('/search') %}aria-current="page"{% endif %}>Search</a>
           <a href="/saved" class="nav-link" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>Library</a>
           {% if space_app_url %}
@@ -101,6 +102,17 @@
         <path d="M9 9h6" opacity=".55" />
       </svg>
       <span>Feed</span>
+    </a>
+    <a href="/collections" class="botnav-item" {% if path.startswith('/collections') %}aria-current="page"{% endif %}>
+      {# Stacked layers: a set of things gathered, distinct from the single
+         bookmark used for Library. #}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m12 3 8.5 4.5L12 12 3.5 7.5z" />
+        <path d="m3.5 12 8.5 4.5 8.5-4.5" opacity=".55" />
+        <path d="m3.5 16.5 8.5 4.5 8.5-4.5" opacity=".3" />
+      </svg>
+      <span>Collections</span>
     </a>
     <a href="/search" class="botnav-item" {% if path.startswith('/search') %}aria-current="page"{% endif %}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"

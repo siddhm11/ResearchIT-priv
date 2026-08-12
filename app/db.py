@@ -133,6 +133,17 @@ CREATE TABLE IF NOT EXISTS feed_impressions (
 );
 CREATE INDEX IF NOT EXISTS idx_impr_user_time
     ON feed_impressions(user_id, shown_at DESC);
+
+-- Which curated collections a user follows. The collections themselves are
+-- repo content (data/collections/*.json); this is the user-data half.
+CREATE TABLE IF NOT EXISTS collection_follows (
+    user_id     TEXT NOT NULL,
+    slug        TEXT NOT NULL,
+    followed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_follow_user
+    ON collection_follows(user_id);
 """
 
 
@@ -634,3 +645,42 @@ async def prune_impressions(retention_days: int = 90) -> int:
         )
         await conn.commit()
         return cur.rowcount
+
+
+# ── Collection follows ───────────────────────────────────────────────────────
+#
+# Which curated collections a user follows. The collections themselves live in
+# the repo (see app/collections_svc.py); this is the user-data half, so it is
+# replicated by turso_sync.
+
+async def follow_collection(user_id: str, slug: str) -> None:
+    if not user_id or not slug:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO collection_follows (user_id, slug, followed_at) "
+            "VALUES (?, ?, datetime('now')) "
+            "ON CONFLICT(user_id, slug) DO UPDATE SET followed_at = datetime('now')",
+            (user_id, slug),
+        )
+        await conn.commit()
+
+
+async def unfollow_collection(user_id: str, slug: str) -> None:
+    if not user_id or not slug:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "DELETE FROM collection_follows WHERE user_id = ? AND slug = ?",
+            (user_id, slug),
+        )
+        await conn.commit()
+
+
+async def get_followed_slugs(user_id: str) -> set[str]:
+    if not user_id:
+        return set()
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "SELECT slug FROM collection_follows WHERE user_id = ?", (user_id,))
+        return {r[0] for r in await cur.fetchall()}

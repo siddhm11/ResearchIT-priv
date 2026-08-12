@@ -18,7 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
-from app.routers import search, events, recommendations, saved, onboarding, health
+from app.routers import (search, events, recommendations, saved, onboarding,
+                         health, collections)
 
 
 @asynccontextmanager
@@ -114,6 +115,7 @@ app.include_router(recommendations.router)
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)
+app.include_router(collections.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.

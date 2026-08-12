@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}{{ collection.title }} — ResearchIT{% endblock %}
+
+{#
+  Collection detail.
+
+  The one decision that matters here is the seam. A collection holds two kinds
+  of paper: anchors, which are an editorial judgement, and extended papers,
+  which are whatever currently sits nearest the collection medoid. Presenting
+  them as one list would quietly pass off vector search as curation, so they
+  get separate headed sections and the extended one says where it came from.
+
+  Anchors reuse partials/paper_card.html so save/pass and all the Phase 4.5 /
+  6.5 instrumentation keep working unchanged; the ordinal and the note are
+  rendered around the card rather than inside it.
+#}
+
+{% block content %}
+<div class="wrap wrap--feed">
+
+  <div class="coll-hero">
+    <a href="/collections" class="back-link">← Collections</a>
+    <h1 class="sec-title">{{ collection.title }}</h1>
+    <p class="coll-blurb coll-blurb--lg">{{ collection.blurb }}</p>
+    <div class="coll-hero-actions">
+      <span class="coll-count">{{ collection.count }} curated{% if extended %} · extends automatically{% endif %}</span>
+      {% include "partials/follow_button.html" %}
+    </div>
+  </div>
+
+  {% if anchors %}
+    <div class="sec-head sec-head--sub">
+      <h2 class="sec-title sec-title--sm">Curated</h2>
+    </div>
+
+    <div class="feed feed--anchored">
+      {% for paper in anchors %}
+        <div class="anchor-row">
+          <div class="anchor-ord" aria-hidden="true">{{ paper.ordinal }}</div>
+          <div class="anchor-body">
+            {% if paper.note %}
+              <p class="anchor-note">{{ paper.note }}</p>
+            {% endif %}
+            {% set position = loop.index0 %}
+            {% set source = "collection" %}
+            {% include "partials/paper_card.html" %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">
+      <p class="empty-title">Could not load this collection’s papers</p>
+      <p class="empty-body">The metadata store did not return them. Try again shortly.</p>
+    </div>
+  {% endif %}
+
+  {% if extended %}
+    <div class="sec-head sec-head--sub">
+      <h2 class="sec-title sec-title--sm">Recent work in this area</h2>
+      <span class="sec-note">Matched to this collection, not hand-picked</span>
+    </div>
+
+    <div class="feed">
+      {% for paper in extended %}
+        {% set position = anchors | length + loop.index0 %}
+        {% set source = "collection_extended" %}
+        {% include "partials/paper_card.html" %}
+      {% endfor %}
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

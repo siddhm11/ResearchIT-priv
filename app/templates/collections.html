@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Collections — ResearchIT{% endblock %}
+
+{#
+  Collection index.
+
+  Two-tier index -> detail, previewing three titles per collection. Anything
+  more turns a browsing page into a wall of abstracts, and the preview exists
+  to answer "is this the track I want", not to be read.
+#}
+
+{% block content %}
+<div class="wrap wrap--feed">
+
+  <div class="sec-head">
+    <h1 class="sec-title">Collections</h1>
+  </div>
+
+  {% if not_found %}
+    <div class="empty">
+      <p class="empty-title">No collection called “{{ not_found }}”</p>
+      <p class="empty-body">It may have been renamed. Everything available is listed below.</p>
+    </div>
+  {% endif %}
+
+  {% if collections %}
+    <p class="sec-sub">
+      Curated starting points. Follow one and the feed learns from it
+      immediately — no need to save papers one at a time first.
+    </p>
+
+    <div class="coll-list">
+      {% for c in collections %}
+        <article class="coll-card">
+          <div class="coll-card-head">
+            <h2 class="coll-title">
+              <a href="/collections/{{ c.slug }}">{{ c.title }}</a>
+            </h2>
+            <span class="coll-count">{{ c.count }} papers</span>
+          </div>
+
+          <p class="coll-blurb">{{ c.blurb }}</p>
+
+          {% if c.previews %}
+            <ul class="coll-preview">
+              {% for t in c.previews %}<li>{{ t }}</li>{% endfor %}
+              {% if c.count > c.previews | length %}
+                <li class="coll-more">+ {{ c.count - (c.previews | length) }} more</li>
+              {% endif %}
+            </ul>
+          {% endif %}
+
+          <div class="coll-actions">
+            <a href="/collections/{{ c.slug }}" class="btn btn-sm">Open</a>
+            {% with collection = c, following = c.following, seeded = 0 %}
+              {% include "partials/follow_button.html" %}
+            {% endwith %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  {% elif not not_found %}
+    <div class="empty">
+      <p class="empty-title">No collections yet</p>
+      <p class="empty-body">Curated collections live in <code>data/collections/</code>.</p>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

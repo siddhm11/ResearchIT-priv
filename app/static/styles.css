@@ -735,3 +735,106 @@ a.card-title:hover { color: var(--accent); }
   }
   .card.is-leaving { animation: none; display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLECTIONS
+   Curated reading tracks. Two surfaces: an index that has to answer "is this
+   my track?" at a glance, and a detail view whose job is to keep editorial
+   curation visually distinct from vector-matched extension.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.sec-sub {
+  font-size: .9rem; color: var(--text-2);
+  max-width: 44ch; margin: -.35rem 0 1.4rem;
+}
+
+.coll-list { display: flex; flex-direction: column; gap: .9rem; }
+
+.coll-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem 1.15rem 1rem;
+  box-shadow: var(--shadow-1);
+}
+.coll-card:hover { border-color: var(--border-2); }
+
+.coll-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .8rem; margin-bottom: .35rem;
+}
+.coll-title {
+  font-family: var(--font-read); font-size: 1.12rem; font-weight: 600;
+  letter-spacing: -.012em; line-height: 1.25; text-wrap: balance;
+}
+.coll-title a { color: inherit; text-decoration: none; }
+.coll-title a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+.coll-count {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .04em;
+  color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+.coll-blurb { font-size: .89rem; color: var(--text-2); max-width: 56ch; }
+.coll-blurb--lg { font-size: .96rem; margin-top: .3rem; }
+
+/* Preview titles. Three, per the two-tier index -> detail pattern: enough to
+   recognise the track, not enough to start reading it here. */
+.coll-preview {
+  list-style: none; margin: .7rem 0 .9rem; padding: 0;
+  display: flex; flex-direction: column; gap: .18rem;
+  border-left: 2px solid var(--border); padding-left: .75rem;
+}
+.coll-preview li {
+  font-size: .84rem; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coll-preview .coll-more { color: var(--text-3); opacity: .8; font-style: italic; }
+
+.coll-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+.follow-wrap { display: inline-flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.btn-following {
+  background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br);
+}
+.btn-following:hover { background: var(--surface-2); }
+.follow-note { font-size: .8rem; color: var(--text-2); }
+
+/* ── Detail ───────────────────────────────────────────────────────────────── */
+
+.coll-hero { padding: .4rem 0 1.6rem; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
+.back-link {
+  display: inline-block; font-size: .82rem; color: var(--text-3);
+  text-decoration: none; margin-bottom: .6rem;
+}
+.back-link:hover { color: var(--text); }
+.coll-hero .sec-title { font-family: var(--font-read); font-size: 1.6rem; font-weight: 600; }
+.coll-hero-actions {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1rem;
+}
+
+.sec-head--sub { margin-top: 2.2rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border); }
+.sec-title--sm {
+  font-family: var(--font-ui); font-size: .74rem; font-weight: 620;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+}
+.sec-note { font-size: .76rem; color: var(--text-3); font-style: italic; }
+
+/* Anchors carry an ordinal and a curator note. The ordinal is deliberately
+   quiet -- reading order is information, but it is not the headline. */
+.anchor-row { display: flex; gap: .85rem; align-items: flex-start; }
+.anchor-ord {
+  flex: 0 0 1.4rem; font-family: var(--font-mono); font-size: .78rem;
+  color: var(--text-3); text-align: right; padding-top: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+.anchor-body { flex: 1 1 auto; min-width: 0; }
+.anchor-note {
+  font-family: var(--font-read); font-size: .89rem; line-height: 1.5;
+  color: var(--text-2); margin: 0 0 .4rem; padding-left: .1rem;
+  max-width: 60ch;
+}
+.feed--anchored { gap: 1.1rem; }
+
+@media (max-width: 34rem) {
+  .anchor-ord { display: none; }
+  .coll-card-head { flex-direction: column; gap: .2rem; }
+}

@@ -1,0 +1,42 @@
+{#
+  Follow / Following toggle for a collection.
+
+  Also the HTMX response fragment for the follow and unfollow endpoints, so the
+  button swaps itself and there is exactly one definition of what the control
+  looks like in each state.
+
+  Expects:
+    collection  dict with .slug (may be None if the slug was unknown)
+    following   bool
+    seeded      int — papers added to the profile by this click, 0 otherwise
+#}
+{% if collection %}
+  <span class="follow-wrap" id="follow-{{ collection.slug }}">
+    {% if following %}
+      <button type="button"
+              class="btn btn-sm btn-following"
+              hx-post="/api/collections/{{ collection.slug }}/unfollow"
+              hx-target="closest .follow-wrap"
+              hx-swap="outerHTML"
+              aria-label="Stop following {{ collection.title | default(collection.slug) }}">
+        Following ✓
+      </button>
+      {% if seeded %}
+        {# Say what actually happened. "Following" alone hides the fact that
+           the feed just changed underneath them. #}
+        <span class="follow-note" role="status">
+          {{ seeded }} paper{{ "s" if seeded != 1 }} added to your library — your feed will reflect this now.
+        </span>
+      {% endif %}
+    {% else %}
+      <button type="button"
+              class="btn btn-sm btn-primary"
+              hx-post="/api/collections/{{ collection.slug }}/follow"
+              hx-target="closest .follow-wrap"
+              hx-swap="outerHTML"
+              aria-label="Follow {{ collection.title | default(collection.slug) }}">
+        Follow
+      </button>
+    {% endif %}
+  </span>
+{% endif %}
