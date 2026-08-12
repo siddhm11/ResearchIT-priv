@@ -60,6 +60,15 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old cluster snapshot rows")
     except Exception as e:
         print(f"[main] Snapshot pruning skipped: {e}")
+
+    # Feed impressions grow with every page served and are only a "do not show
+    # this again yet" set, so anything this old has no influence on the feed.
+    try:
+        pruned = await db.prune_impressions(retention_days=90)
+        if pruned:
+            print(f"[main] Pruned {pruned} old feed impression rows")
+    except Exception as e:
+        print(f"[main] Impression pruning skipped: {e}")
     yield
 
     # Final flush so the last sync interval is not lost on shutdown.
