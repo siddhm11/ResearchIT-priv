@@ -239,3 +239,66 @@ def await_len(asyncio_mod, uid):
 
 def test_unknown_slug_follow_is_not_an_error(client):
     assert client.post("/api/collections/ghost/follow").status_code == 200
+
+
+# ── Medoid extension ─────────────────────────────────────────────────────────
+
+async def test_extend_reads_the_shape_search_by_vector_actually_returns(repo, monkeypatch):
+    """qdrant_svc.search_by_vector returns a list of arxiv_id STRINGS.
+
+    Treating them as dicts extracted None from every hit, so extend() returned
+    [] while the curated half of the page rendered perfectly -- it shipped and
+    was only caught by checking the deployed page. This pins the contract.
+    """
+    import app.qdrant_svc as qs
+
+    async def fake_vectors(ids):
+        rng = np.random.default_rng(2)
+        return {i: rng.random(1024, dtype=np.float32).tolist() for i in ids}
+
+    seen = {}
+
+    async def fake_search(vec, limit=20, exclude_ids=None):
+        seen["limit"] = limit
+        seen["exclude"] = set(exclude_ids or ())
+        # The real function's return type: bare id strings. The last one is an
+        # anchor of this collection, so it must be filtered out even though
+        # exclude_ids was already passed down -- belt and braces.
+        return ["9999.00001", "9999.00002", "2401.00000"]
+
+    monkeypatch.setattr(qs, "get_paper_vectors", fake_vectors)
+    monkeypatch.setattr(qs, "search_by_vector", fake_search)
+
+    out = await collections_svc.extend("alpha", limit=5)
+
+    assert out == ["9999.00001", "9999.00002"], \
+        "extension dropped every hit -- the result shape is being misread"
+    # Anchors must be excluded, and the exclusion pushed down to the query.
+    assert seen["exclude"] >= set(collections_svc.anchor_ids("alpha"))
+
+
+async def test_extend_returns_nothing_when_anchors_have_no_vectors(repo, monkeypatch):
+    """Too few resolvable anchors means no medoid, so no extension section."""
+    import app.qdrant_svc as qs
+
+    async def no_vectors(ids):
+        return {}
+
+    monkeypatch.setattr(qs, "get_paper_vectors", no_vectors)
+    assert await collections_svc.extend("alpha") == []
+
+
+async def test_extend_survives_a_search_failure(repo, monkeypatch):
+    """The curated list is the part with editorial value; it must not be lost."""
+    import app.qdrant_svc as qs
+
+    async def fake_vectors(ids):
+        rng = np.random.default_rng(3)
+        return {i: rng.random(1024, dtype=np.float32).tolist() for i in ids}
+
+    async def boom(vec, limit=20, exclude_ids=None):
+        raise RuntimeError("qdrant down")
+
+    monkeypatch.setattr(qs, "get_paper_vectors", fake_vectors)
+    monkeypatch.setattr(qs, "search_by_vector", boom)
+    assert await collections_svc.extend("alpha") == []

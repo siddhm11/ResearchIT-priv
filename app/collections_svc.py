@@ -141,16 +141,20 @@ async def extend(slug: str, limit: int = EXTEND_LIMIT,
 
     skip = set(exclude or set()) | set(anchor_ids(slug))
     try:
+        # search_by_vector returns a list of arxiv_id STRINGS, not dicts, and
+        # applies exclude_ids itself. Treating the results as dicts extracted
+        # None from every hit and made this silently return [] -- the curated
+        # half of the page rendered perfectly while the extension never
+        # appeared, which is exactly how it reached production unnoticed.
         hits = await qdrant_svc.search_by_vector(
-            vec.tolist(), limit=limit + len(skip),
+            vec.tolist(), limit=limit + len(skip), exclude_ids=skip,
         )
     except Exception as e:
         print(f"[collections] extend failed for {slug}: {e}")
         return []
 
     out: list[str] = []
-    for h in hits:
-        aid = h.get("arxiv_id") if isinstance(h, dict) else getattr(h, "arxiv_id", None)
+    for aid in hits:
         if aid and aid not in skip and aid not in out:
             out.append(aid)
         if len(out) >= limit:
