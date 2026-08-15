@@ -229,6 +229,35 @@
     if (btn) { e.preventDefault(); dismissPaper(btn); }
   });
 
+  /* ── Save feedback ─────────────────────────────────────────────────────
+     Saving used to change a label and nothing else, which understates it: a
+     save is folded into the long-term EWMA profile and, past the clustering
+     threshold, into the Ward clusters the whole feed is built from. The
+     collection Follow button already says what it changed ("N papers added —
+     your feed will reflect this now"); this applies the same courtesy to the
+     single most common action in the product.
+
+     Driven from the swap rather than from CSS on .btn-saved, so it fires on
+     the ACT of saving. A CSS-only animation would replay on every already-
+     saved card the Library renders. */
+
+  function onSaved(target) {
+    var btn = target.querySelector('.btn-saved');
+    if (btn) {
+      btn.classList.add('just-saved');
+      setTimeout(function () { btn.classList.remove('just-saved'); }, 400);
+    }
+    var t = makeToast('Saved — your feed will lean toward this.');
+    if (t) setTimeout(function () { closeToast(t); }, 2600);
+  }
+
+  document.body.addEventListener('htmx:afterSwap', function (e) {
+    /* Only the card's own action row. The seed picker swaps a whole row and
+       runs its own counter, and the Library renders saved cards on load. */
+    var t = e.target;
+    if (t && t.classList && t.classList.contains('card-actions')) onSaved(t);
+  });
+
   document.body.addEventListener('htmx:responseError', function () {
     showError('Something went wrong. Please try again.');
   });

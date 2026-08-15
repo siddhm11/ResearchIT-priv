@@ -598,6 +598,36 @@ async def record_impressions(user_id: str, paper_ids: list[str]) -> int:
     return len(rows)
 
 
+async def count_feed_issues(user_id: str) -> int:
+    """
+    How many distinct days this user has been served a feed, counting today.
+
+    Used for the masthead's issue number. Distinct DAYS rather than distinct
+    requests on purpose: refreshing four times in an afternoon is one issue,
+    not four, and a number that climbs every time you hit reload would be
+    noise dressed up as a milestone.
+
+    Best-effort — the masthead degrades to no number rather than failing the
+    feed, which is why callers do not need to guard this.
+    """
+    if not user_id:
+        return 1
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(DISTINCT date(shown_at)) FROM feed_impressions "
+                "WHERE user_id = ?",
+                (user_id,),
+            )
+            row = await cur.fetchone()
+    except aiosqlite.Error:
+        return 0
+    prior = int(row[0]) if row and row[0] else 0
+    # Today's impressions are written after the page renders, so on a user's
+    # first-ever feed the table is still empty; count today explicitly.
+    return prior if prior else 1
+
+
 async def get_impressed_ids(user_id: str, within_days: int | None = None) -> set[str]:
     """Papers already shown to this user, optionally limited to a recent window.
 

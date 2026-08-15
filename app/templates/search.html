@@ -12,6 +12,16 @@
 {% block content %}
 <div class="wrap wrap--feed stack stack-4">
 
+  <header class="issue">
+    <div class="issue-kicker">Semantic search</div>
+    <h1 class="issue-title">{% if query %}{{ query }}{% else %}Search{% endif %}</h1>
+    <div class="issue-line">
+      <span>1.8M arXiv papers</span>
+      <span class="sep">·</span>
+      <span>matched by meaning, not keywords</span>
+    </div>
+  </header>
+
   <form class="searchbar"
         hx-get="/search"
         hx-target="#search-results"

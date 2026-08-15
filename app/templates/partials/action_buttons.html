@@ -48,7 +48,10 @@
 {% endif %}
 
 {% if is_saved %}
-  <button type="button" class="btn btn-sm btn-save" disabled aria-label="Saved to your library">
+  {# btn-saved, not btn-save: the call to action is solid accent, the completed
+     state is the quiet tinted version. A finished action confirms; it does not
+     keep competing for attention on every card the user has already triaged. #}
+  <button type="button" class="btn btn-sm btn-saved" disabled aria-label="Saved to your library">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="m4.5 12.5 5 5 10-11" />

@@ -20,6 +20,7 @@ import random
 import time
 import uuid
 from collections import OrderedDict
+from datetime import datetime
 
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
@@ -36,6 +37,7 @@ from app.recommend.clustering import (
     MIN_PAPERS_FOR_CLUSTERING,
 )
 from app.recommend.fusion import allocate_quotas, merge_quota_results
+from app.recommend.labels import label_clusters, cluster_tone
 from app.recommend.reranker import rerank_candidates
 # inject_exploration is no longer imported here: exploration is now drawn per
 # page in _build_page() from a pre-shuffled pool, so that doc 06 §3.5's "two
@@ -319,16 +321,29 @@ async def get_recommendations(
     except Exception as e:  # pragma: no cover - defensive
         print(f"[recs] impression write failed ({e})")
 
-    return _with_cookie(templates.TemplateResponse(
-        request, template,
-        {
-            "papers": papers,
-            "has_more": has_more,
-            "next_page": page + 1,
-            "query_id": entry["query_id"],
-            "trending": entry.get("trending", False),
-        },
-    ))
+    ctx = {
+        "papers": papers,
+        "has_more": has_more,
+        "next_page": page + 1,
+        "query_id": entry["query_id"],
+        "trending": entry.get("trending", False),
+    }
+    # Only page 1 renders the header; later pages are bare card fragments, so
+    # computing this for them would be wasted work and rendering it would
+    # repeat the strip halfway down the feed.
+    if page == 1:
+        ctx["interests"] = _feed_interests(entry)
+        ctx["strength"] = _profile_strength(entry, len(state.positive_list))
+        # Masthead. The issue number is the user's serial count of feeds, not a
+        # global one — "your 12th issue" is a fact about them; a global number
+        # would be a vanity metric about the service.
+        ctx["issue"] = {
+            "date": datetime.now().strftime("%A %-d %B %Y"),
+            "number": await db.count_feed_issues(user_id),
+            "tier": _serving_tier(entry),
+        }
+
+    return _with_cookie(templates.TemplateResponse(request, template, ctx))
 
 
 # ── Feed construction ────────────────────────────────────────────────────────
@@ -435,6 +450,88 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
     return {**base, "ranked": ranked, "explore": explore, "tags": tags}
 
 
+# ── Feed self-description ────────────────────────────────────────────────────
+#
+# The pipeline's whole reason for existing is that a user with several distinct
+# interests keeps all of them in the feed. Until now none of that reached the
+# screen: quota fusion guaranteed minority interests their slots and then every
+# paper rendered identically, so the guarantee was unobservable. These two
+# helpers turn the serving state the pipeline already holds into something the
+# feed header can say out loud.
+
+# Which tier produced a feed, inferred from the tags it actually wrote rather
+# than from re-checking thresholds — the cascade can fall through for reasons a
+# save count does not capture (no vectors, empty retrieval), and claiming a tier
+# the user is not on is worse than saying nothing.
+_TIER_BY_SOURCE = {
+    "trending_category_fallback": 0,
+    "qdrant_recommend": 3,
+    "ewma_longterm": 2,
+}
+
+# What the user gets at each step up, keyed by the tier they are ON now.
+_NEXT_UNLOCK = {
+    0: (REC_MIN_POSITIVES, "papers matched to your library"),
+    3: (_MIN_EWMA_INTERACTIONS, "ranking against your full reading profile"),
+    2: (MIN_PAPERS_FOR_CLUSTERING, "multi-interest feed — every interest keeps its own slots"),
+}
+
+
+def _serving_tier(entry: dict) -> int:
+    """Tier that produced this feed: 0 trending, 3 similar-to, 2 EWMA, 1 clustered."""
+    for tags in entry.get("tags", {}).values():
+        return _TIER_BY_SOURCE.get(tags.get("candidate_source", ""), 1)
+    return 1
+
+
+def _profile_strength(entry: dict, save_count: int) -> dict | None:
+    """
+    Progress toward the next tier, or None once the full pipeline is running.
+
+    The onboarding wizard already tells people that five saves is the real
+    threshold, and then that number disappears the moment onboarding ends — so
+    a user sitting on three saves gets the weaker tier with no idea why or that
+    it changes. This carries the same message into the feed itself.
+    """
+    tier = _serving_tier(entry)
+    unlock = _NEXT_UNLOCK.get(tier)
+    if unlock is None:          # tier 1 — nothing left to unlock
+        return None
+    target, what = unlock
+    if save_count >= target:    # threshold met but the tier did not engage
+        return None
+    return {
+        "saves": save_count,
+        "target": target,
+        "remaining": target - save_count,
+        "unlocks": what,
+        "pct": min(100, round(save_count / target * 100)) if target else 0,
+    }
+
+
+def _feed_interests(entry: dict) -> list[dict]:
+    """
+    The distinct interests represented in this feed's ranked pool.
+
+    Returned largest-first, which matches quota order: a cluster's share of the
+    pool IS its importance weight after `allocate_quotas`. Empty for every tier
+    but Tier 1, since no other tier has clusters to describe.
+    """
+    tags = entry.get("tags", {})
+    ranked = entry.get("ranked", [])
+    seen: dict[str, dict] = {}
+    for aid in ranked:
+        t = tags.get(aid) or {}
+        label = t.get("cluster_label") or ""
+        if not label:
+            continue
+        row = seen.setdefault(
+            label, {"label": label, "tone": t.get("cluster_tone", 0), "count": 0},
+        )
+        row["count"] += 1
+    return sorted(seen.values(), key=lambda r: -r["count"])
+
+
 async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
     """Materialise the next page: _PAGE_SIZE ranked papers + _N_EXPLORE picks."""
     core = _take(entry["ranked"], entry, seen, _PAGE_SIZE)
@@ -490,6 +587,15 @@ async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
             "propensity": explore_propensity if is_explore
                           else tags.get("propensity", 1.0),
             "policy_id": tags.get("policy_id", _RANKER_VERSION),
+            # Presentation only. An exploration pick loses its cluster identity
+            # for the same reason it loses candidate_source above: it is being
+            # served as a deliberate step outside the user's interests, so
+            # badging it with one would be a lie.
+            "cluster_label": "" if is_explore else tags.get("cluster_label", ""),
+            "cluster_tone": -1 if is_explore else tags.get("cluster_tone", -1),
+            # An exploration pick is chosen BECAUSE it is far from the profile,
+            # so a "match" reading on it would be measuring the wrong thing.
+            "match": 0.0 if is_explore else tags.get("match", 0.0),
         })
         entry["position"] += 1
 
@@ -816,6 +922,29 @@ async def _multi_interest_recommend(
         # candidate_source here is the RETRIEVAL origin; papers served as an
         # exploration pick get that overridden at page-build time, since the
         # same paper is an exploration pick only by virtue of how it was served.
+        # Name each cluster so the feed can show WHICH interest a paper came
+        # from. Labelled from the user's own saved papers where possible —
+        # those define the interest; the retrieved candidates only approximate
+        # it. `get_cached_metadata_batch` is a local SQLite read, so this costs
+        # no network I/O in the hot path. Clusters whose saves were never
+        # cached fall back to their candidates' metadata.
+        cluster_labels: dict[int, str] = {}
+        try:
+            saved_meta = await db.get_cached_metadata_batch(aligned_ids)
+            corpus: dict[int, list[dict]] = {}
+            for c in clusters:
+                rows = [saved_meta[pid] for pid in c.paper_ids if pid in saved_meta]
+                if not rows:
+                    rows = [
+                        cand_meta[cid] for cid in valid_ids
+                        if paper_cluster_map.get(cid) == c.cluster_idx
+                    ][:12]
+                if rows:
+                    corpus[c.cluster_idx] = rows
+            cluster_labels = label_clusters(corpus)
+        except Exception as e:  # pragma: no cover - labels are decoration
+            print(f"[recommendations] cluster labelling failed (non-fatal): {e}")
+
         paper_tags: dict[str, dict] = {}
         for aid in mmr_selected + explore_pool:
             cluster_idx = paper_cluster_map.get(aid)
@@ -825,13 +954,27 @@ async def _multi_interest_recommend(
                 source = f"cluster_{cluster_idx}"
             else:
                 source = "tier1_unknown"
+            has_cluster = cluster_idx is not None and cluster_idx >= 0
             paper_tags[aid] = {
                 "ranker_version": _RANKER_VERSION,
                 "candidate_source": source,
-                "cluster_id": str(cluster_idx) if cluster_idx is not None and cluster_idx >= 0 else "",
+                "cluster_id": str(cluster_idx) if has_cluster else "",
                 "query_id": query_id,
                 "propensity": 1.0,          # deterministic unless served as exploration
                 "policy_id": _RANKER_VERSION,
+                # Presentation only — never logged as an interaction field, so
+                # it stays out of the §3.11 instrumentation contract.
+                "cluster_label": cluster_labels.get(cluster_idx, "") if has_cluster else "",
+                "cluster_tone": cluster_tone(cluster_idx) if has_cluster else -1,
+                # Raw cosine against the cluster medoid that retrieved this
+                # paper. The pipeline computed it, fed it to the reranker as
+                # feature 0, and then discarded it at render time — so the one
+                # number that answers "how close is this to what I read?" never
+                # reached the reader. Tier 1 only: the other tiers retrieve by
+                # id or return no scores, and a meter that appears on some
+                # feeds and not others is worse than one that is clearly a
+                # property of the clustered tier.
+                "match": round(float(qdrant_score_map.get(aid, 0.0)), 4),
             }
 
         return mmr_selected, explore_pool, paper_tags, rerank_time_ms, timing

@@ -33,18 +33,39 @@
    media query or attribute being present.                                   */
 
 :root {
-  /* surfaces */
-  --bg:         #FBFAF8;
-  --bg-2:       #F4F1EC;
+  /* surfaces
+     The page was #FBFAF8 behind #FFFFFF cards — about 2% apart in luminance,
+     so a card had no edge and the whole page read as one flat sheet. The page
+     is now a definite warm paper tone and the card stays pure white, which
+     puts real separation between them and lets a card actually sit ON
+     something. Borders were lifted for the same reason: #E5E1D9 on white is
+     under 1.3:1 and effectively invisible. */
+  --bg:         #F2EEE6;
+  --bg-2:       #EAE4D9;
   --surface:    #FFFFFF;
-  --surface-2:  #F2EFEA;
-  --border:     #E5E1D9;
-  --border-2:   #D3CDC2;
+  --surface-2:  #F4F0E8;
+  --border:     #DED7CA;
+  --border-2:   #C3BAA9;
+  /* Full-strength rule for masthead and section heads — academic pages are
+     built from rules, and a rule has to read as a drawn line, not a smudge. */
+  --rule:       #2A2620;
+
+  /* Graph-paper grid. Two weights, like real plotting paper: a minor line
+     every --grid-1 and a stronger one every fifth. Kept very low contrast
+     because it must read as texture from a distance and disappear the moment
+     you actually look at a word. */
+  --grid:       rgba(40, 34, 22, .050);
+  --grid-major: rgba(40, 34, 22, .075);
+  --grid-1:     26px;
+  --grid-5:     130px;
+  /* Warm light falling from the top of the page. One static gradient, not a
+     per-frame effect. */
+  --wash:       rgba(214, 190, 140, .28);
 
   /* text */
-  --text:       #1C1A16;
-  --text-2:     #58524A;
-  --text-3:     #8A837A;
+  --text:       #16140F;
+  --text-2:     #4E4840;
+  --text-3:     #7D766B;
 
   /* accent — Save, active nav, focus */
   --accent:     #2C5638;
@@ -61,8 +82,11 @@
   /* highlight behind the abstract's lead sentence */
   --mark:       #DDE9DA;
 
-  --shadow-1:   0 1px 2px rgba(28, 26, 22, .05);
-  --shadow-2:   0 1px 2px rgba(28, 26, 22, .05), 0 8px 24px -16px rgba(28, 26, 22, .25);
+  /* Shadow-1 was 5% opacity — below the threshold where a shadow reads as
+     anything at all. These are still restrained (no coloured glow, no large
+     blur radius) but they now actually lift a card off the page. */
+  --shadow-1:   0 1px 1px rgba(30, 26, 18, .04), 0 2px 6px -2px rgba(30, 26, 18, .10);
+  --shadow-2:   0 2px 4px rgba(30, 26, 18, .06), 0 12px 28px -12px rgba(30, 26, 18, .22);
 
   /* type */
   --font-ui:    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -81,16 +105,24 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:        #14120F;
-    --bg-2:      #100E0C;
-    --surface:   #1C1916;
-    --surface-2: #24211C;
-    --border:    #2C2823;
-    --border-2:  #3B3630;
+    --bg:        #100E0B;
+    --bg-2:      #0B0A08;
+    --surface:   #1B1815;
+    --surface-2: #252119;
+    --border:    #34302A;
+    --border-2:  #4A443B;
+    --rule:      #6E665A;
+    /* Dark mode inverts the grid to light-on-dark and drops it further —
+       a light line on a dark ground reads considerably stronger than the
+       reverse at the same alpha, so matching the light values would give a
+       visibly harder grid. */
+    --grid:       rgba(255, 246, 225, .030);
+    --grid-major: rgba(255, 246, 225, .048);
+    --wash:       rgba(120, 96, 52, .20);
 
-    --text:      #E8E3DB;
-    --text-2:    #A9A197;
-    --text-3:    #7C756B;
+    --text:      #F0EBE2;
+    --text-2:    #B2AA9F;
+    --text-3:    #837C71;
 
     --accent:    #7FB58C;
     --accent-2:  #A7D4B2;
@@ -110,16 +142,24 @@
 }
 
 :root[data-theme="dark"] {
-  --bg:        #14120F;
-  --bg-2:      #100E0C;
-  --surface:   #1C1916;
-  --surface-2: #24211C;
-  --border:    #2C2823;
-  --border-2:  #3B3630;
+  --bg:        #100E0B;
+  --bg-2:      #0B0A08;
+  --surface:   #1B1815;
+  --surface-2: #252119;
+  --border:    #34302A;
+  --border-2:  #4A443B;
+  --rule:      #6E665A;
+    /* Dark mode inverts the grid to light-on-dark and drops it further —
+       a light line on a dark ground reads considerably stronger than the
+       reverse at the same alpha, so matching the light values would give a
+       visibly harder grid. */
+    --grid:       rgba(255, 246, 225, .030);
+    --grid-major: rgba(255, 246, 225, .048);
+    --wash:       rgba(120, 96, 52, .20);
 
-  --text:      #E8E3DB;
-  --text-2:    #A9A197;
-  --text-3:    #7C756B;
+  --text:      #F0EBE2;
+  --text-2:    #B2AA9F;
+  --text-3:    #837C71;
 
   --accent:    #7FB58C;
   --accent-2:  #A7D4B2;
@@ -143,16 +183,56 @@
 
 html { -webkit-text-size-adjust: 100%; }
 
+/* Background — graph paper.
+   ---------------------------------------------------------------------------
+   The page had a single flat colour behind it, which is why it read as blank
+   rather than as calm. This is the one background device that is actually of
+   this subject: plotting paper is what the work is done on, and a faint grid
+   is the visual signature of a lab notebook, a figure axis and a printed
+   engineering page all at once.
+
+   COST, since the whole reason this was avoided is a 2-vCPU box under an
+   infinite list: these are static gradients painted ONCE into the body's
+   background layer. There is no blur, no backdrop-filter, no filter, no
+   compositing pass, and no `background-attachment: fixed` — fixed is the
+   expensive one, because it forces a repaint of the background on every
+   scroll frame. With the default scroll attachment the browser just
+   translates an already-rasterised layer. This costs approximately nothing
+   per frame, unlike the glassmorphism it is standing in for.
+
+   Layer order (topmost first):
+     1  wash    a single warm light falling from the top, no-repeat
+     2  major   every fifth line, slightly stronger — real graph paper does this
+     3  minor   the base grid
+   Cards are opaque, so the grid only ever shows in the margins around the
+   reading column, which is exactly where atmosphere is free and legibility is
+   not at stake. */
+
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(120% 60% at 50% -10%, var(--wash) 0%, transparent 70%),
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:
+    100% 34rem,
+    var(--grid-5) var(--grid-5),
+    var(--grid-5) var(--grid-5),
+    var(--grid-1) var(--grid-1),
+    var(--grid-1) var(--grid-1);
+  background-repeat: no-repeat, repeat, repeat, repeat, repeat;
+  background-position: top center, top center, top center, top center, top center;
 }
 
 h1, h2, h3, h4, h5, p, figure { margin: 0; }
@@ -338,6 +418,7 @@ main { flex: 1; padding-block: 1.5rem 4rem; }
 .feed { display: flex; flex-direction: column; gap: .85rem; }
 
 .card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -347,6 +428,19 @@ main { flex: 1; padding-block: 1.5rem 4rem; }
   /* No fixed height anywhere: WCAG 2.2 SC 1.4.12 requires the layout to
      survive a user forcing line-height 1.5x / spacing 2x / letter .12em /
      word .16em without clipping. Everything here reflows. */
+
+  /* Physics. transform + box-shadow only — both composite on the GPU, so a
+     hover part-way down an infinite feed costs no layout or paint. Anything
+     animating width/padding/margin here would reflow every card below it. */
+  transition: transform .16s cubic-bezier(.2, .8, .3, 1),
+              box-shadow .16s ease, border-color .16s ease;
+}
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-2);
+    border-color: var(--border-2);
+  }
 }
 @media (min-width: 720px) { .card { padding: 1.25rem 1.35rem 1.1rem; } }
 
@@ -357,13 +451,17 @@ main { flex: 1; padding-block: 1.5rem 4rem; }
 }
 .card-meta .sep { opacity: .45; }
 
+/* The title was 1.14rem against a 0.95rem abstract — a 1.2x step, which is not
+   a hierarchy, it is a rounding error. NN/g's F-pattern work says the title is
+   the one element users reliably read, so it gets a real display step and the
+   tighter leading that larger type wants. */
 .card-title {
   font-family: var(--font-read);
-  font-size: 1.14rem; line-height: 1.32; font-weight: 600;
-  letter-spacing: -.005em; text-wrap: balance;
+  font-size: 1.32rem; line-height: 1.24; font-weight: 640;
+  letter-spacing: -.014em; text-wrap: balance;
   color: var(--text);
 }
-@media (min-width: 720px) { .card-title { font-size: 1.2rem; } }
+@media (min-width: 720px) { .card-title { font-size: 1.46rem; } }
 a.card-title:hover { color: var(--accent); }
 
 .card-authors { font-size: .82rem; color: var(--text-3); }
@@ -397,11 +495,28 @@ a.card-title:hover { color: var(--accent); }
 }
 .card-why { margin-left: auto; }
 
-.btn-save { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br); }
-.btn-save:hover { background: var(--accent-br); }
-.btn-save[disabled] { opacity: 1; cursor: default; }
+/* Save and Pass used to be two tinted pills of identical weight. They are not
+   equivalent acts: Save is the signal the entire profile is built from, Pass
+   writes to the negative EWMA. Save now carries solid accent — the only solid
+   control on the card — and Pass drops to a quiet ghost. */
+.btn-save {
+  background: var(--accent); color: #FBFAF8; border-color: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+.btn-save:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn-save:active { transform: translateY(1px); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-save { color: #14120F; }
+}
+:root[data-theme="dark"] .btn-save { color: #14120F; }
 
-.btn-pass { background: transparent; color: var(--text-3); border-color: var(--border); }
+/* Completed state. A finished action confirms; it does not keep shouting. */
+.btn-saved {
+  background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br);
+}
+.btn-saved[disabled] { opacity: 1; cursor: default; }
+
+.btn-pass { background: transparent; color: var(--text-3); border-color: transparent; }
 .btn-pass:hover { background: var(--surface-2); color: var(--text-2); }
 
 /* Deep link into the 3D map. Quiet by default — it is a side door, not a
@@ -837,4 +952,377 @@ a.card-title:hover { color: var(--accent); }
 @media (max-width: 34rem) {
   .anchor-ord { display: none; }
   .coll-card-head { flex-direction: column; gap: .2rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INTEREST IDENTITY
+   ---------------------------------------------------------------------------
+   The multi-interest pipeline is the thing this project actually built:
+   Ward clustering, medoid queries, importance-weighted quota with a floor of
+   three slots so a minor interest cannot be starved by a dominant one, and
+   Hungarian matching to keep cluster ids stable between reclusterings.
+
+   None of it was visible. Quota fusion guaranteed the minority interests their
+   slots and then every card rendered identically, so the guarantee could not
+   be observed — the feed looked exactly like a single cosine query.
+
+   Each cluster now carries a tone. Because cluster indices are stabilised
+   across reclusterings, a tone stays attached to the same interest between
+   sessions: the colour is an identity, not a per-request accident. That is a
+   payoff for stabilize_cluster_ids() that nothing else was collecting.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --tone-0: #2F6FB8;   /* blue    */
+  --tone-1: #7A4BA8;   /* purple  */
+  --tone-2: #B5761A;   /* amber   */
+  --tone-3: #10786E;   /* teal    */
+  --tone-4: #B33C63;   /* rose    */
+  --tone-5: #4B4FA8;   /* indigo  */
+  --tone-6: #A9542E;   /* clay    */
+}
+
+/* Seven hues, none of them green — green means Save and nothing else, exactly
+   as the category chips reserve it. MAX_CLUSTERS is 7, so this covers every
+   cluster a user can have. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tone-0: #6BA6E8;
+    --tone-1: #B58AE0;
+    --tone-2: #E0A94E;
+    --tone-3: #4CBDAE;
+    --tone-4: #E88AA8;
+    --tone-5: #8D91E8;
+    --tone-6: #E0906A;
+  }
+}
+:root[data-theme="dark"] {
+  --tone-0: #6BA6E8;
+  --tone-1: #B58AE0;
+  --tone-2: #E0A94E;
+  --tone-3: #4CBDAE;
+  --tone-4: #E88AA8;
+  --tone-5: #8D91E8;
+  --tone-6: #E0906A;
+}
+
+.tone-0 { --tone: var(--tone-0); }
+.tone-1 { --tone: var(--tone-1); }
+.tone-2 { --tone: var(--tone-2); }
+.tone-3 { --tone: var(--tone-3); }
+.tone-4 { --tone: var(--tone-4); }
+.tone-5 { --tone: var(--tone-5); }
+.tone-6 { --tone: var(--tone-6); }
+
+/* The rail. A left edge rather than a badge: it reads at a glance while
+   scrolling, costs no vertical space, and does not compete with the title —
+   which stays the largest thing on the card.
+
+   Drawn as a positioned pseudo-element, NOT as border-left. A 3px border would
+   push a railed card's content 2px right of an unrailed one, and the feed
+   legitimately mixes them — short-term supplements and the EWMA tiers have no
+   cluster — so the column would sit visibly ragged. This way the box model is
+   untouched and every card's text starts on the same line.
+
+   Inset from the corners rather than run edge to edge, which avoids fighting
+   the card's 10px border-radius at the top and bottom left. */
+.card--tone::before,
+.card--explore::before {
+  content: "";
+  position: absolute;
+  left: -1px; top: .7rem; bottom: .7rem;
+  width: 3px; border-radius: 2px;
+}
+.card--tone::before { background: var(--tone, var(--border-2)); }
+
+/* Exploration picks are the two serendipitous papers injected per page. They
+   deliberately have no cluster, so they get the negative of a rail — broken
+   and neutral. That makes doc 06 §3.5's "keep the feed from narrowing"
+   behaviour something the user can actually see happening. */
+.card--explore::before {
+  background: repeating-linear-gradient(
+    var(--border-2) 0 3px, transparent 3px 6px
+  );
+}
+
+.card-interest {
+  display: inline-flex; align-items: center; gap: .32rem;
+  font-family: var(--font-ui); font-size: .68rem; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--tone, var(--text-3));
+}
+.card-interest::before {
+  content: ""; width: .4rem; height: .4rem; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.card--explore .card-interest { color: var(--text-3); }
+.card--explore .card-interest::before { background: none; box-shadow: inset 0 0 0 1px currentColor; }
+
+/* ── Feed composition ─────────────────────────────────────────────────────
+   Page titles were 1.02rem — two percent larger than body text, so every page
+   opened with a whisper. That is now handled by the masthead (.issue-title,
+   see THE ISSUE below), which every page uses; the interim .page-title /
+   .page-head pair it replaced has been removed rather than left to rot.
+
+   Composition strip — the feed describing itself. Answers "what is this feed
+   made of" in one line, and makes the quota split legible: a cluster's share
+   of the pool IS its importance weight after allocate_quotas(). */
+.interests {
+  display: flex; align-items: center; gap: .3rem;
+  margin: 0 0 .9rem; padding-bottom: .2rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.interests::-webkit-scrollbar { display: none; }
+
+.interest {
+  display: inline-flex; align-items: baseline; gap: .38rem;
+  flex: none; padding: .3rem .6rem;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); font-size: .78rem; font-weight: 540;
+  color: var(--text-2); white-space: nowrap;
+}
+.interest::before {
+  content: ""; align-self: center;
+  width: .45rem; height: .45rem; border-radius: 50%;
+  background: var(--tone, var(--text-3)); flex: none;
+}
+.interest .n {
+  font-family: var(--font-mono); font-size: .68rem;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.interests-label {
+  flex: none; font-size: .72rem; color: var(--text-3);
+  margin-right: .15rem; white-space: nowrap;
+}
+
+/* ── Profile strength ─────────────────────────────────────────────────────
+   The pipeline is gated: 1 save reaches the similarity tier, 3 the EWMA tier,
+   5 the clustered multi-interest tier. The onboarding wizard says so plainly
+   and then the number vanishes the moment onboarding ends — so a user sitting
+   on three saves silently gets the weaker path and reads it as a bad feed.
+   This carries the same sentence into the feed. */
+
+.strength {
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+  padding: .65rem .8rem; margin-bottom: .9rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.strength-bar {
+  flex: none; width: 5rem; height: 4px; border-radius: 2px;
+  background: var(--border); overflow: hidden;
+}
+.strength-bar > i {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--accent); transition: width .4s cubic-bezier(.2, .8, .3, 1);
+}
+.strength-text { font-size: .82rem; color: var(--text-2); min-width: 0; }
+.strength-text b { color: var(--text); font-weight: 620; }
+.strength-count {
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Cards rise as they arrive. A CSS animation runs once when an element is
+   created, so cards already in the DOM never replay it when htmx appends the
+   next page — no JS bookkeeping needed.
+
+   The stagger cycles every six cards rather than counting from the top of the
+   feed: with :nth-child counted absolutely, page four's cards would sit behind
+   a two-second delay. Six steps of 26ms reads as a wave and tops out at 130ms,
+   comfortably inside Nielsen's 0.1s "feels instant" band for the first cards.
+
+   The global prefers-reduced-motion block near the top of this file already
+   flattens every animation here to 0.01ms. */
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.feed .card { animation: card-in .3s cubic-bezier(.2, .8, .3, 1) backwards; }
+.feed .card:nth-child(6n + 1) { animation-delay: 0ms; }
+.feed .card:nth-child(6n + 2) { animation-delay: 26ms; }
+.feed .card:nth-child(6n + 3) { animation-delay: 52ms; }
+.feed .card:nth-child(6n + 4) { animation-delay: 78ms; }
+.feed .card:nth-child(6n + 5) { animation-delay: 104ms; }
+.feed .card:nth-child(6n)     { animation-delay: 130ms; }
+
+/* Save confirmation. Applied by app.js to the swapped-in button, so it fires
+   on the act of saving and never on merely rendering an already-saved paper —
+   which is what a CSS-only version would do to every card in the Library. */
+@keyframes save-pop {
+  40% { transform: scale(1.08); }
+  to  { transform: scale(1); }
+}
+.btn-saved.just-saved { animation: save-pop .32s cubic-bezier(.2, .8, .3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .feed .card { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE ISSUE
+   ---------------------------------------------------------------------------
+   Why this exists, since it is a structural change and not a coat of paint.
+
+   The feed was an infinite scroll. Two independent lines of evidence say that
+   is the wrong container here:
+
+     * This codebase already knows it. search.html carries a comment citing
+       NN/g — infinite scroll suits "homogeneous items with no particular task
+       or goal in mind" and works against users trying to find something
+       specific — and uses that to justify BOUNDING search results. The feed is
+       a triage task too; it got the opposite treatment.
+     * The wider finding is that pagination beats infinite scroll for
+       goal-oriented tasks because it gives control and reference points, and
+       that satisfaction is tied to a sense of COMPLETION. An endless list can
+       never be completed, so it can never be satisfying — only abandoned.
+
+   Scholar Inbox, the largest system in this category, makes its core unit a
+   dated digest for exactly this reason.
+
+   So the feed is framed as an issue: dated, numbered, finite, with a masthead
+   and a terminus. That is also the most genuinely research-themed device
+   available — a journal issue — and it costs nothing to render.
+
+   The visual language throughout is RULES, not boxes. Academic pages are set
+   with rules; soft rounded cards are a SaaS idiom. Rules are also free: no
+   blur, no gradient, no compositing.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Masthead ─────────────────────────────────────────────────────────────── */
+
+.issue {
+  margin-bottom: 1.4rem;
+  border-bottom: 2px solid var(--rule);
+  padding-bottom: .55rem;
+}
+
+/* Kicker rule: the small caps line above a section head, with a hairline that
+   runs out to the measure. The single most recognisable academic page device. */
+.issue-kicker {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-mono); font-size: .66rem; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: .5rem;
+}
+.issue-kicker::after {
+  content: ""; flex: 1; height: 1px; background: var(--border-2);
+}
+
+.issue-title {
+  font-family: var(--font-read);
+  font-size: 1.9rem; line-height: 1.05; font-weight: 660;
+  letter-spacing: -.028em; text-wrap: balance; color: var(--text);
+}
+@media (min-width: 720px) { .issue-title { font-size: 2.4rem; } }
+
+/* The dateline. Tabular figures so the numbers hold a column between visits —
+   a masthead that jitters as the date changes reads as sloppy. */
+.issue-line {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .7rem;
+  margin-top: .45rem;
+  font-family: var(--font-mono); font-size: .72rem; letter-spacing: .04em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.issue-line .sep { opacity: .4; }
+.issue-line b { color: var(--text-2); font-weight: 600; }
+
+/* ── Section heads within the issue ───────────────────────────────────────── */
+
+.sec-rule {
+  display: flex; align-items: center; gap: .6rem;
+  margin: 1.8rem 0 .85rem;
+  font-family: var(--font-mono); font-size: .68rem; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--tone, var(--text-3));
+}
+.sec-rule::before {
+  content: ""; width: .45rem; height: .45rem; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.sec-rule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+.sec-rule .n {
+  font-variant-numeric: tabular-nums; color: var(--text-3);
+  letter-spacing: .06em;
+}
+
+/* ── Card as catalogue entry ──────────────────────────────────────────────── */
+
+/* Top line of a card: category on the left, match readout on the right, with a
+   rule between. Replaces a row of three dim mono facts that nobody scans. */
+.card-rule {
+  display: flex; align-items: center; gap: .55rem;
+  margin-bottom: .1rem;
+}
+.card-rule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+  order: 1;
+}
+.card-rule .cat { order: 0; }
+.card-match { order: 2; }
+
+/* The match meter. Cosine against the cluster medoid that retrieved this
+   paper — reranker feature 0, previously computed and thrown away.
+
+   Ticks rather than a plain bar: an unmarked bar is a decoration, a ticked one
+   is a scale, and the whole point is that two cards can be compared. */
+.card-match {
+  display: inline-flex; align-items: center; gap: .4rem; flex: none;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .04em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.meter {
+  position: relative; width: 3.4rem; height: .5rem; flex: none;
+  border: 1px solid var(--border-2); border-radius: 1px;
+  overflow: hidden;
+}
+.meter > i {
+  display: block; height: 100%;
+  background: var(--tone, var(--accent));
+  opacity: .85;
+}
+/* Quarter ticks, drawn over the fill so the scale stays readable when full. */
+.meter::after {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    90deg, transparent 0 calc(25% - 1px), var(--border-2) calc(25% - 1px) 25%
+  );
+  pointer-events: none;
+}
+
+/* Specimen number. An arXiv id is the paper's canonical identifier and the
+   thing a researcher copies, cites and searches — it belongs on the card, set
+   like a catalogue number rather than hidden in a link's href. */
+.card-id {
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-id:hover { color: var(--accent); }
+
+.card-foot {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding-top: .15rem;
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-foot .sep { opacity: .4; }
+
+/* ── Issue terminus ───────────────────────────────────────────────────────── */
+
+.issue-end {
+  margin-top: 2rem; padding-top: 1.1rem;
+  border-top: 2px solid var(--rule);
+  text-align: center;
+}
+.issue-end .mark {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.issue-end .note {
+  display: block; margin-top: .35rem;
+  font-size: .86rem; color: var(--text-3);
 }

@@ -13,9 +13,17 @@
 {% block content %}
 <div class="wrap wrap--feed">
 
-  <div class="sec-head">
-    <h1 class="sec-title">Collections</h1>
-  </div>
+  <header class="issue">
+    <div class="issue-kicker">Curated tracks</div>
+    <h1 class="issue-title">Collections</h1>
+    {% if collections %}
+      <div class="issue-line">
+        <span><b>{{ collections | length }}</b> track{{ "s" if collections | length != 1 }}</span>
+        <span class="sep">·</span>
+        <span>following one seeds your feed immediately</span>
+      </div>
+    {% endif %}
+  </header>
 
   {% if not_found %}
     <div class="empty">
@@ -25,10 +33,6 @@
   {% endif %}
 
   {% if collections %}
-    <p class="sec-sub">
-      Curated starting points. Follow one and the feed learns from it
-      immediately — no need to save papers one at a time first.
-    </p>
 
     <div class="coll-list">
       {% for c in collections %}
@@ -52,7 +56,10 @@
           {% endif %}
 
           <div class="coll-actions">
-            <a href="/collections/{{ c.slug }}" class="btn btn-sm">Open</a>
+            {# btn-quiet, not a bare .btn: .btn sets a transparent border and no
+               background, so an unmodified one renders as floating text beside
+               the solid Follow button. #}
+            <a href="/collections/{{ c.slug }}" class="btn btn-sm btn-quiet">Open</a>
             {% with collection = c, following = c.following, seeded = 0 %}
               {% include "partials/follow_button.html" %}
             {% endwith %}

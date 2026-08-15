@@ -26,16 +26,49 @@
 {% set cites = paper.citation_count | default(0) %}
 {% set pub_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
 
-<article class="card" id="paper-{{ paper.arxiv_id }}" data-arxiv-id="{{ paper.arxiv_id }}">
+{#
+  Interest identity. `cluster_tone` is -1 for anything with no cluster: search
+  results, the Library, the EWMA and similar-to tiers, and exploration picks —
+  which lose it deliberately, since an exploration paper is a step OUTSIDE the
+  user's interests and badging it with one would be a lie.
+#}
+{% set tone = paper.cluster_tone if paper.cluster_tone is defined else -1 %}
+{% set is_explore = paper.candidate_source | default("") == "exploration" %}
+{% set interest = paper.cluster_label | default("") %}
 
-  <div class="card-meta">
+<article class="card
+                {%- if tone >= 0 %} card--tone tone-{{ tone }}{% endif %}
+                {%- if is_explore %} card--explore{% endif %}"
+         id="paper-{{ paper.arxiv_id }}" data-arxiv-id="{{ paper.arxiv_id }}">
+
+  {% if interest %}
+    <span class="card-interest">{{ interest }}</span>
+  {% elif is_explore %}
+    {# Named, not hidden. Doc 06 §3.5 injects two of these per page precisely
+       so the feed cannot narrow; saying so turns a silent mechanism into a
+       visible promise. #}
+    <span class="card-interest">Something different</span>
+  {% endif %}
+
+  {#
+    Top rule: category, a hairline out to the measure, and the match readout.
+    The old meta row gave the year and citation count the same weight as the
+    category and put all three where the eye lands first — none of which is
+    what anyone scans for. Year and citations moved to the foot, where
+    provenance belongs.
+  #}
+  {% set match = paper.match | default(0) %}
+  <div class="card-rule">
     {% if paper.category %}
       <span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>
     {% endif %}
-    {% if pub_year %}<span>{{ pub_year }}</span>{% endif %}
-    {% if cites %}
-      <span class="sep">·</span>
-      <span>{{ cites | commafy }} citations</span>
+    {% if match %}
+      {# Raw cosine, unmassaged — only the bar is rescaled to the band real
+         scores occupy. See _match_pct in templates_env.py. #}
+      <span class="card-match" title="Cosine similarity to the interest that retrieved this paper">
+        <span class="meter" aria-hidden="true"><i style="width:{{ match | match_pct }}%"></i></span>
+        {{ "%.2f" | format(match) }}
+      </span>
     {% endif %}
   </div>
 
@@ -61,6 +94,17 @@
     {% endif %}
   {% endif %}
 
+  {# Provenance line. The arXiv id is set as a catalogue number because it is
+     the thing a researcher actually copies, cites and searches for. #}
+  <div class="card-foot">
+    <a class="card-id" href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+       target="_blank" rel="noopener">arXiv:{{ paper.arxiv_id }}</a>
+    {% if pub_year %}<span class="sep">·</span><span>{{ pub_year }}</span>{% endif %}
+    {% if cites %}
+      <span class="sep">·</span><span>{{ cites | commafy }} cited</span>
+    {% endif %}
+  </div>
+
   <div class="card-actions" id="actions-{{ paper.arxiv_id }}">
     {% include "partials/action_buttons.html" %}
   </div>
@@ -83,7 +127,18 @@
 
   {# Reason panel lives outside #actions-… so it survives the htmx swap that
      replaces the buttons after a save. #}
-  {% set reason = paper.candidate_source | default("") | why_shown %}
+  {#
+    _why_shown() is deliberately vague about clusters — "one of the recurring
+    interests in your library" — because at the time it was written clusters
+    were numbered and naming one would have invented detail the system did not
+    have. It does now, so when a label exists the reason names it.
+  #}
+  {% if interest %}
+    {% set reason = "Retrieved for your “" ~ interest ~ "” interest — one of the "
+                    ~ "clusters found in your saved papers." %}
+  {% else %}
+    {% set reason = paper.candidate_source | default("") | why_shown %}
+  {% endif %}
   {% if reason %}
     <p class="card-reason hidden" id="why-{{ paper.arxiv_id }}">{{ reason }}</p>
   {% endif %}

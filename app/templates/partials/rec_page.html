@@ -51,5 +51,11 @@
     <span class="label">More papers</span>
   </button>
 {% else %}
-  <p class="feed-end">That's everything for now — save a few papers and the feed will refill.</p>
+  {# A terminus, not a dead end. An endless list can only be abandoned; a
+     bounded one can be finished, and finishing is what makes triage feel
+     worth doing. #}
+  <div class="issue-end">
+    <span class="mark">End of issue</span>
+    <span class="note">Save a few and the next one is built around them.</span>
+  </div>
 {% endif %}

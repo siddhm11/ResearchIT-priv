@@ -146,7 +146,9 @@ def test_save_button_swaps_to_saved_state(page):
     save.click()
 
     # The swap replaces the actions row; wait for the new state to appear.
-    saved = card.locator("button.btn-save[disabled]")
+    # .btn-saved, not .btn-save: the call to action is solid accent and the
+    # completed state is the quiet tinted one, so they are separate classes.
+    saved = card.locator("button.btn-saved[disabled]")
     saved.wait_for(timeout=SWAP_TIMEOUT_MS)
     assert "Saved" in saved.inner_text()
     assert card.locator("button.btn-pass").inner_text().strip() == "Remove"
@@ -192,7 +194,7 @@ def test_saved_paper_appears_in_library(page):
     arxiv_id = card.get_attribute("data-arxiv-id")
 
     card.locator("button.btn-save").click()
-    card.locator("button.btn-save[disabled]").wait_for(timeout=SWAP_TIMEOUT_MS)
+    card.locator("button.btn-saved[disabled]").wait_for(timeout=SWAP_TIMEOUT_MS)
 
     page.goto(f"{BASE_URL}/saved", wait_until="domcontentloaded")
     page.locator("article.card").first.wait_for(timeout=SWAP_TIMEOUT_MS)

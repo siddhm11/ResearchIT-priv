@@ -100,10 +100,11 @@ def test_saved_page_shows_correct_count(client, monkeypatch):
     client.post("/api/papers/1512.03385/save", data={"source": "search"})
     resp = client.get("/saved")
     assert resp.status_code == 200
-    # saved.html renders the count as a bare pill: <span class="pill">2</span>.
-    # Asserting the markup rather than "2 saved" keeps this honest -- the old
-    # string stopped existing in 99c77d4 and nothing caught it.
-    assert '<span class="pill">2</span>' in resp.text
+    # saved.html renders the count in the masthead dateline: "<b>2</b> papers
+    # saved". Asserting the markup rather than a loose "2" keeps this honest --
+    # the old string stopped existing in 99c77d4 and nothing caught it, and the
+    # pill this replaced went the same way when the page gained a masthead.
+    assert "<b>2</b> papers saved" in resp.text
 
 
 # ── Remove from saved ─────────────────────────────────────────────────────────

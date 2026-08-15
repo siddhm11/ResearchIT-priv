@@ -15,13 +15,9 @@
 {% block content %}
 <div class="wrap wrap--feed">
 
-  <div class="sec-head">
-    <h1 class="sec-title">Your feed</h1>
-    {% if save_count %}
-      <span class="pill">{{ save_count }} saved</span>
-    {% endif %}
-  </div>
-
+  {# The masthead is rendered by the feed fragment, which is the only thing
+     that knows the issue number, the date and how many interests are in play.
+     A static heading here would duplicate it and then disagree with it. #}
   <div id="rec-section"
        hx-get="/api/recommendations"
        hx-trigger="load"

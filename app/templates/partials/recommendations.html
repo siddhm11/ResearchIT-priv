@@ -9,12 +9,75 @@
   response for anyone profiling; they are just no longer rendered.
 #}
 {% if papers %}
+  {#
+    Masthead. The feed is framed as a dated issue rather than an endless
+    column — see the THE ISSUE block in styles.css for the reasoning. In short:
+    this codebase already cites NN/g to justify BOUNDING search results, and
+    triaging a feed is a goal-directed task by the same argument; an endless
+    list also has no terminus, so it can never be finished, only abandoned.
+  #}
+  {% if issue %}
+    <header class="issue">
+      <div class="issue-kicker">
+        {% if issue.tier == 0 %}Getting started{% else %}Your reading{% endif %}
+      </div>
+      <h1 class="issue-title">
+        {%- if issue.tier == 0 %}Popular right now{% else %}Today's papers{% endif -%}
+      </h1>
+      <div class="issue-line">
+        <span>{{ issue.date }}</span>
+        <span class="sep">·</span>
+        <span>No. <b>{{ issue.number }}</b></span>
+        {% if interests %}
+          <span class="sep">·</span>
+          <span><b>{{ interests | length }}</b> interest{{ "s" if interests | length != 1 }}</span>
+        {% endif %}
+      </div>
+    </header>
+  {% endif %}
+
   {% if trending %}
     <div class="notice" style="margin-bottom:.85rem">
       <span>
         Popular in the areas you picked. Save a few papers and the feed starts
         following your own reading instead.
       </span>
+    </div>
+  {% endif %}
+
+  {#
+    Progress toward the next tier. The wizard already tells people that five
+    saves is the real threshold and then that number disappears the instant
+    onboarding ends — so someone sitting on three saves quietly gets the weaker
+    path and reads it as a bad feed. `strength` is None once the full pipeline
+    is running, so this block removes itself rather than becoming furniture.
+  #}
+  {% if strength %}
+    <div class="strength">
+      <span class="strength-bar" aria-hidden="true"><i style="width:{{ strength.pct }}%"></i></span>
+      <span class="strength-text">
+        <b>{{ strength.remaining }} more save{{ "s" if strength.remaining != 1 }}</b>
+        unlocks {{ strength.unlocks }}.
+      </span>
+      <span class="strength-count">{{ strength.saves }}/{{ strength.target }}</span>
+    </div>
+  {% endif %}
+
+  {#
+    What the feed is made of. Only Tier 1 has clusters to describe, so this is
+    empty everywhere else. Each entry's count is its share of the ranked pool,
+    which after allocate_quotas() IS its importance weight — the quota split
+    made visible.
+  #}
+  {% if interests and interests | length > 1 %}
+    <div class="interests" role="list"
+         aria-label="Interests represented in this feed">
+      <span class="interests-label">Across</span>
+      {% for i in interests %}
+        <span class="interest tone-{{ i.tone }}" role="listitem">
+          {{ i.label }} <span class="n">{{ i.count }}</span>
+        </span>
+      {% endfor %}
     </div>
   {% endif %}
 

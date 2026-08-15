@@ -177,6 +177,38 @@ def _why_shown(candidate_source: str | None) -> str:
     return _WHY.get(src, "")
 
 
+# ── Match meter ──────────────────────────────────────────────────────────────
+#
+# Scholar Inbox — 23k users, a 1,233-participant study — renders each paper's
+# relevance as a coloured card header, i.e. as a visible quantity rather than a
+# hidden one. This pipeline computes the same thing (cosine against the cluster
+# medoid that retrieved the paper, reranker feature 0) and then dropped it at
+# render time.
+#
+# The number shown is the RAW cosine, unmassaged. Only the bar's fill is
+# rescaled, because BGE-M3 cosines over this corpus occupy roughly [.35, .90]
+# and a bar drawn on the full 0–1 range would sit between a third and nine
+# tenths full for every paper ever retrieved — visually identical, therefore
+# useless. Clamping to the band the data actually occupies is what makes the
+# comparison between two cards legible.
+
+_MATCH_FLOOR = 0.35
+_MATCH_CEIL = 0.90
+
+
+def _match_pct(value) -> int:
+    """Cosine -> 0..100 bar fill across the band real scores occupy."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return 0
+    if score <= 0:
+        return 0
+    span = _MATCH_CEIL - _MATCH_FLOOR
+    pct = (score - _MATCH_FLOOR) / span * 100.0
+    return int(max(0.0, min(100.0, pct)))
+
+
 def _commafy(value) -> str:
     """1204 -> '1,204'. Returns '' for anything non-numeric."""
     try:
@@ -191,6 +223,7 @@ templates.env.filters["lead_rest"] = _lead_rest
 templates.env.filters["cat_class"] = _cat_class
 templates.env.filters["why_shown"] = _why_shown
 templates.env.filters["commafy"] = _commafy
+templates.env.filters["match_pct"] = _match_pct
 
 
 # ── 3D map links (from the Space build) ──────────────────────────────────────
