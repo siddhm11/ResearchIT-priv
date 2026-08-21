@@ -22,6 +22,7 @@ from datetime import datetime
 import httpx
 
 from app import config
+from app import http_client
 from app import db
 
 # XML namespace used in the Atom feed returned by arXiv API
@@ -88,9 +89,9 @@ async def search(query: str, max_results: int = config.ARXIV_MAX_RESULTS) -> lis
         "sortBy": "relevance",
         "sortOrder": "descending",
     }
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-        resp = await client.get(config.ARXIV_API_URL, params=params)
-        resp.raise_for_status()
+    resp = await http_client.get_client().get(
+        config.ARXIV_API_URL, params=params, timeout=20)
+    resp.raise_for_status()
 
     root = ET.fromstring(resp.text)
     papers = [_parse_entry(e) for e in root.findall("atom:entry", _NS)]
@@ -112,9 +113,9 @@ async def fetch_metadata(arxiv_id: str) -> dict | None:
         return cached
 
     params = {"id_list": arxiv_id, "max_results": 1}
-    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-        resp = await client.get(config.ARXIV_API_URL, params=params)
-        resp.raise_for_status()
+    resp = await http_client.get_client().get(
+        config.ARXIV_API_URL, params=params, timeout=15)
+    resp.raise_for_status()
 
     root = ET.fromstring(resp.text)
     entries = root.findall("atom:entry", _NS)
@@ -144,9 +145,9 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
         for i in range(0, len(missing), BATCH):
             chunk = missing[i : i + BATCH]
             params = {"id_list": ",".join(chunk), "max_results": len(chunk)}
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-                resp = await client.get(config.ARXIV_API_URL, params=params)
-                resp.raise_for_status()
+            resp = await http_client.get_client().get(
+                config.ARXIV_API_URL, params=params, timeout=20)
+            resp.raise_for_status()
             root = ET.fromstring(resp.text)
             for entry in root.findall("atom:entry", _NS):
                 paper = _parse_entry(entry)

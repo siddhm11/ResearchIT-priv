@@ -1,0 +1,31 @@
+{#
+  HTML 404.
+
+  Every page on this site is server-rendered HTML, but a wrong URL used to
+  return FastAPI's default — a 22-byte JSON body with no navigation, no
+  branding and no way back. That is what a stale link, a typo or a renamed
+  collection slug produced. Collections already handled their own miss
+  gracefully; nothing else did.
+
+  /api/* keeps the JSON shape, so htmx callers are unaffected — see the
+  handler in app/main.py.
+#}
+{% extends "base.html" %}
+
+{% block title %}Not found — ResearchIT{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <div class="empty">
+    <p class="empty-title">There is nothing at this address</p>
+    <p class="empty-body">
+      The link may be out of date, or the address may have a typo in it.
+      Nothing has been lost — your library and your feed are where you left them.
+    </p>
+    <div class="row" style="justify-content:center;padding-top:.4rem">
+      <a href="/" class="btn btn-primary btn-sm">Back to your feed</a>
+      <a href="/search" class="btn btn-quiet btn-sm">Search papers</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

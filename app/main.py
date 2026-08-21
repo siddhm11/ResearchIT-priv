@@ -11,9 +11,12 @@ Routes:
 """
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Request, Cookie
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
+                               PlainTextResponse)
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
@@ -79,8 +82,63 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[main] Turso final flush skipped: {e}")
 
+    # Close the shared connection pool after the final flush, since that flush
+    # goes through it.
+    try:
+        from app import http_client
+        await http_client.aclose()
+    except Exception as e:
+        print(f"[main] HTTP pool close skipped: {e}")
+
 
 app = FastAPI(title=APP_TITLE, lifespan=lifespan)
+
+
+# ── Compression ──────────────────────────────────────────────────────────────
+#
+# 117KB of CSS+JS was served uncompressed on every load. Measured: styles.css
+# 57.6KB -> 15.6KB (72%), htmx.min.js 48.1KB -> 15.7KB (67%), app.js 11.3KB ->
+# 3.8KB (66%); 117KB -> 35KB overall, a 70% saving. Text/HTML responses benefit
+# too, and the feed fragment is the largest thing this app returns.
+#
+# minimum_size skips the tiny htmx fragments, where the gzip header plus the
+# CPU cost is not worth it — this box has 2 vCPUs.
+app.add_middleware(GZipMiddleware, minimum_size=800)
+
+
+# ── Response headers ─────────────────────────────────────────────────────────
+
+# Filenames under /static are stable across deploys, so `immutable` would pin a
+# stale stylesheet in every returning visitor's cache until they hard-reloaded.
+# A one-hour max-age plus revalidation gets most of the benefit — the browser
+# stops re-fetching 117KB on every navigation — without that trap. Going
+# immutable needs a content hash in the URL first.
+_STATIC_CACHE_CONTROL = "public, max-age=3600, must-revalidate"
+
+
+@app.middleware("http")
+async def _security_and_cache_headers(request: Request, call_next):
+    """Baseline response headers.
+
+    No CSP here. The templates use inline `onclick` handlers and an inline
+    theme-restore script that has to run before first paint, so a meaningful
+    policy needs either per-response hashes or a refactor of both — more than a
+    header, and worth doing deliberately rather than as a side effect.
+    """
+    response = await call_next(request)
+
+    # Stops a browser from second-guessing our Content-Type, which is how a
+    # user-supplied string ends up executed as script.
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+
+    # Every card links out to arxiv.org. Without this the full referring URL
+    # goes with it — including the user's search query.
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+
+    if request.url.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", _STATIC_CACHE_CONTROL)
+
+    return response
 
 
 @app.middleware("http")
@@ -155,13 +213,43 @@ async def home(
     from app import user_state as us
     state = await us.ensure_loaded(user_id)
 
+    # The masthead is rendered HERE rather than inside the feed fragment.
+    #
+    # It began life in the fragment because only the fragment knew the issue
+    # number and date. That cost the homepage its only <h1>: the fragment is
+    # fetched by htmx after first paint, so the delivered HTML had no heading
+    # at all — bad for screen readers, for crawlers, and for anyone whose feed
+    # request fails or is slow. It also meant the page title did not appear
+    # until the whole tier cascade had run, which can take seconds.
+    #
+    # Both facts the masthead needs are cheap and available here: the date is
+    # local, and count_feed_issues() is one indexed SQLite count.
     resp = templates.TemplateResponse(
         request,
         "index.html",
         {
             "has_recs": state.has_enough_for_recs(),
             "save_count": len(state.positives),
+            "issue_date": datetime.now().strftime("%A %-d %B %Y"),
+            "issue_number": await db.count_feed_issues(user_id),
         },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
+
+
+# ── HTML 404 ─────────────────────────────────────────────────────────────────
+
+@app.exception_handler(404)
+async def _not_found(request: Request, exc):
+    """Render a real page for a wrong URL.
+
+    Content-negotiated by path rather than by Accept header: htmx sends
+    `Accept: */*`, so keying on Accept would hand HTML to the JSON callers and
+    defeat the point. Everything under /api/ and /healthz keeps the JSON shape
+    its callers parse; every human-facing route gets the normal layout.
+    """
+    path = request.url.path
+    if path.startswith("/api/") or path.startswith("/healthz"):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)

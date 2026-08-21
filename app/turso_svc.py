@@ -20,6 +20,7 @@ from collections import OrderedDict
 import httpx
 
 from app import config
+from app import http_client
 
 
 # ── In-process metadata cache ────────────────────────────────────────────────
@@ -171,13 +172,15 @@ async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict
     t0 = time.perf_counter()
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.post(
-                f"{pipeline_url}/v2/pipeline",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
+        # Shared pooled client — see app/http_client.py. NOT `async with`:
+        # that would close the pool for every other caller.
+        resp = await http_client.get_client().post(
+            f"{pipeline_url}/v2/pipeline",
+            json=payload,
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
     except Exception as e:
         print(f"[turso] HTTP request failed: {e}")
         return {}
@@ -463,13 +466,13 @@ async def fetch_trending_by_categories(
     # for citation-sorted trending against 1.6M rows can spike to
     # 15-25s on the first cold hit. Once cached, warm reads are 0ms.
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{pipeline_url}/v2/pipeline",
-                json=payload,
-                headers=headers,
-            )
-            resp.raise_for_status()
+        resp = await http_client.get_client().post(
+            f"{pipeline_url}/v2/pipeline",
+            json=payload,
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
     except httpx.HTTPStatusError as e:
         # Surface response body on HTTP errors — Turso's empty-string
         # exceptions were the symptom that hid this bug for months.

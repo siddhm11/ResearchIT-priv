@@ -40,6 +40,7 @@ import aiosqlite
 import httpx
 
 from app import config
+from app import http_client
 
 SYNC_INTERVAL = int(__import__("os").getenv("TURSO_SYNC_INTERVAL", "60"))
 
@@ -193,16 +194,17 @@ async def _execute(stmts: list[dict], timeout: int = 60) -> list[list[list]]:
     """Run statements in one round trip. Returns rows per statement."""
     payload = {"requests": [{"type": "execute", "stmt": s} for s in stmts]
                            + [{"type": "close"}]}
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        r = await client.post(
-            f"{_url()}/v2/pipeline", json=payload,
-            headers={"Authorization": f"Bearer {config.TURSO_DB_TOKEN}",
-                     "Content-Type": "application/json"})
-        if r.status_code >= 400:
-            # Surface the body. Turso returns the actual reason there, and
-            # raise_for_status() alone gives a bare status with no diagnosis.
-            raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
-        data = r.json()
+    # Shared pooled client — see app/http_client.py. The replication loop runs
+    # every 60s, so it was re-handshaking TLS on a timer for its whole lifetime.
+    r = await http_client.get_client().post(
+        f"{_url()}/v2/pipeline", json=payload, timeout=timeout,
+        headers={"Authorization": f"Bearer {config.TURSO_DB_TOKEN}",
+                 "Content-Type": "application/json"})
+    if r.status_code >= 400:
+        # Surface the body. Turso returns the actual reason there, and
+        # raise_for_status() alone gives a bare status with no diagnosis.
+        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+    data = r.json()
     out = []
     for res in data.get("results", []):
         if res.get("type") == "error":
