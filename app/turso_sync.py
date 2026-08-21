@@ -44,6 +44,10 @@ from app import http_client
 
 SYNC_INTERVAL = int(__import__("os").getenv("TURSO_SYNC_INTERVAL", "60"))
 
+# Tables this container must not push, because its restore did not complete
+# and pushing would overwrite remote rows it never saw. See restore().
+_no_push: set[str] = set()
+
 # local table -> (remote table, watermark column, primary key columns)
 #
 # interactions is append-only with an AUTOINCREMENT id, so an integer watermark
@@ -238,6 +242,57 @@ async def ensure_remote_schema() -> None:
     await _execute([{"sql": d} for d in REMOTE_DDL])
 
 
+async def _reserve_id_space(conn, local: str, spec: dict) -> bool:
+    """Push the local AUTOINCREMENT counter above the remote MAX(id).
+
+    Guards the one path that can destroy data that is already safe.
+
+    DB_PATH is /tmp on Spaces, so a fresh container starts with an empty local
+    DB and its AUTOINCREMENT restarts at 1. If `restore()` cannot pull the rows
+    back — a Turso 5xx, a timeout on a large table — the table stays empty and
+    its watermark stays None. The first save then gets id 1, `sync_once()` sees
+    no watermark so it selects everything, and it pushes with INSERT OR REPLACE
+    keyed on `id`. Remote row 1 is a real user's first save; it is overwritten
+    by the new container's first save, and the sync reports success.
+
+    Reproduced end to end: five rows of one user's history, restore fails, two
+    new saves arrive, one sync tick, and the first two rows of the original
+    history are gone.
+
+    Reserving the id range makes the collision impossible rather than merely
+    unlikely, and it costs one cheap aggregate — which can succeed even when
+    the full-table SELECT that failed above would not. Returns False when even
+    that is unavailable, and the caller then refuses to push the table at all.
+    """
+    try:
+        res = await _execute([{"sql": f"SELECT MAX(id) FROM {spec['remote']}"}])
+        remote_max = res[0][0][0] if res and res[0] and res[0][0] else None
+    except Exception as e:
+        print(f"[turso_sync] {local}: cannot read remote MAX(id) ({str(e)[:80]})")
+        return False
+
+    if remote_max is None:
+        return True                     # remote is empty; nothing to collide with
+
+    try:
+        # sqlite_sequence only exists once an AUTOINCREMENT table has taken a
+        # row, so both statements are guarded rather than assumed.
+        await conn.execute(
+            "INSERT INTO sqlite_sequence (name, seq) SELECT ?, ? "
+            "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = ?)",
+            (local, int(remote_max), local))
+        await conn.execute(
+            "UPDATE sqlite_sequence SET seq = ? WHERE name = ? AND seq < ?",
+            (int(remote_max), local, int(remote_max)))
+        await conn.commit()
+    except Exception as e:
+        print(f"[turso_sync] {local}: could not reserve id space ({str(e)[:80]})")
+        return False
+
+    print(f"[turso_sync] {local}: local ids now start above {remote_max}")
+    return True
+
+
 async def restore() -> dict:
     """Pull user data from Turso into the local DB.
 
@@ -245,6 +300,7 @@ async def restore() -> dict:
     is never clobbered, so this is safe to run on every boot.
     """
     restored = {}
+    _no_push.clear()
     async with aiosqlite.connect(config.DB_PATH) as conn:
         await conn.execute(_LOCAL_STATE_DDL)
         await conn.commit()
@@ -259,6 +315,18 @@ async def restore() -> dict:
                     [{"sql": f"SELECT {cols} FROM {spec['remote']}"}]))[0]
             except Exception as e:
                 print(f"[turso_sync] restore {local} failed: {str(e)[:120]}")
+                # The rows are not here, so this container cannot know which
+                # remote ids are taken. Reserve the id range if we can; refuse
+                # to push if we cannot. Replicating this boot's writes is worth
+                # less than not destroying every earlier boot's.
+                if spec["wm_kind"] == "int":
+                    if not await _reserve_id_space(conn, local, spec):
+                        _no_push.add(local)
+                else:
+                    # Upserted tables key on (user_id, ...), so a fresh local
+                    # row for a returning user would overwrite their restored
+                    # profile with a cold one.
+                    _no_push.add(local)
                 continue
             if not rows:
                 continue
@@ -286,6 +354,10 @@ async def sync_once() -> dict:
         await conn.execute(_LOCAL_STATE_DDL)
         await conn.commit()
         for local, spec in TABLES.items():
+            if local in _no_push:
+                # Restore failed and the id range could not be reserved, so we
+                # cannot tell our rows from rows already on the server.
+                continue
             wm_col, kind = spec["watermark"], spec["wm_kind"]
             wm = await _get_wm(conn, local)
             if wm is None:
@@ -372,4 +444,9 @@ def status() -> dict:
         "last_at": _last["at"],
         "last_pushed": _last["pushed"],
         "last_error": _last["error"],
+        # Non-empty means this container is deliberately NOT replicating those
+        # tables, because its restore did not complete and pushing would
+        # overwrite remote rows it never saw. Writes are still safe locally,
+        # but they are not backed up — worth alerting on.
+        "not_replicating": sorted(_no_push),
     }
