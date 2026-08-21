@@ -160,6 +160,14 @@ IMPLEMENTED (Phase 5 core flow). ORCID / Scholar import is still pending. The ri
 
 Behavioral takes over once the user crosses **~10 saved papers**. Subject categories remain a feature/filter forever, never the primary vector.
 
+### 3.6b Signal integrity
+
+- **Un-saving is not disliking.** `POST /api/papers/{id}/unsave` removes a paper without writing negative signal; `/not-interested` is for genuine dislike only. Conflating them poisons the negative EWMA profile and the interaction log any future ranker trains on.
+- **Profile updates are serialised per user** (`profiles._lock_for`). They are read-modify-write across awaits, and unserialised, ten concurrent saves left `interaction_count` at 1.
+- **Background tasks must be strongly referenced.** asyncio holds only a weak reference; use `events._spawn`, not a bare `asyncio.create_task`.
+- **Never call `local_meta` directly from a coroutine.** It is synchronous sqlite3 over 2.7GB; wrap in `asyncio.to_thread`. Guarded by `tests/test_event_loop_blocking.py`.
+- **`get_paper_vectors` returns numpy arrays, not lists.** Test with `is None` — `if not vec` raises.
+
 ### 3.7 Negative signals
 
 The negative EWMA profile IS wired into reranking (Feature 5 in `reranker.py`). The full three-layer system described in Doc 06 is partially implemented:

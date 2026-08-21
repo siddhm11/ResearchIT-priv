@@ -284,3 +284,17 @@ Combined effect, three interests over twenty saves: `cos(profile, centroid)` 0.4
 **Decision:** The exploration pool keeps the half furthest from the long-term profile before shuffling.
 **Rationale:** The pool is by construction "everything the ranker just rejected" — the next-best matches to the user's own clusters — and the card labels those "Something different". Sampling uniformly served slightly-worse versions of what the reader already sees under a label claiming the opposite. Restricting to the far half costs nothing, since the embeddings and profile are already in hand, and keeps the draw random so §3.11's propensity arithmetic stays exact.
 **Action items:** This is not true serendipity: every candidate was retrieved by one of the user's own medoids, so the pool contains nothing from outside their neighbourhoods. That needs a retrieval the pipeline does not currently make.
+
+### 2026-08-21 — Signal integrity and resource fixes (batch)
+**Decision:** Five independent corrections, each verified by reproduction before the change.
+
+**1. Un-saving is not disliking.** "Remove" on a saved card posted to `/not-interested` because that was the only unwind path that existed, so correcting a misclick was logged as `not_interested`, added to the negative deque, and folded into the negative EWMA profile the ranker subtracts at 0.15. New `POST /api/papers/{id}/unsave` with its own `event_type`, so an undo stays distinguishable from a dislike in any future training data. The already-mixed positive contribution is not reversible — an EWMA cannot un-mix a term — so the profile washes it out at the normal rate.
+
+**2. The vector cache cost 8× its documented ceiling.** `qdrant_svc` documents "1024 floats = 4KB each. A 25K cap = ~100MB". True of a packed buffer, false of a Python list, which boxes every element: measured, one such list is **32,824 bytes**, making the real ceiling 0.82 GB on a 16 GB box already shared with BGE-M3, a cross-encoder and a 2.7 GB sidecar. Now float32 arrays at 4,096 bytes. The hazard introduced is that `if not vec` raises on an array; two call sites did that and now test `is None`, guarded by an `ast`-based test rather than a grep, so prose mentioning the pattern is not flagged.
+
+**3. Sidecar I/O blocked the event loop.** `local_meta` is synchronous sqlite3 over 2.7 GB and three coroutines called it directly. Measured on a 300k-row stand-in, a 72 ms query held the loop for **78 ms** — every concurrent request waits, including ones that never touch the sidecar, and this runs as a single uvicorn worker on 2 vCPUs. Moved to `asyncio.to_thread`; safe by construction because the connection is already opened read-only with `check_same_thread=False`. Note `fts_svc.search_sparse` was **already** correct — the original claim overstated the blast radius.
+
+**4. Loading indicators never appeared.** htmx adds `htmx-request` to the element named by `hx-indicator` — the indicator itself, not an ancestor — and every use here points at a separate element, so those nodes carry both classes. Only the descendant form `.htmx-request .htmx-indicator` was defined, which cannot match one element holding both. Search and the onboarding seed step ran with no loading state at all, on requests that take seconds.
+
+**5. No theme toggle on mobile.** `.nav` is `display:none` below 720px and the toggle lived inside it. Moved into the top bar, since the bottom nav is a four-item grid a fifth would unbalance.
+**Action items:** None outstanding; all five are covered by regression tests.

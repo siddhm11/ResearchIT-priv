@@ -153,3 +153,30 @@ def test_dark_theme_definitions_agree():
     css = pathlib.Path("app/static/styles.css").read_text()
     darks = re.findall(r"--text-3:\s*(#[0-9A-Fa-f]{6})", css)[1:]
     assert len(set(darks)) == 1, f"dark --text-3 defined inconsistently: {darks}"
+
+
+# ── Mobile ───────────────────────────────────────────────────────────────────
+
+def test_theme_toggle_is_reachable_on_a_phone():
+    """`.nav` is display:none below 720px and the toggle used to live inside it.
+
+    So a phone had no way to change theme at all — on a product whose whole
+    premise is reading on a phone. The bottom nav is a four-item grid and a
+    fifth would unbalance it, so the control lives in the top bar instead.
+    """
+    import pathlib
+    html = pathlib.Path("app/templates/base.html").read_text()
+
+    nav = html[html.index('<nav class="nav"'):html.index("</nav>")]
+    assert "theme-toggle" not in nav, (
+        "theme toggle is inside .nav, which is hidden below 720px")
+
+    topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
+    assert "theme-toggle" in topbar, "theme toggle left the top bar entirely"
+
+
+def test_the_toggle_is_pinned_right_on_mobile():
+    """.nav carries margin-left:auto; with it hidden, the toggle needs its own."""
+    import pathlib
+    css = pathlib.Path("app/static/styles.css").read_text()
+    assert ".topbar .theme-toggle" in css

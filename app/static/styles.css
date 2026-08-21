@@ -323,6 +323,15 @@ main { flex: 1; padding-block: 1.5rem 4rem; }
 .nav { display: none; align-items: center; gap: .15rem; margin-left: auto; }
 @media (min-width: 720px) { .nav { display: flex; } }
 
+/* The theme toggle sits OUTSIDE .nav on purpose.
+   .nav is display:none below 720px and the toggle used to live inside it, so a
+   phone had no way to change theme at all — on a product whose whole premise is
+   reading on a phone. The bottom nav is a four-item grid and adding a fifth
+   would unbalance it, so the control stays in the top bar, where it is the only
+   thing on the right at mobile widths and joins the end of the row above it. */
+.topbar .theme-toggle { margin-left: auto; flex: none; }
+@media (min-width: 720px) { .topbar .theme-toggle { margin-left: 0; } }
+
 .nav-link {
   position: relative;
   padding: .4rem .7rem; border-radius: var(--radius-sm);
