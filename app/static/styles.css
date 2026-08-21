@@ -1356,3 +1356,49 @@ a.card-title:hover { color: var(--accent); }
   display: block; margin-top: .35rem;
   font-size: .86rem; color: var(--text-3);
 }
+
+/* ── Paper page ──────────────────────────────────────────────────────────
+   The site's owned destination for one paper. Deliberately not a big card:
+   a card is built to be skimmed in a stack, this is the one place a reader
+   has chosen to stop. So the abstract runs at reading measure with no clamp,
+   and the triage chrome is demoted or gone.                              */
+
+.paper-page { max-width: var(--feed-w); padding-top: 1.5rem; }
+
+.paper { display: flex; flex-direction: column; gap: .5rem; }
+
+.paper-title {
+  font-family: var(--font-read);
+  font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.18;
+  letter-spacing: -.02em; font-weight: 600; text-wrap: balance;
+  margin: .2rem 0 0;
+}
+.paper-authors { color: var(--text-2); font-size: .95rem; margin: 0; }
+.paper-foot { margin-top: .1rem; }
+
+.paper-abstract {
+  font-family: var(--font-read);
+  font-size: 1.02rem; line-height: 1.68; color: var(--text);
+  margin: 1rem 0 0;
+}
+.paper-note { font-size: .84rem; color: var(--text-3); margin: .5rem 0 0; }
+
+.paper-actions { display: flex; gap: .5rem; margin-top: 1.25rem; }
+
+.paper-links {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  margin-top: 1rem; padding-top: .9rem;
+  border-top: 1px solid var(--border);
+  font-size: .86rem;
+}
+.paper-links a { color: var(--text-2); }
+.paper-links a:hover { color: var(--accent); }
+
+.paper-related { margin-top: 3rem; }
+.eyebrow-rule { border-bottom: 2px solid var(--rule); padding-bottom: .5rem; }
+.eyebrow-rule h2 {
+  font-size: 1.1rem; letter-spacing: -.015em; font-weight: 620; margin: 0;
+}
+.paper-related-note {
+  font-size: .84rem; color: var(--text-3); margin: .6rem 0 1.2rem;
+}

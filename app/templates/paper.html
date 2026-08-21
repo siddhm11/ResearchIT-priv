@@ -1,0 +1,102 @@
+{#
+  Paper page. The site's owned destination for one paper.
+
+  Deliberately NOT a big card. A card is built to be skimmed in a stack; this
+  page is the one place a reader has chosen to stop, so the abstract gets full
+  width and no clamp, and the chrome that helps a card be triaged (match meter,
+  interest chip, dismiss) is either absent or demoted.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ paper.title }} — ResearchIT{% endblock %}
+
+{% block content %}
+{% set authors_list = paper.authors | default("[]") | tojson_parse %}
+{% if not authors_list and paper.authors %}
+  {% set authors_list = paper.authors.split(", ") %}
+{% endif %}
+{% set pub_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
+{% set truncated = paper.abstract | is_truncated %}
+
+<div class="wrap paper-page">
+
+  <article class="paper">
+
+    <div class="card-rule">
+      {% if paper.category %}
+        <span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>
+      {% endif %}
+    </div>
+
+    <h1 class="paper-title">{{ paper.title }}</h1>
+
+    {% if authors_list %}
+      <p class="paper-authors">{{ authors_list | join(", ") }}</p>
+    {% endif %}
+
+    <div class="card-foot paper-foot">
+      <a class="card-id" href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener">arXiv:{{ paper.arxiv_id }}</a>
+      {% if pub_year %}<span class="sep">·</span><span>{{ pub_year }}</span>{% endif %}
+      {% if paper.citation_count %}
+        <span class="sep">·</span><span>{{ paper.citation_count | commafy }} cited</span>
+      {% endif %}
+    </div>
+
+    {% if paper.abstract %}
+      {# No clamp here. The reader came to this page on purpose. #}
+      <p class="paper-abstract">{{ paper.abstract
+        }}{% if truncated %}<span class="abstract-cut" aria-hidden="true">…</span>{% endif %}</p>
+      {% if truncated %}
+        <p class="paper-note">
+          This abstract is stored truncated.
+          <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+             target="_blank" rel="noopener">Read the full version on arXiv ↗</a>
+        </p>
+      {% endif %}
+    {% endif %}
+
+    <div class="paper-actions" id="actions-{{ paper.arxiv_id }}">
+      {% include "partials/action_buttons.html" %}
+    </div>
+
+    <div class="paper-links">
+      <a href="https://arxiv.org/pdf/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener">PDF ↗</a>
+      <a href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener">arXiv abstract ↗</a>
+      {% if space_app_url %}
+        <a href="{{ space_paper_url(paper.arxiv_id) }}"
+           target="_blank" rel="noopener">See it in 3D ↗</a>
+      {% endif %}
+    </div>
+  </article>
+
+  {% if related %}
+    <section class="paper-related">
+      <div class="eyebrow-rule">
+        <h2>What sits near this</h2>
+      </div>
+      {# Nearest neighbours of this paper's own embedding — NOT of the reader's
+         profile. The distinction is the point: this section answers "what is
+         this paper next to", which is a property of the paper and the same for
+         everyone, rather than "what else might you like". #}
+      <p class="paper-related-note">
+        Closest papers by meaning, not by your reading history.
+      </p>
+      {# `with paper = rp` is required, not stylistic: paper_card.html reads a
+         variable named `paper`, and inside a plain for-loop that still resolves
+         to the OUTER paper — this page's own. Without the rebind every related
+         card rendered the same paper six times. #}
+      <div class="feed">
+        {% for rp in related %}
+          {% with paper = rp, source = "related" %}
+            {% include "partials/paper_card.html" %}
+          {% endwith %}
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+</div>
+{% endblock %}

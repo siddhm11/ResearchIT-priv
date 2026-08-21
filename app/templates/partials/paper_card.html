@@ -72,9 +72,14 @@
     {% endif %}
   </div>
 
-  <a class="card-title"
-     href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
-     target="_blank" rel="noopener">{{ paper.title }}</a>
+  {# The title leads to OUR page for the paper, not straight out to arxiv.org.
+     Every card used to be an exit: nothing on this site was about a paper, so
+     there was nothing to share, nowhere to put an explanation, and no reason to
+     come back. The arXiv id in the foot below still goes to arxiv.org for
+     anyone who wants the source immediately, and the paper page links to both
+     the abstract and the PDF. Same tab on purpose — this is in-site navigation
+     now, and the back button works. #}
+  <a class="card-title" href="/p/{{ paper.arxiv_id }}">{{ paper.title }}</a>
 
   {% if authors_list %}
     <div class="card-authors">

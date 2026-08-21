@@ -298,3 +298,13 @@ Combined effect, three interests over twenty saves: `cos(profile, centroid)` 0.4
 
 **5. No theme toggle on mobile.** `.nav` is `display:none` below 720px and the toggle lived inside it. Moved into the top bar, since the bottom nav is a four-item grid a fifth would unbalance.
 **Action items:** None outstanding; all five are covered by regression tests.
+
+### 2026-08-21 — The site gets an owned destination for a paper
+**Decision:** New `GET /p/{arxiv_id}` (`app/routers/paper.py`, `app/templates/paper.html`). The card title now links there instead of to arxiv.org; the arXiv id in the card foot still goes straight to the source.
+**Supersedes:** Nothing. It fills a gap doc 01 assumes exists.
+**Rationale:** No URL on this site was ABOUT a paper — every card was an exit. Three structural consequences, none cosmetic: nothing was shareable (the Open Graph tags could only ever describe the feed, so a pasted link never carried a paper's title); there was nowhere to put comprehension work, since a card in an infinite feed is not a reading surface; and every session ended at arxiv.org.
+
+The page carries full metadata, the abstract unclamped, per-paper `og:title`/`og:description`/`og:type=article`, links to the PDF and the 3D map, and a "What sits near this" section drawn from the paper's OWN embedding rather than the reader's profile — a property of the paper, identical for every visitor, which is a different and more honest claim than "more like this for you".
+**Action items:**
+  - The page deliberately writes NO §3.11 ranking instrumentation. A save from here genuinely has no `query_id`, `propensity` or `policy_id`, and fabricating them would corrupt the IPS/SNIPS analysis those fields exist for.
+  - This is the surface Phase 8's LLM summaries and any difficulty signal should land on.
