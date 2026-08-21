@@ -28,7 +28,8 @@ import uuid
 from fastapi import APIRouter, Cookie, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import arxiv_svc, db, qdrant_svc, turso_svc, user_state as us
+from app import (arxiv_svc, db, groq_svc, qdrant_svc, readability,
+                 turso_svc, user_state as us)
 from app.config import COOKIE_NAME
 from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
@@ -149,6 +150,7 @@ async def paper_page(
         {
             "paper": paper,
             "related": related,
+            "reading": readability.assess(paper.get("abstract") or ""),
             "og_title": paper.get("title") or f"arXiv:{arxiv_id}",
             "og_description": _summary_for_card(paper),
             "og_type": "article",
@@ -172,3 +174,51 @@ def _summary_for_card(paper: dict) -> str:
     if len(text) <= 200:
         return text
     return text[:200].rsplit(" ", 1)[0] + "…"
+
+
+@router.get("/api/papers/{arxiv_id}/explain", response_class=HTMLResponse)
+async def explain(arxiv_id: str, request: Request):
+    """Plain-language explanation of one paper.
+
+    Fetched by htmx AFTER the page paints rather than rendered inline. The
+    generation is a network call to Groq with an 8s ceiling, and the paper page
+    must not wait on it — a reader who wants the abstract should never pay for
+    a summary they did not ask to wait for. On a cache hit this is one indexed
+    SQLite read and returns immediately.
+
+    Shared across users and content-addressed, so the corpus warms itself: the
+    second reader of a paper pays nothing.
+    """
+    paper = await _fetch_one(arxiv_id)
+    if paper is None:
+        return HTMLResponse(content="")
+
+    abstract = paper.get("abstract") or ""
+    key = groq_svc.explain_cache_key(arxiv_id, abstract)
+
+    cached = None
+    try:
+        cached = await db.get_explanation(key)
+    except Exception as e:                      # cache is an optimisation
+        print(f"[paper] explanation cache read failed: {e}")
+
+    text = cached
+    if text is None:
+        text = await groq_svc.explain_paper(paper.get("title") or "", abstract)
+        if text:
+            try:
+                await db.save_explanation(
+                    key, arxiv_id, text, groq_svc._EXPLAIN_MODEL)
+            except Exception as e:
+                print(f"[paper] explanation cache write failed: {e}")
+
+    # Nothing rather than an apology. The section simply does not appear when
+    # there is no honest summary to give — a truncated abstract, no API key, a
+    # timeout. An empty slot is quieter than an error the reader cannot act on.
+    if not text:
+        return HTMLResponse(content="")
+
+    return templates.TemplateResponse(
+        request, "partials/explanation.html",
+        {"explanation": text, "cached": cached is not None},
+    )

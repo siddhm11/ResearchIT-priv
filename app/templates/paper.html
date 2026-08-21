@@ -26,6 +26,16 @@
       {% if paper.category %}
         <span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>
       {% endif %}
+      {% if reading %}
+        {# Reading DENSITY, not difficulty. The bands are terciles of the corpus,
+           so the only claim they support is "relative to other arXiv abstracts".
+           The title attribute names what actually drove it, so the badge is
+           explainable rather than oracular. #}
+        <span class="dens dens-{{ reading.level }}"
+              title="{{ reading.blurb }}{% if reading.drivers %} Driven by: {{ reading.drivers | join(', ') }}.{% endif %}">
+          {{ reading.label }}
+        </span>
+      {% endif %}
     </div>
 
     <h1 class="paper-title">{{ paper.title }}</h1>
@@ -55,6 +65,14 @@
         </p>
       {% endif %}
     {% endif %}
+
+    {# Loaded after the page paints, never inline: generation is a network call
+       with an 8s ceiling and the abstract must not wait behind it. On a cache
+       hit this returns in one indexed SQLite read. An empty response renders
+       nothing at all, which is the correct outcome when there is no honest
+       summary to give. #}
+    <div hx-get="/api/papers/{{ paper.arxiv_id }}/explain"
+         hx-trigger="load" hx-swap="outerHTML"></div>
 
     <div class="paper-actions" id="actions-{{ paper.arxiv_id }}">
       {% include "partials/action_buttons.html" %}

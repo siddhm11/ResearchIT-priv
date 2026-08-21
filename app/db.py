@@ -136,6 +136,21 @@ CREATE INDEX IF NOT EXISTS idx_impr_user_time
 
 -- Which curated collections a user follows. The collections themselves are
 -- repo content (data/collections/*.json); this is the user-data half.
+-- Generated plain-language explanations, content-addressed (doc 07 §A.4).
+--
+-- Keyed on a hash of (arxiv_id, abstract, prompt_version, model) rather than on
+-- arxiv_id, so a backfilled full abstract is a different entry and cannot keep
+-- serving an explanation generated from a 500-char stump. Shared across users,
+-- not per-user: the explanation is a property of the paper.
+CREATE TABLE IF NOT EXISTS paper_explanations (
+    cache_key   TEXT PRIMARY KEY,
+    arxiv_id    TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    model       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
+
 CREATE TABLE IF NOT EXISTS collection_follows (
     user_id     TEXT NOT NULL,
     slug        TEXT NOT NULL,
@@ -714,3 +729,33 @@ async def get_followed_slugs(user_id: str) -> set[str]:
         cur = await conn.execute(
             "SELECT slug FROM collection_follows WHERE user_id = ?", (user_id,))
         return {r[0] for r in await cur.fetchall()}
+
+
+# ── Plain-language explanations ──────────────────────────────────────────────
+
+async def get_explanation(cache_key: str) -> str | None:
+    """A cached explanation, or None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "SELECT explanation FROM paper_explanations WHERE cache_key = ?",
+            (cache_key,))
+        row = await cur.fetchone()
+    return row[0] if row else None
+
+
+async def save_explanation(cache_key: str, arxiv_id: str, explanation: str,
+                           model: str = "") -> None:
+    """Store an explanation. Shared across users — it describes the paper."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO paper_explanations "
+            "(cache_key, arxiv_id, explanation, model) VALUES (?, ?, ?, ?)",
+            (cache_key, arxiv_id, explanation, model))
+        await db.commit()
+
+
+async def explanation_stats() -> dict:
+    """For /healthz: how much of the corpus has been explained, and at what cost."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("SELECT COUNT(*) FROM paper_explanations")
+        return {"cached": (await cur.fetchone())[0]}

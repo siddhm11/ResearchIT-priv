@@ -235,3 +235,100 @@ def _run_summary(client, prompt: str) -> str:
         timeout=4.0,  # 4s timeout so it doesn't hang indefinitely
     )
     return response.choices[0].message.content
+
+
+# ── Plain-language paper explanation ─────────────────────────────────────────
+#
+# An arXiv abstract is written for peers. A reader from an adjacent field — the
+# person this product is FOR, per doc 01 — bounces off the vocabulary before
+# reaching the idea. This turns one abstract into three plain sentences.
+#
+# Hallucination control follows doc 07 §A.6: the prompt is constrained to the
+# supplied text, temperature is low, and the output is short enough that there
+# is little room to wander. There is no Citations API on Groq, so the mitigation
+# is prompt-level, and the UI labels the result as generated rather than
+# presenting it as the paper's own words.
+
+_EXPLAIN_PROMPT_VERSION = "v1"
+_EXPLAIN_MODEL = "llama-3.3-70b-versatile"
+
+_EXPLAIN_SYSTEM = """You explain research papers to capable readers who work in \
+a DIFFERENT field. They are not beginners — do not talk down — but they do not \
+share this paper's vocabulary.
+
+Write exactly three sentences:
+1. The problem, in ordinary language.
+2. What the authors actually did.
+3. What they found, and why it matters.
+
+RULES:
+- Use ONLY what the title and abstract state. Introduce no method, dataset, \
+number or claim that is not there.
+- Expand or avoid jargon and acronyms. If a term is unavoidable, gloss it in \
+the same sentence.
+- No LaTeX, no notation, no markdown, no preamble, no bullet points.
+- If the abstract is too truncated or vague to summarise honestly, reply with \
+exactly: INSUFFICIENT"""
+
+
+def explain_cache_key(arxiv_id: str, abstract: str) -> str:
+    """Content-addressed, per doc 07 §A.4.
+
+    Keyed on the abstract TEXT rather than just the id, so the 500-char stored
+    truncation and a later backfilled full abstract are different cache
+    entries — otherwise repairing the corpus would silently keep serving
+    explanations generated from stumps. The prompt version and model are in the
+    key for the same reason.
+    """
+    import hashlib
+    h = hashlib.sha256()
+    h.update(arxiv_id.encode())
+    h.update(b"\x00")
+    h.update((abstract or "").encode())
+    h.update(b"\x00")
+    h.update(_EXPLAIN_PROMPT_VERSION.encode())
+    h.update(b"\x00")
+    h.update(_EXPLAIN_MODEL.encode())
+    return h.hexdigest()
+
+
+async def explain_paper(title: str, abstract: str) -> str | None:
+    """Three plain sentences, or None when it cannot be done honestly."""
+    if not abstract or len(abstract.strip()) < 120:
+        return None
+    client = _get_client()
+    if client is None:
+        return None
+
+    prompt = (f"<title>{title.strip()}</title>\n"
+              f"<abstract>{abstract.strip()}</abstract>")
+
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(
+            None, _run_explain, client, prompt)
+    except Exception as e:
+        print(f"[groq_svc] explain failed: {e}")
+        return None
+
+    text = (text or "").strip()
+    # The model's own refusal path. Honoured rather than second-guessed: a
+    # summary of a mutilated abstract is worse than no summary.
+    if not text or text.upper().startswith("INSUFFICIENT"):
+        return None
+    return text
+
+
+def _run_explain(client, prompt: str) -> str:
+    response = client.chat.completions.create(
+        messages=[
+            {"role": "system", "content": _EXPLAIN_SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        model=_EXPLAIN_MODEL,
+        temperature=0.2,
+        max_tokens=220,
+        timeout=8.0,
+    )
+    return response.choices[0].message.content or ""

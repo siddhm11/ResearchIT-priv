@@ -1402,3 +1402,35 @@ a.card-title:hover { color: var(--accent); }
 .paper-related-note {
   font-size: .84rem; color: var(--text-3); margin: .6rem 0 1.2rem;
 }
+
+/* ── Reading density + generated explanation ─────────────────────────────
+   The density badge is a tercile of the corpus, so it is comparative, not
+   absolute — three quiet tints rather than a traffic light, because this is
+   information about the writing, not a warning about the paper.          */
+
+.dens {
+  font-family: var(--font-mono); font-size: .64rem; font-weight: 600;
+  letter-spacing: .04em; padding: .16rem .45rem; border-radius: 3px;
+  border: 1px solid var(--border-2); color: var(--text-2);
+  background: var(--surface-2); white-space: nowrap; cursor: help;
+}
+.dens-accessible { color: var(--accent); border-color: var(--accent-br);
+                   background: var(--accent-bg); }
+.dens-specialist { color: var(--text); border-color: var(--border-2);
+                   background: var(--bg-2); }
+
+.explain {
+  margin-top: 1.25rem; padding: .95rem 1.1rem;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.explain-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.explain-label {
+  font-family: var(--font-mono); font-size: .64rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+}
+.explain-note { font-size: .68rem; color: var(--text-3); }
+.explain-body {
+  margin: .5rem 0 0; font-family: var(--font-read);
+  font-size: .97rem; line-height: 1.62; color: var(--text);
+}

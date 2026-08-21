@@ -316,3 +316,19 @@ The page carries full metadata, the abstract unclamped, per-paper `og:title`/`og
 Only logging when a `query_id` is present is the §3.11-honouring choice: a direct visit genuinely has no propensity and no policy, and recording one as though it did would corrupt the analysis those fields exist for rather than serve it.
 **Action items:**
   - **`position or None` was discarding rank 0.** Position 0 is the top of the feed — the most-clicked slot and the one CTR-by-rank most depends on — and it was stored as NULL, indistinguishable from "no position at all". All four handlers (save, not_interested, unsave, click) now use a `-1` sentinel via `events._position`. Any analysis of interactions logged before this date is missing rank 0 entirely.
+
+### 2026-08-21 — Comprehension lands on the paper page
+**Decision:** Two surfaces, one LLM-free and one generated.
+
+**Reading density** (`app/readability.py`) — a three-band badge from notation rate, acronym rate, long-word share and sentence length. No model, no network, microseconds.
+
+It deliberately does **not** claim to measure how hard a paper is to UNDERSTAND. doc 01 names difficulty ratings as an unfilled gap and also says why the obvious approach fails: Flesch-Kincaid and FORCAST are calibrated on general prose and mislead badly on academic writing. A paper can be conceptually simple and score unreadable. What is honestly computable from text is how dense the abstract is to READ, so the wording is "Dense with notation", never "hard".
+
+Thresholds are the **terciles of the real corpus** (n=525), not round numbers. My first guess of 0.34/0.50 put **82.5% of papers in a single band** — a label that never discriminates costs the reader attention and returns nothing. Terciles give 33/34/33. The blurbs are comparative for the same reason: terciles support only a claim relative to this corpus. `scripts/calibrate_readability.py` re-derives them.
+
+**"In plain terms"** (`groq_svc.explain_paper`, `GET /api/papers/{id}/explain`) — three plain sentences for a capable reader from an adjacent field, per doc 07 §A. Content-addressed cache keyed on `(arxiv_id, abstract, prompt_version, model)`, so a backfilled full abstract is a different entry and repairing the corpus cannot keep serving explanations generated from 500-char stumps. Shared across users; the corpus warms itself.
+
+Loaded by htmx **after paint**, never inline: generation is a network call with an 8s ceiling and the abstract must not wait behind it. When there is no honest summary — truncated input, no API key, a timeout, or the model's own `INSUFFICIENT` refusal — the endpoint returns empty and the section simply does not appear. An empty slot is quieter than an apology the reader cannot act on. The output is labelled "Generated from the abstract" and never presented as the paper's own words.
+**Action items:**
+  - Verified live: the badge separates *Attention Is All You Need* (accessible) from a convergence-theory paper (specialist).
+  - `groq` is absent from the local venv by design, so the degradation path is what runs in development — which is a useful default, since it is also what runs whenever the API is down.
