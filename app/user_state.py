@@ -36,6 +36,16 @@ class UserState:
         if paper_id not in self.positives:
             self.positives.appendleft(paper_id)
 
+    def drop_positive(self, paper_id: str) -> None:
+        """Undo a save without recording a dislike.
+
+        Un-saving and disliking are different acts and must not share a code
+        path: the paper leaves the library, but it never enters `negatives`,
+        so it does not feed the negative EWMA profile.
+        """
+        if paper_id in self.positives:
+            self.positives.remove(paper_id)
+
     def add_negative(self, paper_id: str) -> None:
         try:
             self.positives.remove(paper_id)
@@ -99,6 +109,10 @@ async def ensure_loaded(user_id: str) -> UserState:
 def record_positive(user_id: str, paper_id: str) -> None:
     """Update in-memory state synchronously (DB write happens separately)."""
     get_user_state(user_id).add_positive(paper_id)
+
+
+def drop_positive(user_id: str, paper_id: str) -> None:
+    get_user_state(user_id).drop_positive(paper_id)
 
 
 def record_negative(user_id: str, paper_id: str) -> None:

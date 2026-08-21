@@ -69,8 +69,14 @@
 
   var pending = new Map();   // arxivId -> { timer, card, vals }
 
-  function endpointFor(id) {
-    return '/api/papers/' + encodeURIComponent(id) + '/not-interested';
+  /* Un-saving is not disliking. "Remove" on an already-saved card used to post
+     to /not-interested — the only unwind path that existed — so correcting a
+     misclick was recorded as a dislike, added to the negative deque, and folded
+     into the negative EWMA profile that the ranker subtracts at 0.15. The
+     button now names the act it performs via data-action. */
+  function endpointFor(id, action) {
+    return '/api/papers/' + encodeURIComponent(id) + '/' +
+           (action === 'unsave' ? 'unsave' : 'not-interested');
   }
 
   function payloadFor(vals) {
@@ -85,7 +91,7 @@
     var p = pending.get(id);
     if (!p) return;
     pending.delete(id);
-    fetch(endpointFor(id), { method: 'POST', body: payloadFor(p.vals) })
+    fetch(endpointFor(id, p.action), { method: 'POST', body: payloadFor(p.vals) })
       .catch(function () { /* the card is already gone; a lost dismissal is
                               recoverable, an error dialog here is not worth it */ });
     if (p.card && p.card.parentNode) p.card.remove();
@@ -108,14 +114,16 @@
 
     var vals = {};
     try { vals = JSON.parse(btn.getAttribute('data-vals') || '{}'); } catch (e) { vals = {}; }
+    var action = btn.getAttribute('data-action') || 'not-interested';
 
     card.classList.add('is-leaving');
     pending.set(id, {
       card: card,
       vals: vals,
+      action: action,
       timer: setTimeout(function () { commitDismiss(id); }, UNDO_MS)
     });
-    showUndoToast(id);
+    showUndoToast(id, action);
   }
 
   /* Leaving the page with dismissals still pending would silently drop them.
@@ -150,8 +158,10 @@
     return t;
   }
 
-  function showUndoToast(id) {
-    var t = makeToast('Removed from your feed');
+  function showUndoToast(id, action) {
+    var t = makeToast(action === 'unsave'
+      ? 'Removed from your library'
+      : 'Removed from your feed');
     if (!t) return;
     var undo = document.createElement('button');
     undo.type = 'button';

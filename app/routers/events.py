@@ -117,6 +117,61 @@ async def not_interested(
     return resp
 
 
+@router.post("/{paper_id}/unsave", response_class=HTMLResponse)
+async def unsave(
+    paper_id: str,
+    request: Request,
+    source: str = Form(default="saved"),
+    position: int = Form(default=0),
+    query_id: str = Form(default=""),
+    ranker_version: str = Form(default=""),
+    candidate_source: str = Form(default=""),
+    cluster_id: str = Form(default=""),
+    propensity: float = Form(default=0.0),
+    policy_id: str = Form(default=""),
+    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    """Undo a save. NOT a dislike.
+
+    The "Remove" control on an already-saved card used to post to
+    /not-interested, because that was the only unwind path that existed. So
+    correcting a misclick — or tidying the library — was recorded as a
+    `not_interested` interaction, added to the negative deque, and folded into
+    the negative EWMA profile that `heuristic_score` subtracts at 0.15.
+
+    Those are different acts. "I did not mean to save this" is not "show me
+    less like this", and conflating them poisons the one signal the system has
+    for genuine dislike, as well as the interaction log any future ranker will
+    train on.
+
+    The positive contribution already folded into the long-term profile is not
+    reversible — an EWMA cannot un-mix a term — so this removes the paper from
+    the library and the candidate-exclusion set, and lets the profile wash the
+    old contribution out at its normal rate.
+    """
+    user_id = user_id or str(uuid.uuid4())
+
+    await db.log_interaction(
+        user_id=user_id,
+        paper_id=paper_id,
+        event_type="unsave",
+        source=source,
+        position=position or None,
+        query_id=query_id or None,
+        ranker_version=ranker_version or None,
+        candidate_source=candidate_source or None,
+        cluster_id=int(cluster_id) if cluster_id else None,
+        propensity=propensity if propensity > 0 else None,
+        policy_id=policy_id or None,
+    )
+
+    us.drop_positive(user_id, paper_id)
+
+    resp = HTMLResponse(content="")
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    return resp
+
+
 # ── Background EWMA profile update helpers ────────────────────────────────────
 
 # ── Background profile updates ───────────────────────────────────────────────

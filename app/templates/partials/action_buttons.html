@@ -58,8 +58,12 @@
     </svg>
     Saved
   </button>
+  {# data-action="unsave": removing a paper you saved is an undo, not a
+     dislike. Without it this posted to /not-interested and fed the negative
+     EWMA profile — see the unsave handler in app/routers/events.py. #}
   <button type="button" class="btn btn-sm btn-pass"
           data-dismiss
+          data-action="unsave"
           data-paper-id="{{ pid }}"
           data-vals='{{ _vals | tojson }}'>Remove</button>
 {% else %}

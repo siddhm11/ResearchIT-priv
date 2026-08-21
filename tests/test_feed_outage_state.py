@@ -32,7 +32,7 @@ def _dead_qdrant():
 
 def test_user_with_saves_is_told_it_is_an_outage():
     with TestClient(app) as c:
-        c.cookies.set("researchit_uid", "outage-user-with-library")
+        c.cookies.set("arxiv_user_id", "outage-user-with-library")
         # Build a library first.
         for i in range(6):
             c.post(f"/api/papers/2401.{i:05d}/save",
@@ -58,7 +58,7 @@ def test_user_with_saves_is_told_it_is_an_outage():
 def test_genuinely_new_user_still_gets_the_onboarding_prompt():
     """The fix must not swallow the real cold-start case."""
     with TestClient(app) as c:
-        c.cookies.set("researchit_uid", "outage-user-no-library")
+        c.cookies.set("arxiv_user_id", "outage-user-no-library")
         patches = _dead_qdrant()
         for p in patches:
             p.start()

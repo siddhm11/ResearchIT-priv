@@ -848,6 +848,16 @@ a.card-title:hover { color: var(--accent); }
 
 /* htmx indicator convention */
 .htmx-indicator { display: none; }
+/* Both forms are needed, and only the second one was here.
+   htmx adds `htmx-request` to the element named by hx-indicator — i.e. to the
+   indicator ITSELF, not to an ancestor of it. Every use in this codebase points
+   hx-indicator at a separate element (search.html:29 -> #search-loading,
+   seed_search.html:37 -> #seed-loading), so those elements end up carrying both
+   classes on the same node. `.htmx-request .htmx-indicator` is a DESCENDANT
+   selector and cannot match a single element holding both, so neither spinner
+   ever appeared — search and the onboarding seed step ran with no loading state
+   at all, on requests that take seconds. */
+.htmx-indicator.htmx-request,
 .htmx-request .htmx-indicator { display: inline-block; }
 
 /* ── 17. Motion preferences ──────────────────────────────────────────────── */
