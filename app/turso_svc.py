@@ -21,6 +21,7 @@ from collections import OrderedDict
 import httpx
 
 from app import config
+from app import errors
 from app import http_client
 
 
@@ -191,7 +192,7 @@ async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict
         )
         resp.raise_for_status()
     except Exception as e:
-        print(f"[turso] HTTP request failed: {e}")
+        errors.report("turso", "metadata request failed", e)
         return {}
 
     elapsed_ms = (time.perf_counter() - t0) * 1000

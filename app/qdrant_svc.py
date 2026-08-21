@@ -33,7 +33,7 @@ from qdrant_client.models import (
     QuantizationSearchParams,
 )
 
-from app import config, db
+from app import config, db, errors
 
 
 # ── Quantization search params ───────────────────────────────────────────────
@@ -194,7 +194,7 @@ async def _fanout(make_coro, label: str) -> list:
         try:
             return [await one(backends[0])]
         except Exception as e:
-            print(f"[qdrant_svc] {label}: backend {backends[0]} failed: {e}")
+            errors.report("qdrant_svc", f"{label}: backend {backends[0]} failed", e)
             return [[]]
 
     settled = await asyncio.gather(

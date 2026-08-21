@@ -332,3 +332,30 @@ Loaded by htmx **after paint**, never inline: generation is a network call with 
 **Action items:**
   - Verified live: the badge separates *Attention Is All You Need* (accessible) from a convergence-theory paper (specialist).
   - `groq` is absent from the local venv by design, so the degradation path is what runs in development — which is a useful default, since it is also what runs whenever the API is down.
+
+### 2026-08-21 — Corpus health, and the one defect it has
+**Measured against live Turso:**
+
+| | |
+|---|---|
+| total papers | 1,799,348 |
+| newest `update_date` | **2026-07-30** |
+| abstracts at the 500 cap | **1,630,273 (90.6%)** |
+| abstracts missing | 0 |
+| titles missing | 0 | 
+| `citation_count` NULL | 0 |
+
+**The corpus is NOT stale.** PHASE7 and the 2026-08-16 audit both assumed the newest paper was 2025-05; ingestion has clearly run since, and the index is three weeks behind live arXiv. That removes freshness from the problem list.
+
+**Truncation is the corpus's one real defect**, and it degrades four things simultaneously: the card and paper page show a stump; `groq_svc.explain_paper` summarises that stump; `readability` scores it; and the search cross-encoder reranks on it.
+
+Sampling 20 truncated rows against the arXiv API: **median full abstract 976 chars against the 500 stored, 17/20 materially longer, mean gain +451 chars.** So the repair roughly doubles the text, and the premise is confirmed rather than assumed.
+
+`scripts/backfill_abstracts.py` does the repair — dry-run by default, resumable (selection is driven by the defect, so repaired rows drop out), and ordered by usefulness rather than id, so the first hour delivers most of the user-visible benefit. Full sweep is ~16,303 arXiv requests at 3s ≈ **13.6 hours**. It is a script and not a background job deliberately: a bulk mutation of the production metadata store is a decision for a person, not something a request handler starts.
+
+### 2026-08-21 — Swallowed exceptions are now diagnosable
+**Decision:** `app/errors.py`; `errors.report(module, message, exc)` prints the exception type, the failing file and line, a trimmed traceback of OUR frames, and any chained cause. Wired into the Tier-1 catch-all and the qdrant, turso and events handlers.
+**Rationale:** `grep -rn "traceback|exc_info" app/` returned **zero** hits against 95 `except Exception` handlers. Every production failure was one line with no traceback — and the handler for the feed sits at the bottom of a **473-line** try covering clustering, quota, retrieval, metadata, reranking, MMR and labelling, so `multi-interest preprocessing failed: KeyError('x')` narrowed the fault to "somewhere in the feed" while the user silently dropped to Tier 2.
+
+Swallowing is the correct choice — a feed that degrades beats one that 500s, and those paths are deliberate. Swallowing *silently* was not. Output goes through `print` to keep the §5.3 convention and the existing `[module]` log filters.
+**Action items:** 91 handlers still use a bare `print`. The four upgraded are the ones where a silent failure is genuinely hard to trace; the rest can follow opportunistically.

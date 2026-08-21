@@ -9,7 +9,7 @@ import uuid
 import numpy as np
 from fastapi import APIRouter, Request, Cookie, Form
 from fastapi.responses import HTMLResponse
-from app import db, user_state as us, qdrant_svc
+from app import db, errors, user_state as us, qdrant_svc
 from app.config import COOKIE_NAME
 from app.templates_env import templates
 from app.recommend import profiles
@@ -213,7 +213,7 @@ async def _update_profile_on_save(user_id: str, paper_id: str) -> None:
         embedding = np.array(vectors[paper_id], dtype=np.float32)
         await profiles.update_on_save(user_id, embedding)
     except Exception as e:
-        print(f"[events] EWMA save update failed for {paper_id}: {e}")
+        errors.report("events", f"EWMA save update failed for {paper_id}", e)
 
 
 async def _update_profile_on_dismiss(user_id: str, paper_id: str) -> None:

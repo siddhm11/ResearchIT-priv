@@ -24,7 +24,7 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import db, qdrant_svc, arxiv_svc, turso_svc, user_state as us
+from app import db, errors, qdrant_svc, arxiv_svc, turso_svc, user_state as us
 from app.config import COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES
 from app.templates_env import templates
 from app.recommend import profiles
@@ -1118,7 +1118,12 @@ async def _multi_interest_recommend(
         return mmr_selected, explore_pool, paper_tags, rerank_time_ms, timing
 
     except Exception as e:
-        print(f"[recommendations] multi-interest preprocessing failed: {e}")
+        # This handler covers a 473-line try spanning clustering, quota,
+        # retrieval, metadata, reranking, MMR and labelling. Without a trace,
+        # "multi-interest preprocessing failed" narrows the fault to
+        # "somewhere in the feed" — and the user silently gets Tier 2 instead.
+        # Degrading is the right behaviour; degrading SILENTLY was not.
+        errors.report("recommendations", "Tier 1 failed, falling back to Tier 2", e)
         return [], [], {}, 0, {}
 
 
