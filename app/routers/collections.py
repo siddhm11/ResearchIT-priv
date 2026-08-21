@@ -239,7 +239,7 @@ async def _save_one(user_id: str, arxiv_id: str, position: int, slug: str) -> bo
 
     vectors = await qdrant_svc.get_paper_vectors([arxiv_id])
     vec = vectors.get(arxiv_id)
-    if not vec:
+    if vec is None:             # numpy array: `not vec` would raise
         return False
     await profiles.update_on_save(user_id, np.asarray(vec, dtype=np.float32))
     return True

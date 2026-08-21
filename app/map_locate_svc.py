@@ -166,7 +166,7 @@ async def locate(arxiv_ids: list[str], infer: bool = True) -> dict[str, dict]:
     inferred: list[dict] = []
     for aid in missing:
         vector = vectors.get(aid)
-        if not vector:
+        if vector is None:      # numpy array: `not vector` would raise
             continue
         row = await _infer_one(aid, vector)
         if row:

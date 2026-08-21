@@ -15,6 +15,8 @@ import contextvars
 from collections import OrderedDict
 from functools import lru_cache
 
+import numpy as np
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Filter,
@@ -225,7 +227,6 @@ def _quantize_query(vec: list[float]) -> list[float]:
     _, _, _, lo, scale = _params()
     if scale <= 0:
         return vec
-    import numpy as np
     a = np.asarray(vec, dtype=np.float32)
     n = float(np.linalg.norm(a))
     if n > 1e-9:
@@ -239,7 +240,6 @@ def _dequantize(vec: list[float]) -> list[float]:
     _, _, _, lo, scale = _params()
     if scale <= 0 or not vec:
         return vec
-    import numpy as np
     a = np.asarray(vec, dtype=np.float32)
     # Guard: a float16 collection returns unit-norm vectors. Only convert when
     # the values are actually in the uint8 range, so a misconfigured env var
@@ -360,8 +360,11 @@ async def recommend(
     all_ids = list(dict.fromkeys(positive_arxiv_ids + negative_arxiv_ids))
     vecs = await get_paper_vectors(all_ids)
 
-    pos = [vecs[aid] for aid in positive_arxiv_ids if aid in vecs]
-    neg = [vecs[aid] for aid in negative_arxiv_ids if aid in vecs]
+    # The client serialises these, so hand it plain lists rather than arrays.
+    pos = [np.asarray(vecs[aid]).tolist()
+           for aid in positive_arxiv_ids if aid in vecs]
+    neg = [np.asarray(vecs[aid]).tolist()
+           for aid in negative_arxiv_ids if aid in vecs]
 
     if not pos:
         return []
@@ -422,19 +425,27 @@ def _run_recommend(
 # so steady-state hit rate is high.
 #
 # Vectors don't change once uploaded, so no TTL.
+#
+# Stored as float32 numpy, NOT list[float]. The 4KB figure above is only true
+# for a packed buffer: a Python list boxes every element, and measured, one
+# 1024-float list costs 32,824 bytes. At the 25K cap that is 0.82 GB against a
+# documented 100 MB ceiling — 8x over, on a box with 16 GB shared with BGE-M3,
+# the cross-encoder and a 2.7 GB sidecar. A float32 array is 4,096 bytes, so
+# the cache now costs what the comment always claimed it did.
 
-_VECTOR_CACHE: "OrderedDict[str, list[float]]" = OrderedDict()
+_VECTOR_CACHE: "OrderedDict[str, np.ndarray]" = OrderedDict()
 _VECTOR_CACHE_MAX = 25_000
 
 
-def _vec_cache_get(arxiv_id: str) -> list[float] | None:
+def _vec_cache_get(arxiv_id: str) -> np.ndarray | None:
     val = _VECTOR_CACHE.get(arxiv_id)
     if val is not None:
         _VECTOR_CACHE.move_to_end(arxiv_id)
     return val
 
 
-def _vec_cache_put(arxiv_id: str, vec: list[float]) -> None:
+def _vec_cache_put(arxiv_id: str, vec) -> None:
+    vec = np.asarray(vec, dtype=np.float32)
     if arxiv_id in _VECTOR_CACHE:
         _VECTOR_CACHE.move_to_end(arxiv_id)
         _VECTOR_CACHE[arxiv_id] = vec
@@ -445,13 +456,20 @@ def _vec_cache_put(arxiv_id: str, vec: list[float]) -> None:
 
 
 def vector_cache_stats() -> dict:
-    return {"size": len(_VECTOR_CACHE), "max": _VECTOR_CACHE_MAX}
+    return {
+        "size": len(_VECTOR_CACHE),
+        "max": _VECTOR_CACHE_MAX,
+        "approx_bytes": len(_VECTOR_CACHE) * 4 * 1024,
+    }
 
 
-async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
+async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     """
     Fetch BGE-M3 embedding vectors for papers from Qdrant.
-    Returns {arxiv_id: vector_list} for papers found.
+    Returns {arxiv_id: float32 array} for papers found.
+
+    NOTE: values are numpy arrays, so test them with `is None` rather than
+    truthiness — `if not vec` raises on an array.
 
     Cached in-process by arxiv_id; only un-cached IDs hit Qdrant. The
     Qdrant retrieve() that pulls the actual stored vectors is the
@@ -467,7 +485,7 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
         return {}
 
     # Cache check first — pull anything we already know.
-    result: dict[str, list[float]] = {}
+    result: dict[str, np.ndarray] = {}
     misses: list[str] = []
     for aid in arxiv_ids:
         cached = _vec_cache_get(aid)
@@ -502,7 +520,10 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, list[float]]:
             if isinstance(vec, dict):  # named-vector collections
                 vec = vec.get("dense") or next(iter(vec.values()), None)
             if isinstance(vec, list):
-                vec = _dequantize(vec)
+                # float32 at the boundary, so the returned dict and the cache
+                # hold the same type — a caller that got a list on a miss and
+                # an array on a hit would be a latent type bug.
+                vec = np.asarray(_dequantize(vec), dtype=np.float32)
                 result[aid] = vec
                 _vec_cache_put(aid, vec)
     return result
