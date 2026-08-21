@@ -25,11 +25,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Cookie, Request
+from fastapi import APIRouter, Cookie, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import arxiv_svc, qdrant_svc, turso_svc, user_state as us
+from app import arxiv_svc, db, qdrant_svc, turso_svc, user_state as us
 from app.config import COOKIE_NAME
+from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
 
 router = APIRouter()
@@ -84,6 +85,11 @@ async def _related(arxiv_id: str, seen: set[str]) -> list[dict]:
 async def paper_page(
     arxiv_id: str,
     request: Request,
+    qid: str = Query(default=""),
+    pos: int = Query(default=_NO_POSITION),
+    src: str = Query(default=""),
+    prop: float = Query(default=0.0),
+    pol: str = Query(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     user_id = user_id or str(uuid.uuid4())
@@ -106,6 +112,34 @@ async def paper_page(
         # inventing one would corrupt the very analysis those fields exist for.
         "candidate_source": "paper_page",
     }
+
+    # The click-through. app/db.py has declared `click` as an event_type since
+    # the schema was written and nothing ever wrote one, so the system knew
+    # which papers were saved and which were dismissed but not which were
+    # OPENED — the difference between "scrolled past" and "read", and the
+    # densest engagement signal a feed produces.
+    #
+    # Only logged when the visit carries a query_id, i.e. it came from a ranked
+    # surface. A bare /p/{id} visit — a shared link, a bookmark, a crawler —
+    # has no propensity and no policy, and recording it as though it did would
+    # corrupt the §3.11 contract rather than honour it.
+    if qid:
+        try:
+            await db.log_interaction(
+                user_id=user_id,
+                paper_id=arxiv_id,
+                event_type="click",
+                source=src or "recommendation",
+                position=_position(pos),
+                query_id=qid,
+                ranker_version=pol or None,
+                candidate_source=src or None,
+                cluster_id=None,
+                propensity=prop if prop > 0 else None,
+                policy_id=pol or None,
+            )
+        except Exception as e:   # a lost click must never cost the page
+            print(f"[paper] click log failed for {arxiv_id}: {e}")
 
     related = await _related(arxiv_id, us.all_seen(user_id))
 

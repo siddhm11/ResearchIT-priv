@@ -128,8 +128,10 @@ def test_the_card_title_links_to_our_page():
     """Without this the destination is unreachable and the work is dead code."""
     import pathlib
     card = pathlib.Path("app/templates/partials/paper_card.html").read_text()
-    assert 'class="card-title" href="/p/{{ paper.arxiv_id }}"' in card, (
+    assert 'href="/p/{{ paper.arxiv_id }}' in card, (
         "card title still exits straight to arxiv.org")
+    assert 'class="card-title"' in card
+    assert 'card-title"\n     href="https://arxiv.org' not in card
     # …and the arXiv id in the foot still offers the source directly.
     assert 'class="card-id" href="https://arxiv.org/abs/' in card
 
@@ -148,3 +150,89 @@ def test_paper_page_carries_no_fabricated_ranking_instrumentation():
     assert vals, "no action buttons rendered"
     for v in vals:
         assert '"query_id": ""' in v or '"query_id":""' in v or "query_id" not in v
+
+
+# ── Click-through ────────────────────────────────────────────────────────────
+#
+# app/db.py declared `click` as an event_type since the schema was written and
+# nothing ever wrote one. The system knew which papers were saved and which
+# were dismissed, but not which were OPENED — the difference between "scrolled
+# past" and "read", and the densest engagement signal a feed produces.
+
+def _open(path):
+    import numpy as np
+    meta, search = _client_with()
+    with meta, search, patch.object(
+            qdrant_svc, "get_paper_vectors", return_value={}):
+        with TestClient(app) as c:
+            c.cookies.set("arxiv_user_id", "click-user")
+            return c.get(path)
+
+
+def _clicks(user="click-user"):
+    import sqlite3
+    from app import config
+    conn = sqlite3.connect(config.DB_PATH)
+    return conn.execute(
+        "SELECT paper_id, query_id, position, propensity, policy_id "
+        "FROM interactions WHERE user_id = ? AND event_type = 'click'",
+        (user,)).fetchall()
+
+
+def test_a_click_from_the_feed_is_logged_with_its_provenance():
+    r = _open("/p/1706.03762?qid=q-abc&pos=3&src=cluster_1&prop=0.25&pol=v9.1")
+    assert r.status_code == 200
+
+    rows = _clicks()
+    assert rows, "no click event written"
+    paper_id, query_id, position, propensity, policy_id = rows[-1]
+    assert paper_id == "1706.03762"
+    assert query_id == "q-abc", "click cannot be tied back to its feed request"
+    assert position == 3
+    assert propensity == pytest.approx(0.25)
+    assert policy_id == "v9.1"
+
+
+def test_a_bare_visit_writes_no_click():
+    """A shared link, a bookmark or a crawler has no propensity and no policy.
+
+    Recording one as though it did would corrupt the §3.11 contract rather
+    than honour it.
+    """
+    before = len(_clicks("bare-user"))
+    import numpy as np
+    meta, search = _client_with()
+    with meta, search, patch.object(qdrant_svc, "get_paper_vectors", return_value={}):
+        with TestClient(app) as c:
+            c.cookies.set("arxiv_user_id", "bare-user")
+            c.get("/p/1706.03762")
+    assert len(_clicks("bare-user")) == before
+
+
+def test_the_card_link_carries_the_feed_provenance():
+    """Without the query string on the link, nothing above can happen."""
+    import pathlib
+    card = pathlib.Path("app/templates/partials/paper_card.html").read_text()
+    for key in ("qid=", "pos=", "src=", "prop=", "pol="):
+        assert key in card, f"card title link drops {key}"
+
+
+def test_position_zero_is_recorded_not_discarded():
+    """Rank 0 is the top of the feed and the slot CTR analysis cares about most.
+
+    `position or None` recorded it as NULL — indistinguishable from "no
+    position at all" — so the most important rank was missing from the data
+    entirely. A -1 sentinel distinguishes the two.
+    """
+    _open("/p/1706.03762?qid=q-zero&pos=0&src=cluster_0&prop=1.0&pol=v9.1")
+    rows = [r for r in _clicks() if r[1] == "q-zero"]
+    assert rows, "no click logged for the top card"
+    assert rows[-1][2] == 0, f"position 0 was stored as {rows[-1][2]!r}"
+
+
+def test_a_genuinely_absent_position_is_still_null():
+    from app.routers.events import _position, _NO_POSITION
+    assert _position(_NO_POSITION) is None
+    assert _position(None) is None
+    assert _position(0) == 0
+    assert _position(7) == 7

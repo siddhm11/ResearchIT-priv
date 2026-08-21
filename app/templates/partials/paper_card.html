@@ -79,7 +79,21 @@
      anyone who wants the source immediately, and the paper page links to both
      the abstract and the PDF. Same tab on purpose — this is in-site navigation
      now, and the back button works. #}
-  <a class="card-title" href="/p/{{ paper.arxiv_id }}">{{ paper.title }}</a>
+  {#
+    The link carries the feed provenance it was served with, so a click-through
+    keeps its §3.11 linkage: query_id ties it to the feed request that produced
+    it, and position/propensity make it usable for CTR and later IPS. A visit
+    that did not come from a ranked feed simply carries none, which is honest —
+    it genuinely has no propensity.
+  #}
+  {%- set _q = [] -%}
+  {%- if paper.query_id %}{% set _ = _q.append("qid=" ~ paper.query_id) %}{% endif -%}
+  {%- if paper.position is not none %}{% set _ = _q.append("pos=" ~ (paper.position | default(0))) %}{% endif -%}
+  {%- if paper.candidate_source %}{% set _ = _q.append("src=" ~ paper.candidate_source) %}{% endif -%}
+  {%- if paper.propensity %}{% set _ = _q.append("prop=" ~ paper.propensity) %}{% endif -%}
+  {%- if paper.policy_id %}{% set _ = _q.append("pol=" ~ paper.policy_id) %}{% endif -%}
+  <a class="card-title"
+     href="/p/{{ paper.arxiv_id }}{% if _q %}?{{ _q | join('&') }}{% endif %}">{{ paper.title }}</a>
 
   {% if authors_list %}
     <div class="card-authors">

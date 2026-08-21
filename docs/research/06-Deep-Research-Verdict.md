@@ -308,3 +308,11 @@ The page carries full metadata, the abstract unclamped, per-paper `og:title`/`og
 **Action items:**
   - The page deliberately writes NO §3.11 ranking instrumentation. A save from here genuinely has no `query_id`, `propensity` or `policy_id`, and fabricating them would corrupt the IPS/SNIPS analysis those fields exist for.
   - This is the surface Phase 8's LLM summaries and any difficulty signal should land on.
+
+### 2026-08-21 — The click-through, and rank 0
+**Decision:** Opening a paper from a ranked surface logs `event_type="click"` with the feed provenance it was served with. The card title carries `qid/pos/src/prop/pol`, and `/p/{id}` records them. A bare visit — shared link, bookmark, crawler — logs nothing.
+**Rationale:** `app/db.py` has declared `click` as a valid `event_type` since the schema was written and nothing ever wrote one. The system knew which papers were saved and which were dismissed, but not which were **opened** — the difference between "scrolled past" and "read", and the densest engagement signal a feed produces. Phase 7 cannot compute per-feed CTR without it.
+
+Only logging when a `query_id` is present is the §3.11-honouring choice: a direct visit genuinely has no propensity and no policy, and recording one as though it did would corrupt the analysis those fields exist for rather than serve it.
+**Action items:**
+  - **`position or None` was discarding rank 0.** Position 0 is the top of the feed — the most-clicked slot and the one CTR-by-rank most depends on — and it was stored as NULL, indistinguishable from "no position at all". All four handlers (save, not_interested, unsave, click) now use a `-1` sentinel via `events._position`. Any analysis of interactions logged before this date is missing rank 0 entirely.

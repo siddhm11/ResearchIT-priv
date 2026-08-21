@@ -14,6 +14,20 @@ from app.config import COOKIE_NAME
 from app.templates_env import templates
 from app.recommend import profiles
 
+# A position of 0 is the TOP of the feed — the most-clicked slot and the one
+# any CTR-by-rank analysis cares about most. `position or None` recorded it as
+# NULL, indistinguishable from "no position at all", so rank 0 was missing from
+# the data entirely. -1 is the sentinel for genuinely absent instead.
+_NO_POSITION = -1
+
+
+def _position(value: int | None) -> int | None:
+    """None only when the caller really had no rank to report."""
+    if value is None or value == _NO_POSITION:
+        return None
+    return value
+
+
 router = APIRouter(prefix="/api/papers")
 
 
@@ -22,7 +36,7 @@ async def save_paper(
     paper_id: str,
     request: Request,
     source: str = Form(default="search"),
-    position: int = Form(default=0),
+    position: int = Form(default=_NO_POSITION),
     query_id: str = Form(default=""),
     ranker_version: str = Form(default=""),
     candidate_source: str = Form(default=""),
@@ -38,7 +52,7 @@ async def save_paper(
         paper_id=paper_id,
         event_type="save",
         source=source,
-        position=position or None,
+        position=_position(position),
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
@@ -84,7 +98,7 @@ async def not_interested(
     paper_id: str,
     request: Request,
     source: str = Form(default="search"),
-    position: int = Form(default=0),
+    position: int = Form(default=_NO_POSITION),
     query_id: str = Form(default=""),
     ranker_version: str = Form(default=""),
     candidate_source: str = Form(default=""),
@@ -100,7 +114,7 @@ async def not_interested(
         paper_id=paper_id,
         event_type="not_interested",
         source=source,
-        position=position or None,
+        position=_position(position),
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
@@ -122,7 +136,7 @@ async def unsave(
     paper_id: str,
     request: Request,
     source: str = Form(default="saved"),
-    position: int = Form(default=0),
+    position: int = Form(default=_NO_POSITION),
     query_id: str = Form(default=""),
     ranker_version: str = Form(default=""),
     candidate_source: str = Form(default=""),
@@ -156,7 +170,7 @@ async def unsave(
         paper_id=paper_id,
         event_type="unsave",
         source=source,
-        position=position or None,
+        position=_position(position),
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
@@ -171,8 +185,6 @@ async def unsave(
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
 
-
-# ── Background EWMA profile update helpers ────────────────────────────────────
 
 # ── Background profile updates ───────────────────────────────────────────────
 #
