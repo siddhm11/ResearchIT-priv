@@ -15,9 +15,37 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="ResearchIT — a personal reading feed for arXiv. Papers picked for the things you actually work on." />
+  {#
+    One description, reused by the meta tag and by both card protocols below,
+    so a page cannot drift out of sync with its own preview. Pages override
+    `og_title` / `og_description` in their own head block.
+  #}
+  {% set _og_title = og_title | default(self.title()) %}
+  {% set _og_description = og_description | default(
+       "A personal reading feed for arXiv. Papers picked for the things you actually work on.") %}
+
+  <meta name="description" content="{{ _og_description }}" />
   <meta name="color-scheme" content="light dark" />
   <title>{% block title %}ResearchIT{% endblock %}</title>
+
+  {#
+    Open Graph / Twitter cards. Without these a link pasted into Slack,
+    Discord, Twitter, LinkedIn or iMessage renders as a naked URL — no title,
+    no description — which for a product whose growth loop is people sharing
+    papers is the cheapest win available.
+
+    No og:image yet: shipping one means shipping a real asset, and a card with
+    a broken image reference is worse than a card with none. summary_large_image
+    would be the card type to switch to once that exists.
+  #}
+  <meta property="og:site_name" content="ResearchIT" />
+  <meta property="og:type" content="{{ og_type | default('website') }}" />
+  <meta property="og:title" content="{{ _og_title }}" />
+  <meta property="og:description" content="{{ _og_description }}" />
+  {% if request %}<meta property="og:url" content="{{ request.url }}" />{% endif %}
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="{{ _og_title }}" />
+  <meta name="twitter:description" content="{{ _og_description }}" />
 
   <link rel="stylesheet" href="/static/styles.css" />
 

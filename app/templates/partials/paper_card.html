@@ -82,15 +82,36 @@
     </div>
   {% endif %}
 
+  {#
+    Clamp ONLY when there is a lead sentence to leave visible. `.is-clamped
+    .rest` is display:none (styles.css:483), so a card whose abstract has no
+    confident sentence boundary — _lead_split returns ("", whole) for 1.6% of
+    real abstracts — used to render an entirely EMPTY paragraph with a "Read
+    more" button underneath it. Better to show the unsplit abstract than a
+    blank space.
+
+    `truncated` marks abstracts the 500-char ingest cap cut mid-thought (79% of
+    the corpus, PHASE7 §3.2). Without the marker the reader cannot tell a cut
+    from a badly written sentence, and "Read more" only ever revealed more of
+    the same stump. The full text lives one click away on arXiv.
+  #}
+  {% set truncated = paper.abstract | is_truncated %}
+  {% set clamped = rest and lead %}
   {% if lead or rest %}
-    <p class="card-abstract{% if rest %} is-clamped{% endif %}" id="abs-{{ paper.arxiv_id }}">
+    <p class="card-abstract{% if clamped %} is-clamped{% endif %}" id="abs-{{ paper.arxiv_id }}">
       {%- if lead %}<span class="lead">{{ lead }}</span>{% endif -%}
       {%- if rest %} <span class="rest">{{ rest }}</span>{% endif -%}
+      {%- if truncated %}<span class="abstract-cut" aria-hidden="true">…</span>{% endif -%}
     </p>
-    {% if rest %}
+    {% if clamped %}
       <button type="button" class="card-more"
               aria-expanded="false" aria-controls="abs-{{ paper.arxiv_id }}"
               onclick="toggleAbstract(this)">Read more</button>
+    {% endif %}
+    {% if truncated %}
+      <a class="card-more card-more--full"
+         href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener">Full abstract on arXiv ↗</a>
     {% endif %}
   {% endif %}
 

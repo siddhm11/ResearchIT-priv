@@ -113,6 +113,42 @@ def _lead_rest(abstract: str | None) -> str:
     return _lead_split(abstract)[1]
 
 
+# ── Truncation honesty ───────────────────────────────────────────────────────
+#
+# The stored corpus caps `abstract_preview` at 500 characters: PHASE7 §3.2
+# measures 1,437,656 rows (90.0%) sitting exactly at the cap, and on the local
+# cache 403 of 406 capped rows (99.3%) stop without terminal punctuation — one
+# ends literally "...we study a parameter".
+#
+# Repairing the DATA needs an arXiv backfill (~7,200 requests, hours at the rate
+# limit) and is PHASE7's job. What is fixable here is the DISHONESTY: the card
+# rendered a mid-word stump with no ellipsis and no marker, so a reader could
+# not tell the sentence had been cut rather than badly written, and "Read more"
+# expanded to reveal only more stump. Saying "this is cut" costs nothing and
+# turns a defect the reader blames on the paper into one they can act on.
+_TRUNCATION_CAP = 500
+_TERMINAL = '.!?"”\')'
+
+
+def _is_truncated(abstract: str | None) -> bool:
+    """True when the stored abstract was cut mid-thought by the ingest cap.
+
+    Length at the cap is the primary signal. The punctuation check keeps the
+    rare abstract that legitimately ends at exactly 500 characters from being
+    labelled as cut.
+
+    The cap is measured on the RAW string and the punctuation on the stripped
+    one. Stripping first would be wrong: the cut frequently lands on a space, so
+    402 of the 406 capped rows in the local cache strip down to 499 characters
+    and would fall under the cap untested.
+    """
+    raw = abstract or ""
+    if len(raw) < _TRUNCATION_CAP:
+        return False
+    text = raw.strip()
+    return bool(text) and text[-1] not in _TERMINAL
+
+
 # ── arXiv category → chip class ──────────────────────────────────────────────
 #
 # Maps a primary arXiv code onto one of the ten chip hues in styles.css.
@@ -224,6 +260,7 @@ templates.env.filters["cat_class"] = _cat_class
 templates.env.filters["why_shown"] = _why_shown
 templates.env.filters["commafy"] = _commafy
 templates.env.filters["match_pct"] = _match_pct
+templates.env.filters["is_truncated"] = _is_truncated
 
 
 # ── 3D map links (from the Space build) ──────────────────────────────────────

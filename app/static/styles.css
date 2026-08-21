@@ -65,7 +65,7 @@
   /* text */
   --text:       #16140F;
   --text-2:     #4E4840;
-  --text-3:     #7D766B;
+  --text-3:     #6E6860;   /* AA on white: 5.51:1. Was #7D766B at 4.49 — failed. */
 
   /* accent — Save, active nav, focus */
   --accent:     #2C5638;
@@ -122,7 +122,7 @@
 
     --text:      #F0EBE2;
     --text-2:    #B2AA9F;
-    --text-3:    #837C71;
+    --text-3:    #948D80;  /* AA on --surface: 5.37:1. Was #837C71 at 4.28 — failed. */
 
     --accent:    #7FB58C;
     --accent-2:  #A7D4B2;
@@ -159,7 +159,7 @@
 
   --text:      #F0EBE2;
   --text-2:    #B2AA9F;
-  --text-3:    #837C71;
+  --text-3:    #948D80;    /* AA on --surface: 5.37:1. Was #837C71 at 4.28 — failed. */
 
   --accent:    #7FB58C;
   --accent-2:  #A7D4B2;
@@ -488,6 +488,17 @@ a.card-title:hover { color: var(--accent); }
   padding: .15rem 0;
 }
 .card-more:hover { color: var(--accent); }
+
+/* The 500-char ingest cap cut this abstract mid-thought. The ellipsis is the
+   only thing telling the reader the sentence was truncated rather than badly
+   written; it sits tight against the last word, so no leading space. */
+.abstract-cut { color: var(--text-3); }
+.card-abstract.is-clamped .abstract-cut { display: none; }
+
+/* An outbound link, so it is underlined on hover where .card-more is not —
+   it leaves the site, and that should not look like the in-place expander. */
+.card-more--full { text-decoration: none; }
+.card-more--full:hover { text-decoration: underline; }
 
 .card-actions {
   display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
