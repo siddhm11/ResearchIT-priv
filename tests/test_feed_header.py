@@ -174,3 +174,63 @@ def test_match_pct_is_zero_for_absent_or_bad_values():
     assert _match_pct(None) == 0
     assert _match_pct("") == 0
     assert _match_pct(-0.5) == 0
+
+
+# ── The masthead must not depend on the feed fragment ────────────────────────
+#
+# These two need a real app + isolated DB, unlike everything above, which is
+# pure functions over dicts.
+
+import asyncio
+import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    import app.config as cfg
+    import app.db as db_mod
+    db_path = str(tmp_path / "test.db")
+    monkeypatch.setattr(cfg, "DB_PATH", db_path)
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+
+    import app.user_state as us
+    us._cache.clear()
+
+    from app.qdrant_svc import _client
+    _client.cache_clear()
+
+    from app.main import app
+    asyncio.run(db_mod.init_db())
+
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
+
+def test_homepage_ships_an_h1_before_the_feed_loads(client):
+    """
+    The masthead briefly lived inside partials/recommendations.html, which htmx
+    fetches AFTER first paint. That left the delivered homepage with no <h1> at
+    all -- nothing for a screen reader to land on, nothing for a crawler, and no
+    visible title until the whole tier cascade had run (measured at 11s on a
+    cold production feed). A page's heading must not depend on a slow request.
+    """
+    # A brand-new user is redirected to onboarding, so skip it first —
+    # otherwise this asserts against the wizard, not the feed page.
+    client.get("/")
+    client.post("/api/onboarding/skip")
+
+    body = client.get("/").text
+    assert 'class="issue-title"' in body, "feed page shipped without its masthead"
+    assert "<h1" in body
+    # The heading must be in the delivered document, not arriving later in the
+    # htmx fragment.
+    assert body.index("<h1") < body.index('id="rec-section"')
+
+
+def test_feed_fragment_does_not_repeat_the_masthead(client):
+    """Two mastheads would render if the fragment also kept one."""
+    client.get("/")
+    client.post("/api/onboarding/skip")
+    frag = client.get("/api/recommendations").text
+    assert "issue-title" not in frag

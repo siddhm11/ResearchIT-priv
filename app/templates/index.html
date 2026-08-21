@@ -15,9 +15,31 @@
 {% block content %}
 <div class="wrap wrap--feed">
 
-  {# The masthead is rendered by the feed fragment, which is the only thing
-     that knows the issue number, the date and how many interests are in play.
-     A static heading here would duplicate it and then disagree with it. #}
+  {#
+    Masthead lives here, not in the feed fragment.
+
+    It was in the fragment so it could name the serving tier — but the fragment
+    arrives after first paint, which left the homepage with no <h1> in its
+    delivered HTML and no visible title until the whole tier cascade had run.
+    A page's heading must not depend on a slow request succeeding.
+
+    What the fragment still owns is everything that genuinely requires the
+    built feed: the interest composition strip and the tier-progress bar.
+  #}
+  <header class="issue">
+    <div class="issue-kicker">Your reading</div>
+    <h1 class="issue-title">Today's papers</h1>
+    <div class="issue-line">
+      <span>{{ issue_date }}</span>
+      <span class="sep">·</span>
+      <span>No. <b>{{ issue_number }}</b></span>
+      {% if save_count %}
+        <span class="sep">·</span>
+        <span><b>{{ save_count }}</b> saved</span>
+      {% endif %}
+    </div>
+  </header>
+
   <div id="rec-section"
        hx-get="/api/recommendations"
        hx-trigger="load"

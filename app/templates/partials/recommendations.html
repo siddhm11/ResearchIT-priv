@@ -10,32 +10,15 @@
 #}
 {% if papers %}
   {#
-    Masthead. The feed is framed as a dated issue rather than an endless
-    column — see the THE ISSUE block in styles.css for the reasoning. In short:
-    this codebase already cites NN/g to justify BOUNDING search results, and
-    triaging a feed is a goal-directed task by the same argument; an endless
-    list also has no terminus, so it can never be finished, only abandoned.
-  #}
-  {% if issue %}
-    <header class="issue">
-      <div class="issue-kicker">
-        {% if issue.tier == 0 %}Getting started{% else %}Your reading{% endif %}
-      </div>
-      <h1 class="issue-title">
-        {%- if issue.tier == 0 %}Popular right now{% else %}Today's papers{% endif -%}
-      </h1>
-      <div class="issue-line">
-        <span>{{ issue.date }}</span>
-        <span class="sep">·</span>
-        <span>No. <b>{{ issue.number }}</b></span>
-        {% if interests %}
-          <span class="sep">·</span>
-          <span><b>{{ interests | length }}</b> interest{{ "s" if interests | length != 1 }}</span>
-        {% endif %}
-      </div>
-    </header>
-  {% endif %}
+    No masthead here — index.html owns it, so the page has a heading before
+    this fragment arrives. See the comment there.
 
+    The feed is still framed as a dated issue rather than an endless column;
+    see the THE ISSUE block in styles.css for why. In short: this codebase
+    already cites NN/g to justify BOUNDING search results, and triaging a feed
+    is goal-directed by the same argument; an endless list also has no
+    terminus, so it can never be finished, only abandoned.
+  #}
   {% if trending %}
     <div class="notice" style="margin-bottom:.85rem">
       <span>
