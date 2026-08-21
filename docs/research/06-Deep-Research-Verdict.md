@@ -359,3 +359,21 @@ Sampling 20 truncated rows against the arXiv API: **median full abstract 976 cha
 
 Swallowing is the correct choice — a feed that degrades beats one that 500s, and those paths are deliberate. Swallowing *silently* was not. Output goes through `print` to keep the §5.3 convention and the existing `[module]` log filters.
 **Action items:** 91 handlers still use a bare `print`. The four upgraded are the ones where a silent failure is genuinely hard to trace; the rest can follow opportunistically.
+
+### 2026-08-21 — Old-style arXiv ids were collapsing onto their category
+**Decision:** `arxiv_svc._normalise_id` rewritten. Prefix stripping and version stripping are separate steps rather than one regex.
+**Rationale:** The old pattern was `[^\s/v]+`, which stops at a slash. Old-style ids carry a category prefix — `math/0309136v1`, `hep-ph/0512038v2`, `acc-phys/9502001` — and **115,604 papers in the corpus (6.4%)** use that form. Every one normalised to just its category: `math/0309136v1` and `math/0511124v2` both became `math`.
+
+Two consequences, both silent. A lookup by the real id missed, so the arXiv fallback returned nothing for 6.4% of the corpus; and distinct papers collided on one key, so one paper's metadata could be returned for another. That is the same defect class the codebase already documents for Qdrant point ids. The character class also treated a literal `v` as a terminator.
+
+Found while writing the backfill, which needed to key results by id. None of the existing `_normalise_id` cases covered an old-style id, which is why it survived.
+**Action items:** Six old-style cases added to the parametrised test, plus a collision test and a §3.9 string-type test.
+
+### 2026-08-21 — Backfill run 1, and two bugs it exposed
+**Result:** 335 rows repaired before arXiv rate-limited the run; 9 of 20 batches lost to 429.
+
+**The truncation predicate was wrong.** `length(abstract_preview) >= 500` matches a repaired 976-character abstract just as well as a truncated 500-character one, so the script would have re-selected its own completed work forever — it was **not resumable**, despite a test asserting that it was. It also counted the 193,689 legitimately-long abstracts as damaged, overstating the job by 13%. The correct predicate is `= 500` exactly, and the true figure is **1,436,584 truncated (79.8%)**, not 1,630,273 (90.6%).
+
+**The rate limiting was wrong.** Reusing `arxiv_svc.fetch_metadata_batch` was the mistake: it is tuned for small interactive lookups and fans any input into 20-id sub-requests at ~3/s, so a "batch of 100" was a burst of five requests and the 3s pause sat between bursts rather than between requests. The script now issues exactly one request per batch, at 200 ids, with exponential backoff on 429.
+
+Corrected estimate for a full sweep: **~7,183 requests, ~10 hours** — better than both earlier figures, and for the first time counting both the arXiv leg and the write leg.

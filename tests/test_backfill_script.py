@@ -59,10 +59,56 @@ def test_writing_requires_an_explicit_flag():
 
 
 def test_the_script_is_resumable():
-    """Selection is by current truncation, so repaired rows drop out."""
+    """A repaired row must stop matching the selection.
+
+    This test previously asserted `>= 500` and PASSED while the script was NOT
+    resumable — a repaired abstract of 976 characters still satisfies `>= 500`,
+    so the script would have re-selected and re-fetched its own completed work
+    forever. The predicate has to be the cap EXACTLY.
+    """
+    assert backfill.TRUNCATED == "length(abstract_preview) = 500"
+
     src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
-    assert "length(abstract_preview) >= 500" in src, (
-        "selection is not driven by the defect, so a re-run would redo work")
+    assert "abstract_preview) >= 500" not in src, (
+        "a >= predicate also matches repaired rows and rows that were never "
+        "truncated")
+
+
+def test_the_predicate_does_not_count_healthy_rows_as_damaged():
+    """`>= 500` counted 193,689 legitimately-long abstracts as truncated,
+    overstating the job by 13%."""
+    assert "=" in backfill.TRUNCATED and ">=" not in backfill.TRUNCATED
+
+
+def test_one_http_request_per_batch():
+    """The first run was 429'd out of 9 of its 20 batches.
+
+    The cause was reusing arxiv_svc.fetch_metadata_batch, which fans any input
+    into 20-id sub-requests at ~3/s — so a "batch of 100" was a burst of five
+    requests and the pause sat between bursts, not between requests.
+    """
+    import ast
+    src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
+    assert "async def fetch_abstracts" in src
+
+    # Parsed, not grepped: the module comments EXPLAIN why the interactive
+    # helper is not used, and a substring check flags its own rationale.
+    tree = ast.parse(src)
+    calls = [
+        ast.unparse(n.func) for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+    ]
+    assert "arxiv_svc.fetch_metadata_batch" not in calls, (
+        "still fanning out through the interactive helper")
+
+    assert backfill.MAX_RETRIES >= 2, "no retry budget for rate limiting"
+    assert "429" in src, "no explicit handling of arXiv rate limiting"
+
+
+def test_old_style_ids_survive_the_round_trip():
+    """6.4% of the corpus has a category prefix; the script must key on it."""
+    from app.arxiv_svc import _normalise_id
+    assert _normalise_id("http://arxiv.org/abs/math/0309136v1") == "math/0309136"
 
 
 def test_writes_are_batched_into_one_round_trip():

@@ -32,17 +32,44 @@ _NS = {
     "opensearch": "http://a9.com/-/spec/opensearch/1.1/",
 }
 
-_ID_RE = re.compile(r"(?:arxiv:|https?://arxiv\.org/abs/)?([^\s/v]+(?:v\d+)?)")
+# Prefixes an id may arrive wrapped in, longest first so the URL forms win.
+_ID_PREFIXES = (
+    "https://arxiv.org/abs/", "http://arxiv.org/abs/",
+    "https://www.arxiv.org/abs/", "http://www.www.arxiv.org/abs/",
+    "arxiv:", "arXiv:",
+)
+
+_VERSION_RE = re.compile(r"v\d+$")
 
 
 def _normalise_id(raw: str) -> str:
-    """Strip URL prefix and version suffix from an arxiv ID string."""
-    m = _ID_RE.search(raw.strip())
-    if not m:
-        return raw.strip()
-    bare = m.group(1)
-    # Remove trailing version e.g. '1706.03762v5' → '1706.03762'
-    return re.sub(r"v\d+$", "", bare)
+    r"""Strip URL prefix and version suffix from an arxiv ID string.
+
+    Old-style ids carry a category prefix — `math/0309136v1`,
+    `hep-ph/0512038v2`, `acc-phys/9502001` — and 115,604 papers in the corpus
+    (6.4%) use that form.
+
+    The previous implementation matched `[^\s/v]+`, which stops at the slash, so
+    every one of those normalised to just its category. `math/0309136v1` and
+    `math/0511124v2` both became `math`: metadata for one paper could be
+    returned for another, and `meta.get("math/0309136")` missed entirely, so the
+    arXiv fallback silently returned nothing for 6.4% of the corpus. The
+    character class also treated a literal `v` as a terminator, so any id
+    containing one would have been truncated at it.
+
+    Handled procedurally rather than with one regex because the two operations
+    are independent — strip a known prefix, strip a trailing version — and a
+    single pattern doing both is what hid the bug.
+
+    Per CLAUDE.md §3.9 the result is always a string, never coerced.
+    """
+    text = raw.strip()
+    lowered = text.lower()
+    for prefix in _ID_PREFIXES:
+        if lowered.startswith(prefix.lower()):
+            text = text[len(prefix):]
+            break
+    return _VERSION_RE.sub("", text.strip())
 
 
 def _parse_entry(entry: ET.Element) -> dict:

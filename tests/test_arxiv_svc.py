@@ -21,6 +21,20 @@ import xml.etree.ElementTree as ET
     ("1706.03762",                        "1706.03762"),
     ("0704.0002",                         "0704.0002"),
     ("http://arxiv.org/abs/0704.0002v1",  "0704.0002"),
+    # Old-style ids carry a CATEGORY PREFIX, and 115,604 papers in the corpus
+    # (6.4%) use that form. The previous regex matched [^\s/v]+, which stops at
+    # the slash, so every one of these normalised to just its category:
+    # math/0309136v1 and math/0511124v2 both became "math". Metadata for one
+    # paper could be returned for another, and lookups by the real id missed
+    # entirely, so the arXiv fallback silently returned nothing for 6.4% of the
+    # corpus. None of these cases was covered, which is why it survived.
+    ("http://arxiv.org/abs/math/0309136v1",   "math/0309136"),
+    ("http://arxiv.org/abs/hep-ph/0512038v2", "hep-ph/0512038"),
+    ("acc-phys/9502001",                      "acc-phys/9502001"),
+    ("cond-mat/0211034v11",                   "cond-mat/0211034"),
+    ("arxiv:math/0309136v1",                  "math/0309136"),
+    # A literal 'v' inside the id must not act as a terminator either.
+    ("nlin/0507021v1",                        "nlin/0507021"),
 ])
 def test_normalise_id(raw, expected):
     assert _normalise_id(raw) == expected
@@ -126,3 +140,22 @@ async def test_fetch_metadata_uses_cache(tmp_path, monkeypatch):
     paper = await fetch_metadata("1706.03762")
     assert paper["title"] == "Cached Title"
     assert call_count["n"] == 0   # no HTTP call made
+
+
+def test_distinct_old_style_ids_do_not_collide():
+    """Three different papers must not collapse onto one key.
+
+    This is the same class of defect the codebase already documents for Qdrant
+    point ids: a lookup that silently returns another paper's data.
+    """
+    ids = ["math/0309136v1", "math/0511124v2", "hep-ph/0512038v1"]
+    normalised = [_normalise_id(f"http://arxiv.org/abs/{i}") for i in ids]
+    assert len(set(normalised)) == 3, f"ids collided: {normalised}"
+
+
+def test_normalise_id_always_returns_a_string():
+    """CLAUDE.md §3.9 — arXiv ids are strings, never coerced."""
+    for raw in ("0704.0001", "math/0309136v1", "1706.03762v5"):
+        assert isinstance(_normalise_id(raw), str)
+    # Leading zeros survive; pandas-style coercion would eat them.
+    assert _normalise_id("0704.0001") == "0704.0001"

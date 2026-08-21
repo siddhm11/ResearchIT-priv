@@ -52,17 +52,39 @@ import time
 
 sys.path.insert(0, ".")
 
+import xml.etree.ElementTree as ET  # noqa: E402
+
 from app import arxiv_svc, config, http_client  # noqa: E402
 
-# arXiv asks for no more than one request every three seconds for bulk use, and
-# caps a batched id_list at a few hundred. 100 is comfortably inside both and
-# keeps a single failure cheap.
-BATCH = 100
+# arXiv asks for no more than ONE request every three seconds for bulk use.
+#
+# The first run violated that badly and got 429'd from batch 11 onward, losing
+# 9 of 20 batches. The cause was reusing `arxiv_svc.fetch_metadata_batch`, which
+# is tuned for small interactive lookups: it splits any input into 20-id
+# sub-requests fired at ~3/s. So each "batch of 100" was really a burst of five
+# requests, and the 3s pause sat between bursts rather than between requests.
+#
+# This now issues exactly one HTTP request per batch and sleeps between them, so
+# the pause means what it says. A larger id_list per request is also what makes
+# the full sweep tractable: 200 ids per request is 7,183 requests, where 20 ids
+# would be 71,829.
+BATCH = 200
 PAUSE_S = 3.0
+MAX_RETRIES = 4
 
 # Below this an abstract is not really longer than what we already hold, so
 # rewriting the row buys nothing.
 MIN_GAIN_CHARS = 40
+
+# What "truncated" actually means: length EXACTLY at the cap.
+#
+# The first version of this used `>= 500`, which is wrong in both directions
+# that matter. It counted the 193,689 rows whose abstracts are legitimately
+# longer than 500 characters as damaged — overstating the job by 13% — and,
+# worse, a REPAIRED row still matches `>= 500`, so the script would have
+# re-selected and re-fetched its own completed work forever. It was not
+# resumable, despite a test asserting that it was.
+TRUNCATED = "length(abstract_preview) = 500"
 
 
 async def _pipeline(stmts: list[dict], timeout: int = 120) -> list:
@@ -108,11 +130,62 @@ def _cell(v):
     return {"type": "text", "value": str(v)}
 
 
+_NS = {"atom": "http://www.w3.org/2005/Atom"}
+
+
+async def fetch_abstracts(ids: list[str]) -> dict[str, str]:
+    """ONE arXiv request for the whole batch, with backoff on 429.
+
+    Deliberately not `arxiv_svc.fetch_metadata_batch`: that is tuned for small
+    interactive lookups and fans any input out into 20-id sub-requests at ~3/s,
+    which is what got this script rate-limited out of 9 of its first 20 batches.
+    Here one batch is one request, so the pause between them means what it says.
+    """
+    params = {"id_list": ",".join(ids), "max_results": str(len(ids))}
+    delay = PAUSE_S
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            r = await http_client.get_client().get(
+                config.ARXIV_API_URL, params=params, timeout=60)
+            if r.status_code == 429:
+                # arXiv is explicitly asking us to slow down. Honour it rather
+                # than burning the remaining retries at the same rate.
+                delay *= 2
+                print(f"    429 — backing off {delay:.0f}s "
+                      f"(attempt {attempt + 1}/{MAX_RETRIES})")
+                await asyncio.sleep(delay)
+                continue
+            r.raise_for_status()
+        except Exception as e:
+            if attempt == MAX_RETRIES - 1:
+                raise
+            delay *= 2
+            print(f"    {type(e).__name__} — retrying in {delay:.0f}s")
+            await asyncio.sleep(delay)
+            continue
+
+        out: dict[str, str] = {}
+        root = ET.fromstring(r.text)
+        for entry in root.findall("atom:entry", _NS):
+            raw_id = (entry.findtext("atom:id", "", _NS) or "")
+            summary = (entry.findtext("atom:summary", "", _NS) or "").strip()
+            # arxiv_svc's own normaliser, not a hand-rolled one. Old-style ids
+            # carry a category prefix (math/0309136v1) and a naive
+            # rsplit("/")+split("v") mangles both halves — and CLAUDE.md §3.9
+            # makes id integrity a hard rule.
+            aid = arxiv_svc._normalise_id(raw_id)
+            if aid and summary:
+                out[aid] = " ".join(summary.split())
+        return out
+
+    return {}
+
+
 async def survey() -> dict:
     total = int((await _turso("SELECT COUNT(*) FROM papers"))[0][0]["value"])
     capped = int((await _turso(
-        "SELECT COUNT(*) FROM papers WHERE length(abstract_preview) >= 500"
-    ))[0][0]["value"])
+        f"SELECT COUNT(*) FROM papers WHERE {TRUNCATED}"))[0][0]["value"])
     return {"total": total, "capped": capped}
 
 
@@ -128,7 +201,7 @@ async def pick(limit: int, strategy: str) -> list[str]:
         "any": "",
     }[strategy]
     rows = await _turso(
-        f"SELECT arxiv_id FROM papers WHERE length(abstract_preview) >= 500 "
+        f"SELECT arxiv_id FROM papers WHERE {TRUNCATED} "
         f"{order} LIMIT {int(limit)}")
     return [r[0]["value"] for r in rows]
 
@@ -140,19 +213,18 @@ async def repair(ids: list[str], apply: bool) -> dict:
     for i in range(0, len(ids), BATCH):
         chunk = ids[i:i + BATCH]
         try:
-            meta = await arxiv_svc.fetch_metadata_batch(chunk)
+            abstracts = await fetch_abstracts(chunk)
         except Exception as e:
             print(f"  batch {i // BATCH}: fetch failed ({str(e)[:80]}) — skipping")
             continue
 
         updates = []
         for aid in chunk:
-            paper = meta.get(aid)
-            if not paper:
+            full = abstracts.get(aid)
+            if not full:
                 stats["missing"] += 1
                 continue
             stats["fetched"] += 1
-            full = (paper.get("abstract") or "").strip()
             if len(full) < 500 + MIN_GAIN_CHARS:
                 stats["no_gain"] += 1
                 continue
@@ -218,15 +290,8 @@ async def main() -> None:
         # committing thirteen hours to it.
         sample = await pick(min(20, n), args.strategy)
         if sample:
-            meta = await arxiv_svc.fetch_metadata_batch(sample)
-            gains = []
-            for aid in sample:
-                paper = meta.get(aid)
-                if not paper:
-                    continue
-                full = (paper.get("abstract") or "").strip()
-                if full:
-                    gains.append(len(full))
+            abstracts = await fetch_abstracts(sample)
+            gains = [len(v) for v in abstracts.values() if v]
             if gains:
                 longer = sum(1 for g in gains if g >= 500 + MIN_GAIN_CHARS)
                 print(f"\n  sampled {len(gains)} from arXiv:")
