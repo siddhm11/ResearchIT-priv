@@ -20,7 +20,6 @@ import random
 import time
 import uuid
 from collections import OrderedDict
-from datetime import datetime
 
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
@@ -36,7 +35,11 @@ from app.recommend.clustering import (
     stabilize_cluster_ids,
     MIN_PAPERS_FOR_CLUSTERING,
 )
-from app.recommend.fusion import allocate_quotas, merge_quota_results
+from app.recommend.fusion import (
+    allocate_quotas,
+    enforce_quota_on_ranking,
+    merge_quota_results,
+)
 from app.recommend.labels import label_clusters, cluster_tone
 from app.recommend.reranker import rerank_candidates
 # inject_exploration is no longer imported here: exploration is now drawn per
@@ -52,7 +55,14 @@ router = APIRouter(prefix="/api")
 # v8 = cold-start churn: Tier 0 drops already-shown papers and fills slots
 #      epsilon-greedily, so it now logs real propensities instead of 1.0.
 #      Tiers 1-3 are untouched; they record impressions but do not yet use them.
-_RANKER_VERSION = "v8.0_coldstart_churn"
+# v9 = quota is enforced on the SERVED order, not only on the candidate pool.
+#      The merge interleaves clusters instead of concatenating them, and a new
+#      stage re-derives the cross-cluster arrangement from importance after
+#      rerank+MMR. Tier 1 orderings before and after this are not comparable.
+# v9.1 = MMR runs WITHIN each cluster against its own budget instead of
+#      globally, because a global MMR truncated minority interests out of
+#      the pool before the quota stage could arrange them (doc 06, 2026-08-21).
+_RANKER_VERSION = "v9.1_per_cluster_mmr"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -334,14 +344,6 @@ async def get_recommendations(
     if page == 1:
         ctx["interests"] = _feed_interests(entry)
         ctx["strength"] = _profile_strength(entry, len(state.positive_list))
-        # Masthead. The issue number is the user's serial count of feeds, not a
-        # global one — "your 12th issue" is a fact about them; a global number
-        # would be a vanity metric about the service.
-        ctx["issue"] = {
-            "date": datetime.now().strftime("%A %-d %B %Y"),
-            "number": await db.count_feed_issues(user_id),
-            "tier": _serving_tier(entry),
-        }
 
     return _with_cookie(templates.TemplateResponse(request, template, ctx))
 
@@ -740,16 +742,19 @@ async def _multi_interest_recommend(
 
         # Supplement with short-term session context
         if st_vec is not None:
-            seen_so_far = seen | set(candidate_ids)
+            # Built once and maintained, rather than rebuilt from the growing
+            # candidate list on every hit as this used to do.
+            candidate_set = set(candidate_ids)
             st_scored = await qdrant_svc.search_by_vector_with_scores(
                 query_vector=st_vec.tolist(),
                 limit=_ST_SUPPLEMENT,
-                exclude_ids=seen_so_far,
+                exclude_ids=seen | candidate_set,
             )
             for hit in st_scored:
                 aid = hit["arxiv_id"]
-                if aid not in set(candidate_ids):
+                if aid not in candidate_set:
                     candidate_ids.append(aid)
+                    candidate_set.add(aid)
                     paper_cluster_map[aid] = -1  # short-term supplement
                 if aid not in qdrant_score_map:
                     qdrant_score_map[aid] = float(hit["score"])
@@ -805,12 +810,25 @@ async def _multi_interest_recommend(
             dtype=np.float32,
         )
 
-        # Per-candidate cluster importance + medoid (Phase 6.2: per-candidate)
+        # Per-candidate cluster importance + medoid (Phase 6.2: per-candidate).
+        #
+        # Looked up by cluster_idx through a MAP, never by indexing `clusters`.
+        # `paper_cluster_map` stores `cluster.cluster_idx`, which is NOT the
+        # cluster's position in this list: `compute_clusters` assigns
+        # cluster_idx from `enumerate(unique_labels)` and then re-sorts the list
+        # by importance (clustering.py:200 vs :208), and `stabilize_cluster_ids`
+        # reassigns the ids outright to keep them stable across reclusterings.
+        # Indexing the list by cluster_idx therefore handed candidates ANOTHER
+        # cluster's importance and medoid — measured as a mismatch on every
+        # cluster of a 3-cluster user — which is exactly the per-candidate
+        # cluster identity CLAUDE.md §3.10 makes non-negotiable, and it silently
+        # corrupted LightGBM feature slots 23 and 24 for minority interests.
+        cluster_by_idx = {c.cluster_idx: c for c in clusters}
+
         per_candidate_importance = np.asarray(
             [
-                clusters[paper_cluster_map[cid]].importance
-                if cid in paper_cluster_map and paper_cluster_map[cid] >= 0
-                   and paper_cluster_map[cid] < len(clusters)
+                cluster_by_idx[paper_cluster_map[cid]].importance
+                if paper_cluster_map.get(cid, -1) in cluster_by_idx
                 else 0.0
                 for cid in valid_ids
             ],
@@ -820,11 +838,10 @@ async def _multi_interest_recommend(
         per_candidate_medoids = np.stack(
             [
                 np.asarray(
-                    clusters[paper_cluster_map[cid]].medoid_embedding,
+                    cluster_by_idx[paper_cluster_map[cid]].medoid_embedding,
                     dtype=np.float32,
                 )
-                if cid in paper_cluster_map and paper_cluster_map[cid] >= 0
-                   and paper_cluster_map[cid] < len(clusters)
+                if paper_cluster_map.get(cid, -1) in cluster_by_idx
                 else np.zeros(1024, dtype=np.float32)
                 for cid in valid_ids
             ],
@@ -895,18 +912,89 @@ async def _multi_interest_recommend(
                 reranked_scores = [reranked_scores[i] for i in kept]
                 reranked_embs = reranked_embs[kept]
 
-        # ── Step 7: MMR diversity enforcement ─────────────────────────────
+        # ── Step 7: MMR diversity, WITHIN each interest ───────────────────
+        #
+        # Doc 06 §3.5 is explicit about the division of labour: "Quota (3.1)
+        # handles cross-cluster diversity. MMR handles within-quota redundancy."
+        # A single global MMR over the merged pool does not do that — it is
+        # cluster-blind, and it TRUNCATES, which is what made it destructive.
+        #
+        # Measured on a live 2-interest user: the merge handed MMR a correct
+        # 61/39 pool, MMR selected 39 from the dominant interest and exactly 1
+        # from the other, and dumped the remaining 60 minority papers into the
+        # exploration pool. Enforcing quota afterwards could not repair that —
+        # by then there was only one minority paper left to arrange. Quota was
+        # being honoured in the pool and then discarded one stage before it
+        # reached the reader, which is the same defect as the concatenating
+        # merge, one stage further down.
+        #
+        # Running MMR per cluster against that cluster's own slot budget keeps
+        # both properties: redundancy is still suppressed among papers that
+        # compete with each other, and no interest can be truncated away by a
+        # neighbour that simply scores higher.
         t0_mmr = time.time()
         query_vec = lt_vec if lt_vec is not None else aligned_embs.mean(axis=0)
-        mmr_selected = mmr_rerank(
-            query_embedding=query_vec,
-            candidate_embeddings=reranked_embs,
-            candidate_ids=reranked_ids,
-            scores=reranked_scores,
-            lambda_param=0.6,
-            top_k=limit,
-        )
+
+        importance_by_idx = {c.cluster_idx: c.importance for c in clusters}
+
+        # Group the reranked candidates by the cluster that retrieved them,
+        # preserving rerank order within each group.
+        groups: "OrderedDict[int, list[int]]" = OrderedDict()
+        for i, cid in enumerate(reranked_ids):
+            groups.setdefault(paper_cluster_map.get(cid, -1), []).append(i)
+
+        if len(groups) < 2:
+            # Single interest (or none): the global form is already correct.
+            mmr_selected = mmr_rerank(
+                query_embedding=query_vec,
+                candidate_embeddings=reranked_embs,
+                candidate_ids=reranked_ids,
+                scores=reranked_scores,
+                lambda_param=0.6,
+                top_k=limit,
+            )
+        else:
+            # The short-term supplement (-1) has no importance of its own, so
+            # it earns the share of the pool it already holds — neither
+            # promoted nor demoted relative to the real interests.
+            total_cands = len(reranked_ids)
+            keys = list(groups)
+            weights = [
+                importance_by_idx.get(k, len(groups[k]) / total_cands)
+                if k >= 0 else len(groups[k]) / total_cands
+                for k in keys
+            ]
+            budgets = allocate_quotas(weights, total_slots=limit, min_slots=1)
+
+            per_group: list[list[str]] = []
+            for k, budget in zip(keys, budgets):
+                idxs = groups[k]
+                per_group.append(mmr_rerank(
+                    query_embedding=query_vec,
+                    candidate_embeddings=reranked_embs[idxs],
+                    candidate_ids=[reranked_ids[i] for i in idxs],
+                    scores=[reranked_scores[i] for i in idxs],
+                    lambda_param=0.6,
+                    top_k=min(budget, len(idxs)),
+                ))
+
+            # Interleave proportionally — the same stride schedule the
+            # candidate merge uses, so a dominant interest still leads without
+            # taking the whole head of the feed.
+            mmr_selected = merge_quota_results(
+                per_group, [len(g) for g in per_group])
+
         timing["mmr_ms"] = int((time.time() - t0_mmr) * 1000)
+
+        # ── Step 7b: Quota on the SERVED order ────────────────────────────
+        # Belt and braces after the per-cluster selection above: rounding in
+        # the budget split, exhausted groups and the suppression filter can all
+        # leave the interleave slightly off the entitlement. This re-derives the
+        # cross-cluster arrangement from importance while leaving the ranker's
+        # order within each cluster untouched. See fusion.enforce_quota_on_ranking.
+        mmr_selected = enforce_quota_on_ranking(
+            mmr_selected, paper_cluster_map, importance_by_idx,
+        )
 
         # ── Step 8: Split into the ranked feed and the exploration pool ───
         # Exploration is NOT injected here any more. Doc 06 §3.5 specifies two

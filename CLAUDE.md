@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-05-29
+> **Last updated**: 2026-08-21
 
 ---
 
@@ -82,6 +82,8 @@ These are the hard architectural commitments. **Violating any of these is a regr
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
+- **Quota binds the SERVED order, not just the candidate pool.** Enforced at two points: `merge_quota_results` interleaves clusters on a proportional stride schedule (never concatenates their blocks), and `enforce_quota_on_ranking` re-derives the cross-cluster arrangement after rerank + MMR. Order *within* a cluster is the ranker's; order *across* clusters is quota's. Removing either point collapses a multi-interest feed to a single interest — see the 2026-08-16 entry in doc 06.
+- **Never let fusion order leak into a relevance signal.** `candidate_position` (reranker feature 1) is the index in the merged candidate list, and `position_inverse` (feature 35) carries a 0.10 weight in `heuristic_score`. Any merge that groups a cluster's papers together therefore hands that cluster a scoring bonus on top of its slots.
 - **Current status:** Recommendations use per-cluster quota fusion in `app/recommend/fusion.py` and `app/routers/recommendations.py`. `multi_interest_search()` remains only as a legacy helper; do not use it for new recommendation code.
 
 Quota formula:
@@ -135,9 +137,16 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.5 Diversity
 
-- MMR with `lambda = 0.6` over the merged feed, on BGE-M3 embeddings. Code in `app/recommend/diversity.py` via `mmr_rerank()`.
+- MMR with `lambda = 0.6` on BGE-M3 embeddings, run **within each cluster against that
+  cluster's own slot budget** — never once globally over the merged feed. Code in
+  `app/recommend/diversity.py` via `mmr_rerank()`, driven per-cluster from
+  `recommendations.py`. A global MMR is cluster-blind AND truncating: measured, it
+  took a correct 61/39 pool and selected 39/1, dumping 60 minority papers into the
+  exploration pool where no later quota stage could recover them. See doc 06,
+  2026-08-21.
 - Exploration injection: 2 serendipitous papers per feed. Code in `app/recommend/diversity.py` via `inject_exploration()`.
 - Quota (3.1) handles cross-cluster diversity. MMR handles within-quota redundancy.
+  This is a statement about WHERE each runs, not just what it is for.
 - Do NOT use DPPs in v1.
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
@@ -179,7 +188,10 @@ ArXiv IDs can have leading zeros (e.g., `0704.0001`). **Treat all arXiv IDs as s
 
 ### 3.10 Per-candidate cluster identity (Phase 6)
 
-The per-cluster origin of each retrieved candidate is preserved end-to-end via `paper_cluster_map: dict[str, int]` (built in `recommendations.py` before `merge_quota_results()`). This mapping flows through to the reranker as per-candidate `cluster_importance` (N,) and `cluster_medoid` (N, 1024) arrays. **Do not re-introduce dominant-cluster shortcuts as "simplifications"** — LightGBM feature slot 24 (`cluster_distance_to_medoid`) depends on per-candidate medoids to correctly score papers from minority-interest clusters.
+The per-cluster origin of each retrieved candidate is preserved end-to-end via `paper_cluster_map: dict[str, int]` (built in `recommendations.py` before `merge_quota_results()`). This mapping flows through to the reranker as per-candidate `cluster_importance` (N,) and `cluster_medoid` (N, 1024) arrays. **Never index the `clusters` list by `cluster_idx`** — `compute_clusters` assigns the id
+before re-sorting the list by importance, and `stabilize_cluster_ids` reassigns ids outright,
+so id and list position diverge. Look up through a `{cluster_idx: cluster}` map.
+**Do not re-introduce dominant-cluster shortcuts as "simplifications"** — LightGBM feature slot 24 (`cluster_distance_to_medoid`) depends on per-candidate medoids to correctly score papers from minority-interest clusters.
 
 ### 3.11 Interaction instrumentation invariants (Phase 6.5)
 
@@ -469,7 +481,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 |---|---|
 | Source of truth? | `docs/research/06-Deep-Research-Verdict.md` |
 | Master roadmap? | `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` |
-| Recommendation fusion? | Importance-weighted quota with `F_min=3` (Phase 4 complete). |
+| Recommendation fusion? | Importance-weighted quota with `F_min=3`, enforced on the pool AND the served order (see §3.1). |
 | Search fusion? | RRF (hybrid search in Phase 3). |
 | alpha_long? | `0.03` — in `app/recommend/profiles.py` |
 | alpha_short? | `0.40` — in `app/recommend/profiles.py` |
@@ -492,4 +504,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-05-29. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-08-21. Update this date when CLAUDE.md changes.*

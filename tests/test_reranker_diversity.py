@@ -178,6 +178,66 @@ def test_mmr_diversity_effect():
         f"Expected diversity across clusters, only got: {clusters_represented}"
 
 
+def test_mmr_rewards_negative_similarity():
+    """A candidate pointing AWAY from the selected set must beat one merely
+    orthogonal to it, all else equal.
+
+    Guards the vectorised greedy loop. Cosine between 1024-dim BGE-M3 vectors
+    is routinely negative, so seeding the running max-similarity at 0 instead
+    of -inf silently clamps the penalty term and deletes the reward for genuine
+    anti-similarity — the diversity MMR exists to supply. That form passed
+    every other test in this file.
+    """
+    a = np.zeros(1024, dtype=np.float32); a[0] = 1.0     # will be picked first
+    opposite = -a                                        # cosine -1 vs a
+    orthogonal = np.zeros(1024, dtype=np.float32); orthogonal[1] = 1.0   # cosine 0
+
+    embs = np.array([a, orthogonal, opposite])
+    ids = ["anchor", "orthogonal", "opposite"]
+    # Equal relevance, so the diversity term alone decides 2nd place.
+    result = mmr_rerank(a, embs, ids, scores=[1.0, 1.0, 1.0],
+                        lambda_param=0.6, top_k=2)
+
+    assert result[0] == "anchor"
+    assert result[1] == "opposite", (
+        f"expected the anti-similar paper second, got {result[1]} — the "
+        "diversity term is being clamped at zero"
+    )
+
+
+def test_mmr_matches_reference_implementation():
+    """The vectorised selection is the same algorithm, not an approximation."""
+    def reference(query, E, ids, scores, lam, top_k):
+        n = len(ids)
+        if n <= top_k:
+            return list(ids)
+        r = np.array(scores, dtype=np.float64)
+        lo, hi = r.min(), r.max()
+        r = (r - lo) / (hi - lo) if hi > lo else np.ones(n)
+        cn = E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-10)
+        sim = cn @ cn.T
+        sel, rem = [], set(range(n))
+        for _ in range(min(top_k, n)):
+            best_s, best_i = -float("inf"), -1
+            for idx in rem:
+                ms = max(sim[idx, j] for j in sel) if sel else 0.0
+                s = lam * r[idx] - (1.0 - lam) * ms
+                if s > best_s:
+                    best_s, best_i = s, idx
+            sel.append(best_i)
+            rem.discard(best_i)
+        return [ids[i] for i in sel]
+
+    rng = np.random.RandomState(7)
+    for n, k in ((40, 12), (80, 30), (100, 60)):
+        E = rng.randn(n, 1024).astype(np.float32)
+        E /= np.linalg.norm(E, axis=1, keepdims=True)
+        ids = [f"p{i}" for i in range(n)]
+        scores = rng.rand(n).tolist()
+        assert mmr_rerank(E[0], E, ids, scores, 0.6, k) == \
+            reference(E[0], E, ids, scores, 0.6, k), f"diverged at n={n}, k={k}"
+
+
 # ── Exploration injection tests ───────────────────────────────────────────────
 
 def test_exploration_adds_papers():

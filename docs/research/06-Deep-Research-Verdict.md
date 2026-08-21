@@ -230,3 +230,35 @@ regresses to a museum.
 - `update_date` is the last-revision date, not the publication date the sidecar
   derives from the arxiv id, so the two paths window slightly differently.
   Acceptable for a fallback; worth unifying if the fallback ever becomes primary.
+
+### 2026-08-16 — Quota binds the served order, not just the candidate pool
+**Decision:** The importance-weighted quota of §3.1 is now enforced at two points, not one. `merge_quota_results` interleaves clusters on a proportional stride schedule instead of concatenating their blocks, and a new terminal stage, `fusion.enforce_quota_on_ranking`, re-derives the cross-cluster arrangement of the final feed from importance after rerank and MMR have run. Order *within* a cluster remains entirely the ranker's; only the arrangement *across* clusters is quota's to decide.
+**Supersedes:** Nothing in the quota formula itself — allocation is unchanged. It corrects the implicit assumption that bounding the pool's composition also bounds the page's.
+**Rationale:** Quota held in the pool and then dissolved before the screen. Two mechanisms destroyed it, and neither was visible from any single stage's tests:
+
+  1. The merge emitted all of cluster 0, then all of cluster 1. `reranker.compute_features` sets feature 1 (`candidate_position`) from the index in that merged list and feature 35 (`position_inverse`) from `1/(pos+1)`, which `heuristic_score` — the live scorer, since `RERANKER_MODE` defaults to `heuristic` — weights at 0.10. Fusion order was therefore laundered into a relevance signal: the merge decided position, position inflated the score, the score decided the feed.
+  2. Even with a correct merge, `rerank_candidates` sorts globally and `mmr_rerank` selects greedily. Both are blind to clusters and both reward the high similarity the dominant cluster produces, so a long-term EWMA profile leaning one way dragged every score with it.
+
+Measured on a synthetic two-interest user, first page of ten, before → after: importances `[0.75, 0.25]` gave `{0:10}` → `{0:8, 1:2}`; `[0.6, 0.3, 0.1]` gave `{0:10}` → `{0:6, 1:3, 2:1}`; `[0.5, 0.5]` — two *equally* important interests — gave `{0:10}` → `{0:5, 1:5}`. Verified against the live pipeline, which now serves the computed importance ratio exactly (85/15 importance → 8/1 cards).
+
+Interleaving is proportional rather than strict round-robin on purpose: one-each alternation would hand a 25% interest half the head of the list, over-serving it as badly as block ordering under-served it.
+**Action items:**
+  - `_RANKER_VERSION` bumped to `v9.0_served_quota`. Tier 1 orderings before and after are not comparable; any A/B or IPS analysis must partition on it.
+  - `mmr_rerank` was vectorised in the same pass — 7-9 ms → 0.20 ms for the n=100, k=60 pool it is actually called with, bringing the stage inside the §3.8 budget it had been violating. Verified identical output to the previous implementation over 60 randomised trials.
+  - **Open, deferred to Phase 7:** cluster importance is `sum(1/(i+1))` over save *position* (`clustering.py`), which is steeply top-heavy — an even five-and-five save split yields 78/22, and the ratio is decided by save order rather than elapsed time. The serving quota now faithfully transmits whatever that formula produces, which makes its bias directly visible in the feed for the first time. Candidates if it needs softening: `1/sqrt(i+1)` (even split → 64/36) or true time decay. Left unchanged deliberately — it is a documented hyperparameter and there is no ground truth to tune it against until the eval harness exists.
+
+### 2026-08-21 — MMR runs WITHIN each interest, not across them
+**Decision:** MMR is applied per cluster against that cluster's own slot budget, and the per-cluster selections are then interleaved on the stride schedule. The single global `mmr_rerank` over the merged pool is gone for multi-cluster users; the single-cluster path is unchanged. `enforce_quota_on_ranking` stays as a final correction for rounding and exhausted groups.
+**Supersedes:** Nothing in §3.5's parameters — λ stays 0.6. It corrects an implementation that contradicted §3.5's own division of labour: *"Quota (3.1) handles cross-cluster diversity. MMR handles within-quota redundancy."*
+**Rationale:** A global MMR is cluster-blind **and it truncates**, which together made it the last stage to destroy quota. Measured on a live two-interest user: the merge handed MMR a correct 61/39 pool; MMR selected 39 papers from the dominant interest and exactly **1** from the other, dumping the remaining 60 minority papers into the exploration pool. The 2026-08-16 serving-order fix could not repair that — by the time it ran there was a single minority paper left to arrange. This is the same defect as the concatenating merge, one stage further down: quota honoured in the pool, then discarded before it reached the reader.
+
+After the change, the same user's ranked pool went from `{minority: 1, dominant: 39}` to `{minority: 34, dominant: 22}`, and the first ten served went from 1/7 to **6/4** against an importance entitlement of 6.1/3.9. Verified live end-to-end: a user whose persisted importances were 85/15 is served 8/2.
+**Action items:**
+  - `_RANKER_VERSION` → `v9.1_per_cluster_mmr`. Not comparable with v9.0 or earlier.
+  - Exploration is now drawn from a pool that is no longer a dump of one starved interest — worth revisiting whether uniform sampling over it is still the right choice.
+
+### 2026-08-21 — Per-candidate cluster identity was silently broken (§3.10)
+**Decision:** Cluster lookups go through a `{cluster_idx: cluster}` map. Indexing the `clusters` **list** by `cluster_idx` is a bug, and is now guarded by a test.
+**Supersedes:** Nothing — this restores the §3.10 invariant that was already meant to hold.
+**Rationale:** `compute_clusters` assigns `cluster_idx` from `enumerate(unique_labels)` (clustering.py:200) and then re-sorts the list by importance (clustering.py:208); `stabilize_cluster_ids` reassigns the ids outright to keep them stable across reclusterings. So the id and the list position diverge — measured as a mismatch on **every** cluster of a 3-cluster user. `recommendations.py` indexed the list by id in two places, so candidates were scored with another cluster's importance and medoid, corrupting LightGBM feature slots 23 and 24 exactly for the minority-interest papers §3.10 exists to protect.
+**Action items:** Guarded by `test_cluster_idx_is_not_a_list_position` and `test_router_looks_up_clusters_by_id_not_position`.

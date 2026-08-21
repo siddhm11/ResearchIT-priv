@@ -271,3 +271,62 @@ class TestPhase6FeatureWiring:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ── §3.10 per-candidate cluster identity ─────────────────────────────────────
+
+def test_cluster_idx_is_not_a_list_position():
+    """`cluster_idx` must never be used to index the cluster list.
+
+    `compute_clusters` assigns cluster_idx from `enumerate(unique_labels)` and
+    then re-sorts the list by importance, and `stabilize_cluster_ids` reassigns
+    the ids outright. So the id and the list position diverge, and indexing
+    `clusters[cluster_idx]` silently returns a DIFFERENT cluster — which is how
+    minority-interest candidates ended up scored with the dominant cluster's
+    importance and medoid, violating CLAUDE.md §3.10.
+
+    This test pins the divergence itself, so the invariant is enforced at the
+    source rather than at each call site.
+    """
+    import numpy as np
+    from app.recommend.clustering import compute_clusters
+
+    rng = np.random.default_rng(3)
+    embs, ids = [], []
+    for ci, n in enumerate([2, 6, 3]):          # unequal -> the sort reorders
+        centre = rng.normal(size=1024)
+        centre /= np.linalg.norm(centre)
+        for j in range(n):
+            v = centre + 0.25 * rng.normal(size=1024)
+            v /= np.linalg.norm(v)
+            embs.append(v.astype(np.float32))
+            ids.append(f"c{ci}.{j}")
+
+    clusters = compute_clusters(ids, np.array(embs, dtype=np.float32))
+    assert len(clusters) >= 2, "need multiple clusters for this to mean anything"
+
+    # The list is importance-ordered...
+    importances = [c.importance for c in clusters]
+    assert importances == sorted(importances, reverse=True)
+
+    # ...and at least one cluster_idx therefore does NOT equal its position.
+    assert any(pos != c.cluster_idx for pos, c in enumerate(clusters)), (
+        "cluster_idx happened to match list position here; the test corpus no "
+        "longer exercises the divergence this guards"
+    )
+
+    # The only safe lookup is by id.
+    by_idx = {c.cluster_idx: c for c in clusters}
+    for c in clusters:
+        assert by_idx[c.cluster_idx] is c
+
+
+def test_router_looks_up_clusters_by_id_not_position():
+    """The recommendations router must not index `clusters` by cluster_idx."""
+    import pathlib
+    src = pathlib.Path("app/routers/recommendations.py").read_text()
+    assert "clusters[paper_cluster_map[" not in src, (
+        "recommendations.py indexes the cluster LIST by cluster_idx — see "
+        "test_cluster_idx_is_not_a_list_position for why that is wrong"
+    )
+    assert "cluster_by_idx" in src, "expected the id-keyed lookup map"

@@ -75,35 +75,43 @@ def mmr_rerank(
     )
     sim_matrix = cand_norms @ cand_norms.T
 
-    # Greedy MMR selection
+    # Greedy MMR selection.
+    #
+    # Same algorithm as before, without the Python inner loops. The previous
+    # form recomputed `max(sim_matrix[idx, j] for j in selected)` from scratch
+    # for every remaining candidate on every round -- O(n·k²) interpreted
+    # operations, measured at 7-9 ms for the n=100, k=60 pool this is actually
+    # called with, against the ~2 ms doc 06 §3.8 budgets for the whole MMR
+    # stage. The max over selected items only ever grows by one column per
+    # round, so carrying it forward turns each round into two vector ops.
     selected_indices: list[int] = []
-    remaining = set(range(n))
+    # Similarity of each candidate to the closest already-selected item.
+    #
+    # -inf, NOT zeros: cosine similarity between 1024-dim BGE-M3 vectors is
+    # routinely negative, and a running max seeded at zero would clamp the
+    # penalty term at 0. That silently deletes the reward a candidate earns for
+    # pointing AWAY from everything already selected -- which is precisely the
+    # diversity MMR exists to supply. The empty-selection case is handled by
+    # the branch below rather than by the seed, matching the original's
+    # `max_sim = 0.0` on the first round only.
+    max_sim = np.full(n, -np.inf, dtype=np.float64)
+    available = np.ones(n, dtype=bool)
 
     for _ in range(min(top_k, n)):
-        best_score = -float("inf")
-        best_idx = -1
+        if selected_indices:
+            mmr_scores = lambda_param * relevance - (1.0 - lambda_param) * max_sim
+        else:
+            mmr_scores = lambda_param * relevance
+        mmr_scores[~available] = -np.inf
 
-        for idx in remaining:
-            # Relevance term
-            rel = lambda_param * relevance[idx]
-
-            # Diversity term: max similarity to any already-selected item
-            if selected_indices:
-                max_sim = max(sim_matrix[idx, j] for j in selected_indices)
-            else:
-                max_sim = 0.0
-
-            mmr_score = rel - (1.0 - lambda_param) * max_sim
-
-            if mmr_score > best_score:
-                best_score = mmr_score
-                best_idx = idx
-
-        if best_idx < 0:
+        best_idx = int(np.argmax(mmr_scores))
+        if not available[best_idx]:
             break
 
         selected_indices.append(best_idx)
-        remaining.discard(best_idx)
+        available[best_idx] = False
+        # Fold the newly selected item into the running max.
+        np.maximum(max_sim, sim_matrix[:, best_idx], out=max_sim)
 
     return [candidate_ids[i] for i in selected_indices]
 

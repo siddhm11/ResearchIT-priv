@@ -9,9 +9,14 @@ Covers:
   - Single cluster gets all slots
   - Equal importances → roughly equal allocation
   - Zero importances fall back to equal distribution
-  - merge_quota_results deduplication and order
+  - merge_quota_results deduplication, interleaving and order
+  - enforce_quota_on_ranking: quota survives the global re-sort
 """
-from app.recommend.fusion import allocate_quotas, merge_quota_results
+from app.recommend.fusion import (
+    allocate_quotas,
+    enforce_quota_on_ranking,
+    merge_quota_results,
+)
 
 
 # ── allocate_quotas ───────────────────────────────────────────────────────────
@@ -210,12 +215,84 @@ def test_merge_deduplicates():
     assert result.count("shared") == 1, "Duplicate 'shared' should appear only once"
 
 
-def test_merge_preserves_order():
-    """Cluster A results appear before Cluster B results."""
-    cluster_a = ["a1", "a2"]
-    cluster_b = ["b1", "b2"]
-    result = merge_quota_results([cluster_a, cluster_b], quotas=[2, 2])
-    assert result == ["a1", "a2", "b1", "b2"]
+def test_merge_interleaves_clusters():
+    """Clusters are interleaved, not concatenated.
+
+    This test previously asserted ["a1", "a2", "b1", "b2"] -- i.e. it locked in
+    the block ordering that made the multi-interest feed render as a single
+    interest. Blocked output puts every minority-cluster paper behind the whole
+    dominant block, and since `candidate_position` (reranker feature 1) is the
+    index in THIS list, the dominant cluster also collected the entire
+    `position_inverse` bonus. The docstring always said round-robin; the code
+    did not.
+    """
+    result = merge_quota_results([["a1", "a2"], ["b1", "b2"]], quotas=[2, 2])
+    assert result == ["a1", "b1", "a2", "b2"]
+
+
+def test_merge_preserves_within_cluster_order():
+    """A cluster's own ranking is never reordered by the interleave."""
+    result = merge_quota_results([["a1", "a2", "a3"], ["b1", "b2"]], quotas=[3, 2])
+    assert [r for r in result if r.startswith("a")] == ["a1", "a2", "a3"]
+    assert [r for r in result if r.startswith("b")] == ["b1", "b2"]
+
+
+def test_merge_spaces_clusters_proportionally():
+    """A 3:1 quota split appears roughly 3:1 throughout, not 3 then 1.
+
+    Strict alternation would be just as wrong as concatenation in the other
+    direction: it would hand a 25% interest half of the head of the list.
+    """
+    big = [f"a{i}" for i in range(30)]
+    small = [f"b{i}" for i in range(10)]
+    result = merge_quota_results([big, small], quotas=[30, 10])
+
+    # Every leading window is roughly 3:1, so the minority interest is present
+    # early but never over-served.
+    for window in (8, 16, 24):
+        head = result[:window]
+        n_small = sum(1 for r in head if r.startswith("b"))
+        assert 1 <= n_small <= window // 3 + 1, (
+            f"first {window}: {n_small} minority papers -- expected ~{window // 4}"
+        )
+
+
+def test_merge_first_page_spans_every_cluster():
+    """The property the whole architecture exists for.
+
+    With three interests present, a 10-card first page must show all three.
+    Under the old block merge it showed only the dominant one.
+    """
+    clusters = [[f"c{c}.{i}" for i in range(40)] for c in range(3)]
+    result = merge_quota_results(clusters, quotas=[60, 30, 10])
+    first_page = {r.split(".")[0] for r in result[:10]}
+    assert first_page == {"c0", "c1", "c2"}, f"first page only had {first_page}"
+
+
+def test_merge_set_is_unchanged_by_interleaving():
+    """Interleaving changes ORDER only -- never which papers are in the pool.
+
+    Guards the fix against silently altering pool composition, which would
+    change what the reranker gets to consider rather than just its arrangement.
+    """
+    clusters = [[f"c{c}.{i}" for i in range(50)] for c in range(3)]
+    quotas = [30, 20, 10]
+
+    # Reference: the previous block-concatenating behaviour.
+    seen, expected = set(), []
+    for ids, q in zip(clusters, quotas):
+        count = 0
+        for aid in ids:
+            if count >= q:
+                break
+            if aid not in seen:
+                expected.append(aid)
+                seen.add(aid)
+                count += 1
+
+    result = merge_quota_results(clusters, quotas)
+    assert set(result) == set(expected)
+    assert len(result) == len(expected)
 
 
 def test_merge_empty_cluster():
@@ -229,3 +306,104 @@ def test_merge_empty_cluster():
 def test_merge_empty_input():
     """No clusters → empty result."""
     assert merge_quota_results([], []) == []
+
+
+# ── enforce_quota_on_ranking ──────────────────────────────────────────────────
+#
+# The pool-level quota is only half the guarantee. rerank_candidates sorts
+# globally by score and MMR selects greedily, and neither knows what a cluster
+# is -- so a pool with a correct split can still be SERVED as one interest.
+# These cover the stage that defends the split all the way to the screen.
+
+def _blocked(counts: dict[str, int]) -> tuple[list[str], dict[str, int]]:
+    """A ranking that is perfectly cluster-sorted -- the worst realistic case."""
+    ranked, cluster_of = [], {}
+    for ci, (name, n) in enumerate(counts.items()):
+        for i in range(n):
+            aid = f"{name}.{i}"
+            ranked.append(aid)
+            cluster_of[aid] = ci
+    return ranked, cluster_of
+
+
+def test_enforce_is_a_permutation():
+    """Nothing is dropped, duplicated, or invented."""
+    ranked, cluster_of = _blocked({"a": 35, "b": 25})
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.5, 1: 0.5})
+    assert sorted(out) == sorted(ranked)
+    assert len(out) == len(ranked)
+
+
+def test_enforce_preserves_within_cluster_order():
+    """The ranker's judgment inside a cluster is untouched -- only the
+    cross-cluster arrangement is re-derived from importance."""
+    ranked, cluster_of = _blocked({"a": 20, "b": 10})
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.7, 1: 0.3})
+    for name in ("a", "b"):
+        kept = [r for r in out if r.startswith(name)]
+        assert kept == [r for r in ranked if r.startswith(name)]
+
+
+def test_enforce_balances_equally_important_interests():
+    """Two equally important interests split the first page evenly.
+
+    Measured before the fix: a 50/50 pool served an 80/20 first page, because
+    the long-term EWMA profile leaned one way and dragged every score with it.
+    """
+    ranked, cluster_of = _blocked({"a": 35, "b": 25})
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.5, 1: 0.5})
+    n_b = sum(1 for r in out[:10] if r.startswith("b"))
+    assert 4 <= n_b <= 6, f"expected a near-even first page, got {10 - n_b}/{n_b}"
+
+
+def test_enforce_rescues_a_starved_minority_interest():
+    """A blocked ranking is the case that produced a single-interest feed."""
+    ranked, cluster_of = _blocked({"a": 50, "b": 8, "c": 2})
+    out = enforce_quota_on_ranking(
+        ranked, cluster_of, {0: 0.6, 1: 0.3, 2: 0.1}
+    )
+    assert len({r.split(".")[0] for r in ranked[:10]}) == 1   # before: one interest
+    assert len({r.split(".")[0] for r in out[:10]}) == 3      # after: all three
+
+
+def test_enforce_respects_importance_ordering():
+    """More important interests still get more of the page -- balance, not parity."""
+    ranked, cluster_of = _blocked({"a": 40, "b": 20})
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.8, 1: 0.2})
+    n_a = sum(1 for r in out[:10] if r.startswith("a"))
+    assert n_a > 5, f"dominant interest should still lead the page, got {n_a}/10"
+
+
+def test_enforce_single_cluster_is_a_noop():
+    """Nothing to interleave — the ranking passes through untouched."""
+    ranked, cluster_of = _blocked({"a": 12})
+    assert enforce_quota_on_ranking(ranked, cluster_of, {0: 1.0}) == ranked
+
+
+def test_enforce_handles_short_term_supplement():
+    """Supplement papers (cluster -1) have no importance; they keep the share
+    they already hold and are spread rather than clumped at the end."""
+    ranked, cluster_of = _blocked({"a": 20, "b": 10})
+    for i in range(6):
+        aid = f"st.{i}"
+        ranked.append(aid)
+        cluster_of[aid] = -1
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.7, 1: 0.3})
+    assert sorted(out) == sorted(ranked)
+    positions = [i for i, r in enumerate(out) if r.startswith("st")]
+    assert min(positions) < len(out) // 2, "supplement was clumped at the tail"
+
+
+def test_enforce_tolerates_unknown_and_missing_clusters():
+    """Never raises on ids absent from the map or importances absent for a
+    cluster — both are reachable when a recluster races a cached feed."""
+    ranked = [f"x{i}" for i in range(10)]
+    assert sorted(enforce_quota_on_ranking(ranked, {}, {})) == sorted(ranked)
+    cluster_of = {aid: i % 3 for i, aid in enumerate(ranked)}
+    out = enforce_quota_on_ranking(ranked, cluster_of, {0: 0.5})
+    assert sorted(out) == sorted(ranked)
+
+
+def test_enforce_trivial_inputs():
+    assert enforce_quota_on_ranking([], {}, {}) == []
+    assert enforce_quota_on_ranking(["only"], {"only": 0}, {0: 1.0}) == ["only"]
