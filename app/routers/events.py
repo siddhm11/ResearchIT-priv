@@ -52,7 +52,7 @@ async def save_paper(
     # resolves arxiv_id -> vector in one filtered call, so the arxiv_id -> point_id
     # cache it populated is no longer on any read path. _update_profile_on_save
     # warms the in-process vector cache, which is the one that still matters.
-    asyncio.create_task(_update_profile_on_save(user_id, paper_id))
+    _spawn(_update_profile_on_save(user_id, paper_id))
 
     # The response replaces the whole actions row, so it has to carry enough
     # context to re-render every control in it — including "Why this?", which
@@ -110,7 +110,7 @@ async def not_interested(
     )
 
     us.record_negative(user_id, paper_id)
-    asyncio.create_task(_update_profile_on_dismiss(user_id, paper_id))
+    _spawn(_update_profile_on_dismiss(user_id, paper_id))
 
     resp = HTMLResponse(content="")
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
@@ -118,6 +118,24 @@ async def not_interested(
 
 
 # ── Background EWMA profile update helpers ────────────────────────────────────
+
+# ── Background profile updates ───────────────────────────────────────────────
+#
+# asyncio only keeps a WEAK reference to a running task, so a task nobody holds
+# can be garbage-collected mid-await and simply vanish — the documented footgun
+# in asyncio.create_task. These updates are the only thing that turns a save
+# into a profile, so losing one loses the user's signal silently.
+#
+# Holding the task in a set until it finishes is the standard remedy. The
+# done-callback discards it, so the set stays the size of the in-flight work.
+_pending: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
+
 
 async def _update_profile_on_save(user_id: str, paper_id: str) -> None:
     """Background task: fetch paper embedding and update EWMA profiles."""

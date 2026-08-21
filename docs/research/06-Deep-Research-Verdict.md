@@ -262,3 +262,25 @@ After the change, the same user's ranked pool went from `{minority: 1, dominant:
 **Supersedes:** Nothing — this restores the §3.10 invariant that was already meant to hold.
 **Rationale:** `compute_clusters` assigns `cluster_idx` from `enumerate(unique_labels)` (clustering.py:200) and then re-sorts the list by importance (clustering.py:208); `stabilize_cluster_ids` reassigns the ids outright to keep them stable across reclusterings. So the id and the list position diverge — measured as a mismatch on **every** cluster of a 3-cluster user. `recommendations.py` indexed the list by id in two places, so candidates were scored with another cluster's importance and medoid, corrupting LightGBM feature slots 23 and 24 exactly for the minority-interest papers §3.10 exists to protect.
 **Action items:** Guarded by `test_cluster_idx_is_not_a_list_position` and `test_router_looks_up_clusters_by_id_not_position`.
+
+### 2026-08-21 — The long-term profile was one paper, and most updates never landed
+**Decision:** Three changes to `app/recommend/profiles.py`, none of which touches α.
+  1. **Running-mean warmup.** `α_effective = max(α, 1/(count+1))`, converging to the documented α at 33 saves.
+  2. **The stored accumulator keeps its magnitude.** `load_profile` normalises on read; `load_profile_raw` feeds the update path.
+  3. **Per-user serialisation** of the read-modify-write, via a `WeakValueDictionary` of `asyncio.Lock`.
+**Supersedes:** Nothing in §3.2 — `ALPHA_LONG_TERM` remains 0.03, and the steady state is bit-for-bit the documented EWMA. What changed is the startup transient and the concurrency behaviour.
+**Rationale:** The long-term profile is the largest term in `heuristic_score` (0.40), the relevance axis MMR selects against, and the entirety of Tier 2. The UI calls it "the overall profile built from your saved papers". It was neither built from them nor overall.
+
+*Startup.* A plain EWMA seeded with its first observation never escapes it. Because the profile was L2-normalised after every step it always had unit magnitude, so each new paper got a fixed 3% pull against a full-strength incumbent. Measured with the real function over near-orthogonal saves, `cos(profile, first_save)` was 0.996 after ten saves and **still 0.982 after forty**.
+
+*Normalisation.* The magnitude of a running mean of unit vectors encodes how much those vectors agree — measured 0.989 for one tight interest, 0.565 for three, 0.214 for an incoherent library. Rescaling to 1 after every step destroyed that and re-inflated the incumbent. For a three-interest user over twenty saves, `cos(profile, centroid)` was 0.726 normalising each step against 1.000 accumulating. No consumer needed the unit form — the reranker, MMR and Qdrant all normalise defensively — so only the stored accumulator changed.
+
+*Concurrency.* Every update is a read-modify-write across two awaits, unserialised. Ten concurrent saves for one user left `interaction_count` at **1**. The live database carried exactly that signature: users with 10 saves holding profile counts of 2, 4 and 6. Saving several papers quickly is the normal way to use this product, so most of what a new user told the system was discarded. Separately, the background task was passed to `asyncio.create_task` with no reference retained, which asyncio documents as collectable mid-flight; it is now held in a set until done.
+
+Combined effect, three interests over twenty saves: `cos(profile, centroid)` 0.446 → 1.000, `cos(profile, first_save)` ~0.99 → 0.61 (≈1/√3, the correct value for one of three equal clusters).
+**Action items:** Existing profiles self-heal — a stored unit vector is a valid accumulator and its `interaction_count` feeds the warmup, so no migration is needed.
+
+### 2026-08-21 — Exploration draws from the far half of the leftovers
+**Decision:** The exploration pool keeps the half furthest from the long-term profile before shuffling.
+**Rationale:** The pool is by construction "everything the ranker just rejected" — the next-best matches to the user's own clusters — and the card labels those "Something different". Sampling uniformly served slightly-worse versions of what the reader already sees under a label claiming the opposite. Restricting to the far half costs nothing, since the embeddings and profile are already in hand, and keeps the draw random so §3.11's propensity arithmetic stays exact.
+**Action items:** This is not true serendipity: every candidate was retrieved by one of the user's own medoids, so the pool contains nothing from outside their neighbourhoods. That needs a retrieval the pipeline does not currently make.

@@ -1022,6 +1022,40 @@ async def _multi_interest_recommend(
         mmr_set = set(mmr_selected)
         explore_pool = [aid for aid in reranked_ids if aid not in mmr_set]
 
+        # Bias the pool toward papers that are genuinely UNLIKE the profile.
+        #
+        # The card labels these "Something different" and doc 06 §3.5 asks for
+        # SERENDIPITOUS picks, but the pool is by construction "everything the
+        # ranker just rejected" — i.e. the next-best matches to the user's own
+        # clusters. Sampling it uniformly served slightly-worse versions of what
+        # the reader already sees, under a label claiming the opposite.
+        #
+        # Keeping the half furthest from the long-term profile costs nothing —
+        # the embeddings and the profile are both already in hand — and makes
+        # the label true relative to what is available. It is not true
+        # serendipity: every candidate here was retrieved BY one of the user's
+        # own medoids, so the pool has no papers from outside their
+        # neighbourhoods at all. Getting those needs a retrieval this pipeline
+        # does not currently make, which is a bigger change than this one.
+        #
+        # The far half rather than the single furthest paper, because the draw
+        # must stay random: §3.11 needs a real per-paper selection probability,
+        # and `explore_propensity` in _build_page() is computed over whatever
+        # pool ends up here, so restricting it keeps that arithmetic correct.
+        if lt_vec is not None and len(explore_pool) > 4:
+            emb_by_id = {
+                aid: reranked_embs[i] for i, aid in enumerate(reranked_ids)
+            }
+            lt_unit = lt_vec / (np.linalg.norm(lt_vec) + 1e-10)
+            scored = sorted(
+                explore_pool,
+                key=lambda aid: float(
+                    emb_by_id[aid] @ lt_unit
+                    / (np.linalg.norm(emb_by_id[aid]) + 1e-10)
+                ),
+            )
+            explore_pool = scored[: max(2, len(scored) // 2)]
+
         # Phase 4.5 + 6.5: per-paper instrumentation, for the whole pool.
         # candidate_source here is the RETRIEVAL origin; papers served as an
         # exploration pick get that overridden at page-build time, since the
