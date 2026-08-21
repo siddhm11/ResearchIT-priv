@@ -65,22 +65,39 @@ PAUSE_S = 3.0
 MIN_GAIN_CHARS = 40
 
 
-async def _turso(sql: str, args: list | None = None, timeout: int = 90):
+async def _pipeline(stmts: list[dict], timeout: int = 120) -> list:
+    """Run several statements in ONE round trip.
+
+    The write path originally issued one UPDATE per row. At ~150ms per round
+    trip that is not a detail: a full sweep of 1.63M rows would spend ~68 hours
+    on HTTP alone, dwarfing the 13.6 hours of arXiv rate limiting the estimate
+    was based on. Turso's pipeline API takes a batch, so a batch is what it gets.
+    """
     url = config.TURSO_URL.replace("libsql://", "https://").rstrip("/")
-    stmt = {"sql": sql}
-    if args is not None:
-        stmt["args"] = args
     r = await http_client.get_client().post(
         f"{url}/v2/pipeline",
-        json={"requests": [{"type": "execute", "stmt": stmt}, {"type": "close"}]},
+        json={"requests": [{"type": "execute", "stmt": s} for s in stmts]
+                          + [{"type": "close"}]},
         headers={"Authorization": f"Bearer {config.TURSO_DB_TOKEN}",
                  "Content-Type": "application/json"},
         timeout=timeout)
     r.raise_for_status()
-    res = r.json()["results"][0]
-    if res.get("type") == "error":
-        raise RuntimeError(str(res.get("error"))[:300])
-    return res["response"]["result"]["rows"]
+    out = []
+    for res in r.json()["results"]:
+        if res.get("type") == "error":
+            raise RuntimeError(str(res.get("error"))[:300])
+        resp = res.get("response", {})
+        if resp.get("type") == "execute":
+            out.append(resp["result"]["rows"])
+    return out
+
+
+async def _turso(sql: str, args: list | None = None, timeout: int = 90):
+    stmt = {"sql": sql}
+    if args is not None:
+        stmt["args"] = args
+    rows = await _pipeline([stmt], timeout=timeout)
+    return rows[0] if rows else []
 
 
 def _cell(v):
@@ -143,14 +160,17 @@ async def repair(ids: list[str], apply: bool) -> dict:
             updates.append((aid, full))
 
         if apply and updates:
-            for aid, full in updates:
-                try:
-                    await _turso(
-                        "UPDATE papers SET abstract_preview = ? WHERE arxiv_id = ?",
-                        [_cell(full), _cell(aid)])
-                    stats["written"] += 1
-                except Exception as e:
-                    print(f"  write failed for {aid}: {str(e)[:80]}")
+            # One round trip for the whole batch, not one per row.
+            try:
+                await _pipeline([
+                    {"sql": "UPDATE papers SET abstract_preview = ? "
+                            "WHERE arxiv_id = ?",
+                     "args": [_cell(full), _cell(aid)]}
+                    for aid, full in updates
+                ])
+                stats["written"] += len(updates)
+            except Exception as e:
+                print(f"  batch write failed ({str(e)[:100]}) — rows unchanged")
 
         done = min(i + BATCH, len(ids))
         print(f"  {done}/{len(ids)}  longer={stats['longer']}  "
@@ -182,9 +202,11 @@ async def main() -> None:
     print(f"corpus: {s['total']:,} papers, {s['capped']:,} truncated ({pct:.1f}%)\n")
 
     batches = -(-s["capped"] // BATCH)
-    hours = batches * PAUSE_S / 3600
-    print(f"full repair would be ~{batches:,} arXiv requests at {PAUSE_S}s "
-          f"= ~{hours:.1f} hours\n")
+    # Both legs, honestly: arXiv rate limiting AND the Turso write round trips.
+    # Counting only the former underestimated a full sweep badly.
+    hours = batches * (PAUSE_S + 2.0) / 3600
+    print(f"full repair would be ~{batches:,} batches of {BATCH} "
+          f"(~{hours:.1f} hours, arXiv rate limit + one write round trip each)\n")
 
     if args.dry_run or not args.apply:
         n = s["capped"] if args.all else args.limit

@@ -63,3 +63,34 @@ def test_the_script_is_resumable():
     src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
     assert "length(abstract_preview) >= 500" in src, (
         "selection is not driven by the defect, so a re-run would redo work")
+
+
+def test_writes_are_batched_into_one_round_trip():
+    """One UPDATE per row is not a detail at this scale.
+
+    At ~150ms per Turso round trip, 1.63M individual writes would spend ~68
+    hours on HTTP alone — dwarfing the arXiv rate limiting the estimate was
+    originally based on. Turso's pipeline API takes a batch.
+    """
+    src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
+    assert "async def _pipeline" in src
+    assert "for aid, full in updates" in src
+
+    # The per-row await inside the write loop is what must not come back.
+    import ast
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "repair":
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.For):
+                    body = ast.unparse(inner)
+                    if "UPDATE papers" in body and "_turso(" in body:
+                        pytest.fail(
+                            "repair() awaits a write inside a per-row loop")
+
+
+def test_the_estimate_counts_both_legs():
+    """Counting only arXiv underestimated a full sweep by ~9 hours."""
+    src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
+    assert "PAUSE_S + 2.0" in src, (
+        "the time estimate ignores the write round trip")
