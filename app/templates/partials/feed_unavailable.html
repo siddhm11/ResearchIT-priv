@@ -1,0 +1,29 @@
+{#
+  Feed error state.
+
+  Distinct from empty_recs.html, and the distinction matters. Every Qdrant
+  helper swallows failures into empty lists (`_fanout` appends `[]` per dead
+  shard), so a total outage walks the whole tier cascade returning nothing and
+  arrives at exactly the same place as a brand-new user with no library. A
+  reader with forty saves was then told "Save 1 paper and this feed starts
+  building itself" — which reads as though their library had been lost.
+
+  Nothing HAS been lost: saves live in SQLite and replicate to Turso, entirely
+  independent of the vector store. Say so plainly, and offer the surfaces that
+  do not depend on the failing one.
+#}
+<div class="empty">
+  <p class="empty-title">The feed can't be built right now</p>
+  <p class="empty-body">
+    Your library is safe — this is the paper-matching service being
+    unreachable, not anything of yours going missing. It usually passes within
+    a few minutes.
+  </p>
+  <div class="row" style="justify-content:center;padding-top:.4rem">
+    <button type="button" class="btn btn-primary btn-sm"
+            hx-get="/api/recommendations"
+            hx-target="#rec-section"
+            hx-swap="innerHTML">Try again</button>
+    <a href="/saved" class="btn btn-quiet btn-sm">Your library</a>
+  </div>
+</div>

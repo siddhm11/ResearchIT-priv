@@ -288,6 +288,22 @@ async def get_recommendations(
         return resp
 
     def _empty_resp():
+        """Nothing to show — but say WHY, because the two reasons look identical
+        from here and only one of them is the user's fault.
+
+        Every Qdrant helper swallows failures into empty lists (`_fanout`
+        appends `[]` per dead shard), so a total outage walks the entire tier
+        cascade returning nothing and lands exactly where a brand-new user with
+        no library lands. Verified: a user with 20 saves got "Save 1 paper and
+        this feed starts building itself", which reads as though their library
+        had been destroyed. It has not — saves live in SQLite and replicate to
+        Turso, independent of the vector store.
+        """
+        if state.positive_list:
+            return _with_cookie(templates.TemplateResponse(
+                request, "partials/feed_unavailable.html", {},
+                status_code=503,
+            ))
         return _with_cookie(templates.TemplateResponse(
             request, "partials/empty_recs.html", {"min_saves": REC_MIN_POSITIVES},
         ))
