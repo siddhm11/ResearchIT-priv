@@ -18,6 +18,7 @@ rewrite -> encode -> dense+sparse fanout -> RRF -> title boost, and
 arxiv_id. These are thin, honest wrappers over both. Qdrant credentials stay
 here and are never handed to the edge app.
 """
+import asyncio
 import time
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -46,12 +47,18 @@ def _authorize(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid service token")
 
 
-def _titles_for(arxiv_ids: list[str]) -> dict[str, str]:
-    """Best-effort titles from the local sidecar; absent ids simply stay absent."""
+async def _titles_for(arxiv_ids: list[str]) -> dict[str, str]:
+    """Best-effort titles from the local sidecar; absent ids simply stay absent.
+
+    Off the event loop: local_meta is synchronous sqlite3 over a 2.7 GB file,
+    and blocking here stalls every other in-flight request. Two of the three
+    call sites pass a handful of ids, but the batch one (line 94) passes a
+    whole page of results.
+    """
     if not arxiv_ids:
         return {}
     try:
-        rows = local_meta.fetch_rows(arxiv_ids)
+        rows = await asyncio.to_thread(local_meta.fetch_rows, arxiv_ids)
     except Exception as exc:  # sidecar is optional, never fatal
         print(f"[space] title lookup failed ({exc})")
         return {}
@@ -91,7 +98,7 @@ async def space_search(
         print(f"[space] search failed ({exc})")
         raise HTTPException(status_code=502, detail="search unavailable") from exc
 
-    titles = _titles_for(list(ids))
+    titles = await _titles_for(list(ids))
     return {
         "query": query,
         "tookMs": round((time.perf_counter() - started) * 1000),
@@ -188,7 +195,7 @@ async def space_similarity(
         raise HTTPException(status_code=502, detail="vector store unavailable") from exc
 
     va, vb = vectors.get(left), vectors.get(right)
-    titles = _titles_for([left, right])
+    titles = await _titles_for([left, right])
     both = va is not None and vb is not None
     return {
         "a": {"arxivId": left, "title": titles.get(left, ""), "found": va is not None},
@@ -233,7 +240,7 @@ async def space_neighbors(
         raise HTTPException(status_code=502, detail="vector store unavailable") from exc
 
     hits = hits[:limit]
-    titles = _titles_for([h["arxiv_id"] for h in hits])
+    titles = await _titles_for([h["arxiv_id"] for h in hits])
     return {
         "arxivId": anchor,
         "found": True,

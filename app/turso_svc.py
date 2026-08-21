@@ -13,6 +13,7 @@ Table:      papers (arxiv_id UNIQUE INDEX)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from collections import OrderedDict
@@ -115,7 +116,15 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
     # missing or partially-built sidecar only costs us the speedup.
     from app import local_meta
     if local_meta.is_available():
-        for row in local_meta.fetch_rows(misses):
+        # Off the event loop. local_meta is synchronous sqlite3 against a 2.7 GB
+        # file, and a blocking call inside an async handler stalls EVERY other
+        # in-flight request, including ones that never touch the sidecar.
+        # Measured on a 300k-row stand-in, a 72 ms query held the loop for
+        # 78 ms; off-loop that drops to scheduler granularity. The connection is
+        # opened read-only with check_same_thread=False precisely so it can be
+        # shared across threads (local_meta._probe).
+        sidecar_rows = await asyncio.to_thread(local_meta.fetch_rows, misses)
+        for row in sidecar_rows:
             paper = _to_paper_dict(row)
             if paper:
                 output[paper["arxiv_id"]] = paper
@@ -369,9 +378,12 @@ async def fetch_trending_by_categories(
     # this becomes an index range read.
     from app import local_meta
     if local_meta.is_available():
-        rows = local_meta.fetch_trending(
-            set(categories), limit=limit,
-            recency_months=config.TRENDING_RECENCY_MONTHS,
+        # Off the event loop — see fetch_metadata_batch. This one matters more:
+        # trending is the single most expensive query in the system and the one
+        # that lands on brand-new users.
+        rows = await asyncio.to_thread(
+            local_meta.fetch_trending, set(categories),
+            limit, config.TRENDING_RECENCY_MONTHS,
         )
         if rows:
             papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
