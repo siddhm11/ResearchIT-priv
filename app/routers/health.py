@@ -12,7 +12,7 @@ import json
 import time
 from fastapi import APIRouter, Request
 from app.recommend import reranker as _rr
-from app import config
+from app import config, qdrant_svc
 
 router = APIRouter()
 
@@ -397,3 +397,146 @@ async def healthz_deep():
     results["overall"] = "healthy" if all_ok else "degraded"
 
     return results
+
+
+@router.get("/healthz/shard-latency")
+async def healthz_shard_latency(samples: int = 5, limit: int = 20):
+    """Measure real search latency per shard, in isolation.
+
+    WHY THIS EXISTS
+    ---------------
+    /healthz/shards asserts the shards share a retrieval CONFIG. It says nothing
+    about what that config costs. The two clusters currently hold near-identical
+    volume — arxiv_dense_a has 899,456 points, and arxiv_dense_b plus
+    arxiv_recent have 899,382 between them, a 74-point difference — yet shard a
+    runs `hnsw_on_disk: true` and the other two do not.
+
+    That asymmetry has two possible explanations and they call for opposite
+    actions. Either the clusters are different tiers and on-disk traversal is
+    correct for a; or the setting is left over from when a held all 1.8M papers
+    (the config notes the primary was "already degraded" at ~4.5 GB against a
+    4 GB limit) and was never reverted after the split halved it. Cluster 2 is
+    direct evidence that ~899k points CAN sit in RAM on this tier.
+
+    Inferring which from the outside is guesswork. Timing them is not.
+
+    WHAT IT MEASURES
+    ----------------
+    The same query vector against each backend separately via use_backend(), so
+    the only variable is which cluster answered. Reports per-shard median and
+    max, the first sample separately (cold path, where an on-disk HNSW graph
+    should hurt most), and the on-disk flag alongside — so the correlation is
+    visible in one response rather than needing two endpoints and arithmetic.
+
+    A FIXED query vector, derived from a constant seed rather than encoded from
+    text: BGE-M3 is not loaded in every environment, and a run-to-run difference
+    in the query would confound the comparison this exists to make.
+
+    WHAT IT CANNOT MEASURE, AND WHY THE FIRST SAMPLE IS DISCARDED
+    ------------------------------------------------------------
+    An earlier version reported the first sample as a "cold" reading. It was
+    measuring the wrong thing. On a freshly started process the first call was
+    1743-5891 ms, but on the second and third calls IN THE SAME PROCESS it was
+    366 ms and 470 ms — indistinguishable from the median. The spike is client
+    construction and TLS setup on our side, not the shard reading its graph.
+
+    So each shard gets a discarded warm-up call and every reported number is
+    steady state. True cold-graph latency is not observable from here at all:
+    the page cache that matters is on Qdrant's side and there is no way to
+    evict it from a client. Steady state is still the right comparison for the
+    on-disk question — a graph that does not fit in page cache pays on
+    sustained queries too — it simply is not the dramatic number.
+
+    Deliberately NOT an encoder amplifier. /healthz/ab takes free text and runs
+    BGE-M3 per request, which is unauthenticated compute; this takes no text at
+    all, and both parameters are clamped.
+    """
+    import numpy as np
+
+    samples = max(1, min(int(samples), 10))
+    limit = max(1, min(int(limit), 50))
+
+    # Deterministic unit vector. The same probe every run, so numbers taken
+    # days apart are comparable.
+    rng = np.random.default_rng(20260824)
+    qvec = rng.normal(size=1024)
+    qvec = (qvec / np.linalg.norm(qvec)).astype("float32").tolist()
+
+    backends = qdrant_svc._active_backends()
+    out: dict[str, dict] = {}
+
+    for backend in backends:
+        timings: list[float] = []
+        error = None
+        on_disk = None
+        collection = None
+        try:
+            with qdrant_svc.use_backend(backend):
+                _url, _key, collection, _lo, _sc = qdrant_svc._params()
+            # Discarded: builds the client and the TLS connection, which would
+            # otherwise land entirely in the first timed sample.
+            with qdrant_svc.use_backend(backend):
+                await qdrant_svc.search_by_vector(
+                    query_vector=qvec, limit=limit, exclude_ids=set())
+            for _ in range(samples):
+                t0 = time.perf_counter()
+                with qdrant_svc.use_backend(backend):
+                    await qdrant_svc.search_by_vector(
+                        query_vector=qvec, limit=limit, exclude_ids=set())
+                timings.append((time.perf_counter() - t0) * 1000)
+        except Exception as e:
+            error = str(e)[:200]
+
+        if error or not timings:
+            out[backend] = {"error": error or "no samples", "collection": collection}
+            continue
+
+        try:
+            with qdrant_svc.use_backend(backend):
+                url, key, coll, _, _ = qdrant_svc._params()
+                info = qdrant_svc._client_for(url, key).get_collection(coll)
+                on_disk = bool(getattr(info.config.hnsw_config, "on_disk", False))
+        except Exception:
+            on_disk = None
+
+        ordered = sorted(timings)
+        out[backend] = {
+            "collection": collection,
+            "hnsw_on_disk": on_disk,
+            "samples": len(timings),
+            "median_ms": round(ordered[len(ordered) // 2]),
+            "min_ms": round(ordered[0]),
+            "max_ms": round(ordered[-1]),
+            # Spread matters as much as the median: an on-disk graph that
+            # mostly hits page cache shows a normal median with a long tail.
+            "spread_ms": round(ordered[-1] - ordered[0]),
+        }
+
+    # State the comparison rather than leaving it to be eyeballed.
+    verdict = None
+    timed = {b: v for b, v in out.items() if "median_ms" in v}
+    disk = [b for b, v in timed.items() if v.get("hnsw_on_disk")]
+    ram = [b for b, v in timed.items() if v.get("hnsw_on_disk") is False]
+    if disk and ram:
+        d = sum(timed[b]["median_ms"] for b in disk) / len(disk)
+        r = sum(timed[b]["median_ms"] for b in ram) / len(ram)
+        verdict = {
+            "on_disk_shards": disk,
+            "in_ram_shards": ram,
+            "on_disk_median_ms": round(d),
+            "in_ram_median_ms": round(r),
+            "ratio": round(d / r, 2) if r else None,
+            "reading": (
+                "on-disk shard is slower; worth checking whether the cluster "
+                "has RAM headroom to flip it" if d > r * 1.25 else
+                "no material difference; the on-disk setting is not costing "
+                "measurable latency on this probe"),
+        }
+
+    return {
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "probe": "fixed seed 20260824, 1024-dim unit vector",
+        "limit": limit,
+        "shards": out,
+        "verdict": verdict,
+    }

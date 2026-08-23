@@ -135,8 +135,12 @@ def test_writes_are_batched_into_one_round_trip():
                             "repair() awaits a write inside a per-row loop")
 
 
-def test_the_estimate_counts_both_legs():
-    """Counting only arXiv underestimated a full sweep by ~9 hours."""
+def test_the_estimate_is_measured_not_modelled():
+    """Four estimates, three wrong: 13.6h counted only the arXiv pause, 22.6h
+    added a guessed write cost but kept an inflated truncation count, 10h fixed
+    the count but kept the guess. This one is timed against real batches."""
+    assert backfill.SECONDS_PER_BATCH > backfill.PAUSE_S, (
+        "the per-batch cost cannot be less than the mandated pause")
     src = pathlib.Path("scripts/backfill_abstracts.py").read_text()
-    assert "PAUSE_S + 2.0" in src, (
-        "the time estimate ignores the write round trip")
+    assert "SECONDS_PER_BATCH" in src
+    assert "PAUSE_S + 2.0" not in src, "still using the guessed write cost"
