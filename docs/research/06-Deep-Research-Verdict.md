@@ -377,3 +377,22 @@ Found while writing the backfill, which needed to key results by id. None of the
 **The rate limiting was wrong.** Reusing `arxiv_svc.fetch_metadata_batch` was the mistake: it is tuned for small interactive lookups and fans any input into 20-id sub-requests at ~3/s, so a "batch of 100" was a burst of five requests and the 3s pause sat between bursts rather than between requests. The script now issues exactly one request per batch, at 200 ids, with exponential backoff on 429.
 
 Corrected estimate for a full sweep: **~7,183 requests, ~10 hours** — better than both earlier figures, and for the first time counting both the arXiv leg and the write leg.
+
+### 2026-08-24 — Repairing Turso does not reach production by itself
+**Finding:** `turso_svc.fetch_metadata_batch` reads in this order: in-process LRU → **local sidecar** → Turso. The sidecar (`/app/data/metadata.sqlite`, 2.7 GB) carries `abstract_preview` for **all 1,799,348 rows**, so in production Turso is essentially never consulted for metadata. It is opened `mode=ro` and baked into the image at build time from a **pinned** HF dataset revision (`d241ff1c…`, Dockerfile:49).
+
+So a Turso backfill is **invisible to users** until the sidecar is rebuilt. The full publish path is four steps, and only the first is a code/data operation:
+
+1. Backfill Turso — ~15.5 hours, resumable.
+2. `scripts/build_metadata_sidecar.py` — rebuild the 2.7 GB file from Turso.
+3. Upload to the `siddhm11/researchit-metadata` HF dataset.
+4. Repoint `METADATA_SIDECAR_URL` and rebuild the Space.
+
+Worth stating plainly because the obvious mental model — "fix the database, the app shows the fix" — is wrong here, and acting on it would have meant a long job with no visible result.
+
+**Safety note:** the repair is an in-place overwrite with no backup, but the old truncated value is a strict PREFIX of the new one, so a repair can only ever add text. There is no state in which it loses information.
+**Action items:** Steps 2-4 require the HF account and a Space redeploy, so they are the developer's. Step 1 is running.
+
+### 2026-08-24 — Backfill estimate, finally measured
+**Decision:** `SECONDS_PER_BATCH = 7.75`, taken from real batches, replaces the modelled arithmetic.
+**Rationale:** Four estimates, three of them wrong: 13.6h counted only the arXiv pause and ignored the writes; 22.6h added a guessed write cost but still used the inflated 90.6% truncation figure; 10h fixed the count but kept the guess. Timing real batches (400 rows in 15s, 200 in 8s) gives ~7.75s per batch of 200 and **~15.5 hours** for the remaining 1,436,005 rows. Validated before launch: 400/400 fetched, zero missing, zero 429s, and the truncated count fell by exactly the number written on each run — so it is genuinely resumable, which the earlier version was not.

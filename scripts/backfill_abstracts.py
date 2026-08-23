@@ -72,6 +72,10 @@ BATCH = 200
 PAUSE_S = 3.0
 MAX_RETRIES = 4
 
+# Measured over real batches of 200 on 2026-08-24: 400 rows in 15s,
+# 200 rows in 8s. Used for the estimate only; nothing paces off it.
+SECONDS_PER_BATCH = 7.75
+
 # Below this an abstract is not really longer than what we already hold, so
 # rewriting the row buys nothing.
 MIN_GAIN_CHARS = 40
@@ -274,9 +278,12 @@ async def main() -> None:
     print(f"corpus: {s['total']:,} papers, {s['capped']:,} truncated ({pct:.1f}%)\n")
 
     batches = -(-s["capped"] // BATCH)
-    # Both legs, honestly: arXiv rate limiting AND the Turso write round trips.
-    # Counting only the former underestimated a full sweep badly.
-    hours = batches * (PAUSE_S + 2.0) / 3600
+    # MEASURED, not modelled. Three estimates were wrong before this one:
+    # 13.6h counted only the arXiv pause; 22.6h added a guessed write cost but
+    # still used an inflated truncation count; 10h fixed the count but kept the
+    # guess. Timing real batches gives ~7.75s each — arXiv pause, the fetch, and
+    # one batched write round trip.
+    hours = batches * SECONDS_PER_BATCH / 3600
     print(f"full repair would be ~{batches:,} batches of {BATCH} "
           f"(~{hours:.1f} hours, arXiv rate limit + one write round trip each)\n")
 
