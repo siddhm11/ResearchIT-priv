@@ -3,7 +3,7 @@ Health check routes.
 
 Endpoints:
   /healthz/reranker  -- Phase 6.3: verify LightGBM model deployment status
-  /healthz/deep      -- Deep health check: ping Qdrant, Zilliz, Turso (keepalive)
+  /healthz/deep      -- Deep health check: ping search and map Qdrant, Zilliz, Turso
   /healthz/client    -- what the rate limiter derives for the calling client
 """
 import asyncio
@@ -271,6 +271,42 @@ async def healthz_deep():
     except Exception as e:
         results["services"]["qdrant"] = {
             "status": "error",
+            "error": str(e),
+            "time_ms": int((time.perf_counter() - t0) * 1000),
+        }
+
+    # The 3D map's positions live in a separate Qdrant cluster. The probe
+    # reads one actual 3D point, not just collection metadata.
+    t0 = time.perf_counter()
+    try:
+        if config.map_store_is_dedicated():
+            from app import map_locate_svc
+            stats = await map_locate_svc.collection_stats()
+            points = stats.get("points")
+            collection_status = str(stats.get("status", "")).lower()
+            healthy = (
+                points is not None and points > 0
+                and collection_status == "green"
+                and stats.get("sample_valid") is True
+            )
+            results["services"]["map_positions"] = {
+                "status": "ok" if healthy else "error",
+                "collection": stats.get("collection"),
+                "points_count": points,
+                "collection_status": collection_status,
+                "sample_valid": stats.get("sample_valid"),
+                "time_ms": int((time.perf_counter() - t0) * 1000),
+            }
+        else:
+            results["services"]["map_positions"] = {
+                "status": "error",
+                "reason": "MAP_QDRANT_URL not configured",
+                "time_ms": 0,
+            }
+    except Exception as e:
+        results["services"]["map_positions"] = {
+            "status": "error",
+            "collection": config.MAP_QDRANT_COLLECTION,
             "error": str(e),
             "time_ms": int((time.perf_counter() - t0) * 1000),
         }
