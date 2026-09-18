@@ -22,6 +22,7 @@ import asyncio
 import time
 
 from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app import config, hybrid_search_svc, local_meta, map_locate_svc, qdrant_svc
 
@@ -152,9 +153,19 @@ async def space_locate(
 async def space_locate_health(authorization: str | None = Header(default=None)):
     _authorize(authorization)
     try:
-        return await map_locate_svc.collection_stats()
+        stats = await map_locate_svc.collection_stats()
     except Exception as exc:
-        return {"collection": map_locate_svc.MAP_COLLECTION, "error": str(exc)}
+        return JSONResponse(
+            status_code=503,
+            content={"collection": map_locate_svc.MAP_COLLECTION, "error": str(exc)},
+        )
+    if (
+        stats.get("status", "").lower() != "green"
+        or not (stats.get("points") or 0) > 0
+        or stats.get("sample_valid") is not True
+    ):
+        return JSONResponse(status_code=503, content=stats)
+    return stats
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

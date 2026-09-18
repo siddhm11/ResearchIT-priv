@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 
 from qdrant_client.models import FieldCondition, Filter, MatchAny, PointStruct
 
@@ -178,7 +179,35 @@ async def locate(arxiv_ids: list[str], infer: bool = True) -> dict[str, dict]:
 
 
 async def collection_stats() -> dict:
-    client = _map_client()
-    loop = asyncio.get_running_loop()
-    info = await loop.run_in_executor(None, client.get_collection, MAP_COLLECTION)
-    return {"collection": MAP_COLLECTION, "points": info.points_count, "status": str(info.status)}
+    """Read a real map point as well as collection metadata.
+
+    The keepalive uses this endpoint twice a day. A scroll is an actual data
+    read, and it catches a collection that exists but cannot serve coordinates.
+    Both synchronous Qdrant requests stay off the event loop.
+    """
+    def _read() -> dict:
+        client = _map_client()
+        info = client.get_collection(MAP_COLLECTION)
+        sample, _ = client.scroll(
+            collection_name=MAP_COLLECTION,
+            limit=1,
+            with_payload=["arxiv_id"],
+            with_vectors=True,
+        )
+        point = sample[0] if sample else None
+        vector = point.vector if point else None
+        valid = (
+            point is not None
+            and bool((point.payload or {}).get("arxiv_id"))
+            and isinstance(vector, (list, tuple))
+            and len(vector) == 3
+            and all(isinstance(v, (int, float)) and math.isfinite(v) for v in vector)
+        )
+        return {
+            "collection": MAP_COLLECTION,
+            "points": info.points_count,
+            "status": str(info.status),
+            "sample_valid": valid,
+        }
+
+    return await asyncio.to_thread(_read)
