@@ -69,6 +69,7 @@ def test_search_htmx_returns_partial(client):
     assert "<html" not in resp.text.lower()
 
 
+@pytest.mark.live
 def test_search_real_query_returns_papers(client):
     """Real search against arXiv API — should find results."""
     resp = client.get("/search?q=transformer+attention+mechanism")

@@ -68,8 +68,9 @@ def test_parse_entry():
 
 
 # ── Integration tests (hit real arXiv API) ───────────────────────────────────
-# These are skipped in CI if the API is unreachable.
+# These depend on the external arXiv service, so the offline CI gate excludes them.
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_fetch_metadata_known_paper(tmp_path, monkeypatch):
     """Fetch metadata for 'Attention is All You Need'."""
@@ -88,6 +89,7 @@ async def test_fetch_metadata_known_paper(tmp_path, monkeypatch):
     assert paper["category"] != ""
 
 
+@pytest.mark.live
 @pytest.mark.asyncio
 async def test_search_returns_results(tmp_path, monkeypatch):
     """Search for 'transformer attention' and get at least 1 result."""
