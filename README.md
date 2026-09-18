@@ -294,7 +294,19 @@ python tests/test_reranker_integration.py
 # Phase 6.3: Verify reranker deployment
 curl -s https://siddhm11-researchit.hf.space/healthz/reranker | python -m json.tool
 # Expected: {"model_loaded": true, "n_trees": 141, "fallback_active": false, ...}
+
+# Verify that the dedicated 3D map store can serve a real position.
+curl -s https://siddhm11-researchit.hf.space/healthz/deep | python -m json.tool
+# Check services.map_positions: status="ok", sample_valid=true, points_count>0.
 ```
+
+The GitHub keepalive workflow calls this endpoint twice daily. Deploy the
+workflow to GitHub's default branch and the updated app to the Hugging Face
+Space; configure `MAP_QDRANT_URL` and `MAP_QDRANT_API_KEY` in the Space's runtime
+settings. A local `.env.local` is not deployed. A missing map configuration or
+failed position read makes the scheduled job fail, so its run history must be
+checked after deployment. The map's streamed spatial tiles are a separate
+dependency and are not covered by this Qdrant probe.
 
 ---
 
@@ -304,6 +316,9 @@ curl -s https://siddhm11-researchit.hf.space/healthz/reranker | python -m json.t
 |----------|----------|-------------|
 | `QDRANT_URL` | Yes | Qdrant Cloud cluster URL |
 | `QDRANT_API_KEY` | Yes | Qdrant Cloud API key |
+| `MAP_QDRANT_URL` | For 3D map | Dedicated map cluster URL; required for map keepalive |
+| `MAP_QDRANT_API_KEY` | For 3D map | Dedicated map cluster API key |
+| `MAP_QDRANT_COLLECTION` | No | Map positions collection (default: `arxiv_map_positions`) |
 | `ZILLIZ_URI` | Yes | Zilliz Cloud gRPC endpoint |
 | `ZILLIZ_TOKEN` | Yes | Zilliz Cloud API token |
 | `TURSO_URL` | Yes | Turso database URL |

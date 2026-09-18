@@ -3,6 +3,7 @@
 # Hits /healthz/deep on the HF Space. That single request cascades into pinging:
 #   - HuggingFace Spaces (kept awake by the HTTP request itself)
 #   - Qdrant Cloud (pinged internally by the endpoint)
+#   - Dedicated 3D map Qdrant collection (one stored position is read)
 #   - Zilliz Cloud (pinged internally by the endpoint)
 #   - Turso (pinged internally by the endpoint)
 #
@@ -21,16 +22,16 @@
 # skipped or delayed, and costs ~60 min/month instead of ~1728. The reclaimed
 # budget is what pays for tests.yml running on every push.
 #
-# Note GitHub does not guarantee punctual scheduled runs and drops them on
-# repos with no activity for 60 days — both fine at a 48-hour threshold, and
-# both reasons not to trim this margin further.
+# GitHub does not guarantee punctual scheduled runs. In public repositories it
+# also disables scheduled workflows after 60 days without repository activity;
+# check the Actions run history rather than assuming a cron entry is running.
 
 name: Keepalive
 
 on:
   schedule:
-    # 06:00 and 18:00 UTC — two pings a day against a 48-hour sleep threshold.
-    - cron: "0 6,18 * * *"
+    # 06:17 and 18:17 UTC — twice daily, away from the busy top of the hour.
+    - cron: "17 6,18 * * *"
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 jobs:
@@ -56,4 +57,16 @@ jobs:
             exit 1
           fi
 
-          echo "All services pinged successfully."
+          OVERALL=$(echo "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("overall", "unknown"))')
+          if [ "$OVERALL" != "healthy" ]; then
+            echo "::error::Deep health check reports $OVERALL"
+            exit 1
+          fi
+
+          MAP_PROBE=$(echo "$BODY" | python3 -c 'import json,sys; m=json.load(sys.stdin).get("services",{}).get("map_positions",{}); print("ok" if m.get("status")=="ok" and m.get("sample_valid") is True else "failed")')
+          if [ "$MAP_PROBE" != "ok" ]; then
+            echo "::error::Map collection data read did not succeed"
+            exit 1
+          fi
+
+          echo "All services healthy."
