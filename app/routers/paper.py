@@ -41,6 +41,22 @@ router = APIRouter()
 _RELATED_LIMIT = 6
 
 
+def _cluster_of(candidate_source: str) -> int | None:
+    """The interest cluster a candidate_source names, or None.
+
+    Tier 1 tags every candidate with "cluster_<idx>"; every other source
+    ("exploration", "ewma_longterm", "qdrant_recommend",
+    "trending_category_fallback", "paper_page") genuinely has no cluster and
+    must stay NULL rather than be coerced to 0 -- 0 is a real cluster index.
+    """
+    if not candidate_source or not candidate_source.startswith("cluster_"):
+        return None
+    try:
+        return int(candidate_source[len("cluster_"):])
+    except ValueError:
+        return None
+
+
 async def _fetch_one(arxiv_id: str) -> dict | None:
     """Metadata for a single paper: sidecar/Turso first, arXiv as fallback."""
     meta = await turso_svc.fetch_metadata_batch([arxiv_id])
@@ -89,6 +105,7 @@ async def paper_page(
     qid: str = Query(default=""),
     pos: int = Query(default=_NO_POSITION),
     src: str = Query(default=""),
+    sf: str = Query(default=""),
     prop: float = Query(default=0.0),
     pol: str = Query(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
@@ -130,12 +147,23 @@ async def paper_page(
                 user_id=user_id,
                 paper_id=arxiv_id,
                 event_type="click",
-                source=src or "recommendation",
+                # The SURFACE, not the candidate source. This used to pass
+                # `src`, which is the retrieval origin ("cluster_1"), so the
+                # column that is supposed to hold search|recommendation|saved
+                # filled up with cluster names instead: 2 rows said
+                # "recommendation" where 21 belonged, and a click from a search
+                # result -- which carries a query_id but no src -- was recorded
+                # as a recommendation. Both made grouping by source wrong.
+                source=sf or "recommendation",
                 position=_position(pos),
                 query_id=qid,
                 ranker_version=pol or None,
                 candidate_source=src or None,
-                cluster_id=None,
+                # Was hard-coded None while `src` literally spelled the cluster
+                # out. Per-cluster CTR is the one measurement that can show
+                # whether a minority interest earns its slots, and it was
+                # unanswerable because this column was empty on every row.
+                cluster_id=_cluster_of(src),
                 propensity=prop if prop > 0 else None,
                 policy_id=pol or None,
             )

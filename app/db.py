@@ -134,6 +134,45 @@ CREATE TABLE IF NOT EXISTS feed_impressions (
 CREATE INDEX IF NOT EXISTS idx_impr_user_time
     ON feed_impressions(user_id, shown_at DESC);
 
+-- The exposure LOG, as distinct from the suppression SET above.
+--
+-- feed_impressions answers "has this paper been on screen for this user", and
+-- its (user_id, paper_id) key is right for that question. It cannot answer the
+-- questions Phase 7 exists to ask, because a paper shown on five feeds is one
+-- row there: you cannot count exposures, so click-through rate has a numerator
+-- and no denominator, and the propensity work in §3.4b has nothing to pair
+-- with.
+--
+-- So exposures are recorded separately and append-only, carrying the same
+-- §3.11 fields the interaction log carries. The join key is query_id: one feed
+-- request writes one query_id across all its rows on both sides, which is what
+-- makes per-feed CTR, position-debiased engagement and IPS/SNIPS computable.
+--
+-- `tier` is stored explicitly rather than derived from candidate_source. The
+-- source strings are a serving detail that has already changed twice; the tier
+-- is the thing analysis groups by, and reconstructing it later from a string
+-- vocabulary that has drifted is exactly the retrofit §3.11 warns about.
+--
+-- Also NOT replicated to Turso, for the same reason as feed_impressions and
+-- more so: this is the highest-volume table in the system.
+CREATE TABLE IF NOT EXISTS feed_exposures (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id          TEXT    NOT NULL,
+    paper_id         TEXT    NOT NULL,
+    query_id         TEXT,
+    position         INTEGER,
+    tier             INTEGER,
+    candidate_source TEXT,
+    cluster_id       INTEGER,
+    propensity       REAL,
+    policy_id        TEXT,
+    shown_at         TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_expo_query
+    ON feed_exposures(query_id);
+CREATE INDEX IF NOT EXISTS idx_expo_user_time
+    ON feed_exposures(user_id, shown_at DESC);
+
 -- Which curated collections a user follows. The collections themselves are
 -- repo content (data/collections/*.json); this is the user-data half.
 -- Generated plain-language explanations, content-addressed (doc 07 §A.4).
@@ -264,6 +303,42 @@ async def get_user_interactions(
             )
         rows = await cur.fetchall()
         return [dict(r) for r in rows]
+
+
+async def get_save_history(user_id: str, limit: int = 200) -> list[dict]:
+    """Currently-saved papers, newest first, with the time each was saved.
+
+    Two things this does that `get_user_interactions` does not, both of which
+    the clusterer needs:
+
+      * It resolves the paper's CURRENT state rather than returning every event.
+        A paper saved, un-saved and saved again is one row; a paper saved and
+        then dismissed is absent. `user_state` gets the same answer by replaying
+        events into a deque, but it is capped at REC_POSITIVE_LIMIT and cannot
+        be asked for more.
+
+      * It orders by `id`, not `timestamp`. Timestamps are second-resolution, so
+        several saves made in the same second tie -- and the clusterer weights
+        by recency, which makes an arbitrary tiebreak an arbitrary weighting.
+        The autoincrement id is the true event order.
+    """
+    if not user_id:
+        return []
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            """SELECT i.paper_id, i.timestamp
+                 FROM interactions i
+                WHERE i.user_id = ?
+                  AND i.event_type = 'save'
+                  AND i.id = (SELECT MAX(x.id) FROM interactions x
+                               WHERE x.user_id = i.user_id
+                                 AND x.paper_id = i.paper_id)
+                ORDER BY i.id DESC
+                LIMIT ?""",
+            (user_id, int(limit)),
+        )
+        return [dict(r) for r in await cur.fetchall()]
 
 
 # ── Qdrant map helpers ────────────────────────────────────────────────────────
@@ -611,6 +686,78 @@ async def record_impressions(user_id: str, paper_ids: list[str]) -> int:
         )
         await conn.commit()
     return len(rows)
+
+
+def _as_int(value) -> int | None:
+    """Coerce a template-facing field to an int, or None.
+
+    The serving layer uses "" for "no cluster" because that is what renders as
+    nothing in a template. The log wants NULL. `cluster_id` also arrives as a
+    str on the round trip through hx-vals, so this accepts both.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+async def record_exposures(rows: list[dict]) -> int:
+    """Append one row per paper actually served. Returns rows written.
+
+    Each dict is a served paper as `_build_page` produced it, so it already
+    carries every §3.11 field. Nothing is derived here beyond type coercion --
+    an exposure record that disagrees with what the reader saw is worse than no
+    record at all.
+
+    Append-only on purpose: see the feed_exposures DDL.
+    """
+    if not rows:
+        return 0
+    payload = [
+        (
+            str(r.get("user_id") or ""),
+            str(r.get("paper_id") or ""),
+            str(r.get("query_id") or "") or None,
+            _as_int(r.get("position")),
+            _as_int(r.get("tier")),
+            str(r.get("candidate_source") or "") or None,
+            _as_int(r.get("cluster_id")),
+            float(r["propensity"]) if r.get("propensity") is not None else None,
+            str(r.get("policy_id") or "") or None,
+        )
+        for r in rows
+        if r.get("user_id") and r.get("paper_id")
+    ]
+    if not payload:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.executemany(
+            "INSERT INTO feed_exposures "
+            "(user_id, paper_id, query_id, position, tier, candidate_source, "
+            " cluster_id, propensity, policy_id, shown_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            payload,
+        )
+        await conn.commit()
+    return len(payload)
+
+
+async def prune_exposures(retention_days: int = 180) -> int:
+    """Delete exposures older than retention_days. Returns rows deleted.
+
+    Kept longer than feed_impressions (90 days): impressions only need to
+    outlive their usefulness as a "do not repeat" memory, whereas an exposure
+    is evaluation data and a longer window is a longer evaluation.
+    """
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            "DELETE FROM feed_exposures WHERE shown_at < datetime('now', ?)",
+            (f"-{int(retention_days)} days",),
+        )
+        await conn.commit()
+        return cur.rowcount
 
 
 async def count_feed_issues(user_id: str) -> int:

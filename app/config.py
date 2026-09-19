@@ -190,6 +190,44 @@ REC_LIMIT = 10                  # how many recommendations to show
 REC_POSITIVE_LIMIT = 20         # max positive examples sent to Qdrant
 REC_MIN_POSITIVES = 1           # minimum saves needed before showing recs
 
+# How many saves the CLUSTERER sees. Separate from REC_POSITIVE_LIMIT on
+# purpose.
+#
+# REC_POSITIVE_LIMIT is sized for the Tier 3 Qdrant Recommend API, which takes
+# a list of positive ids in the request -- 20 is a request-shape limit. But
+# user_state.MAX_POSITIVES was set from it, so the same 20 silently bounded
+# what Tier 1 clusters: a reader with 96 saves had 76 of them invisible to the
+# thing whose entire job is to find their distinct interests. A constant scoped
+# for one consumer was capping a different one.
+#
+# 200 is chosen against the cost, which is small: Ward over 200 x 1024-dim
+# float32 vectors is a 200x200 distance matrix, single-digit milliseconds, and
+# the vectors come from the LRU-cached get_paper_vectors. The saves themselves
+# are one indexed SQLite read.
+CLUSTER_POSITIVE_LIMIT = int(os.getenv("CLUSTER_POSITIVE_LIMIT", "200"))
+
+# What Tier 0 shows a reader who told us nothing at all.
+#
+# Tier 0 was gated on the reader having picked categories, with no else branch,
+# so anyone who skipped onboarding fell through the whole cascade to the
+# "Nothing here yet" empty state -- permanently, unless they independently
+# found search and saved something. CLAUDE.md §3.6 recorded that fallback as
+# DONE; it existed only for readers who had picked categories, which is not the
+# case it was written for.
+#
+# A fixed spread across disciplines rather than an unfiltered global query.
+# The sidecar indexes (code, citation_count DESC), so this stays the measured
+# index range read; dropping the code filter entirely would make the single
+# most expensive query in the system unbounded, on the one path that lands on
+# brand-new readers. Breadth is the point: someone who has told us nothing
+# should see that this is not only a machine-learning site.
+DEFAULT_TRENDING_CATEGORIES: set[str] = {
+    "cs.LG", "cs.CL", "cs.CV",          # the corpus's centre of mass
+    "quant-ph", "hep-ph", "astro-ph.GA",  # physics
+    "math.PR", "math.CO",                # mathematics
+    "q-bio.QM", "econ.TH",               # life sciences, social sciences
+}
+
 # ── Zilliz Cloud (BGE-M3 sparse vectors) — Phase 3 ────────────────────────────
 ZILLIZ_URI = os.getenv("ZILLIZ_URI", "").strip()
 ZILLIZ_TOKEN = os.getenv("ZILLIZ_TOKEN", "").strip()
@@ -211,16 +249,6 @@ ENCODE_CACHE_SIZE = 128  # LRU cache for encoded queries
 
 # ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
 RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-# How many fused candidates get cross-encoded.
-#
-# This MUST exceed the number of results returned or the stage is pointless:
-# at 10 it re-ordered exactly the set that was already going to be shown, so it
-# could never pull a better paper up from the rest of the retrieved pool.
-# Retrieval fetches limit * SEARCH_FETCH_K_MULTIPLIER (= 60 at limit 10), so 50
-# covers the overwhelming majority of the pool.
-#
-# Latency: cross-encoding is CPU-bound and roughly linear in this number.
-# Dial down to ~30 if p95 needs it.
 # How deep the cross-encoder reranks. Measured 2026-08-02 against a 60-query
 # known-item eval set on the live Space:
 #

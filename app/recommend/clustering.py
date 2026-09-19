@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import numpy as np
 from scipy.cluster.hierarchy import ward, fcluster
 from scipy.optimize import linear_sum_assignment
@@ -55,6 +56,90 @@ class InterestCluster:
     medoid_embedding: np.ndarray
     paper_ids: list[str]
     importance: float  # recency-weighted sum of interactions
+
+
+# Half-life, in days, of a saved paper's contribution to its cluster's
+# importance. Importance drives quota, so this constant decides how fast an
+# interest the reader has stopped feeding gives up its slots.
+#
+# WHY THIS REPLACED POSITION-BASED WEIGHTING
+# ------------------------------------------
+# This was `1/(i+1)` over the index in the save list. That is a harmonic decay
+# over POSITION, and it is far steeper than anything the product intends.
+# Measured against the real allocate_quotas, with two interests of identical
+# size differing only in the order they were explored:
+#
+#     20 saves, 10 each, B explored first    A 81% / B 19%    feed 8 / 2
+#     30 saves, 15 each, B explored first    A 83% / B 17%    feed 8 / 2
+#     40 saves, 20 each, B explored first    A 84% / B 16%    feed 8 / 2
+#
+# Two properties made that a bug rather than a tuning choice. It is
+# order-driven, so an interest the reader has invested in equally is served at
+# a fifth the rate for no reason they can perceive; and it SATURATES, so going
+# from 20 saves to 40 moves the split by three points. The reader has no action
+# available that repairs it, which is exactly the collapse toward a dominant
+# interest that doc 06 §3.1 exists to prevent -- reached from a direction the
+# rule does not name, and invisible because every stage downstream is correct.
+#
+# Position also cannot distinguish "saved these ten last month" from "saved
+# these ten in one sitting this morning", and the difference between those is
+# the entire question importance is asking.
+#
+# 90 days is a starting value chosen for the domain, not a measured optimum: a
+# research interest persists across months, so a paper saved a quarter ago
+# should still carry half the weight of one saved today. There is no ground
+# truth to tune it against yet; when the exposure log has accumulated, per
+# cluster CTR is what should settle it.
+IMPORTANCE_HALF_LIFE_DAYS = 90.0
+
+# Fallback decay per position, used only when timestamps are unavailable.
+# Deliberately much gentler than the 1/(i+1) it replaces: over 20 saves this
+# spans 1.00 down to 0.36, where harmonic spanned 1.00 down to 0.05.
+_FALLBACK_DECAY_PER_POSITION = 0.95
+
+
+def _parse_ts(value) -> float | None:
+    """Seconds since epoch for an ISO-ish timestamp, or None if unparseable."""
+    if not value:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value).strip().replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text[:26], fmt).replace(
+                tzinfo=timezone.utc).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def _recency_weights(n: int, timestamps: list[str] | None) -> np.ndarray:
+    """Per-paper weight for the importance sum, newest-first ordering assumed.
+
+    Time-decayed when timestamps are usable, position-decayed otherwise. The
+    reference point is the NEWEST save rather than "now": a reader returning
+    after a month away should see the interest mix they left with, not a feed
+    where every cluster has decayed uniformly toward zero and the arithmetic is
+    being done on noise. Decay is about the spread BETWEEN saves.
+    """
+    if n <= 0:
+        return np.zeros(0, dtype=np.float64)
+
+    parsed = [_parse_ts(t) for t in (timestamps or [])]
+    usable = [p for p in parsed if p is not None]
+
+    # Need a real spread to decay over; all-same-timestamp is not informative.
+    if len(parsed) == n and len(usable) == n and max(usable) > min(usable):
+        newest = max(usable)
+        age_days = np.array(
+            [(newest - p) / 86400.0 for p in parsed], dtype=np.float64)
+        return np.power(0.5, age_days / IMPORTANCE_HALF_LIFE_DAYS)
+
+    return np.power(
+        _FALLBACK_DECAY_PER_POSITION,
+        np.arange(n, dtype=np.float64),
+    )
 
 
 def _adaptive_threshold(linkage: np.ndarray) -> float:
@@ -172,10 +257,7 @@ def compute_clusters(
     labels = _merge_singletons(labels, embeddings)
     unique_labels = np.unique(labels)
 
-    # Compute recency weights (position-based: most recent = highest weight)
-    recency_weights = np.array([
-        1.0 / (i + 1) for i in range(n)
-    ], dtype=np.float64)
+    recency_weights = _recency_weights(n, timestamps)
 
     # Build clusters
     clusters = []

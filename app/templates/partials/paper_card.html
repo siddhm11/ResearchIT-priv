@@ -88,6 +88,11 @@
   #}
   {%- set _q = [] -%}
   {%- if paper.query_id %}{% set _ = _q.append("qid=" ~ paper.query_id) %}{% endif -%}
+  {#- The SURFACE the click came from, which is not the same thing as the
+      candidate source below. Without it the click log had to guess, and it
+      guessed "recommendation" for every search result that carried a
+      query_id. -#}
+  {%- if paper.query_id %}{% set _ = _q.append("sf=" ~ _source) %}{% endif -%}
   {%- if paper.position is not none %}{% set _ = _q.append("pos=" ~ (paper.position | default(0))) %}{% endif -%}
   {%- if paper.candidate_source %}{% set _ = _q.append("src=" ~ paper.candidate_source) %}{% endif -%}
   {%- if paper.propensity %}{% set _ = _q.append("prop=" ~ paper.propensity) %}{% endif -%}

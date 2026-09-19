@@ -73,6 +73,16 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old feed impression rows")
     except Exception as e:
         print(f"[main] Impression pruning skipped: {e}")
+
+    # The exposure log is append-only and the highest-volume table here, so it
+    # needs its own ceiling. Longer retention than impressions: an impression
+    # stops mattering once it stops suppressing, an exposure is evaluation data.
+    try:
+        pruned = await db.prune_exposures(retention_days=180)
+        if pruned:
+            print(f"[main] Pruned {pruned} old feed exposure rows")
+    except Exception as e:
+        print(f"[main] Exposure pruning skipped: {e}")
     yield
 
     # Final flush so the last sync interval is not lost on shutdown.

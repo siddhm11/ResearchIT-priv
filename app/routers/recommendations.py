@@ -25,7 +25,10 @@ import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
 from app import db, errors, qdrant_svc, arxiv_svc, turso_svc, user_state as us
-from app.config import COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES
+from app.config import (
+    COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
+    DEFAULT_TRENDING_CATEGORIES,
+)
 from app.templates_env import templates
 from app.recommend import profiles
 from app.recommend.clustering import (
@@ -347,6 +350,37 @@ async def get_recommendations(
     except Exception as e:  # pragma: no cover - defensive
         print(f"[recs] impression write failed ({e})")
 
+    # The exposure log — the denominator every Phase 7 metric needs.
+    #
+    # Separate from the impression write above because the two answer different
+    # questions: impressions are the "already seen" SET that drives churn, and
+    # collapse repeats by design; this is the append-only LOG that records each
+    # serving event with the propensity and position it was served under.
+    # Writing only the first would leave CTR with a numerator and no
+    # denominator, which is the state this replaces.
+    #
+    # Deliberately AFTER the impression write and separately guarded: a failure
+    # to record analytics must never cost the reader their feed, and must not
+    # take the churn memory down with it either.
+    try:
+        tier = _serving_tier(entry)
+        await db.record_exposures([
+            {
+                "user_id": user_id,
+                "paper_id": p["arxiv_id"],
+                "query_id": p.get("query_id") or entry["query_id"],
+                "position": p.get("position"),
+                "tier": tier,
+                "candidate_source": p.get("candidate_source"),
+                "cluster_id": p.get("cluster_id"),
+                "propensity": p.get("propensity"),
+                "policy_id": p.get("policy_id"),
+            }
+            for p in papers if p.get("arxiv_id")
+        ])
+    except Exception as e:  # pragma: no cover - defensive
+        errors.report("recs", "exposure log write failed", e)
+
     ctx = {
         "papers": papers,
         "has_more": has_more,
@@ -389,6 +423,14 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
     # ── Tier 0: category trending (cold start, Phase 5) ──────────────────
     if not state.has_enough_for_recs():
         category_filter = await db.get_user_category_filter(user_id)
+        # No categories means the reader skipped onboarding. That used to fall
+        # straight through to the empty state and stay there; a reader who told
+        # us nothing still gets a feed, just a broader one. See
+        # config.DEFAULT_TRENDING_CATEGORIES.
+        source_tag = ("trending_category_fallback" if category_filter
+                      else "trending_default_fallback")
+        if not category_filter:
+            category_filter = set(DEFAULT_TRENDING_CATEGORIES)
         if category_filter:
             trending = await turso_svc.fetch_trending_by_categories(
                 category_filter, limit=_trending_pool_size(),
@@ -405,7 +447,11 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
                         "tags": {
                             aid: {
                                 "ranker_version": _RANKER_VERSION,
-                                "candidate_source": "trending_category_fallback",
+                                # Distinguishes "your categories" from "we had
+                                # nothing to go on" — two very different feeds
+                                # that would otherwise be indistinguishable in
+                                # the exposure log.
+                                "candidate_source": source_tag,
                                 "cluster_id": "",
                                 "query_id": query_id,
                                 "propensity": props.get(aid, 1.0),
@@ -483,6 +529,7 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
 # the user is not on is worse than saying nothing.
 _TIER_BY_SOURCE = {
     "trending_category_fallback": 0,
+    "trending_default_fallback": 0,
     "qdrant_recommend": 3,
     "ewma_longterm": 2,
 }
@@ -642,11 +689,35 @@ async def _multi_interest_recommend(
     Returns ([], {}, 0, {}) to trigger fallback to Tier 2.
     Phase 4.5: second element is {arxiv_id: {ranker_version, candidate_source, cluster_id}}.
     """
-    positives = state.positive_list
-    if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
+    if len(state.positive_list) < MIN_PAPERS_FOR_CLUSTERING:
         return [], [], {}, 0, {}
 
     try:
+        # The clusterer reads its own, deeper history rather than the in-memory
+        # deque. That deque is capped at REC_POSITIVE_LIMIT (20) because that is
+        # a Qdrant request-shape limit, and inheriting it here meant clustering
+        # a power user's last 20 saves and discarding the rest. It also carries
+        # no timestamps, and importance is a recency weighting -- see
+        # clustering.IMPORTANCE_HALF_LIFE_DAYS.
+        #
+        # Falls back to the deque if the history read fails or comes back short,
+        # so a database hiccup degrades to the previous behaviour rather than
+        # dropping the user to Tier 2.
+        save_times: dict[str, str] = {}
+        positives = state.positive_list
+        try:
+            history = await db.get_save_history(
+                user_id, limit=CLUSTER_POSITIVE_LIMIT)
+            if len(history) >= len(positives):
+                positives = [r["paper_id"] for r in history]
+                save_times = {r["paper_id"]: r["timestamp"] for r in history}
+        except Exception as e:
+            errors.report("recommendations",
+                          "save-history read failed, using in-memory deque", e)
+
+        if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
+            return [], [], {}, 0, {}
+
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
         if len(vectors) < MIN_PAPERS_FOR_CLUSTERING:
@@ -659,10 +730,18 @@ async def _multi_interest_recommend(
         aligned_embs = np.array(
             [vectors[pid] for pid in aligned_ids], dtype=np.float32
         )
+        # Aligned with aligned_ids, so a paper whose vector is missing drops out
+        # of both. Empty when the history read fell back, which compute_clusters
+        # handles by using its position-based fallback.
+        aligned_times = (
+            [save_times[pid] for pid in aligned_ids]
+            if save_times and all(pid in save_times for pid in aligned_ids)
+            else None
+        )
 
         # ── Step 1: Compute interest clusters ─────────────────────────────
         t0_cluster = time.time()
-        clusters = compute_clusters(aligned_ids, aligned_embs)
+        clusters = compute_clusters(aligned_ids, aligned_embs, aligned_times)
 
         # ── Step 4.2: Stabilise cluster IDs with Hungarian matching ───────
         old_clusters_data = await load_clusters_from_db(user_id)
