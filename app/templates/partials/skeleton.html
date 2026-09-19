@@ -4,6 +4,10 @@
   feedback" territory, and Tier 1 of this pipeline is multi-second.
 
   Include with `count` set, e.g. {% set count = 4 %}{% include "partials/skeleton.html" %}
+
+  `skeleton_label` sets what assistive tech announces. It is a parameter because
+  this partial is shared: the search page was announcing "Loading
+  recommendations…" to screen-reader users who were searching for a paper.
 #}
 <div class="feed" aria-hidden="true">
   {% for i in range(count | default(3)) %}
@@ -22,4 +26,10 @@
     </div>
   {% endfor %}
 </div>
-<span class="sr-only" role="status">Loading recommendations…</span>
+{#
+  Suppressed when the caller already provides its own role="status" region, so
+  the announcement is not duplicated (search.html renders one above this).
+#}
+{% if not skeleton_label_silent %}
+  <span class="sr-only" role="status">{{ skeleton_label | default("Loading recommendations…") }}</span>
+{% endif %}

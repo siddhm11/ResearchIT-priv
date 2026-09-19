@@ -274,4 +274,66 @@
   document.body.addEventListener('htmx:sendError', function () {
     showError('Connection lost. Check your network.');
   });
+
+  /* ── Search progress ───────────────────────────────────────────────────
+     Two jobs, both about telling the truth about time.
+
+     1. Tick real elapsed seconds. The shimmer is identical at 2s and at 40s,
+        so a waiting user cannot tell "nearly there" from "stuck" and reloads —
+        which abandons the in-flight request and starts the pipeline over. The
+        measured warm p50 is ~2.8s and the first search after a restart has been
+        seen at 40s, so this span genuinely needs a readout.
+
+     2. Mark the previous results stale. They stay in the DOM until the swap
+        lands, so without this the page shows skeletons above full-strength
+        cards for the OLD query with nothing indicating which is live.
+
+     Deliberately no fake stage messages ("Ranking results…" on a timer). They
+     would be calibrated to the median and would therefore claim progress they
+     cannot observe for the whole of a 40s cold start — misleading exactly when
+     the user most needs the truth. */
+  var SLOW_HINT_AFTER_MS = 8000;   /* just past the measured p90 of ~4.6s */
+  var searchTimer = null;
+
+  function searchProgressStop() {
+    if (searchTimer) { clearInterval(searchTimer); searchTimer = null; }
+    var hint = document.querySelector('[data-search-hint]');
+    if (hint) hint.classList.remove('is-shown');
+    var results = document.getElementById('search-results');
+    if (results) results.classList.remove('is-stale');
+  }
+
+  function searchProgressStart() {
+    var out = document.querySelector('[data-search-elapsed]');
+    if (!out) return;
+    var results = document.getElementById('search-results');
+    if (results) results.classList.add('is-stale');
+
+    var started = Date.now();
+    out.textContent = '0.0s';
+    if (searchTimer) clearInterval(searchTimer);
+    searchTimer = setInterval(function () {
+      var ms = Date.now() - started;
+      out.textContent = (ms / 1000).toFixed(1) + 's';
+      if (ms > SLOW_HINT_AFTER_MS) {
+        var hint = document.querySelector('[data-search-hint]');
+        if (hint) hint.classList.add('is-shown');
+      }
+    }, 100);
+  }
+
+  function isSearchRequest(e) {
+    var el = e.detail && e.detail.elt;
+    return !!(el && el.closest && el.closest('form.searchbar') &&
+              el.getAttribute('hx-target') === '#search-results');
+  }
+
+  document.body.addEventListener('htmx:beforeRequest', function (e) {
+    if (isSearchRequest(e)) searchProgressStart();
+  });
+  /* afterRequest covers success, error and abort alike — afterSwap alone would
+     leave the counter running forever on a failed search. */
+  document.body.addEventListener('htmx:afterRequest', function (e) {
+    if (isSearchRequest(e)) searchProgressStop();
+  });
 })();

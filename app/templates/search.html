@@ -32,14 +32,33 @@
       <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
     </svg>
     <input type="search" name="q" value="{{ query }}"
-           placeholder="Search 1.6M papers…"
+           placeholder="Search 1.8M papers…"
            aria-label="Search papers"
            {% if not query %}autofocus{% endif %} />
     <button class="btn btn-primary btn-sm" type="submit">Search</button>
   </form>
 
-  <div id="search-loading" class="htmx-indicator">
-    {% set count = 3 %}{% include "partials/skeleton.html" %}
+  {#
+    --block matters: `.skel` widths are percentages, and the default
+    inline-block indicator is shrink-to-fit, which collapses them. See the
+    .htmx-indicator--block rule in styles.css.
+
+    The elapsed readout is driven by app.js. role="status" + aria-live announces
+    the searching state once; the ticking seconds are aria-hidden so a screen
+    reader is not read a new number every 100ms.
+  #}
+  <div id="search-loading" class="htmx-indicator htmx-indicator--block">
+    <div class="search-status" role="status" aria-live="polite">
+      <span class="spinner"></span>
+      <span>Searching 1.8M papers…</span>
+      <span class="search-status-time" data-search-elapsed aria-hidden="true">0.0s</span>
+    </div>
+    <p class="search-status-hint" data-search-hint>
+      Still going — the first search after the server has been idle takes
+      noticeably longer than later ones.
+    </p>
+    {% set count = 3 %}{% set skeleton_label_silent = true %}
+    {% include "partials/skeleton.html" %}
   </div>
 
   <div id="search-results">

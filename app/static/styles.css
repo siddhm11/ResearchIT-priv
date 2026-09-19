@@ -869,6 +869,49 @@ a.card-title:hover { color: var(--accent); }
 .htmx-indicator.htmx-request,
 .htmx-request .htmx-indicator { display: inline-block; }
 
+/* Skeleton indicators must be block, not inline-block. `.skel` widths are all
+   percentages (92%, 64%, 42%…) and an inline-block box is shrink-to-fit, so the
+   percentages resolve against a width that is itself derived from them and the
+   whole skeleton collapses to a sliver. That defeats the one job skeleton.html
+   exists for — matching the real card geometry so the swap does not shift
+   layout. Spinner indicators (#seed-loading) are genuinely inline and keep the
+   rule above. */
+.htmx-indicator--block.htmx-request,
+.htmx-request .htmx-indicator--block { display: block; }
+
+/* Search progress readout. A shimmer looks identical at 2s and at 40s, so the
+   user cannot tell "nearly there" from "stuck" and reloads — which throws away
+   the in-flight request and starts the pipeline over. Real elapsed time is
+   cheap and never lies. */
+.search-status {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .1rem 0 .85rem;
+  font-size: .86rem; color: var(--text-2);
+}
+.search-status-time {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text-3);
+  min-width: 3.2ch;
+}
+.search-status-hint {
+  display: none;
+  padding: .1rem 0 .9rem;
+  font-size: .82rem; color: var(--text-3);
+  line-height: 1.45;
+}
+.search-status-hint.is-shown { display: block; }
+
+/* Previous results stay in the DOM until the swap lands. Without this they sit
+   at full strength underneath the skeleton, so the page shows three shimmering
+   placeholders above ten real cards for the OLD query and nothing says which is
+   live. Dimming marks them as stale without the layout jump of removing them. */
+#search-results.is-stale {
+  opacity: .3;
+  transition: opacity .12s ease-out;
+  pointer-events: none;
+}
+
 /* ── 17. Motion preferences ──────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
