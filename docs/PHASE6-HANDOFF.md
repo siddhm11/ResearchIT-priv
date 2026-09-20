@@ -53,7 +53,8 @@ score = 0.40×lt_sim + 0.25×st_sim + 0.15×recency + 0.10×rrf_conf - 0.15×neg
 
 **Role**: Data pipeline + model training  
 **Platform**: HuggingFace Chat (Claude Opus 4.6 sandbox)  
-**Conversation logs**: `docs/ML Intern docs/` (5 files preserving the full conversation)
+The reproducible scripts, model artifacts, metrics, and feature schema in this
+repository are the retained record of the training run.
 
 | Deliverable | Description |
 |-------------|-------------|
@@ -291,7 +292,6 @@ All Phase 6 parameters are keyword-only with safe defaults. The model zero-fills
 | `scripts/fix_model_crlf.py` | Utility to fix Windows line-ending corruption |
 | `scripts/export_arxiv_ids.py` | Exports 1.6M arXiv IDs from Turso |
 | `docs/PHASE6-HANDOFF.md` | This document |
-| `docs/ML Intern docs/` | ML Intern conversation logs (5 files) |
 
 ---
 

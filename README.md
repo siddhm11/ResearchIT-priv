@@ -284,7 +284,6 @@ python tests/test_reranker_integration.py
 | `docs/phases/PHASE6-Reranker-Framing.md` | Phase 6.1-6.3 framing — feature wiring, deployment verification, retraining strategy |
 | `docs/research/06-Deep-Research-Verdict.md` | **Source of truth** for architecture decisions |
 | `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` | Master roadmap (Phases 3–9) |
-| `docs/ML Intern docs/` | ML Intern conversation logs for model training |
 
 ---
 
