@@ -51,6 +51,8 @@ data/*
 
 # Generated / scratch
 pdf_images/
+/search_out.html
+/scripts/screenshot_*.png
 
 # Notebooks (reference only — tracked selectively)
 notebooks/02-bme-arxiv-test.ipynb
