@@ -15,7 +15,7 @@ argument-hint: "Specify scope (unit/integration/e2e) and whether to include metr
 1. docs/walkthroughs/03-Code-Summary-and-Test-Plan.md
 2. tests/ (overview)
 3. pytest.ini
-4. test_e2e_recs.py
+4. scripts/benchmark_recommendations.py
 
 ## Procedure
 1. Identify test scope (unit, integration, live, e2e).

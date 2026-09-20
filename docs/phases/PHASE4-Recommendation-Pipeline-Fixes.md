@@ -524,7 +524,7 @@ Replace the RRF call with quota + `asyncio.gather()`. Key changes:
 
 ### Step 5 — End-to-end verification (~30 min)
 
-1. Run `python test_e2e_recs.py` — verify recommendations generate correctly
+1. Run `python scripts/benchmark_recommendations.py` — verify recommendations generate correctly
 2. Verify latency stays comparable (~7-8s end-to-end including network I/O)
 3. Run full `python -m pytest tests/ -v` — 125+ tests, zero regressions
 
@@ -552,7 +552,7 @@ Replace the RRF call with quota + `asyncio.gather()`. Key changes:
 ### Regression
 
 - All 125 existing tests must pass
-- `test_e2e_recs.py` must complete successfully
+- `scripts/benchmark_recommendations.py` must complete successfully
 
 ---
 
@@ -576,7 +576,7 @@ Before declaring Phase 4 complete:
 - [ ] `python -m pytest tests/ -v` — all tests pass (130+ including new tests)
 - [ ] `test_fusion.py` — 6+ quota allocation tests pass
 - [ ] `test_clustering.py` — Hungarian matching test passes
-- [ ] `test_e2e_recs.py` — end-to-end recommendations generate correctly
+- [ ] `scripts/benchmark_recommendations.py` — end-to-end recommendations generate correctly
 - [ ] Recommendations include papers from minority clusters (quota working)
 - [ ] Cluster indices remain stable across consecutive saves
 - [ ] Category suppression activates after ≥3 dismissals of same category

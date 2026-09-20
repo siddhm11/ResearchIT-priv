@@ -548,7 +548,7 @@
 | `tests/test_search_router.py` | 6 | ✅ Passing |
 | `tests/test_live_search.py` | 8 | ✅ Passing |
 | **Total** | **203+** | ✅ |
-| `test_e2e_recs.py` (standalone) | 1 | ✅ E2E simulation |
+| `scripts/benchmark_recommendations.py` | Manual | ✅ Live pipeline benchmark |
 
 ---
 

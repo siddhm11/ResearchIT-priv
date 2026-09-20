@@ -312,7 +312,7 @@ If a request asks for one of these, surface that it is out of scope per doc 06 p
 - Use `pytest` + `pytest-asyncio` (asyncio_mode = auto, configured in `pytest.ini`).
 - Test files go in `tests/`. No `tests/fixtures/` directory exists yet — inline fixtures or use `tmp_path`.
 - Run tests: `python -m pytest tests/ -v`
-- Run E2E: `python test_e2e_recs.py`
+- Run the live recommendation benchmark: `python scripts/benchmark_recommendations.py`
 
 ### 5.5 File and folder conventions
 
@@ -325,7 +325,6 @@ ResearchIT-Final/
 |-- requirements.txt             # pip dependencies
 |-- pytest.ini                   # pytest config (asyncio_mode=auto)
 |-- interactions.db              # SQLite database (auto-created)
-|-- test_e2e_recs.py             # E2E simulation test (standalone)
 |
 |-- app/                         # FastAPI application
 |   |-- main.py                  # App entry, lifespan, router includes
@@ -423,8 +422,8 @@ python -m pytest tests/ -v
 # Run specific test file
 python -m pytest tests/test_clustering.py -v
 
-# Run E2E simulation (hits live Qdrant)
-python test_e2e_recs.py
+# Run the recommendation benchmark (hits live cloud services)
+python scripts/benchmark_recommendations.py
 
 # Install dependencies
 pip install -r requirements.txt
