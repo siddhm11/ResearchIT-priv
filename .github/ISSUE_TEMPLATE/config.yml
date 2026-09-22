@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ResearchIT live application
+    url: https://siddhm11-researchit.hf.space
+    about: Check whether the behavior is reproducible in the deployed application.
