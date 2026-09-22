@@ -25,7 +25,7 @@ python-multipart>=0.0.9
 # keyword API. The running Space is fine only because its image was built
 # before those releases -- any rebuild would have picked them up.
 FlagEmbedding==1.2.10
-transformers==4.44.2
+transformers==5.17.0
 
 # sentence-transformers was never declared here -- it arrived transitively via
 # FlagEmbedding, so a rebuild floated it to whatever was newest. That is the
