@@ -95,10 +95,12 @@ async def search(
     # concurrent request and would also stop the rewrite task above from making
     # progress. It belongs in an executor, as the cross-encoder stage already is.
     t0_encode = time.perf_counter()
-    encoded: list[tuple] = []
+    # Key encodings by their actual text; partial failures cannot misalign a
+    # rewrite's vector with the original query's lexical results.
+    encoded: dict[str, tuple] = {}
     try:
         d, s = await loop.run_in_executor(None, embed_svc.encode_query, query)
-        encoded.append((d, s))
+        encoded[query] = (d, s)
     except Exception as e:
         print(f"[hybrid_search] Encoding failed for {query!r}: {e}")
 
@@ -131,13 +133,10 @@ async def search(
         try:
             d, s = await loop.run_in_executor(
                 None, embed_svc.encode_query, rewritten_query)
-            encoded.append((d, s))
+            encoded[rewritten_query] = (d, s)
         except Exception as e:
             print(f"[hybrid_search] Encoding failed for {rewritten_query!r}: {e}")
     search_meta["encode_time_ms"] = int((time.perf_counter() - t0_encode) * 1000)
-
-    if not encoded:
-        return ([], search_meta) if return_meta else []
 
     # How many candidates to fetch before reranking
     fetch_k = limit * config.SEARCH_FETCH_K_MULTIPLIER
@@ -147,45 +146,47 @@ async def search(
     t0_retrieval = time.perf_counter()
     tasks = []
     task_labels = []
-    # Query text per encoded form, so the sparse arm can run on text. Built in
-    # the same order `encoded` was appended to, and zipped defensively below in
-    # case an encode failed and left the lists different lengths.
-    encoded_texts = [query]
+    query_texts = [query]
     if rewritten_query != query:
-        encoded_texts.append(rewritten_query)
+        query_texts.append(rewritten_query)
 
     use_fts = config.SPARSE_BACKEND == "fts" and fts_svc.is_available()
     search_meta["sparse_backend"] = "fts5" if use_fts else "zilliz"
 
-    for i, ((dense_vec, sparse_dict), text) in enumerate(zip(encoded, encoded_texts)):
-        # _merged also covers the recent-papers shard; identical to
-        # search_dense() while SEARCH_FANOUT_RECENT is off.
-        tasks.append(qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k))
-        task_labels.append(f"qdrant_q{i}")
-        # FTS5 indexes the same corpus as the dense arm; Zilliz indexes only the
-        # pre-2025-06 snapshot, which makes RRF penalise every newer paper for
-        # being absent from a list that could never contain it.
+    for i, text in enumerate(query_texts):
+        pair = encoded.get(text)
+        if pair is not None:
+            dense_vec, sparse_dict = pair
+            tasks.append(qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k))
+            task_labels.append(f"qdrant_q{i}")
         if use_fts:
+            # Keyword retrieval does not require an embedding model. Keep it
+            # alive even if one or every encode failed.
             tasks.append(fts_svc.search_sparse(text, limit=fetch_k))
             task_labels.append(f"fts_q{i}")
-        else:
+        elif pair is not None:
             tasks.append(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k))
             task_labels.append(f"zilliz_q{i}")
 
-    # Time each task individually
-    import asyncio as _aio
-    task_start = time.perf_counter()
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     search_meta["retrieval_time_ms"] = int((time.perf_counter() - t0_retrieval) * 1000)
     search_meta["n_retrieval_tasks"] = len(tasks)
 
     valid_result_lists: list[list[dict]] = []
-    for r in raw_results:
+    search_meta["retrieval_sources"] = []
+    for label, r in zip(task_labels, raw_results):
         if isinstance(r, Exception):
             print(f"[hybrid_search] search task failed: {r}")
             continue
         if r:
             valid_result_lists.append(r)
+            search_meta["retrieval_sources"].append(label)
+    has_dense = any(s.startswith("qdrant_") for s in search_meta["retrieval_sources"])
+    has_lexical = any(not s.startswith("qdrant_") for s in search_meta["retrieval_sources"])
+    search_meta["retrieval_mode"] = (
+        "hybrid" if has_dense and has_lexical else
+        "semantic" if has_dense else "keyword" if has_lexical else "unavailable"
+    )
 
     if not valid_result_lists:
         return ([], search_meta) if return_meta else []
