@@ -212,9 +212,61 @@ async def test_zero_vote_end_to_end_collection_to_comparison(store):
         assert not c.execute("select name from sqlite_master where name='interactions'").fetchone()
 
 
+def test_worker_lock_excludes_second_scheduler(tmp_path):
+    from scripts.hf_discovery import worker_lock
+    path=tmp_path/'worker.lock'
+    with worker_lock(path):
+        with pytest.raises(RuntimeError):
+            with worker_lock(path):pass
+    with worker_lock(path):pass
+
+
+def test_comparison_render_escapes_external_text(tmp_path):
+    from scripts.hf_discovery import render_comparison
+    r=compare_feed(baseline(),[fresh()],NOW)
+    r['combined'][0]['title']='<script>alert(1)</script>'
+    render_comparison(r,tmp_path)
+    html=(tmp_path/'comparison.html').read_text()
+    assert '<script>alert(1)</script>' not in html and '&lt;script&gt;' in html
+
+
 def test_recent_source_mention_does_not_make_old_paper_new():
     r=compare_feed(baseline(),[{**fresh(),'published_at':'2020-01-01T00:00:00Z'}],NOW)
     assert not r['changes']
+
+
+def test_synthetic_cli_demo_is_reproducible_and_labelled(tmp_path):
+    from scripts.hf_discovery import synthetic_demo
+    synthetic_demo(tmp_path)
+    r=json.loads((tmp_path/'comparison.json').read_text())
+    assert r['synthetic'] and r['execution']['preparation']['ready']==5
+    assert len(r['changes'])==3
+    html=(tmp_path/'comparison.html').read_text()
+    assert 'Synthetic demonstration' in html
+    assert 'href="https://arxiv.org/' not in html
+
+
+async def test_capture_uses_scratch_storage_and_restores_paths(tmp_path,monkeypatch):
+    from unittest.mock import AsyncMock
+    from app import config,db,qdrant_svc,user_state
+    from app.routers import recommendations
+    from scripts.hf_discovery import capture_baseline
+    original=(config.DB_PATH,db.DB_PATH)
+    ids=[f'2601.{i:05d}' for i in range(5)]
+    vectors={aid:np.array(vec()) for aid in ids+['2602.00001']}
+    monkeypatch.setattr(qdrant_svc,'get_paper_vectors',AsyncMock(side_effect=lambda aids:{aid:vectors[aid] for aid in aids}))
+    async def build(uid,state,qid):
+        assert db.DB_PATH!=original[1]
+        assert len(await db.get_save_history(uid))==5
+        return {'test':True}
+    monkeypatch.setattr(recommendations,'_build_feed',build)
+    monkeypatch.setattr(recommendations,'_build_page',AsyncMock(return_value=([{'arxiv_id':'2602.00001','title':'Real-route stub','published':'2026-02-01'}],False)))
+    out=tmp_path/'baseline.json'
+    result=await capture_baseline(ids,out)
+    assert result['captured']==1
+    assert (config.DB_PATH,db.DB_PATH)==original
+    assert len(json.loads(out.read_text())['seed_vectors'])==5
+    assert not any(uid.startswith('shadow-') for uid in user_state._cache)
 
 
 def test_store_refuses_the_user_database(tmp_path):
