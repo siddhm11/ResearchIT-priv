@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from app import db, qdrant_svc, turso_svc, user_state as us
+from app import db, discovery_svc, qdrant_svc, turso_svc, user_state as us
 from app.main import app
 
 
@@ -49,6 +49,18 @@ async def test_interest_form_limits_are_also_enforced(client):
     assert 'action="/interests"' in r.text
 
 
+async def test_starter_suggestions_use_selected_categories_and_mark_saved(client, monkeypatch):
+    await db.save_onboarding_categories('reader', ['nlp'])
+    await db.log_interaction('reader', '2601.00001', 'save')
+    starter = AsyncMock(return_value=[{'arxiv_id':'2601.00001','title':'An NLP seed',
+                                       'category':'cs.CL','year':2026}])
+    monkeypatch.setattr(discovery_svc, 'starter_papers', starter)
+    r = await client.get('/api/onboarding/seed-search')
+    starter.assert_awaited_once_with({'cs.CL','cs.IR'}, limit=12)
+    assert 'An NLP seed' in r.text and 'Saved' in r.text
+    assert 'hx-post=' not in r.text
+
+
 async def test_unsave_survives_cache_reload_and_is_not_a_dislike(client):
     await db.log_interaction('reader', '2601.00001', 'save')
     await db.log_interaction('reader', '2601.00001', 'unsave')
@@ -63,3 +75,23 @@ async def test_library_is_not_limited_to_retrieval_deque(client):
         await db.log_interaction('reader', f'2601.{i:05d}', 'save')
     r = await client.get('/saved')
     assert r.text.count('data-arxiv-id=') == 25
+
+
+async def test_balanced_starters_include_thin_categories(monkeypatch):
+    monkeypatch.setattr(discovery_svc.local_meta, 'is_available', lambda: True)
+    async def trending(cats, limit):
+        return [{'arxiv_id': 'shared'}] + [{'arxiv_id': next(iter(cats))+str(i)} for i in range(8)]
+    monkeypatch.setattr(turso_svc, 'fetch_trending_by_categories', trending)
+    papers = await discovery_svc.starter_papers({'math.PR','cs.CL'}, limit=6)
+    ids = [p['arxiv_id'] for p in papers]
+    assert len(ids) == len(set(ids)) == 6
+    assert any(a.startswith('math.PR') for a in ids[:3])
+    assert any(a.startswith('cs.CL') for a in ids[:3])
+
+
+async def test_without_sidecar_starters_make_one_remote_request(monkeypatch):
+    monkeypatch.setattr(discovery_svc.local_meta, 'is_available', lambda: False)
+    fetch = AsyncMock(return_value=[])
+    monkeypatch.setattr(turso_svc, 'fetch_trending_by_categories', fetch)
+    await discovery_svc.starter_papers({'math.PR','cs.CL'}, limit=20)
+    fetch.assert_awaited_once_with({'math.PR','cs.CL'}, limit=20)

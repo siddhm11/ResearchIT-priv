@@ -11,7 +11,7 @@ import uuid
 import json
 from fastapi import APIRouter, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
-from app import db
+from app import db, discovery_svc
 from app.config import COOKIE_NAME, CATEGORY_GROUPS
 from app.templates_env import templates
 
@@ -124,6 +124,7 @@ async def save_categories(
         {
             "seed_count": seed_count,
             "seed_target": 5,
+            "suggestions": True,
         },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
@@ -156,12 +157,21 @@ async def seed_search(
                 papers = [meta[aid] for aid in arxiv_ids if aid in meta]
         except Exception as e:
             print(f"[onboarding] seed search failed: {e}")
-            # Fallback to arXiv API keyword search
+        if not papers:
             try:
-                from app import arxiv_svc
                 papers = await arxiv_svc.search(q.strip(), max_results=6)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[onboarding] keyword fallback failed: {e}")
+    else:
+        categories = await db.get_user_category_filter(user_id)
+        if categories:
+            try:
+                papers = await discovery_svc.starter_papers(categories, limit=12)
+            except Exception as e:
+                print(f"[onboarding] starter suggestions unavailable: {e}")
+    saved_ids = {r["paper_id"] for r in await db.get_current_feedback(user_id)
+                 if r["event_type"] == "save"}
+    papers = [{**p, "saved": p["arxiv_id"] in saved_ids} for p in papers]
 
     # HTMX request: return ONLY the results partial (swap target = #seed-results).
     # The full seed_search.html panel is rendered by save_categories() during the
@@ -170,7 +180,7 @@ async def seed_search(
     resp = templates.TemplateResponse(
         request,
         "partials/seed_results.html",
-        {"papers": papers, "query": q},
+        {"papers": papers, "query": q, "suggestions": not q.strip()},
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
