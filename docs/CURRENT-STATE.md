@@ -1,6 +1,8 @@
 # Current technical contract
 
-Updated: 2026-09-24. Code defaults in this checkout; deployment not verified.
+Updated: 2026-09-28. Deployed to the Hugging Face Space at `67cba21` on
+2026-09-28; the live checks are in DISCOVERY-PLAN.md (deployment record).
+Re-verify with `/healthz/*` rather than trusting this date.
 
 ## Source of truth and maintenance
 

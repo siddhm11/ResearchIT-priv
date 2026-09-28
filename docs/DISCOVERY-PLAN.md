@@ -1,6 +1,7 @@
 # Discovery improvement plan
 
-Date: 2026-09-24. Scope: local implementation and validation; no deployment.
+Date: 2026-09-24. Implemented and validated locally; deployed 2026-09-28 (see the
+deployment record below).
 
 ## Product contract
 
@@ -98,6 +99,28 @@ and keyword-only search. Two defects found and fixed before commit:
 Not covered locally: shards `b`/`recent` (credentials exist only as Space
 secrets), BGE-M3 and cross-encoder search, and the arXiv fallback (HTTP 406
 from the test machine). Offline suite: 668 passed, 15 skipped, 15 deselected.
+
+## Deployment record — 2026-09-28
+
+Merged as PR #9 and deployed to the Space at `67cba21` (previously `1c7dfd8`).
+The build kept the old container serving until the new one was ready. Read-only
+checks against the live Space afterwards:
+
+- `/healthz/deep` and `/healthz/shards` healthy: shards a/b/recent at
+  899,456 / 697,131 / 202,251 points, sidecar and Turso ok.
+- First feed for a new visitor: 7.3 s once (pool build), then ~0.9 s. Before
+  the deploy the same request took 42.8 s.
+- Feed policy `v10_fresh_discovery`; three refreshes for one visitor, 0 repeats.
+- Search uses BGE-M3 (no keyword-only notice), policy
+  `search_v2_independent_lexical`, 1.9–4.6 s for three reference queries.
+- `/history`, `/interests`, `/saved`, `/onboarding`, `/healthz/discovery`
+  (`scheduler: disabled`) all return 200.
+- HF's edge returned intermittent 502s (without reaching the app) for about five
+  minutes after the switch, then none in 20 consecutive requests.
+
+Known after deploy: feed impressions are not replicated, so this deploy reset
+every reader's 7-day refresh memory and "Discovered" history (see Operational
+boundaries in CURRENT-STATE.md).
 
 ## Next release gates and later work
 
