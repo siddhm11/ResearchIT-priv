@@ -72,6 +72,22 @@ def test_human_judgments_reject_time_leakage(tmp_path):
     assert evaluate_judgment_file(p)[0]['precision_at_k']==.1
 
 
+def test_dashboard_escapes_source_and_test_text():
+    from jinja2 import Environment,FileSystemLoader,select_autoescape
+    from pathlib import Path
+    import json
+    # Deliberately minimal data: no generated result file needed for CI.
+    report={'generated_local':'2026-09-25','generated_at':'now','code_sha256':'hash',
+            'tests':{'counts':{},'exit_code':0,'cases':[{'name':'</script><script>alert(1)</script>', 'group':'tests','status':'passed'}]},
+            'structural':[], 'hf_observed_sample':None, 'semantics':{'status':'blocked'},
+            'model':{}, 'environment':{}, 'live':{}, 'judged_quality':[]}
+    env=Environment(loader=FileSystemLoader(Path(__file__).resolve().parents[1]/'scripts'),autoescape=select_autoescape(['html']))
+    html=env.get_template('recommendation_dashboard.html').render(report=report)
+    assert '</script><script>alert(1)</script>' not in html
+    assert '&lt;script&gt;' in html
+    assert 'fetch(' not in html and '<script src=' not in html
+
+
 def test_fully_judged_bad_page_has_zero_precision_not_missing_result():
     r=ranking_metrics(['a'],{'a':0})
     assert r['status']=='measured' and r['precision_at_k']==0
