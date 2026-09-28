@@ -1,3 +1,7 @@
+# The ranges below are the intent. The Docker image installs the exact versions in
+# constraints.txt: after editing this file, run `make lock` and commit both.
+# tests/test_constraints_lock.py fails CI when the two drift apart.
+
 # ── Core ──────────────────────────────────────────────────────────────────────
 fastapi>=0.115
 uvicorn>=0.30
