@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-09-25
+> **Last updated**: 2026-09-28
 
 ---
 
@@ -372,7 +372,7 @@ ResearchIT-Final/
 |   |-- 02-bme-arxiv-test.ipynb  # Search quality tests + BGE-M3 prototype
 |   |-- 03-check-search-bq-prm.ipynb  # BQ vs PRM quantization benchmark
 |
-|-- tests/                       # pytest test suite (203+ tests)
+|-- tests/                       # pytest suite: ~700 tests in 56 files (2026-09-28)
     |-- test_profiles.py         # EWMA profile tests (11)
     |-- test_clustering.py       # Ward clustering tests (10)
     |-- test_reranker_diversity.py # Reranker + MMR tests (13)
@@ -492,4 +492,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-09-25. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-09-28. Update this date when CLAUDE.md changes.*
