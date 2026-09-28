@@ -10,6 +10,7 @@ import pytest
 
 from app.discovery_store import DiscoveryStore, EMBEDDING_CONTRACT, validated_vector
 from app.discovery_worker import collect_once, prepare_once
+from app.discovery_shadow import compare_feed
 from app.hf_papers_svc import normalize_snapshot
 
 NOW=datetime(2026,9,25,tzinfo=timezone.utc).timestamp()
@@ -159,9 +160,74 @@ def fresh(topic=0,aid='2609.00001'):
             'published_at':'2026-09-20T00:00:00Z','upvotes':0}
 
 
+def test_source_cap_and_minor_interest_survive():
+    b=baseline();hf=[fresh(0,f'2609.{i:05d}') for i in range(20)]
+    r=compare_feed(b,hf,NOW)
+    assert len(r['combined'])==10 and len(r['changes'])==3
+    assert Counter(p['interest'] for p in r['combined'])==Counter(p['interest'] for p in r['baseline'])
+    assert len({p['arxiv_id'] for p in r['combined']})==10
+    assert all('vector' not in p for p in r['combined'])
+
+
+def test_popularity_cannot_promote_orthogonal_topic():
+    r=compare_feed(baseline(),[{**fresh(2),'upvotes':1000000}],NOW)
+    assert not r['changes'] and len(r['rejected'])==1
+
+
+@pytest.mark.parametrize('change',[{'last_seen':NOW-49*3600},{'last_seen':NOW+60},
+                                 {'embedding_contract':'other-model'},{'vector':vec(0)[:10]},
+                                 {'published_at':'2027-01-01T00:00:00Z'}])
+def test_invalid_candidates_leave_baseline_unchanged(change):
+    r=compare_feed(baseline(),[{**fresh(),**change}],NOW)
+    assert r['combined']==r['baseline'] and not r['hf_only']
+
+
+def test_exclusions_and_duplicates_applied_before_selection():
+    b=baseline();b['excluded_ids']=['2609.00001','2501.00000']
+    r=compare_feed(b,[fresh(),fresh(aid='2501.00001')],NOW)
+    assert not r['changes'] and len(r['baseline'])==9
+    assert all(p['arxiv_id'] not in b['excluded_ids'] for p in r['combined'])
+
+
+def test_no_source_is_identity_and_cap_zero_disables_experiment():
+    b=baseline()
+    assert compare_feed(b,[],NOW)['combined']==compare_feed(b,[],NOW)['baseline']
+    assert not compare_feed(b,[fresh()],NOW,hf_cap=0)['changes']
+
+
+def test_shadow_rejects_unknown_baseline_encoding():
+    b=baseline();b['embedding_contract']='wrong'
+    with pytest.raises(ValueError):compare_feed(b,[fresh()],NOW)
+
+
+async def test_zero_vote_end_to_end_collection_to_comparison(store):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=[raw()]))) as c:
+        assert (await collect_once(store,c,NOW))['status']=='ok'
+        assert (await prepare_once(store,c,now=NOW,encoder=lambda _:vec()))['ready']==1
+    reopened=DiscoveryStore(store.path)
+    r=compare_feed(baseline(),reopened.ready(NOW),NOW)
+    assert len(r['changes'])==1 and r['combined']!=r['baseline']
+    # This store never creates or writes user-interaction tables.
+    with store.connection() as c:
+        assert not c.execute("select name from sqlite_master where name='interactions'").fetchone()
+
+
+def test_recent_source_mention_does_not_make_old_paper_new():
+    r=compare_feed(baseline(),[{**fresh(),'published_at':'2020-01-01T00:00:00Z'}],NOW)
+    assert not r['changes']
+
+
 def test_store_refuses_the_user_database(tmp_path):
     path=tmp_path/'user.db'
     with sqlite3.connect(path) as c:c.execute('create table interactions(id integer)')
     with pytest.raises(ValueError):DiscoveryStore(path)
     with sqlite3.connect(path) as c:
         assert not c.execute("select name from sqlite_master where name='candidates'").fetchone()
+
+
+def test_shadow_recency_uses_as_of_time():
+    b=baseline()
+    first=compare_feed(b,[],NOW)
+    later=compare_feed(b,[],NOW+30*86400)
+    # Same fixed geometry and order, older publication ages must lower scores.
+    assert all(a['score']>z['score'] for a,z in zip(first['baseline'],later['baseline']))
