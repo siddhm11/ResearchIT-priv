@@ -2,13 +2,13 @@
 Saved papers router.
 
 GET /saved
-  – Shows all papers the user has currently saved (positive_list)
+  – Shows all papers the user has currently saved (durable feedback history)
   – Metadata fetched via Turso DB (Phase 3.5), arXiv API fallback
 """
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import arxiv_svc, db, turso_svc, user_state as us
+from app import arxiv_svc, db, turso_svc
 from app.config import COOKIE_NAME
 from app.templates_env import templates
 
@@ -21,9 +21,9 @@ async def saved_papers(
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     user_id = user_id or str(uuid.uuid4())
-    state = await us.ensure_loaded(user_id)
 
-    saved_ids = state.positive_list  # most-recent first, mutual-exclusion already applied
+    saved_ids = [row["paper_id"] for row in await db.get_current_feedback(user_id)
+                 if row["event_type"] == "save"]
 
     papers = []
     if saved_ids:

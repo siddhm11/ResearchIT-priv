@@ -88,11 +88,7 @@ async def ensure_loaded(user_id: str) -> UserState:
     if state.loaded:
         return state
 
-    rows = await db.get_user_interactions(
-        user_id,
-        event_types=["save", "not_interested"],
-        limit=MAX_POSITIVES + MAX_NEGATIVES,
-    )
+    rows = await db.get_current_feedback(user_id)
 
     # Rows are ordered newest-first; we want newest in the front of the deque
     # Process oldest-first so that appendleft ends with newest at front.

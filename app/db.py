@@ -333,12 +333,27 @@ async def get_save_history(user_id: str, limit: int = 200) -> list[dict]:
                   AND i.event_type = 'save'
                   AND i.id = (SELECT MAX(x.id) FROM interactions x
                                WHERE x.user_id = i.user_id
-                                 AND x.paper_id = i.paper_id)
+                                 AND x.paper_id = i.paper_id
+                                 AND x.event_type IN ('save', 'unsave', 'not_interested'))
                 ORDER BY i.id DESC
                 LIMIT ?""",
             (user_id, int(limit)),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_current_feedback(user_id: str) -> list[dict]:
+    """Latest explicit decision per paper, newest first; opens are not votes."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(
+            """SELECT i.paper_id, i.event_type, i.timestamp FROM interactions i
+               WHERE i.user_id = ? AND i.event_type IN ('save', 'not_interested')
+                 AND i.id = (SELECT MAX(x.id) FROM interactions x
+                             WHERE x.user_id = i.user_id AND x.paper_id = i.paper_id
+                               AND x.event_type IN ('save', 'unsave', 'not_interested'))
+               ORDER BY i.id DESC""", (user_id,))
+        return [dict(row) for row in await cur.fetchall()]
 
 
 # ── Qdrant map helpers ────────────────────────────────────────────────────────
