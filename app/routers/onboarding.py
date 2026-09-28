@@ -9,7 +9,7 @@ POST /api/onboarding/skip           → mark done (no categories), redirect to /
 """
 import uuid
 import json
-from fastapi import APIRouter, Request, Cookie
+from fastapi import APIRouter, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from app import db
 from app.config import COOKIE_NAME, CATEGORY_GROUPS
@@ -19,6 +19,51 @@ from app.templates_env import templates
 from app import hybrid_search_svc, arxiv_svc, turso_svc
 
 router = APIRouter()
+
+
+def _validated_categories(value: object) -> list[str]:
+    """One category contract for onboarding JSON and the preference form."""
+    if (not isinstance(value, list) or len(value) > 8
+            or any(not isinstance(c, str) or c not in CATEGORY_GROUPS for c in value)):
+        raise HTTPException(422, "Choose up to 8 available areas.")
+    return list(dict.fromkeys(value))
+
+
+@router.get("/interests", response_class=HTMLResponse)
+async def interests_page(
+    request: Request,
+    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    user_id = user_id or str(uuid.uuid4())
+    state = await db.get_onboarding_state(user_id)
+    resp = templates.TemplateResponse(request, "interests.html", {
+        "categories": CATEGORY_GROUPS,
+        "selected": state["selected_categories"] if state else [],
+    })
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    return resp
+
+
+@router.post("/interests")
+async def update_interests(
+    request: Request,
+    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    user_id = user_id or str(uuid.uuid4())
+    form = await request.form()
+    selected = form.getlist("categories")
+    try:
+        valid = _validated_categories(selected)
+    except HTTPException as exc:
+        resp = templates.TemplateResponse(request, "interests.html", {
+            "categories": CATEGORY_GROUPS, "selected": selected, "error": exc.detail,
+        }, status_code=422)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        return resp
+    await db.save_onboarding_categories(user_id, valid)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    return resp
 
 
 @router.get("/onboarding", response_class=HTMLResponse)
@@ -60,10 +105,12 @@ async def save_categories(
 
     # Parse JSON body from the HTMX request
     body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(422, "Expected selected areas.")
     categories = body.get("categories", [])
 
     # Validate: must be valid group keys
-    valid = [c for c in categories if c in CATEGORY_GROUPS]
+    valid = _validated_categories(categories)
     await db.save_onboarding_categories(user_id, valid)
 
     # Return the seed search step partial
@@ -153,6 +200,3 @@ async def skip_onboarding(
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
-
-
-

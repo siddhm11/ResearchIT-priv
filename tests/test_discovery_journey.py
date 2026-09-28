@@ -21,6 +21,34 @@ async def client(monkeypatch):
         yield c
 
 
+async def test_completed_reader_can_change_interests_without_losing_library(client):
+    await db.complete_onboarding('reader')
+    await db.log_interaction('reader', '2601.00001', 'save')
+    page = await client.get('/interests')
+    assert page.status_code == 200 and 'Research areas' in page.text
+    response = await client.post('/interests', data={'categories': ['nlp', 'cv']})
+    assert response.status_code == 303
+    state = await db.get_onboarding_state('reader')
+    assert state['selected_categories'] == ['nlp', 'cv']
+    assert state['onboarding_completed'] == 1
+    assert [r['paper_id'] for r in await db.get_save_history('reader')] == ['2601.00001']
+
+
+@pytest.mark.parametrize('payload', [{'categories':'nlp'}, {'categories':[{}]},
+                                    {'categories':['unknown']}, {'categories':['nlp']*9}, []])
+async def test_invalid_interests_do_not_write_state(client, payload):
+    r = await client.post('/api/onboarding/categories', json=payload)
+    assert r.status_code == 422
+    assert await db.get_onboarding_state('reader') is None
+
+
+async def test_interest_form_limits_are_also_enforced(client):
+    r = await client.post('/interests', data={'categories': ['nlp']*9})
+    assert r.status_code == 422
+    assert "Choose up to 8 available areas." in r.text
+    assert 'action="/interests"' in r.text
+
+
 async def test_unsave_survives_cache_reload_and_is_not_a_dislike(client):
     await db.log_interaction('reader', '2601.00001', 'save')
     await db.log_interaction('reader', '2601.00001', 'unsave')
