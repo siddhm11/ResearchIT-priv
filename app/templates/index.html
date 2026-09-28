@@ -28,7 +28,7 @@
   #}
   <header class="issue">
     <div class="issue-kicker">Your reading</div>
-    <h1 class="issue-title">Today's papers</h1>
+    <h1 class="issue-title">Discover papers</h1>
     <div class="issue-line">
       <span>{{ issue_date }}</span>
       <span class="sep">·</span>
@@ -39,6 +39,15 @@
       {% endif %}
     </div>
   </header>
+
+  <div class="discovery-tools" aria-label="Discovery controls">
+    <button type="button" class="btn btn-primary btn-sm"
+            hx-get="/api/recommendations" hx-target="#rec-section" hx-swap="innerHTML"
+            hx-disabled-elt="this">Discover more</button>
+    <a href="/interests" class="btn btn-ghost btn-sm">Edit interests</a>
+    <a href="/history?view=discovered" class="btn btn-ghost btn-sm">Recent papers</a>
+  </div>
+  <p class="small muted">Fresh choices from your interests when available. Revisit earlier papers in your history.</p>
 
   <div id="rec-section"
        hx-get="/api/recommendations"

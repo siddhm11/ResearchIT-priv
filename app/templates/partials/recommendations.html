@@ -22,11 +22,13 @@
   {% if trending %}
     <div class="notice" style="margin-bottom:.85rem">
       <span>
-        Popular in the areas you picked. Save a few papers and the feed starts
-        following your own reading instead.
+        {% if broad_discovery %}A broad starting selection. <a href="/interests">Choose your interests</a>
+        to make this more relevant.{% else %}Popular papers in your selected areas.
+        Save the ones that fit to make your feed more personal.{% endif %}
       </span>
     </div>
   {% endif %}
+  {% if revisiting %}<p class="small muted" role="status">Some familiar papers are back: fresh matches in this selection are running low.</p>{% endif %}
 
   {#
     Progress toward the next tier. The wizard already tells people that five

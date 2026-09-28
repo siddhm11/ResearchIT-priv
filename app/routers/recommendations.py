@@ -19,12 +19,13 @@ import asyncio
 import random
 import time
 import uuid
+import weakref
 from collections import OrderedDict
 
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import db, errors, qdrant_svc, arxiv_svc, turso_svc, user_state as us
+from app import db, discovery_svc, errors, qdrant_svc, arxiv_svc, turso_svc, user_state as us
 from app.config import (
     COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
@@ -65,7 +66,7 @@ router = APIRouter(prefix="/api")
 # v9.1 = MMR runs WITHIN each cluster against its own budget instead of
 #      globally, because a global MMR truncated minority interests out of
 #      the pool before the quota stage could arrange them (doc 06, 2026-08-21).
-_RANKER_VERSION = "v9.1_per_cluster_mmr"
+_RANKER_VERSION = "v10_fresh_discovery"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -130,13 +131,11 @@ def _trending_pool_size() -> int:
 # changed and logged degenerate propensities.
 _COLD_START_EPSILON = 0.25
 
-# How many recent impressions to keep when the pool runs dry. Keeping roughly a
-# page means the papers just served do not immediately reappear at the top,
-# while everything older becomes eligible again.
-_IMPRESSION_KEEP = _PAGE_SIZE
-
 _FEED_CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _FEED_CACHE_MAX = 200
+_RECENT_DAYS = 7
+# Weak references avoid retaining one lock forever for every visitor.
+_FEED_LOCKS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
 
 
 def _cache_put(query_id: str, entry: dict) -> None:
@@ -181,42 +180,12 @@ def _take(pool: list[str], entry: dict, seen: set[str], n: int) -> list[str]:
 async def _cold_start_order(
     user_id: str, pool: list[str],
 ) -> tuple[list[str], dict[str, float]]:
-    """Order the cold-start pool, and return each paper's selection probability.
+    """Put fresh candidates first with epsilon-greedy slot selection.
 
-    Two problems this solves, both measured on the deployed Space.
-
-    1. The feed never changed. Tier 0 was a deterministic citation sort with
-       exploration explicitly disabled, so a user with no interactions was
-       served byte-identical papers in identical order on every refresh,
-       indefinitely. `seen` did not help: it tracks saves and dismissals, so a
-       reader who refreshes without clicking anything is remembered as having
-       done nothing.
-
-    2. Every impression logged propensity=1.0. A deterministic policy has no
-       support over the actions it did not take, so no amount of that data can
-       ever support IPS/SNIPS/DR later -- which is the whole point of the
-       query_id/propensity/policy_id invariant in CLAUDE.md §3.11.
-
-    The fix is impression memory plus epsilon-greedy slot filling:
-
-      * papers already SHOWN to this user are dropped, so a refresh advances
-        through the ranked backlog instead of reshuffling the same ten. For a
-        triage feed, refresh should mean "what else have you got", not
-        "shuffle" -- reordering the same papers is more disorienting than
-        leaving them still.
-      * each slot then takes the best remaining paper with probability 1-eps,
-        or a uniform pick from the rest with probability eps. That keeps
-        "best first" mostly intact while giving every paper non-zero exposure
-        probability, so two users with the same categories no longer get
-        identical feeds.
-
-    epsilon-greedy rather than a Plackett-Luce / softmax policy on purpose: its
-    propensities are exactly computable, in precisely the form §3.11 already
-    documents ("n_explore/pool_size for exploration"). A stochastic ranking
-    policy would need approximated top-k marginals, and an approximate
-    propensity is a silently biased IPS estimate later.
-
-    Returns (ordered_ids, propensity_by_id).
+    Log conditional selection probabilities within the eligible pool. These
+    are not marginal exposure probabilities for the complete retrieval and
+    rendering pipeline, and alone do not establish valid offline IPS estimates.
+    Exhaustion adds an oldest-first repeat block without deleting history.
     """
     if not pool:
         return [], {}
@@ -229,23 +198,20 @@ async def _cold_start_order(
 
     fresh = [pid for pid in pool if pid not in impressed]
 
-    # Everything on offer has been shown. Forgetting the oldest impressions is
-    # the only option that keeps a feed alive -- an empty feed is a worse
-    # failure than a repeat, and this user has no behavioural signal yet to
-    # retrieve anything else with.
+    # Keep fresh papers ahead of repeats and preserve history for the reader.
+    # A separate oldest-first repeat block fills an exhausted pool; it does not
+    # make previously seen items compete with unseen ones in the random draw.
+    recycled: list[str] = []
     if len(fresh) < _PAGE_SIZE:
-        # How many to keep has to scale with the pool, not be a fixed page.
-        # Keeping a flat 10 against a 12-paper pool leaves 2 papers -- the reset
-        # starves the feed instead of refilling it. Retain only what still
-        # leaves a full page free.
-        keep = min(_IMPRESSION_KEEP, max(0, len(pool) - _PAGE_SIZE))
         try:
-            await db.forget_oldest_impressions(user_id, keep=keep)
-            impressed = await db.get_impressed_ids(user_id)
-            fresh = [pid for pid in pool if pid not in impressed] or list(pool)
-        except Exception as e:  # pragma: no cover - defensive
-            print(f"[recs] impression reset failed ({e})")
-            fresh = list(pool)
+            recent = await db.get_recent_papers(user_id, opened=False, limit=200)
+        except Exception:  # retain stable pool order if recency lookup fails
+            recent = []
+        recency = {row["paper_id"]: i for i, row in enumerate(recent)}
+        recycled = sorted(
+            [pid for pid in pool if pid in impressed],
+            key=lambda pid: -recency.get(pid, len(recent)),
+        )
 
     rng = random.Random()
     remaining = list(fresh)
@@ -265,7 +231,9 @@ async def _cold_start_order(
         greedy_share = (1.0 - _COLD_START_EPSILON) if pick == 0 else 0.0
         props[aid] = round(greedy_share + _COLD_START_EPSILON / n, 6)
 
-    return ordered, props
+    # This block is deterministic, conditional on the recorded history.
+    props.update({pid: 1.0 for pid in recycled})
+    return ordered + recycled, props
 
 
 @router.get("/recommendations", response_class=HTMLResponse)
@@ -274,6 +242,15 @@ async def get_recommendations(
     page: int = 1,
     query_id: str | None = None,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    user_id = user_id or str(uuid.uuid4())
+    lock = _FEED_LOCKS.setdefault(user_id, asyncio.Lock())
+    async with lock:
+        return await _serve_recommendations(request, page, query_id, user_id)
+
+
+async def _serve_recommendations(
+    request: Request, page: int, query_id: str | None, user_id: str,
 ):
     """
     Serve one page of the feed.
@@ -316,6 +293,8 @@ async def get_recommendations(
     # to a fresh feed rather than erroring — the user sees new papers, which is
     # the correct failure mode for a feed.
     entry = _cache_get(query_id) if (query_id and page > 1) else None
+    if entry is not None and entry.get("user_id") != user_id:
+        entry = None
 
     if entry is None:
         query_id = str(uuid.uuid4())
@@ -325,7 +304,9 @@ async def get_recommendations(
             return _empty_resp()
         _cache_put(query_id, entry)
 
-    seen = us.all_seen(user_id)
+    seen = us.all_seen(user_id) | {
+        row["paper_id"] for row in await db.get_current_feedback(user_id)
+    }
     papers, has_more = await _build_page(entry, seen)
 
     if not papers:
@@ -387,6 +368,8 @@ async def get_recommendations(
         "next_page": page + 1,
         "query_id": entry["query_id"],
         "trending": entry.get("trending", False),
+        "broad_discovery": entry.get("broad_discovery", False),
+        "revisiting": any(p.get("previously_shown") for p in papers),
     }
     # Only page 1 renders the header; later pages are bare card fragments, so
     # computing this for them would be wasted work and rendering it would
@@ -400,7 +383,9 @@ async def get_recommendations(
 
 # ── Feed construction ────────────────────────────────────────────────────────
 
-async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
+async def _build_feed(
+    user_id: str, state, query_id: str, *, fresh_only: bool = True,
+) -> dict | None:
     """
     Run the tier cascade once and return a cacheable feed entry, or None when
     there is nothing to show.
@@ -414,11 +399,22 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
     }
     """
     base = {
+        "user_id": user_id,
         "query_id": query_id,
         "emitted": set(),
         "position": 0,
         "trending": False,
     }
+    try:
+        impressed = await db.get_impressed_ids(user_id, within_days=_RECENT_DAYS)
+    except Exception as e:
+        errors.report("recommendations", "recent impression lookup failed", e)
+        impressed = set()
+    base["previously_shown"] = impressed
+    # The hot deques are intentionally bounded for retrieval. They must not
+    # bound the exclusion set: an older saved/dismissed paper is still decided.
+    feedback = await db.get_current_feedback(user_id)
+    decided = us.all_seen(user_id) | {row["paper_id"] for row in feedback}
 
     # ── Tier 0: category trending (cold start, Phase 5) ──────────────────
     if not state.has_enough_for_recs():
@@ -432,16 +428,21 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
         if not category_filter:
             category_filter = set(DEFAULT_TRENDING_CATEGORIES)
         if category_filter:
-            trending = await turso_svc.fetch_trending_by_categories(
+            trending = await discovery_svc.starter_papers(
                 category_filter, limit=_trending_pool_size(),
             )
             if trending:
-                ids = [p["arxiv_id"] for p in trending if p.get("arxiv_id")]
+                excluded = decided
+                ids = list(dict.fromkeys(
+                    p["arxiv_id"] for p in trending
+                    if p.get("arxiv_id") and p["arxiv_id"] not in excluded
+                ))
                 if ids:
                     ranked, props = await _cold_start_order(user_id, ids)
                     return {
                         **base,
                         "trending": True,
+                        "broad_discovery": source_tag == "trending_default_fallback",
                         "ranked": ranked,
                         "explore": [],
                         "tags": {
@@ -461,7 +462,7 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
                     }
         return None
 
-    seen = us.all_seen(user_id)
+    seen = decided | (impressed if fresh_only else set())
 
     # ── Tier 1: multi-interest clustering + quota fusion (≥5 saves) ──────
     ranked, explore, tags, _rerank_ms, _timing = await _multi_interest_recommend(
@@ -501,7 +502,14 @@ async def _build_feed(user_id: str, state, query_id: str) -> dict | None:
             } for aid in ranked
         }
 
+    # Enforce exclusions even when a backend degrades or ignores its filter.
+    ranked = list(dict.fromkeys(aid for aid in ranked if aid not in seen))
+    explore = list(dict.fromkeys(aid for aid in explore if aid not in seen and aid not in ranked))
     if not ranked:
+        if fresh_only and impressed:
+            # One bounded retry: supply may be exhausted, or a service may be
+            # down. A total outage still returns the existing unavailable state.
+            return await _build_feed(user_id, state, query_id, fresh_only=False)
         return None
 
     # Shuffled once, then drawn from in order. Doc 06 §3.5 calls for
@@ -641,6 +649,7 @@ async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
             **meta[aid],
             "saved": False,
             "dismissed": False,
+            "previously_shown": aid in entry.get("previously_shown", set()),
             "ranker_version": tags.get("ranker_version", _RANKER_VERSION),
             # Serving as an exploration pick overrides the retrieval origin —
             # the same paper is only "exploration" by virtue of how it was shown.
