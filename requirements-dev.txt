@@ -12,5 +12,5 @@
 # reachable, so the unit suite still runs in an environment without either.
 -r requirements.txt
 
-playwright>=1.40
+playwright>=1.63.0
 pytest-playwright>=0.4
