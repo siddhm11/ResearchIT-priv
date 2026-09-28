@@ -83,7 +83,13 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old feed exposure rows")
     except Exception as e:
         print(f"[main] Exposure pruning skipped: {e}")
-    yield
+    from app.discovery_runtime import DiscoveryRuntime
+    app.state.discovery = DiscoveryRuntime()
+    await app.state.discovery.start()
+    try:
+        yield
+    finally:
+        await app.state.discovery.stop()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:

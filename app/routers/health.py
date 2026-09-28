@@ -576,3 +576,12 @@ async def healthz_shard_latency(samples: int = 5, limit: int = 20):
         "shards": out,
         "verdict": verdict,
     }
+
+
+@router.get("/healthz/discovery")
+async def healthz_discovery(request: Request):
+    """Cached operational status; no network/model work or credentials."""
+    runtime = getattr(request.app.state, "discovery", None)
+    if runtime is None:
+        return {"scheduler": "not_started", "serving_enabled": False}
+    return runtime.status()
