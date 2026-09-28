@@ -823,6 +823,30 @@ async def get_impressed_ids(user_id: str, within_days: int | None = None) -> set
         return {r[0] for r in await cur.fetchall()}
 
 
+async def get_recent_papers(
+    user_id: str, *, opened: bool = True, limit: int = 50
+) -> list[dict]:
+    """Recent distinct opens or served feed papers; neither means 'read'.
+
+    Click history lives in the replicated interactions table. Feed history is
+    local impression memory and can disappear on a container replacement.
+    """
+    if not user_id:
+        return []
+    limit = max(1, min(int(limit), 200))
+    if opened:
+        sql = """SELECT paper_id, MAX(timestamp) AS last_seen
+                 FROM interactions WHERE user_id = ? AND event_type IN ('click', 'view')
+                 GROUP BY paper_id ORDER BY last_seen DESC, MAX(id) DESC LIMIT ?"""
+    else:
+        sql = """SELECT paper_id, shown_at AS last_seen FROM feed_impressions
+                 WHERE user_id = ? ORDER BY shown_at DESC, rowid DESC LIMIT ?"""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(sql, (user_id, limit))
+        return [dict(row) for row in await cur.fetchall()]
+
+
 async def forget_oldest_impressions(user_id: str, keep: int = 0) -> int:
     """Drop this user's oldest impressions, keeping the `keep` most recent.
 
