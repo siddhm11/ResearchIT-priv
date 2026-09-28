@@ -41,6 +41,11 @@ _conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
 _probed = False
 _available = False
+# One handle per thread. A shared sqlite3 connection is NOT safe for concurrent
+# use even read-only: parallel to_thread calls failed with "bad parameter or
+# other API misuse", returned empty results, and one thread received rows from
+# another thread's query (measured 2026-09-28, 9 of 10 categories empty).
+_local = threading.local()
 
 
 def _probe() -> bool:
@@ -59,11 +64,9 @@ def _probe() -> bool:
             return False
         try:
             # Read-only URI so a corrupt or partially-written file can never be
-            # mutated, and so several threads can share the handle safely.
-            conn = sqlite3.connect(
-                f"file:{os.path.abspath(path)}?mode=ro", uri=True,
-                check_same_thread=False,
-            )
+            # mutated. This handle only proves availability; queries go through
+            # connection(), which gives each thread its own handle.
+            conn = _open(path, check_same_thread=False)
             n = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
             if not n:
                 print("[local_meta] sidecar present but empty — using Turso")
@@ -79,17 +82,33 @@ def _probe() -> bool:
     return _available
 
 
+def _open(path: str, *, check_same_thread: bool = True) -> sqlite3.Connection:
+    return sqlite3.connect(f"file:{os.path.abspath(path)}?mode=ro", uri=True,
+                           check_same_thread=check_same_thread)
+
+
+def connection() -> sqlite3.Connection | None:
+    """This thread's read-only sidecar handle, or None when unavailable."""
+    if not _probe() or _conn is None:
+        return None
+    # Keyed on the path so a re-pointed sidecar (tests) never serves a stale file.
+    if getattr(_local, "path", None) != SIDECAR_PATH:
+        _local.conn, _local.path = _open(SIDECAR_PATH), SIDECAR_PATH
+    return _local.conn
+
+
 def is_available() -> bool:
     return _probe()
 
 
 def stats() -> dict:
     """Diagnostics for the health endpoint."""
-    if not _probe() or _conn is None:
+    conn = connection()
+    if conn is None:
         return {"available": False, "path": SIDECAR_PATH}
     try:
-        n = _conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
-        newest = _conn.execute(
+        n = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+        newest = conn.execute(
             "SELECT MAX(update_date) FROM papers").fetchone()[0]
         return {
             "available": True,
@@ -109,7 +128,8 @@ def fetch_rows(arxiv_ids: list[str]) -> list[dict]:
     Missing ids are simply absent from the result — the caller falls back to
     Turso for those, so a partially-built sidecar is still useful.
     """
-    if not arxiv_ids or not _probe() or _conn is None:
+    conn = connection() if arxiv_ids else None
+    if conn is None:
         return []
     out: list[dict] = []
     # Chunked to stay well under SQLITE_MAX_VARIABLE_NUMBER.
@@ -117,7 +137,7 @@ def fetch_rows(arxiv_ids: list[str]) -> list[dict]:
         chunk = arxiv_ids[i:i + 500]
         ph = ",".join("?" * len(chunk))
         try:
-            cur = _conn.execute(
+            cur = conn.execute(
                 f"SELECT {', '.join(_COLUMNS)} FROM papers "
                 f"WHERE arxiv_id IN ({ph})", chunk)
             out += [dict(zip(_COLUMNS, r)) for r in cur.fetchall()]
@@ -178,10 +198,11 @@ def newest_update_date() -> str | None:
     global _max_date
     if _max_date is not None:
         return _max_date
-    if not _probe() or _conn is None:
+    conn = connection()
+    if conn is None:
         return None
     try:
-        _max_date = _conn.execute(
+        _max_date = conn.execute(
             "SELECT MAX(update_date) FROM papers").fetchone()[0]
     except Exception:
         _max_date = None
@@ -214,7 +235,8 @@ def fetch_trending(
 
     Returns [] when unavailable so the caller can fall back to Turso.
     """
-    if not codes or not _probe() or _conn is None:
+    conn = connection() if codes else None
+    if conn is None:
         return []
 
     ph = ",".join("?" * len(codes))
@@ -224,7 +246,7 @@ def fetch_trending(
     # stored; the pool is sized so the window still has plenty to choose from.
     pool = max(2000, limit * 200)
     try:
-        cur = _conn.execute(
+        cur = conn.execute(
             f"""SELECT {', '.join('p.' + c for c in _COLUMNS)}, t.cit
                 FROM papers p
                 JOIN (
