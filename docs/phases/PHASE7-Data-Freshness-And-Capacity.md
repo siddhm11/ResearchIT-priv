@@ -1,5 +1,7 @@
 # PHASE 7 — Data Freshness and Capacity
 
+> Historical record. For current implementation and defaults (2026-09-24), see [Current technical contract](../CURRENT-STATE.md). Old phase status, service counts, and benchmarks are not live verification.
+
 **Status:** Planning · **Created:** 2026-07-30
 **Prerequisite for:** Phase 8 (reranker retrain), Phase 9 (exploration / CF)
 

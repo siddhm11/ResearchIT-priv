@@ -2,15 +2,15 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-08-21
+> **Last updated**: 2026-09-25
 
 ---
 
 ## 1. What this codebase is
 
-ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud + Zilliz Cloud (sparse, `arxiv_bgem3_sparse`) for vectors, SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Single developer (Amin). Pre-launch — no real users yet.
+ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud for dense vectors, local FTS5 for lexical search, and Zilliz Cloud (`arxiv_bgem3_sparse`) as the sparse fallback, SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Current traffic and deployment state must be verified; this file describes code and recorded architecture, not live telemetry.
 
-**Qdrant is sharded — there is no single `arxiv_bgem3_dense` collection any more.** Verified against `/healthz/shards` on 2026-08-12:
+**Configured production sharding recorded on 2026-08-12 (historical measurement):** code supports primary + B + recent fanout. Actual collections depend on environment configuration. Re-verify `/healthz/shards`:
 
 | Shard | Collection | Points | Notes |
 |---|---|---|---|
@@ -18,7 +18,7 @@ ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers wit
 | b | `arxiv_dense_b` | 697,131 | in RAM |
 | recent | `arxiv_recent` | 202,251 | fanout, `SEARCH_FANOUT_RECENT` |
 
-All three are float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.7 GB SQLite metadata sidecar (1,799,348 rows + FTS5) is baked into the image; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
+In that recorded deployment all three were float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.7 GB SQLite metadata sidecar (1,799,348 rows + FTS5) is baked into the image; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
 
 **Endgame:** an "Instagram for research" — multi-interest aware feed that surfaces relevant papers across a user's distinct research areas without collapsing toward a dominant interest.
 
@@ -28,7 +28,7 @@ All three are float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`,
 
 ## 2. The document map — read this before consulting any doc
 
-There are six research documents in `docs/research/`, four walkthroughs in `docs/walkthroughs/`, and two phase plans in `docs/phases/`. The research docs were written at different times and **they contradict each other**. Follow this precedence strictly:
+Start with `docs/CURRENT-STATE.md` for implemented behavior and `docs/DISCOVERY-PLAN.md` for the current improvement plan. The phase plans and walkthroughs are historical snapshots. The research docs were written at different times and **they contradict each other**. Follow this precedence strictly:
 
 ### Research documents (`docs/research/`)
 
@@ -47,7 +47,7 @@ There are six research documents in `docs/research/`, four walkthroughs in `docs
 |---|---|
 | `PHASE1-Zero-ML-Recommender.md` | What Phase 1 built (Qdrant, arXiv API, HTMX) |
 | `PHASE2-Hybrid-Search-Plan.md` | Prototype reference for search pipeline (superseded by Phase 3 doc) |
-| `PHASE3-Hybrid-Semantic-Search.md` | **Active Phase 3 implementation plan** — BGE-M3 + Qdrant dense + Zilliz sparse + RRF |
+| `PHASE3-Hybrid-Semantic-Search.md` | **Historical Phase 3 implementation plan** — BGE-M3 + Qdrant dense + Zilliz sparse + RRF |
 | `PHASE7-Data-Freshness-And-Capacity.md` | **Active** — arXiv ingestion, abstract truncation, Qdrant free-tier capacity. Read before touching the data stores or proposing a reranker retrain. Contains the measured per-point disk cost and the eviction analysis. |
 | `PHASE8-Search-And-Recommendation-Design.md` | **Active** — the exact search and recommendation pipelines: every stage, constant and threshold, what is live vs pending, and the rules that must not change. Read before altering either pipeline. |
 
@@ -64,7 +64,7 @@ There are six research documents in `docs/research/`, four walkthroughs in `docs
 
 - **Architecture question?** Open `docs/research/06-Deep-Research-Verdict.md`. Stop there if it answers. If 06 is silent, fall through to 03.
 - **Product/UX question?** Open `docs/research/01-Vision-Instagram-for-Research.md`.
-- **"What phase are we in? What is next?"** Open `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md`.
+- **"What is implemented and what is next?"** Open `docs/CURRENT-STATE.md` and `docs/DISCOVERY-PLAN.md`. Do not infer current status from historical phase numbers.
 - **"How does module X work?"** Open `docs/walkthroughs/02-Phase2-MultiInterest-Recommender.md` or `03-Code-Summary-and-Test-Plan.md`.
 - **Conflict between docs?** Higher-priority doc wins. **Never average or merge contradictory guidance.**
 - **The user references a doc by number** (e.g., "per doc 02") — read that doc but flag if 06 contradicts it before acting.
@@ -78,7 +78,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 ### 3.1 Fusion
 
 - **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
-- **Search is currently dense-only.** The lexical arm (`[3b]` in PHASE8 §1) is still `[PENDING]`, so nothing is actually being fused. On SciDocs dense-only scores 0.1075 against 0.1602 for the best hybrid — the missing arm is a far bigger lever than the fusion strategy.
+- **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Zilliz is the fallback when FTS is unavailable and encoding succeeds. RRF fuses actual available result lists; do not confuse configured backends with successful retrieval.
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
@@ -108,12 +108,12 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **L2-normalize embeddings BEFORE Ward, then use Euclidean distance.** Cosine Ward via sklearn is mathematically not Ward (Murtagh and Legendre 2014). L2-norm + Euclidean is monotonically equivalent to cosine and gives the intended behavior. This normalization is already in the code.
 - **No fixed K.** Cut the dendrogram by adaptive gap-based threshold (see `_adaptive_threshold()`). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist).
 - **Medoid, not centroid.** Medoid = arg min over cluster members of sum of squared distances. Cache medoid paper IDs. This is implemented in `_find_medoid()`.
-- **Hungarian-match cluster IDs across reclusterings** — NOT YET IMPLEMENTED. Planned for Phase 4.
+- **Hungarian-match cluster IDs across reclusterings** — implemented via `stabilize_cluster_ids`.
 - Recompute on each feed request currently (not nightly batch — no batch job infrastructure yet).
 
 ### 3.4 Reranking
 
-- Terminal CPU-path reranker: **LightGBM LambdaRank** in `app/recommend/reranker.py`, with `heuristic_score()` as a fallback when the model file is missing.
+- Terminal recommendation scorer: **personalized heuristic by default** (`RERANKER_MODE=heuristic`), optional LightGBM LambdaRank or auto selection. The bundled model has zero splits on personalization inputs 20–30. Preserve a personalized baseline until evaluation supports a replacement.
 - **37-feature schema** (see `models/reranker-phase6/production_model/feature_schema.json`):
   - Features 0-19: Content/retrieval (Qdrant score, citations, age, categories)
   - Features 20-22: EWMA similarities (longterm, shortterm, negative)
@@ -122,16 +122,16 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - The caller in `recommendations.py` passes **all 37 features** including per-candidate cluster importance and medoid distances (Phase 6.1+6.2).
 - The heuristic fallback uses features 0, 6, 20-22, 35.
 - Weight budget (heuristic only): `0.40 * lt + 0.25 * st + 0.15 * recency + 0.10 * position - 0.15 * negative_penalty`.
-- **Cross-Encoder Reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) is used in the Search serving path**, for the **top-10 candidates** (configured via `SEARCH_RERANK_TOP_N` in `config.py`). MiniLM-L-6 is a 22M-param model achieving ~200-400ms for 10 pairs on CPU — fast enough for the hot path. Recommendations must not use the Cross-Encoder in the hot path, but keep using the highly efficient 37-feature LightGBM model.
+- **Cross-Encoder Reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) is used in the Search serving path**, for the **top-10 candidates** (configured via `SEARCH_RERANK_TOP_N` in `config.py`). MiniLM-L-6 is a 22M-param model achieving ~200-400ms for 10 pairs on CPU — fast enough for the hot path. Recommendations must not use the Cross-Encoder in the hot path, but keep using the configured heuristic/LightGBM scoring path.
 - If a cross-encoder signal is wanted for recommendations: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
 - **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
 - Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
 
-### 3.4b Cold-start feed churn (Tier 0)
+### 3.4b Fresh discovery and history
 
-- **A feed that never changes is a bug, not a stable ranking.** Tier 0 drops papers already **shown** to the user (`db.feed_impressions`, distinct from `seen`, which only covers saves and dismissals), then fills slots epsilon-greedily at `_COLD_START_EPSILON = 0.25`.
-- **Impressions are recorded for every tier** when a page is served, but only Tier 0 currently *uses* them. Tiers 1-3 are still deterministic given an unchanged profile — extending this is the obvious next step.
-- **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` returns the true per-paper selection probability; log that.
+- **A feed that never changes is a bug, not a stable ranking.** Tier 0 puts unseen candidates first and fills that block epsilon-greedily at `_COLD_START_EPSILON = 0.25`. When supply is thin, a deterministic oldest-first repeat block follows. Do not delete impression history to recycle.
+- **Personalized tiers exclude the last seven days of impressions before retrieval**, preserving quota/MMR over eligible candidates. If no ranked result remains, retry once without impression exclusion and label repeats. Saves/dismissals remain excluded. Per-user serving locks include the impression write; cached cursors must belong to that user. Recently opened/discovered papers remain available at `/history`.
+- **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` records the conditional probability at the selected slot. This is not automatically a marginal inclusion probability or a validated IPS estimator; document conditioning before counterfactual analysis.
 - Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
 - `feed_impressions` is **not** replicated to Turso — high volume, low value per row, and losing it degrades to repeats rather than to anything broken.
 
@@ -151,10 +151,10 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
 
-IMPLEMENTED (Phase 5 core flow). ORCID / Scholar import is still pending. The right onboarding is **three-layer hybrid**:
+IMPLEMENTED: category/seed onboarding, starter suggestions, and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
 
 1. arXiv category multi-select — used as a **filter and LightGBM feature**, NOT as the primary user vector.
-2. ORCID / Semantic Scholar / Google Scholar author import — ingest authored paper embeddings as initial seeds. (NOT YET)
+2. Author import is historical context, not a currently planned implementation.
 3. "Add 5 seed papers" library seeder — explicit user-chosen seeds. (DONE)
 4. Fallback: popularity-per-selected-category feed for first session if user skips all three. (DONE)
 
@@ -170,17 +170,17 @@ Behavioral takes over once the user crosses **~10 saved papers**. Subject catego
 
 ### 3.7 Negative signals
 
-The negative EWMA profile IS wired into reranking (Feature 5 in `reranker.py`). The full three-layer system described in Doc 06 is partially implemented:
+The negative EWMA profile is wired into reranking (feature 22 in the current 37-feature schema). The full three-layer system described in Doc 06 is partially implemented:
 
 1. **Session hard filter** — never re-show dismissed items (`seen` set in `recommendations.py`). DONE.
 2. **Short-term item penalty** at rerank: `score -= alpha * exp(-dt / tau_neg)` — NOT YET (needs per-item decay tracking).
-3. **Long-term EWMA negative profile** — wired as Feature 5 with 0.15 penalty weight. DONE.
+3. **Long-term EWMA negative profile** — wired as feature 22 with 0.15 heuristic penalty weight. DONE.
 4. **Category-level suppression** — DONE (db category suppression + rec filter).
 5. **LightGBM dismissal labels** — NOT YET (Phase 6, needs 10K+ dismissals).
 
 ### 3.8 Latency budget
 
-End-to-end feed generation target: **<30ms on CPU** (excluding metadata fetch, which is I/O-bound). Approximate budget per stage:
+Historical aspirational budget, **not a verified current latency guarantee**: <30ms compute excluding network/metadata. Measure the actual deployed pipeline separately. Original approximate allocation:
 - Qdrant queries (3 medoids, parallel): ~10ms
 - Heuristic rerank (LightGBM later): ~1ms
 - MMR over union: ~2ms
@@ -203,7 +203,7 @@ so id and list position diverge. Look up through a `{cluster_idx: cluster}` map.
 
 ### 3.11 Interaction instrumentation invariants (Phase 6.5)
 
-Every interaction logged via `db.log_interaction()` must carry **`query_id`**, **`propensity`**, and **`policy_id`**. These are required for Phase 7 evaluation:
+Ranked-surface interactions must preserve available **`query_id`**, **`propensity`**, and **`policy_id`**. Direct paper visits are `view` events without invented attribution; they do not contribute to ranked-click CTR or EWMA updates. These are required for Phase 7 evaluation:
 - `query_id` (UUID): links all papers in a single feed request for per-feed CTR.
 - `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
@@ -214,55 +214,27 @@ Every interaction logged via `db.log_interaction()` must carry **`query_id`**, *
 
 ## 4. What is in scope vs out of scope right now
 
-**Current phase: Phase 6.5 COMPLETE; Phase 7 (Evaluation Framework) next.** Phase 2 (a, b, c) is complete with Doc 06 corrections applied. Phase 3 (Hybrid Semantic Search) and Phase 3.5 (Turso metadata DB) are implemented and tested.
+**Current implementation:** see `docs/CURRENT-STATE.md`; the current development
+plan and release gates are in `docs/DISCOVERY-PLAN.md`. Historical phase numbers
+and test counts are not a live status tracker.
 
-**What has been built (Phases 1-2c):**
-- Qdrant BEST_SCORE recommend API (Tier 3 fallback)
-- EWMA profiles (long/short/negative, alpha corrected)
-- Ward clustering with L2-norm + adaptive threshold + medoids
-- Prefetch+RRF retrieval (Tier 1, will be replaced with quota in Phase 4)
-- EWMA vector search (Tier 2 fallback)
-- 5-feature heuristic reranker (with negative penalty)
-- MMR diversity + exploration injection
-- 3-tier cascading pipeline (5+ saves, 3+ saves, 1+ save)
-- 88 tests passing
+Implemented: hybrid search with FTS5 preference and Zilliz fallback; Qdrant shard
+fanout; 4-tier recommendation cascade; heuristic default with optional LightGBM;
+quota fusion, Hungarian matching and within-cluster MMR; category/seed onboarding;
+editable interests; mostly-fresh refresh; recent-paper history; paper explanations;
+collections; map backend; instrumentation; partial Turso replication; local CI.
 
-**Phase 3 — implemented (Hybrid Semantic Search):**
-*See `docs/TASK-TRACKER.md` Phase 3 section for full details.*
-- `app/embed_svc.py` — BGE-M3 model singleton (lazy load, LRU cache, CPU float32)
-- `app/zilliz_svc.py` — Zilliz sparse search client (gRPC reconnect, graceful fallback)
-- `app/groq_svc.py` — LLM query rewriter (2s timeout, academic heuristic, unconditional fallback)
-- `app/hybrid_search_svc.py` — Orchestrator (rewrite → encode → parallel search → RRF → recency rerank)
-- Swapped `app/routers/search.py` to use hybrid pipeline, with arXiv API fallback
-- `Dockerfile` + `.dockerignore` — HF Spaces deployment (Docker SDK, port 7860)
-- 21 new tests passing, 109 total (zero regressions)
-
-**Phase 4 — recommendation fixes (complete):**
-- Replace RRF with importance-weighted quota fusion
-- Hungarian matching for cluster stability
-- Category-level suppression in recommendations
-
-**Phase 5 — cold-start onboarding + UI (complete):**
-- Onboarding wizard (category multi-select + seed search)
-- Category-filtered trending fallback
-- Dark-mode base UI + updated paper cards
-- S2/ORCID author import was explored and **removed** — not the direction we want
-
-**Phase 6 — LightGBM reranker (COMPLETE ✅):**
-- LightGBM LambdaRank (141 trees, 37 features) integrated with heuristic fallback
-- Phase 6.1+6.2: All 37 features wired into caller (per-candidate cluster identity)
-- Phase 6.3: `/healthz/reranker` endpoint, model accessors, feature logging
-- Phase 6.3: Bug B fixed — medoid embedding persisted as BLOB fallback
-- Model stored under `models/reranker-phase6/production_model/`
-- HF model repo: `siddhm11/researchit-reranker-phase6`
-- Phase 6.4 (retraining) deferred: gated on 100 users or synthetic simulator
+Not established by implementation alone: current corpus freshness, full abstract
+coverage, live relevance/latency, complete recovery semantics, and user retention.
+Exposure logs and follows still lack remote replication. Existing evaluation
+scripts are starting points for a held-out quality framework.
 
 **Out of scope until later phases — do not build:**
 - S2/ORCID author import for onboarding (removed — not the direction we want).
 - Collaborative filtering / LightFM (Phase 9, 500+ users).
-- Cross-encoder reranking in serving path (never; only distilled — Phase 8).
+- Cross-encoder reranking in the recommendation serving path. Search already uses MiniLM.
 - Claude/Groq-generated cluster summaries (Phase 8).
-- Epsilon-greedy exploration beyond the current simple stub (Phase 9).
+- Learned bandit policies. Cold-start epsilon-greedy selection already exists; it is not a learned bandit.
 - DPPs, Semantic IDs, TIGER, PinnerFormer-style single-vector models (Phase 9+, only if scale warrants).
 - Migration to Supabase (until 10+ concurrent writes/sec observed).
 - React SPA (explicitly ruled out — stick with HTMX + Jinja2).
@@ -313,6 +285,15 @@ If a request asks for one of these, surface that it is out of scope per doc 06 p
 - Test files go in `tests/`. No `tests/fixtures/` directory exists yet — inline fixtures or use `tmp_path`.
 - Run tests: `python -m pytest tests/ -v`
 - Run the live recommendation benchmark: `python scripts/benchmark_recommendations.py`
+
+Recommendation diagnostics: `.venv/bin/python scripts/run_recommendation_audit.py
+--live --encode` generates `reports/recommendations/index.html` with temporary
+user storage and replication disabled. Live/semantic gaps must be reported, not
+filled with synthetic success. `app/hf_papers_svc.py` is a shadow-only source
+adapter; it does not replace the serving recommendation candidates.
+`scripts/hf_discovery.py` now supports local collection/preparation scheduling,
+scratch-profile baseline capture and offline comparison. See
+`docs/HF-DISCOVERY-OPERATIONS.md`; shadow-ready does not mean production-indexed.
 
 ### 5.5 File and folder conventions
 
@@ -487,7 +468,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Question | Answer |
 |---|---|
 | Source of truth? | `docs/research/06-Deep-Research-Verdict.md` |
-| Master roadmap? | `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` |
+| Current state / plan? | `docs/CURRENT-STATE.md` / `docs/DISCOVERY-PLAN.md` |
 | Recommendation fusion? | Importance-weighted quota with `F_min=3`, enforced on the pool AND the served order (see §3.1). |
 | Search fusion? | RRF (hybrid search in Phase 3). |
 | alpha_long? | `0.03` — in `app/recommend/profiles.py` |
@@ -495,20 +476,20 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | alpha_neg? | `0.15` — in `app/recommend/profiles.py` |
 | MMR lambda? | `0.6` — in `app/recommend/diversity.py` |
 | Cluster algorithm? | Ward, L2-normalized, Euclidean, adaptive gap threshold, `K_max=7`. In `app/recommend/clustering.py`. |
-| Reranker? | LightGBM lambdarank with heuristic fallback (Phase 6). |
+| Reranker? | Personalized heuristic by default; optional LightGBM/auto. |
 | Latency budget? | <30ms end-to-end (compute only; metadata I/O excluded). |
-| Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). ORCID/Scholar import pending. |
+| Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). Author import removed from current roadmap. |
 | When does behavioral take over? | ~10 saved papers. Currently activates at 5 (clustering) / 3 (EWMA) / 1 (BEST_SCORE). |
 | When to add CF? | 500+ users (Phase 9). |
-| Current phase? | **Phase 6 COMPLETE.** Phase 7 (evaluation) next. See `docs/TASK-TRACKER.md`. |
+| Current status? | Local implementation and validation are distinct from deployed status. See `docs/CURRENT-STATE.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights. Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite (`interactions.db`) — ephemeral on HF Spaces. Supabase at 10+ concurrent writes/sec. |
+| Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
-| Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in hot path, DPPs, generative retrieval. |
+| Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-08-21. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-09-25. Update this date when CLAUDE.md changes.*

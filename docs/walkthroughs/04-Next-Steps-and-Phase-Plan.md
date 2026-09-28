@@ -1,5 +1,7 @@
 # ResearchIT — Next Steps & Revised Phase Plan
 
+> Historical record. For current implementation and defaults (2026-09-24), see [Current technical contract](../CURRENT-STATE.md). Old phase status, service counts, and benchmarks are not live verification.
+
 > This document synthesizes all research findings (Docs 01–06), the current codebase state,
 > E2E test results, and the deep research verdict into a single, actionable roadmap.
 > It captures the evolution of the founder's thinking, resolves contradictions between documents,

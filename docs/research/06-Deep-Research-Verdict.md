@@ -396,3 +396,57 @@ Worth stating plainly because the obvious mental model — "fix the database, th
 ### 2026-08-24 — Backfill estimate, finally measured
 **Decision:** `SECONDS_PER_BATCH = 7.75`, taken from real batches, replaces the modelled arithmetic.
 **Rationale:** Four estimates, three of them wrong: 13.6h counted only the arXiv pause and ignored the writes; 22.6h added a guessed write cost but still used the inflated 90.6% truncation figure; 10h fixed the count but kept the guess. Timing real batches (400 rows in 15s, 200 in 8s) gives ~7.75s per batch of 200 and **~15.5 hours** for the remaining 1,436,005 rows. Validated before launch: 400/400 fetched, zero missing, zero 429s, and the truncated count fell by exactly the number written on each run — so it is genuinely resumable, which the earlier version was not.
+
+
+### 2026-09-24 — Fresh discovery, explicit interests, and recoverable reading journeys
+**Decision:** Refresh should offer mostly fresh relevant papers while recent
+papers remain accessible. Apply seven-day impression exclusion before personalized
+retrieval, retaining cluster quotas/MMR. Retry once without that exclusion only
+when no ranked candidates remain, and label repeats. Cold-start recycling keeps
+fresh candidates first and no longer deletes history. Bind feed cursors to users
+and serialize generation/impression writes per user in the serving process.
+**Supersedes:** The Tier-0-only impression policy from 2026-08-12. The user
+explicitly selected mostly-fresh refresh with recent items accessible.
+**Rationale:** Unchanged user vectors should not imply identical feed refreshes.
+Passive exposure is temporary eligibility state, not negative preference. A
+history view lets readers recover papers without keeping discovery static.
+**Action items implemented locally:** editable category preferences, suggested
+seed papers, recently opened/discovered views, feedback-state recovery fixes,
+and regression coverage. Keyword retrieval is independent of encoding success.
+An open never changes a save/dismissal decision or updates the EWMA profile.
+
+**Implementation reconciliation:** FTS5 is already implemented and preferred;
+older “dense-only”/“sparse pending” statements above are historical. The heuristic
+is the recommendation default, with optional LightGBM. Four core user tables
+replicate to Turso, not every table. Collection follows and exposure logs remain
+outside that backup contract. Search/recommendation evaluation scripts exist,
+but production relevance, freshness, and recovery need separate validation.
+**Not changed:** fusion formulas, EWMA parameters, Ward hyperparameters, MMR
+lambda, search reranker depth, and model training. YouTube linking and a verified
+live-trending signal are deferred. See CURRENT-STATE.md and DISCOVERY-PLAN.md.
+
+### 2026-09-25 — Separate source candidates from relevance evidence
+**Decision:** Add a read-only Hugging Face Daily Papers adapter and a reproducible
+recommendation audit outside the serving path. Source votes are attention signals,
+not personalized relevance labels. Report synthetic mechanics, real source
+observations, model-file inspection and blocked semantic checks separately.
+**Supersedes:** No ranking invariants or production defaults.
+**Rationale:** The user requested a serious recommendation/embedding test suite
+and a readable HTML dashboard. A passing mechanical suite cannot establish that
+readers receive useful emerging research. A learned ranker cannot replace ongoing
+external discovery of future papers.
+**Action items:** Adapter and audit implemented locally; staged ingestion,
+independent relevance judgments, shadow comparison and live validation remain
+before promoting Hugging Face candidates into the feed.
+
+### 2026-09-25 — Implement the first HF shadow integration milestone
+**Decision:** The user approved implementing the visual plan. Add separate local
+SQLite source storage, a serialized scheduled worker, compatible local candidate
+preparation, and source-capped comparison against a scratch-profile baseline.
+**Supersedes:** “Collection and readiness proposed” status for the local shadow
+milestone only. Production serving and existing algorithm constants are unchanged.
+**Rationale:** Dated, recoverable source evidence and inspectable comparisons are
+needed before HF candidates can enter the live feed. Bound retries, invalidate
+changed-text embeddings, and reject stale/future candidates. Report source failures.
+**Action items:** Implemented locally with pipeline regressions. Deploy a durable
+worker and establish real-model/relevance evidence before an opt-in serving pilot.

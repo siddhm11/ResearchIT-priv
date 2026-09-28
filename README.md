@@ -14,334 +14,173 @@ datasets:
   - siddhm11/researchit-metadata
 ---
 
-<!--
-  Frontmatter notes (keys per https://huggingface.co/docs/hub/en/spaces-config-reference):
+# ResearchIT — personalized paper discovery
 
-  short_description  is the caption on the Space thumbnail. It was blank, so
-                     the card showed nothing to anyone discovering the project.
-  models / datasets  are parsed from code when omitted, but declaring them
-                     links the Space to BGE-M3, the MiniLM cross-encoder, the
-                     Phase 6 reranker and the metadata sidecar explicitly, and
-                     documents the dependency graph where a visitor looks first.
-                     The cross-encoder is listed under its canonical id,
-                     ms-marco-MiniLM-L6-v2. config.py and the Dockerfile use
-                     ms-marco-MiniLM-L-6-v2, which HF 307-redirects to the same
-                     repo -- both work; only this one links without a hop.
+ResearchIT is a FastAPI + HTMX + Jinja2 application for searching arXiv and
+building a reading feed around several interests. This description reflects the
+**local implementation on 2026-09-24**, not a verification of the live deployment.
 
-  Deliberately NOT set:
-    app_port   defaults to 7860 for docker Spaces, which is what run.py binds.
-    storage    the persistent-storage feature is gone -- the docs state the
-               `suggested_storage` key "will be ignored". Durability comes from
-               app/turso_sync.py replicating to Turso, not from a volume.
-    license    the repo has no LICENSE file, so there is nothing to declare
-               yet. A public repo with no license is "all rights reserved" by
-               default, which forbids the reuse a research tool usually wants.
-               Add a LICENSE and then set this key to match it.
--->
+## What works
 
+- Semantic and lexical search, optional query rewriting, and search reranking.
+- Category onboarding with starter-paper suggestions and an editable interests page.
+- Saves, unsaves, dismissals, paper pages, related papers, and optional explanations.
+- A multi-interest feed that preserves smaller interests through quota allocation.
+- Mostly fresh discovery on refresh, plus recently opened/discovered history.
+- Curated collections and an API for a separate 3D map client.
+- Local user storage, partial remote replication, health probes, rate limiting, and CI.
 
-# ResearchIT — Personalized ArXiv Paper Recommender
+## Current architecture
 
-> An "Instagram for research" — a multi-interest aware feed that surfaces relevant papers across a researcher's distinct areas without collapsing toward a dominant interest.
-
-**Stack:** FastAPI · HTMX · Jinja2 · BGE-M3 (1024-dim) · Qdrant Cloud · Zilliz Cloud · Turso (libSQL) · Groq · LightGBM · HuggingFace Spaces
-
-**Live demo:** https://siddhm11-researchit.hf.space
-
----
-
-## Architecture Overview
-
-```
-User → [HTMX Frontend] → [FastAPI Backend]
-                              │
-                ┌─────────────┼─────────────────┐
-                │             │                  │
-         [Qdrant Cloud]  [Zilliz Cloud]   [Turso Cloud]
-         Dense vectors   Sparse vectors   Paper metadata
-         1.6M papers     1.6M papers      ~1.6M rows
-         BGE-M3 1024d    BGE-M3 lexical   + citations
-                │             │                  │
-                └─────────────┼──────────────────┘
-                              │
-                    [Recommendation Engine]
-                     ├── EWMA Profiles
-                     ├── Ward Clustering
-                     ├── Quota Fusion
-                     ├── LightGBM Reranker (37 features)
-                     ├── MMR Diversity
-                     └── Exploration Injection
+```text
+Browser: HTMX + Jinja2
+          |
+      FastAPI
+          |-- Search: original query + optional Groq rewrite
+          |     |-- BGE-M3 -> Qdrant dense shard fanout
+          |     |-- FTS5 over local metadata; Zilliz fallback
+          |     `-- RRF -> MiniLM top-10 rerank -> title/citation adjustments
+          |
+          |-- Discovery: preferences / saved-paper interests
+          |     `-- retrieval -> quota + heuristic scoring -> within-cluster MMR
+          |
+          |-- SQLite: interactions, profiles, clusters, history, caches
+          |     `-- periodic Turso backup of four core user tables
+          |
+          `-- Metadata: pinned local sidecar -> Turso -> arXiv fallback
 ```
 
----
+**Search:** FTS5 is the preferred lexical backend. It works even when embedding
+generation fails. If the sidecar/FTS index is unavailable, learned sparse retrieval
+uses Zilliz and requires a successful BGE encoding. Original and rewritten query
+forms remain distinct. RRF combines available lists; MiniLM reranks 10 candidates
+by default. Search does not apply a general recency boost that buries classic
+papers. The HTTP route can fall back to the arXiv keyword API.
 
-## Data Infrastructure & Schemas
+**Vector stores:** the code supports the primary Qdrant collection, optional shard
+B, and an optional recent-papers shard. Fanout requires configuration. Repository
+records describe roughly 1.8M indexed papers; verify actual counts and dates with
+the deployed health endpoints rather than treating historical counts as live data.
 
-### Qdrant Cloud — Dense Vector Store
+**Recommendation scorer:** `RERANKER_MODE=heuristic` is the default. The optional
+LightGBM model has 141 trees and 37 inputs, but no splits on personalization
+features 20–30. Its citation-based offline evaluation is not evidence of a better
+personalized feed. Candidate retrieval and quotas personalize the overall system
+independently of the scorer.
 
-| Property | Value |
-|----------|-------|
-| **Collection** | `arxiv_bgem3_dense` |
-| **Documents** | ~1,600,000 arXiv papers |
-| **Vector dim** | 1024 (BGE-M3 dense embeddings, float32) |
-| **Quantization** | Binary Quantization (BQ) enabled |
-| **HNSW** | m=32 |
-| **Point ID** | Integer (auto-generated) |
-| **Payload** | `arxiv_id` (TEXT, keyword-indexed) |
-| **Region** | Qdrant Cloud |
+## Discovery and reading behavior
 
-### Zilliz Cloud — Sparse Vector Store
+| Reader state | Main serving path |
+|---|---|
+| No saves | Popularity/recency candidates in chosen categories, or a broad fallback |
+| 1–2 saves | Qdrant recommendation from saved examples |
+| 3–4 saves | Long-term EWMA profile retrieval, when the profile is ready |
+| 5+ saves | Ward interest clusters, quota retrieval, scoring, within-cluster MMR |
 
-| Property | Value |
-|----------|-------|
-| **Collection** | `arxiv_bgem3_sparse` |
-| **Documents** | ~1,600,000 arXiv papers |
-| **Schema** | `id` (INT64 auto PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR) |
-| **Index** | SPARSE_INVERTED_INDEX, metric_type=IP |
-| **Sparse format** | Integer token IDs as keys (BGE-M3 tokenizer), e.g. `{29: 0.0427, 6083: 0.1852}` |
+These are eligibility thresholds, not guarantees; unavailable vectors/profiles
+can lead to a simpler tier.
 
-### Turso (libSQL) — Paper Metadata DB
+Personalized retrieval excludes papers served in the last seven days. A fresh
+request rebuilds the pool; pagination continues a cached ordering owned by that
+reader. If no fresh ranked candidates can be found, one retry permits repeats
+and the UI labels them. Saved and dismissed papers remain excluded. A small pool
+may return fewer papers. Refresh novelty does not mean newly published research.
 
-| Property | Value |
-|----------|-------|
-| **Database** | `arxiv-data` on `aws-ap-south-1` |
-| **URL** | `https://arxiv-data-siddhm11.aws-ap-south-1.turso.io` |
-| **Rows** | ~1,600,000 papers |
-| **Data sources** | Kaggle `siddhm11/arxivdata` + `siddhm11/citation-data-letsgoo` |
+Cold start uses impression memory and epsilon-greedy ordering. Fresh candidates
+precede an oldest-first repeat block when supply runs low. The indexed sidecar
+allows starter retrieval to interleave categories; without it, one cached remote
+query avoids multiplying expensive remote scans. No history is deleted to recycle.
 
-**Table: `papers`**
+`/interests` edits category priors; saving specific papers is the strongest explicit
+way to teach detailed interests. `/history` shows opened pages, and
+`/history?view=discovered` shows recently served feed papers. Neither claims the
+paper was read. Opens never become saves, dislikes, or EWMA updates. Direct visits
+are `view` events with no fabricated ranking attribution.
 
-```sql
-CREATE TABLE papers (
-    arxiv_id              TEXT UNIQUE,    -- e.g. "2401.12345"
-    title                 TEXT,
-    authors               TEXT,           -- comma-separated
-    categories            TEXT,           -- space-separated arXiv categories
-    primary_topic         TEXT,           -- e.g. "cs.CL"
-    update_date           TEXT,           -- "YYYY-MM-DD"
-    abstract_preview      TEXT,           -- truncated to 500 chars
-    citation_count        INTEGER DEFAULT 0,
-    influential_citations INTEGER DEFAULT 0
-);
-CREATE UNIQUE INDEX idx_papers_arxiv_id ON papers(arxiv_id);
-```
+## Run locally
 
-### SQLite — Local Application DB
-
-**File:** `interactions.db` (WAL mode, async via aiosqlite)
-
-```sql
--- User interactions (saves, dismissals, clicks, views)
-CREATE TABLE interactions (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id          TEXT NOT NULL,
-    paper_id         TEXT NOT NULL,
-    event_type       TEXT NOT NULL,    -- save | not_interested | click | view
-    source           TEXT,             -- search | recommendation
-    position         INTEGER,
-    query_id         TEXT,
-    ranker_version   TEXT,             -- Phase 4.5: pipeline version tag
-    candidate_source TEXT,             -- Phase 4.5: cluster_0 | exploration | ewma
-    cluster_id       INTEGER,          -- Phase 4.5: interest cluster index
-    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- arXiv ID → Qdrant integer point ID mapping (lazy cache)
-CREATE TABLE paper_qdrant_map (
-    arxiv_id        TEXT PRIMARY KEY,
-    qdrant_point_id INTEGER NOT NULL,
-    mapped_at       TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Paper metadata cache (from Turso/arXiv API)
-CREATE TABLE paper_metadata (
-    arxiv_id  TEXT PRIMARY KEY,
-    title     TEXT, abstract TEXT, authors TEXT,
-    category  TEXT, published TEXT,
-    cached_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- EWMA user profile embeddings (1024-dim float32 blobs)
-CREATE TABLE user_profiles (
-    user_id           TEXT NOT NULL,
-    profile_type      TEXT NOT NULL,   -- long_term | short_term | negative
-    vector            BLOB NOT NULL,   -- 4096 bytes (1024 × float32)
-    interaction_count INTEGER DEFAULT 0,
-    updated_at        TEXT,
-    PRIMARY KEY (user_id, profile_type)
-);
-
--- Ward clustering results per user
-CREATE TABLE user_clusters (
-    user_id         TEXT NOT NULL,
-    cluster_idx     INTEGER NOT NULL,
-    medoid_paper_id TEXT NOT NULL,
-    importance      REAL NOT NULL,
-    paper_ids       TEXT NOT NULL,     -- JSON array of arxiv_ids
-    computed_at     TEXT,
-    PRIMARY KEY (user_id, cluster_idx)
-);
-
--- Onboarding wizard state
-CREATE TABLE user_onboarding (
-    user_id              TEXT PRIMARY KEY,
-    selected_categories  TEXT,          -- JSON array: ["nlp", "cv", "ml"]
-    onboarding_completed INTEGER DEFAULT 0,
-    created_at           TEXT, updated_at TEXT
-);
-```
-
-### LightGBM Reranker — ML Model
-
-| Property | Value |
-|----------|-------|
-| **File** | `models/reranker-phase6/production_model/reranker_v1.txt` |
-| **HuggingFace** | [siddhm11/researchit-reranker-phase6](https://huggingface.co/siddhm11/researchit-reranker-phase6) |
-| **Format** | LightGBM v4 text (plain text, no pickle) |
-| **Objective** | LambdaRank (optimizes nDCG) |
-| **Trees** | 141 (early stopped from 500) |
-| **Features** | 37 (see `docs/PHASE6-HANDOFF.md` for full schema) |
-| **Size** | 974 KB |
-| **Latency** | 0.143ms per 100 candidates |
-| **Fallback** | Heuristic scorer when model unavailable |
-
----
-
-## Recommendation Pipeline
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ Tier 1 (≥5 saves): Multi-Interest Clustering + Quota Fusion     │
-│   1. Ward clustering → identify distinct interests              │
-│   2. Hungarian matching → stabilize cluster IDs                 │
-│   3. Quota allocation → per-cluster slot budgets                │
-│   4. Parallel per-cluster ANN searches                          │
-│   5. LightGBM reranking (37 features) + heuristic fallback     │
-│   6. Category suppression (≥3 dismissals in 14 days)            │
-│   7. MMR diversity (λ=0.6)                                      │
-│   8. Exploration injection (2 serendipitous papers)             │
-├──────────────────────────────────────────────────────────────────┤
-│ Tier 2 (≥3 saves): EWMA long-term vector → single ANN search   │
-├──────────────────────────────────────────────────────────────────┤
-│ Tier 3 (≥1 save): Qdrant BEST_SCORE Recommend API               │
-├──────────────────────────────────────────────────────────────────┤
-│ Tier 0 (onboarded, 0 saves): Trending papers by category        │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Quick Start
+Use Python 3.12 and a virtual environment:
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables (see .env.example)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
 cp .env.example .env
-# Edit .env with your Qdrant, Zilliz, Turso, Groq credentials
-
-# Run dev server
+# Configure only the services you intend to use.
 python run.py
-# → http://127.0.0.1:7860
-
-# Run tests
-python -m pytest tests/ -v
-
-# Run Phase 6 reranker integration tests
-python tests/test_reranker_integration.py
 ```
 
----
+The app serves port 7860. `.env.local` is loaded before `.env`; process environment
+variables take precedence over both. Set `TURSO_SYNC_DISABLED=1` locally unless you
+are deliberately testing replication against a scratch database. Metadata reads
+can use Turso independently of replication.
 
-## Phase Completion Status
+The large metadata sidecar is not committed. Docker downloads a pinned dataset
+revision, while local runs need `METADATA_SIDECAR_PATH` pointing at a suitable
+SQLite file. Without models or remote credentials, the full search/feed pipeline
+is not available; graceful fallback is not a substitute for a configured corpus.
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 | ✅ Complete | Zero-ML Recommender (Qdrant + HTMX) |
-| 2a | ✅ Complete | EWMA Profile Embeddings |
-| 2b | ✅ Complete | Ward Clustering + Multi-Interest |
-| 2c | ✅ Complete | Heuristic Re-ranking + MMR |
-| 3 | ✅ Complete | Hybrid Semantic Search (BGE-M3 + Qdrant + Zilliz + RRF) |
-| 3.5 | ✅ Complete | Turso Metadata DB (2.9x faster search) |
-| 4 | ✅ Complete | Quota Fusion + Hungarian Matching + Category Suppression |
-| 4.5 | ✅ Complete | Instrumentation Foundation |
-| 5 | ✅ Complete | Cold-Start Onboarding + UI Redesign |
-| 6 | ✅ Complete | LightGBM Reranker (nDCG@10: 0.879, +233%) |
-| 7 | 📋 Planned | Evaluation Framework |
-| 8 | 📋 Planned | LLM Summaries + Distilled Reranker |
-| 9 | 📋 Planned | Exploration + Collaborative Filtering |
+## Configuration
 
----
+See [.env.example](.env.example) and [app/config.py](app/config.py).
 
-## Key Documentation
+| Setting | Purpose |
+|---|---|
+| `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION` | Primary dense store |
+| `QDRANT_B_*`, `SEARCH_FANOUT_B` | Optional second dense shard |
+| `QDRANT_RECENT_*`, `SEARCH_FANOUT_RECENT` | Optional recent-papers shard |
+| `METADATA_SIDECAR_PATH`, `SPARSE_BACKEND` | Local metadata and lexical search |
+| `TURSO_URL`, `TURSO_DB_TOKEN` | Metadata fallback and core user-data backup |
+| `TURSO_SYNC_DISABLED`, `DB_PATH` | Isolate local development and scratch storage |
+| `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Learned sparse fallback |
+| `GROQ_API_KEY` | Optional rewriting, summaries, and explanations |
+| `RERANKER_MODE` | `heuristic` (default), `lightgbm`, or `auto` |
+| `SEARCH_BGE_RERANK`, `SEARCH_RERANK_TOP_N` | Search cross-encoder flag and depth |
+| `MAP_QDRANT_*`, `SPACE_APP_URL`, `SPACE_SERVICE_TOKEN` | Optional companion map |
 
-| Document | Purpose |
-|----------|---------|
-| `CLAUDE.md` | Agent rulebook — architectural rules, doc precedence, code conventions |
-| `docs/TASK-TRACKER.md` | Master task checklist with all phase details |
-| `docs/PHASE6-HANDOFF.md` | LightGBM reranker handoff — model provenance, schema, reproduction |
-| `docs/phases/PHASE6-Reranker-Framing.md` | Phase 6.1-6.3 framing — feature wiring, deployment verification, retraining strategy |
-| `docs/research/06-Deep-Research-Verdict.md` | **Source of truth** for architecture decisions |
-| `docs/walkthroughs/04-Next-Steps-and-Phase-Plan.md` | Master roadmap (Phases 3–9) |
-
----
-
-## Health & Monitoring
+## Tests and evaluation
 
 ```bash
-# Phase 6.3: Verify reranker deployment
-curl -s https://siddhm11-researchit.hf.space/healthz/reranker | python -m json.tool
-# Expected: {"model_loaded": true, "n_trees": 141, "fallback_active": false, ...}
-
-# Verify that the dedicated 3D map store can serve a real position.
-curl -s https://siddhm11-researchit.hf.space/healthz/deep | python -m json.tool
-# Check services.map_positions: status="ok", sample_valid=true, points_count>0.
+python -m pytest tests/ -m "not live and not browser" -q
+python -m compileall -q app scripts tests
 ```
 
-The GitHub keepalive workflow calls this endpoint twice daily. Deploy the
-workflow to GitHub's default branch and the updated app to the Hugging Face
-Space; configure `MAP_QDRANT_URL` and `MAP_QDRANT_API_KEY` in the Space's runtime
-settings. A local `.env.local` is not deployed. A missing map configuration or
-failed position read makes the scheduled job fail, so its run history must be
-checked after deployment. The map's streamed spatial tiles are a separate
-dependency and are not covered by this Qdrant probe.
+Tests use temporary user databases and disable Turso replication. The focused
+new coverage is in `test_discovery_refresh.py`, `test_discovery_journey.py`, and
+`test_search_resilience.py`. Keep test counts in dated validation records, rather
+than a permanently stale badge here.
 
----
+`test_e2e_browser.py` requires Playwright and a running app. Browser tests can
+create interactions: use scratch storage and disable replication. Live tests,
+real model inference, browser behavior, and local unit tests are separate checks.
+Existing `scripts/eval_search_quality.py` and `scripts/eval_recs_quality.py` provide
+quality evaluation starting points; they do not establish a measured engagement
+lift or a finished held-out evaluation framework.
 
-## Environment Variables
+## Operations and known limits
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `QDRANT_URL` | Yes | Qdrant Cloud cluster URL |
-| `QDRANT_API_KEY` | Yes | Qdrant Cloud API key |
-| `MAP_QDRANT_URL` | For 3D map | Dedicated map cluster URL; required for map keepalive |
-| `MAP_QDRANT_API_KEY` | For 3D map | Dedicated map cluster API key |
-| `MAP_QDRANT_COLLECTION` | No | Map positions collection (default: `arxiv_map_positions`) |
-| `ZILLIZ_URI` | Yes | Zilliz Cloud gRPC endpoint |
-| `ZILLIZ_TOKEN` | Yes | Zilliz Cloud API token |
-| `TURSO_URL` | Yes | Turso database URL |
-| `TURSO_DB_TOKEN` | Yes | Turso auth token |
-| `GROQ_API_KEY` | Yes | Groq API key for query rewriting |
-| `S2_API_KEY` | No | Semantic Scholar API key (offline training scripts only, not used by the app) |
-| `RERANKER_MODEL_PATH` | No | Override LightGBM model file path |
-| `DB_PATH` | No | SQLite path (default: `interactions.db`) |
+Docker is configured for Hugging Face Spaces, CPU inference, and local SQLite at
+`/tmp/interactions.db`. Core replication covers interactions, user profiles,
+clusters, and onboarding. It does **not** currently cover collection follows,
+feed exposure logs, impression history, or explanation caches. Replication is
+periodic, not synchronous durability. Timestamp cursors and deletion semantics
+need additional recovery validation. Browser-cookie identity is not an account
+or cross-device recovery system.
 
----
+Health routes include `/healthz/deep`, `/healthz/shards`, and `/healthz/reranker`.
+The keepalive workflow probes services and one stored map position; it does not
+prove relevance or validate the companion map's streamed tiles. CI exercises a
+lightweight dependency set, not a complete fresh production image build.
 
-## Test Suite
+Ingestion and abstract-backfill scripts exist, but no scheduled ingestion workflow
+is checked in. Confirm any external schedule and actual publication coverage.
+“Popular in the indexed corpus” is not “trending now.” YouTube links, learned
+collaborative recommendations, and verified real-time trends remain future work.
 
-| Test File | Tests | Coverage |
-|-----------|-------|----------|
-| `test_profiles.py` | 11 | EWMA profile computation |
-| `test_clustering.py` | 21 | Ward clustering + Hungarian matching |
-| `test_reranker_diversity.py` | 13 | Reranker (37-feature) + MMR diversity |
-| `test_reranker_integration.py` | 7 | Phase 6 LightGBM integration |
-| `test_phase6_feature_wiring.py` | 9 | Phase 6.1+6.2 feature wiring + per-candidate cluster |
-| `test_fusion.py` | 20 | Quota allocation |
-| `test_db.py` | 19 | SQLite schema + suppression |
-| `test_onboarding.py` | 11 | Onboarding wizard |
-| `test_hybrid_search.py` | 21 | Hybrid search pipeline |
-| `test_search_router.py` | 6 | Search router |
-| Others | ~13 | User state, saved, arxiv, qdrant, integration |
-| **Total** | **~203** | |
+## Documentation
+
+- [Current technical contract](docs/CURRENT-STATE.md): behavior, limits, and source anchors.
+- [Discovery plan](docs/DISCOVERY-PLAN.md): product decisions, tests, and release gates.
+- [Documentation index](docs/README.md): current guides versus historical plans.
+- [Architecture decisions](docs/research/06-Deep-Research-Verdict.md): rationale and dated amendments.
+- [Agent guidance](CLAUDE.md): invariants contributors should preserve.

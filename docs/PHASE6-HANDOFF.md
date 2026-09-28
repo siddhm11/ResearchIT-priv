@@ -1,5 +1,7 @@
 # Phase 6: LightGBM Reranker — Complete Handoff Document
 
+> Historical record. For current implementation and defaults (2026-09-24), see [Current technical contract](CURRENT-STATE.md). Old phase status, service counts, and benchmarks are not live verification.
+
 > **Date**: 2026-04-29 (integration complete) | 2026-05-02 (documentation finalized) | 2026-05-03 (6.1+6.2+6.3 shipped)  
 > **Status**: Integration COMPLETE ✅ | 6.1+6.2 Wiring COMPLETE ✅ | 6.3 Health Endpoint COMPLETE ✅ | Tests PASSING ✅  
 > **Contributors**:
