@@ -333,12 +333,27 @@ async def get_save_history(user_id: str, limit: int = 200) -> list[dict]:
                   AND i.event_type = 'save'
                   AND i.id = (SELECT MAX(x.id) FROM interactions x
                                WHERE x.user_id = i.user_id
-                                 AND x.paper_id = i.paper_id)
+                                 AND x.paper_id = i.paper_id
+                                 AND x.event_type IN ('save', 'unsave', 'not_interested'))
                 ORDER BY i.id DESC
                 LIMIT ?""",
             (user_id, int(limit)),
         )
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_current_feedback(user_id: str) -> list[dict]:
+    """Latest explicit decision per paper, newest first; opens are not votes."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(
+            """SELECT i.paper_id, i.event_type, i.timestamp FROM interactions i
+               WHERE i.user_id = ? AND i.event_type IN ('save', 'not_interested')
+                 AND i.id = (SELECT MAX(x.id) FROM interactions x
+                             WHERE x.user_id = i.user_id AND x.paper_id = i.paper_id
+                               AND x.event_type IN ('save', 'unsave', 'not_interested'))
+               ORDER BY i.id DESC""", (user_id,))
+        return [dict(row) for row in await cur.fetchall()]
 
 
 # ── Qdrant map helpers ────────────────────────────────────────────────────────
@@ -806,6 +821,30 @@ async def get_impressed_ids(user_id: str, within_days: int | None = None) -> set
     async with aiosqlite.connect(DB_PATH) as conn:
         cur = await conn.execute(sql, args)
         return {r[0] for r in await cur.fetchall()}
+
+
+async def get_recent_papers(
+    user_id: str, *, opened: bool = True, limit: int = 50
+) -> list[dict]:
+    """Recent distinct opens or served feed papers; neither means 'read'.
+
+    Click history lives in the replicated interactions table. Feed history is
+    local impression memory and can disappear on a container replacement.
+    """
+    if not user_id:
+        return []
+    limit = max(1, min(int(limit), 200))
+    if opened:
+        sql = """SELECT paper_id, MAX(timestamp) AS last_seen
+                 FROM interactions WHERE user_id = ? AND event_type IN ('click', 'view')
+                 GROUP BY paper_id ORDER BY last_seen DESC, MAX(id) DESC LIMIT ?"""
+    else:
+        sql = """SELECT paper_id, shown_at AS last_seen FROM feed_impressions
+                 WHERE user_id = ? ORDER BY shown_at DESC, rowid DESC LIMIT ?"""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        cur = await conn.execute(sql, (user_id, limit))
+        return [dict(row) for row in await cur.fetchall()]
 
 
 async def forget_oldest_impressions(user_id: str, keep: int = 0) -> int:

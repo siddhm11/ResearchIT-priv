@@ -1477,3 +1477,10 @@ a.card-title:hover { color: var(--accent); }
   margin: .5rem 0 0; font-family: var(--font-read);
   font-size: .97rem; line-height: 1.62; color: var(--text);
 }
+/* Discovery controls share the existing visual system and wrap on phones. */
+.discovery-tools { display: flex; flex-wrap: wrap; gap: .6rem; margin-block: 1rem; }
+.interest-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.interest-picker legend { margin-bottom: 1rem; font-weight: 600; }
+.interest-choice { display: flex; align-items: flex-start; gap: .75rem; cursor: pointer; }
+.interest-choice input { margin-top: .35rem; width: 1.1rem; height: 1.1rem; flex-shrink: 0; }
+.interest-choice:has(input:checked) { outline: 2px solid currentColor; outline-offset: -2px; }

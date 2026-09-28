@@ -110,6 +110,7 @@ async def paper_page(
     pol: str = Query(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
+    returning_reader = user_id is not None
     user_id = user_id or str(uuid.uuid4())
     state = await us.ensure_loaded(user_id)
 
@@ -169,6 +170,16 @@ async def paper_page(
             )
         except Exception as e:   # a lost click must never cost the page
             print(f"[paper] click log failed for {arxiv_id}: {e}")
+    elif returning_reader:
+        # A direct visit belongs in reading history, but has no ranked exposure
+        # to attribute. A separate view event must not inflate feed CTR or
+        # become a positive/negative profile update. Cookie-less requests
+        # (crawlers, link previews) would only mint a one-row phantom user.
+        try:
+            await db.log_interaction(user_id=user_id, paper_id=arxiv_id,
+                                     event_type="view", source="paper_page")
+        except Exception as e:
+            print(f"[paper] history log failed for {arxiv_id}: {e}")
 
     related = await _related(arxiv_id, us.all_seen(user_id))
 

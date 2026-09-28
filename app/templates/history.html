@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Recent papers — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed">
+  <header class="issue">
+    <div class="issue-kicker">Pick up where you left off</div>
+    <h1 class="issue-title">Recent papers</h1>
+    <p class="muted">{% if view == 'opened' %}Pages you opened, not a list of completed reads.
+      {% else %}Papers recently offered in your feed, whether or not you opened them.
+      This discovery history may reset after a server restart.{% endif %}</p>
+  </header>
+  <nav class="discovery-tools" aria-label="Reading history">
+    <a href="/history" class="btn btn-sm {{ 'btn-primary' if view == 'opened' else 'btn-ghost' }}" {% if view == 'opened' %}aria-current="page"{% endif %}>Recently opened</a>
+    <a href="/history?view=discovered" class="btn btn-sm {{ 'btn-primary' if view == 'discovered' else 'btn-ghost' }}" {% if view == 'discovered' %}aria-current="page"{% endif %}>Recently discovered</a>
+    <a href="/saved" class="btn btn-ghost btn-sm">Saved library</a>
+  </nav>
+  {% if papers %}
+  <p class="small muted">Your latest {{ papers|length }} distinct papers. Times are UTC.</p>
+  <div class="feed">
+    {% for paper in papers %}
+      <p class="small muted">{{ 'Opened' if view == 'opened' else 'Offered' }} {{ paper.last_seen }}</p>
+      {% set source = "history" %}{% set position = -1 %}
+      {% include "partials/paper_card.html" %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><p class="empty-title">Your next reading journey starts here</p>
+    <p class="empty-body">{% if view == 'opened' %}Open a paper to find it here later.{% else %}Visit your feed to start discovering papers.{% endif %}</p>
+    <a href="/" class="btn btn-primary btn-sm">Discover papers</a></div>
+  {% endif %}
+</div>
+{% endblock %}

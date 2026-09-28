@@ -15,11 +15,11 @@
 
   <div class="ob-head">
     <span class="ob-kicker">Seed your feed</span>
-    <h1 class="ob-title">Save five papers you already rate</h1>
+    <h1 class="ob-title">Find a few papers that interest you</h1>
     <p class="ob-sub">
-      Five is the real threshold: below it the feed falls back to simpler
-      matching, and at five it starts clustering your interests properly and
-      can keep several going at once.
+      Start with the suggestions below, or search for a topic or paper you know.
+      Save a few from each area you care about. Five saves help us recognize
+      your separate interests; you can keep exploring with fewer.
     </p>
   </div>
 
@@ -48,7 +48,7 @@
     <span class="spinner" style="margin:0 auto"></span>
   </div>
 
-  <div id="seed-results">
+  <div id="seed-results" {% if suggestions %}hx-get="/api/onboarding/seed-search" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
     {% include "partials/seed_results.html" %}
   </div>
 </div>
@@ -57,8 +57,8 @@
   <div class="wrap" style="max-width:46rem">
     <div class="row-between">
       <span class="small muted" id="seed-hint">
-        {% if seed_count >= seed_target %}Ready — your feed will use the full pipeline.
-        {% else %}{{ seed_target - seed_count }} more for the full pipeline.{% endif %}
+        {% if seed_count >= seed_target %}Ready to explore your interests.
+        {% else %}{{ seed_target - seed_count }} more to help distinguish your interests.{% endif %}
       </span>
       <form action="/api/onboarding/complete" method="post">
         <button type="submit" class="btn btn-primary btn-sm">Go to my feed</button>
@@ -79,8 +79,8 @@
       if (c) c.textContent = count + ' of ' + target;
       if (f) f.style.width = Math.min((count / target) * 100, 100) + '%';
       if (h) h.textContent = count >= target
-        ? 'Ready — your feed will use the full pipeline.'
-        : (target - count) + ' more for the full pipeline.';
+        ? 'Ready to explore your interests.'
+        : (target - count) + ' more to help distinguish your interests.';
     };
   })();
 </script>

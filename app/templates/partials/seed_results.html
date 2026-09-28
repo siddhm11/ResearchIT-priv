@@ -1,5 +1,6 @@
 {# Compact seed-picker rows. Denser than a feed card — this is a pick list. #}
 {% if papers is defined and papers %}
+  {% if suggestions %}<p class="small muted">Popular papers in your selected areas. Save only the ones that fit you.</p>{% endif %}
   <div class="stack stack-2">
     {% for paper in papers %}
       <div class="seed-row" id="seed-paper-{{ paper.arxiv_id }}">
@@ -16,6 +17,7 @@
             {% endif %}
           </div>
         </div>
+        {% if paper.saved %}<span class="small muted">Saved</span>{% else %}
         <button type="button" class="btn btn-sm btn-save"
                 hx-post="/api/papers/{{ paper.arxiv_id }}/save"
                 {# Attribute selector, not "#seed-paper-…": the dot in an arXiv
@@ -23,7 +25,9 @@
                 hx-target="[id='seed-paper-{{ paper.arxiv_id }}']"
                 hx-swap="outerHTML"
                 hx-vals='{"source": "onboarding", "position": {{ loop.index0 }}}'
-                onclick="if (window.bumpSeedCount) window.bumpSeedCount()">Save</button>
+                hx-disabled-elt="this"
+                hx-on::after-request="if (event.detail.successful &amp;&amp; window.bumpSeedCount) window.bumpSeedCount()">Save</button>
+        {% endif %}
       </div>
     {% endfor %}
   </div>

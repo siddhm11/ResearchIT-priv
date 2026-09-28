@@ -41,6 +41,8 @@
                 {%- if is_explore %} card--explore{% endif %}"
          id="paper-{{ paper.arxiv_id }}" data-arxiv-id="{{ paper.arxiv_id }}">
 
+  {% if paper.previously_shown %}<span class="small muted">Previously discovered</span>{% endif %}
+
   {% if interest %}
     <span class="card-interest">{{ interest }}</span>
   {% elif is_explore %}

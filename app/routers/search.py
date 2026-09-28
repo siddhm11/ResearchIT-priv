@@ -71,6 +71,8 @@ async def search(
             # Fallback: arXiv keyword API if hybrid returns nothing
             try:
                 papers = await arxiv_svc.search(q.strip())
+                if papers:
+                    search_meta["retrieval_mode"] = "arxiv_keyword"
             except Exception as e:
                 print(f"[search] arXiv fallback also failed: {e}")
                 papers = []
@@ -90,7 +92,7 @@ async def search(
         p["query_id"] = query_id
         p["position"] = idx
         p["propensity"] = 1.0  # search is deterministic
-        p["policy_id"] = "search_v1"
+        p["policy_id"] = "search_v2_independent_lexical"
 
     if request.headers.get("HX-Request"):
         resp = templates.TemplateResponse(

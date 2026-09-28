@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Your interests — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed">
+  <header class="issue">
+    <div class="issue-kicker">Shape your discovery</div>
+    <h1 class="issue-title">Your interests</h1>
+    <p class="muted">Choose up to eight areas for your starting feed. As you save papers,
+      your library becomes the stronger signal. Changing areas keeps your library.</p>
+  </header>
+  {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+  <form action="/interests" method="post">
+    <fieldset class="interest-picker">
+      <legend>Research areas</legend>
+      <div class="cat-grid">
+        {% for key, cat in categories.items() %}
+        <label class="cat-opt interest-choice">
+          <input type="checkbox" name="categories" value="{{ key }}" {% if key in selected %}checked{% endif %}>
+          <span><span class="name">{{ cat.name }}</span><span class="desc">{{ cat.desc }}</span></span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="discovery-tools">
+      <button type="submit" class="btn btn-primary btn-sm">Save interests</button>
+      <a href="/" class="btn btn-ghost btn-sm">Back to discovery</a>
+    </div>
+    <p class="small muted">For a specific topic, <a href="/search">search for it</a> and save papers
+      that fit. Choosing no areas gives you a broad starting feed.</p>
+  </form>
+</div>
+{% endblock %}
