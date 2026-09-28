@@ -1,5 +1,15 @@
 # PHASE 8 — Search and Recommendation: the exact design
 
+> **Current-status addendum, 2026-09-24:** this document's original July/August
+> pipeline measurements are historical. See [Current technical contract](../CURRENT-STATE.md).
+> FTS5 is implemented and the default lexical backend, independent of embedding
+> success; Zilliz remains a fallback. Search reranks 10, not 50, by default.
+> Core Turso replication is implemented but incomplete in coverage. Recommendation
+> MMR runs per cluster over a paginated pool of 60, not globally over 10. Refresh
+> uses recent impression suppression in personalized tiers. Preferences and
+> reading history now have user-facing pages. The original pending list below is
+> retained as historical context, not the active checklist.
+
 **Status:** Partly shipped · **Updated:** 2026-07-30
 
 The definitive specification of both pipelines: every stage, every constant,

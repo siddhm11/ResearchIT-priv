@@ -1,5 +1,7 @@
 # ResearchIT — Master Task Tracker
 
+> Historical record. For current implementation and defaults (2026-09-24), see [Current technical contract](CURRENT-STATE.md). Old phase status, service counts, and benchmarks are not live verification.
+
 > **Purpose**: Single source of truth for all completed, in-progress, and upcoming work.  
 > **Last updated**: 2026-05-05  
 > **Current phase**: Phase 6.5 (Instrumentation) — COMPLETE ✔ | Phase 7 next  
