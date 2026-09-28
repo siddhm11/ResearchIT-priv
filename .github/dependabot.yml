@@ -5,6 +5,15 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    # The ML stack is pinned exactly on purpose (see requirements.txt): newer
+    # FlagEmbedding/transformers combinations break BGE-M3 encoding, and CI
+    # cannot catch it because tests.yml does not install these packages. A
+    # green Dependabot PR for them is therefore not evidence of safety.
+    ignore:
+      - dependency-name: "FlagEmbedding"
+      - dependency-name: "transformers"
+      - dependency-name: "sentence-transformers"
+      - dependency-name: "torch"
 
   - package-ecosystem: github-actions
     directory: "/"
