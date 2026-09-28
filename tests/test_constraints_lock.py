@@ -53,3 +53,9 @@ def test_ml_stack_pins_match_requirements_exactly():
             exact = [s.version for s in req.specifier if s.operator == "=="]
             assert exact and pins[canonicalize_name(req.name)] == Version(exact[0])
 
+
+def test_dockerfile_installs_with_the_lock():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    assert "COPY constraints.txt" in dockerfile
+    installs = [l for l in dockerfile.splitlines() if l.startswith("RUN pip install")]
+    assert installs and all("-c constraints.txt" in l for l in installs), installs

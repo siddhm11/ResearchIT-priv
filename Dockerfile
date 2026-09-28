@@ -18,12 +18,21 @@ ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
 RUN mkdir -p /app/.cache/huggingface /app/.cache/sentence-transformers
 
-# Install torch CPU-only first (smaller than full CUDA build)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# Exact version of every package, generated from requirements.txt by `make lock`.
+# Without it each rebuild installed whatever was newest that day, which is how a
+# transformers release could break BGE-M3 encoding (see requirements.txt) with no
+# code change at all. requirements.txt stays the human-edited list of intent.
+COPY constraints.txt .
+
+# Install torch CPU-only first (smaller than full CUDA build). The lock pins
+# torch==<version>+cpu, which only the PyTorch index carries, so the CPU build is
+# still what gets installed; PyPI stays primary because that index does not mirror
+# the pinned versions of torch's own dependencies (filelock, sympy, ...).
+RUN pip install --no-cache-dir torch -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Pre-download models into the image (baked in, no cold-start download)
 # BGE-M3 for dense+sparse embeddings (~2.2GB)
