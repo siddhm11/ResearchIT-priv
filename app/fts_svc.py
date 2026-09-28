@@ -40,12 +40,13 @@ def _probe() -> bool:
     if _probed:
         return _available
     _probed = True
-    if not local_meta.is_available() or local_meta._conn is None:
+    conn = local_meta.connection()
+    if conn is None:
         print("[fts_svc] no sidecar — sparse search unavailable")
         _available = False
         return False
     try:
-        local_meta._conn.execute(
+        conn.execute(
             "SELECT rowid FROM papers_fts LIMIT 1").fetchone()
         _available = True
         print("[fts_svc] FTS5 index available")
@@ -76,7 +77,8 @@ def _terms(query: str) -> list[str]:
 
 
 def _search_sync(query: str, limit: int) -> list[dict]:
-    conn = local_meta._conn
+    # Per-thread handle: the original and rewritten queries run concurrently.
+    conn = local_meta.connection()
     if conn is None:
         return []
     terms = _terms(query)
@@ -129,10 +131,11 @@ async def search_sparse(query: str, limit: int = 50) -> list[dict]:
 
 def stats() -> dict:
     """Diagnostics for the health endpoint."""
-    if not _probe() or local_meta._conn is None:
+    conn = local_meta.connection() if _probe() else None
+    if conn is None:
         return {"available": False}
     try:
-        n = local_meta._conn.execute(
+        n = conn.execute(
             "SELECT COUNT(*) FROM papers_fts").fetchone()[0]
         return {"available": True, "indexed": n, "backend": "sqlite-fts5"}
     except sqlite3.Error as e:

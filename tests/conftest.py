@@ -23,8 +23,23 @@ and several tests legitimately depend on it. Only the replication daemon is
 disabled.
 """
 import os
+import asyncio
+from collections import OrderedDict
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_application_state(tmp_path, monkeypatch):
+    """Tests must never write to the developer's actual reading library."""
+    from app import config, db, user_state
+    from app.routers import recommendations
+    path = str(tmp_path / "isolated-app.db")
+    monkeypatch.setattr(config, "DB_PATH", path)
+    monkeypatch.setattr(db, "DB_PATH", path)
+    monkeypatch.setattr(user_state, "_cache", {})
+    monkeypatch.setattr(recommendations, "_FEED_CACHE", OrderedDict())
+    asyncio.run(db.init_db())
 
 
 @pytest.fixture(autouse=True, scope="session")

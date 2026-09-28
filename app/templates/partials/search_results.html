@@ -11,6 +11,9 @@
         <span>searched as &ldquo;{{ search_meta.rewritten_query }}&rdquo;</span>
       {% endif %}
     </div>
+    {% if search_meta and search_meta.retrieval_mode in ['keyword', 'arxiv_keyword'] %}
+      <p class="small muted" role="status">Showing keyword matches. Semantic matches are unavailable for this search.</p>
+    {% endif %}
 
     {% if query and papers %}
       {% set arxiv_ids = papers | map(attribute='arxiv_id') | join(',') %}

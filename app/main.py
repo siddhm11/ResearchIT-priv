@@ -83,7 +83,13 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old feed exposure rows")
     except Exception as e:
         print(f"[main] Exposure pruning skipped: {e}")
-    yield
+    from app.discovery_runtime import DiscoveryRuntime
+    app.state.discovery = DiscoveryRuntime()
+    await app.state.discovery.start()
+    try:
+        yield
+    finally:
+        await app.state.discovery.stop()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:
@@ -206,8 +212,11 @@ async def home(
     # Existing users (any interaction history) are auto-marked as onboarded.
     onboarding_state = await db.get_onboarding_state(user_id)
     if onboarding_state is None:
-        # Check if they're an existing user with interactions
-        interactions = await db.get_user_interactions(user_id, limit=1)
+        # Existing user = has made an explicit decision. Opens do not count: a
+        # direct /p/ visit logs a `view`, and treating that as history sent
+        # shared-link visitors straight past onboarding for good.
+        interactions = await db.get_user_interactions(
+            user_id, event_types=["save", "unsave", "not_interested"], limit=1)
         if interactions:
             # Auto-mark as onboarded — don't interrupt returning users
             await db.complete_onboarding(user_id)
