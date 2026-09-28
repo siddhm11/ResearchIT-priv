@@ -1,0 +1,9 @@
+{
+  "observed_on": "2026-09-25",
+  "source_url": "https://huggingface.co/api/daily_papers",
+  "capture_method": "Two selected records transcribed from the web research tool response; not a complete API snapshot or a representative quality sample.",
+  "records": [
+    {"paper": {"id": "2609.26489", "title": "Calibration as a First-Class Criterion in LLM Evaluation", "publishedAt": "2026-09-22T00:00:00.000Z", "upvotes": 1}},
+    {"paper": {"id": "2609.27657", "title": "FLEET: From Logits Entropy to Enhanced Trajectories in Text Generation", "publishedAt": "2026-09-23T00:00:00.000Z", "upvotes": 1}}
+  ]
+}
