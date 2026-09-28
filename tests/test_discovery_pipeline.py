@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from app.discovery_store import DiscoveryStore, EMBEDDING_CONTRACT, validated_vector
+from app.discovery_worker import collect_once, prepare_once
 from app.hf_papers_svc import normalize_snapshot
 
 NOW=datetime(2026,9,25,tzinfo=timezone.utc).timestamp()
@@ -87,6 +88,61 @@ def test_incompatible_vector_cannot_become_ready(store,bad):
 def test_contract_rejected(store):
     store.save_snapshot(snapshot(),NOW);r=store.pending(NOW)[0]
     with pytest.raises(ValueError):store.finish(r,json.loads(r['paper']),vec(),NOW,'other-model')
+
+
+async def test_collect_failure_preserves_previous_good_snapshot(store):
+    store.save_snapshot(snapshot(),NOW)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(429))) as c:
+        result=await collect_once(store,c,NOW+60)
+    assert result['status']=='failed'
+    assert store.status(NOW+60)['candidates']==1
+    assert store.status(NOW+60)['last_success_age_hours']==pytest.approx(1/60)
+    assert store.status(NOW+60)['last_run']['status']=='failed'
+
+
+async def test_schema_drift_is_failure_not_empty_success(store):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=[{'unknown':1}]))) as c:
+        assert (await collect_once(store,c,NOW))['status']=='failed'
+    assert store.status(NOW)['source_stale']
+
+
+async def test_zero_paper_response_is_valid_but_not_ready(store):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=[]))) as c:
+        assert (await collect_once(store,c,NOW))['status']=='ok'
+    assert store.status(NOW)['ready']==0
+
+
+async def test_three_attempt_cap_and_backoff(store):
+    store.save_snapshot(snapshot(),NOW)
+    def broken(_):raise RuntimeError('private details never saved')
+    async with httpx.AsyncClient() as c:
+        for t in [NOW,NOW+300,NOW+900]:
+            assert (await prepare_once(store,c,now=t,encoder=broken))['failed']==1
+            assert not store.pending(t+1)
+        assert not store.pending(NOW+10000)
+    assert store.status(NOW)['retry_exhausted']==1
+    with store.connection() as c:
+        assert c.execute('select error from candidates').fetchone()[0]=='RuntimeError'
+
+
+async def test_missing_abstract_enriched_then_encoded(store):
+    store.save_snapshot(snapshot([raw(summary='')]),NOW)
+    async def fetcher(client,paper):return {**paper,'abstract':'Recovered from arXiv'}
+    seen=[]
+    def encode(paper):seen.append(paper['abstract']);return vec()
+    async with httpx.AsyncClient() as c:
+        result=await prepare_once(store,c,now=NOW,encoder=encode,metadata_fetcher=fetcher)
+    assert result['ready']==1 and seen==['Recovered from arXiv']
+    assert store.ready(NOW)[0]['abstract']=='Recovered from arXiv'
+
+
+async def test_one_bad_paper_does_not_block_other_preparation(store):
+    store.save_snapshot(snapshot([raw(),raw('2609.00002')]),NOW)
+    def encode(p):
+        if p['arxiv_id'].endswith('1'):raise ValueError()
+        return vec()
+    async with httpx.AsyncClient() as c:r=await prepare_once(store,c,now=NOW,encoder=encode)
+    assert r=={'ready':1,'failed':1,'superseded':0}
 
 
 def baseline():
