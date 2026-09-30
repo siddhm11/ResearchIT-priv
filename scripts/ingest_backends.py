@@ -25,6 +25,7 @@ Consistency requirements, in order of how badly getting them wrong hurts:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import urllib.error
@@ -60,6 +61,21 @@ def topic_label(categories: str) -> str:
 
 
 _labels_cache: dict | None = None
+
+# Point ids for new papers are derived from the arXiv id, not allocated as
+# "highest id + 1". Allocation needed a probe of the live collection and was
+# only safe with one writer: two overlapping runs (a scheduled daily job and a
+# manual one) would both pick the same ids and overwrite each other's papers.
+# A hash makes the id a property of the paper: re-writing a paper overwrites
+# itself, and concurrent runs cannot collide. Bit 62 is always set, so these
+# ids never meet the sequential 0..~260k range of earlier ingests; 62 hash bits
+# give a collision chance around 1e-7 at a million papers.
+_ID_FLAG = 1 << 62
+
+
+def point_id(arxiv_id: str) -> int:
+    h = int.from_bytes(hashlib.sha256(arxiv_id.encode()).digest()[:8], "big")
+    return _ID_FLAG | (h & (_ID_FLAG - 1))
 
 
 def _load_labels() -> dict:
@@ -123,8 +139,6 @@ class Upserter:
             raise SystemExit("INGEST_WRITE_ZILLIZ=1 needs ZILLIZ_URI and ZILLIZ_TOKEN")
         self.turl = os.environ["TURSO_URL"].rstrip("/")
         self.ttok = os.environ["TURSO_DB_TOKEN"]
-        self._next_id = self._max_qdrant_id() + 1
-        print(f"[ingest] next Qdrant point id = {self._next_id:,}", flush=True)
 
     # ── Qdrant ───────────────────────────────────────────────────────────
     def _q(self, path, body=None, method="GET", timeout=180):
@@ -143,24 +157,6 @@ class Upserter:
                 return {}
             raise
 
-    def _max_qdrant_id(self) -> int:
-        """Highest existing integer point id, so new points never collide."""
-        info = self._q(f"/collections/{QDRANT_COLLECTION}")
-        count = info["result"]["points_count"]
-        # Point ids were assigned sequentially from 0 at bulk load, but scan the
-        # tail rather than trusting that: an id collision silently overwrites a
-        # paper, which is unrecoverable without a re-index.
-        # Binary search the tail for the highest id that resolves.
-        hi = count + 10_000
-        lo = count - 1
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            got = self._q(f"/collections/{QDRANT_COLLECTION}/points/{mid}")
-            if got.get("result"):
-                lo = mid
-            else:
-                hi = mid - 1
-        return lo
 
     # ── Zilliz ───────────────────────────────────────────────────────────
     def _z(self, path, body, timeout=180):
@@ -205,19 +201,18 @@ class Upserter:
     def upsert(self, papers: list[dict], vecs: list[tuple[list[float], dict]]) -> None:
         assert len(papers) == len(vecs)
 
-        # Qdrant: dense vectors keyed by fresh integer ids, skipping any paper a
-        # failed earlier run already wrote.
+        # Qdrant: dense vectors keyed by point_id(arxiv_id), skipping any paper
+        # a failed earlier run already wrote.
         present = self.qdrant_existing([p["arxiv_id"] for p in papers])
         points = []
         for p, (dense, _sparse) in zip(papers, vecs):
             if p["arxiv_id"] in present:
                 continue
             points.append({
-                "id": self._next_id,
+                "id": point_id(p["arxiv_id"]),
                 "vector": dense,
                 "payload": {"arxiv_id": p["arxiv_id"]},
             })
-            self._next_id += 1
         if points:
             self._q(f"/collections/{QDRANT_COLLECTION}/points?wait=true",
                     {"points": points}, method="PUT")

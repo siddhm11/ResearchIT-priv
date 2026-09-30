@@ -18,7 +18,6 @@ def test_topic_label_matches_existing_rows():
 
 def _upserter(monkeypatch, present):
     up = object.__new__(ingest_backends.Upserter)
-    up._next_id = 500
     calls = {"q": [], "z": [], "t": []}
 
     def fake_q(path, body=None, method="GET", timeout=180):
@@ -44,7 +43,7 @@ def test_papers_already_in_qdrant_are_not_written_again(monkeypatch):
     up.upsert(_papers("2608.00001", "2608.00002"), [([0.1] * 4, {1: 0.5})] * 2)
     puts = [b for p, m, b in calls["q"] if m == "PUT"]
     assert [pt["payload"]["arxiv_id"] for pt in puts[0]["points"]] == ["2608.00002"]
-    assert puts[0]["points"][0]["id"] == 500 and up._next_id == 501
+    assert puts[0]["points"][0]["id"] == ingest_backends.point_id("2608.00002")
     # Turso still gets both rows, so the resume marker catches up.
     assert len(calls["t"][0]) == 2
 
@@ -106,3 +105,12 @@ def test_coverage_checks_every_window(capsys):
     assert "cs.AI@2026-08-30..2026-10-01 4000/5750" in capsys.readouterr().out
     state[k2] = 5750
     assert ingest_arxiv.report_coverage(["cs.AI"], state) == 0
+
+
+def test_point_ids_are_stable_disjoint_and_fit_uint64():
+    pid = ingest_backends.point_id
+    assert pid("2609.01004") == pid("2609.01004")
+    ids = [pid(f"{yymm}.{n:05d}") for yymm in ("2608", "2609", "2610") for n in range(100_000)]
+    assert len(set(ids)) == len(ids)                      # 300k ids, no collision
+    assert min(ids) >= 1 << 62 > 300_000                  # never meets sequential ids
+    assert max(ids) < 1 << 63                             # Qdrant ids are unsigned 64-bit
