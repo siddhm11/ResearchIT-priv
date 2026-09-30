@@ -120,8 +120,10 @@ def parse_entry(entry) -> dict | None:
     }
 
 
-def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int]:
-    """One page of results. Returns (papers, total_available)."""
+def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int | None]:
+    """One page of results. Returns (papers, total_available); total is None
+    when the request failed, so a failure is never mistaken for an empty
+    category."""
     q = (f"cat:{category} AND submittedDate:"
          f"[{since.replace('-', '')}0000 TO {until.replace('-', '')}0000]")
     url = f"{ARXIV_API}?" + urllib.parse.urlencode({
@@ -139,7 +141,7 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
         except Exception as e:
             if attempt == 3:
                 print(f"    [{category}] fetch failed: {str(e)[:90]}")
-                return [], 0
+                return [], None
             time.sleep(5 * (attempt + 1))
     root = ET.fromstring(xml)
     total_el = root.find("opensearch:totalResults", NS)
@@ -230,6 +232,8 @@ def main() -> int:
         while True:
             papers, total = fetch_page(cat, args.since, args.until, start)
             time.sleep(ARXIV_DELAY)
+            if total is not None:
+                state[f"{cat}#total"] = total
             if not papers:
                 break
 
@@ -274,6 +278,27 @@ def main() -> int:
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")
+    if args.limit:
+        return 0
+    return report_coverage(cats, state)
+
+
+def report_coverage(cats: list[str], state: dict) -> int:
+    """Compare each category's offset with arXiv's own total.
+
+    An empty page mid-listing ends a category's loop, so "done" alone does not
+    mean complete. Re-running with the same --state resumes from the offset.
+    """
+    gaps = []
+    for cat in cats:
+        got, total = int(state.get(cat, 0)), state.get(f"{cat}#total")
+        if total is None or got < int(total):
+            gaps.append(f"{cat} {got}/{total}")
+    if gaps:
+        print(f"coverage: {len(gaps)} categories short of arXiv's total -> re-run to resume: "
+              + ", ".join(gaps))
+        return 3
+    print(f"coverage: all {len(cats)} categories reached arXiv's total")
     return 0
 
 
