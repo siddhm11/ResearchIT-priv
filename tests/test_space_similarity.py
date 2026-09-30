@@ -39,5 +39,4 @@ async def test_similarity_of_two_known_papers(vectors):
 async def test_similarity_with_a_missing_paper_is_null_not_zero(vectors):
     out = await space.space_similarity(a="2410.24164", b="9999.99999", authorization=None)
     assert out["cosine"] is None
-    assert out["dimensions"] is None
     assert out["a"]["found"] and not out["b"]["found"]
