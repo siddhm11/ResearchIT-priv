@@ -46,7 +46,9 @@ BATCH = 500   # the batch endpoint's maximum
 
 
 def _staging(path: str) -> sqlite3.Connection:
-    db = sqlite3.connect(path)
+    # URI mode, so the read-only `file:...?mode=ro` ATTACH in diff/apply-turso
+    # is honoured; a plain connection rejects it as "unable to open database".
+    db = sqlite3.connect(f"file:{os.path.abspath(path)}", uri=True)
     db.execute("""CREATE TABLE IF NOT EXISTS citations (
         arxiv_id TEXT PRIMARY KEY, citation_count INTEGER, influential_citations INTEGER,
         found INTEGER NOT NULL, fetched_at TEXT NOT NULL)""")
