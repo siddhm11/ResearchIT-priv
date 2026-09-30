@@ -50,5 +50,6 @@ def test_only_changed_known_rows_go_to_turso(tmp_path):
     _sidecar(side)
     _stage(stage)
     db = rc._staging(str(stage))
-    db.execute(f"ATTACH DATABASE '{side}' AS s")
+    # The same read-only URI attach apply-turso uses.
+    db.execute(f"ATTACH DATABASE 'file:{side}?mode=ro' AS s")
     assert db.execute(rc._changed(db)).fetchall() == [("2506.00001", 1488, 158)]
