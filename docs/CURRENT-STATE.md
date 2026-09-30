@@ -1,6 +1,6 @@
 # Current technical contract
 
-Updated: 2026-09-28. Deployed to the Hugging Face Space at `67cba21` on
+Updated: 2026-09-30 (feed changes not yet deployed). Deployed to the Hugging Face Space at `67cba21` on
 2026-09-28; the live checks are in DISCOVERY-PLAN.md (deployment record).
 Re-verify with `/healthz/*` rather than trusting this date.
 
@@ -19,10 +19,11 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 | Search | Original + optional rewritten query; dense shard fanout and independent FTS5; Zilliz without FTS; RRF; optional top-10 MiniLM; title/citation boost | `app/hybrid_search_svc.py`, `app/config.py` |
 | Missing encodings | Available FTS query forms still run; actual contributing arms determine `retrieval_mode` | `app/hybrid_search_svc.py` |
 | Search total miss | arXiv keyword fallback; no invented hits for unfamiliar concepts | `app/routers/search.py` |
-| Detailed interests | Saved papers -> long/short/negative EWMA + Ward medoids; parameters unchanged | `app/recommend/profiles.py`, `clustering.py` |
+| Detailed interests | Saved papers -> long/short/negative EWMA. 2–4 saves: one interest per save; 5+: Ward medoids, K ≤ min(7, ceil(N/2)), finest singleton-free cut (2026-09-30) | `app/recommend/profiles.py`, `clustering.py` |
 | Multi-interest balance | Importance-weighted quota, within-cluster MMR, quota-bound served order | `fusion.py`, `app/routers/recommendations.py` |
 | Scoring | Personalized heuristic default; optional citation-trained LightGBM | `reranker.py`, `config.py` |
-| Cold start | Category popularity candidates; local per-category interleaving when sidecar exists; epsilon-greedy fresh block and deterministic recycled block | `app/discovery_svc.py`, recommendation router |
+| Cold start | Balanced per ticked interest; citations per month over 24 months, every third slot from the corpus's last 3 months (needs refreshed citations to rank those); epsilon-greedy fresh block and deterministic recycled block | `app/discovery_svc.py`, `local_meta.py`, recommendation router |
+| Exploration | 2 per page; from ticked interests no medoid covers, else the far half of own candidates | recommendation router |
 | Refresh | Personalized candidate retrieval excludes last seven days of served papers; one exhaustion retry allows labelled repeats | recommendation router, `app/db.py` |
 | Paging | Cached ordered pool per query ID, bound to user; per-user lock includes serving/impression write in one process | recommendation router |
 | Preferences | Editable `/interests`; zero to eight known categories; no deletion of existing saves | `app/routers/onboarding.py` |

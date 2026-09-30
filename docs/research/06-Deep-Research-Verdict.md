@@ -450,3 +450,33 @@ needed before HF candidates can enter the live feed. Bound retries, invalidate
 changed-text embeddings, and reject stale/future candidates. Report source failures.
 **Action items:** Implemented locally with pipeline regressions. Deploy a durable
 worker and establish real-model/relevance evidence before an opt-in serving pilot.
+
+### 2026-09-30 — Multi-interest from two saves, finer interest cap, grounded exploration
+**Decision:** The user approved four changes after a trace of their own interests
+(NLP, CV, ML, AI, Robotics, Software Engineering) with production vectors:
+1. The multi-interest path (quota + per-cluster MMR) starts at 2 saves. Below 5,
+   each save is its own interest (`per_save_clusters`); Ward still starts at 5.
+2. `AVG_CLUSTER_SIZE_FLOOR` 4 → 2, so K ≤ ceil(N/2) (still ≤ `K_max = 7`), and
+   `compute_clusters` takes the finest dendrogram cut at or below K that leaves
+   no singleton before the existing singleton merge.
+3. Exploration draws from ticked interests that no cluster medoid lists in its
+   categories. Otherwise it keeps the far-half-of-own-candidates pool.
+4. Tier 0 balances per ticked interest instead of per arXiv code. It ranks by
+   citations per month since publication and gives every third slot per
+   interest to a paper from the corpus's last three months.
+**Supersedes:** Tier 2 EWMA single-vector search as the 3–4-save tier (it remains
+the fallback); the soft cap of ceil(N/4); exploration drawn only from the reader's
+own retrieval neighbourhoods; Tier 0 per-code round-robin by raw citations.
+**Rationale:** Measured: averaging Llama 3 + π0 + OpenHands returned generic
+"LLM agents" surveys matching none of them. Seven saves across five interests
+allowed only 2 clusters, and 12 across six allowed only 3 (5 at the new floor),
+while single-interest readers are unchanged. Lowering the floor alone collapsed
+a noisy 3 + 2 reader into one cluster (the singleton merge folded the split
+pair into the majority), which the singleton-free cut fixes. Tier 0 held 0 of
+200 papers from 2026 and gave Computer Vision 22 of 200. Replay method and
+figures are in the 2026-09-30 feed trace. There is no judged relevance set yet,
+so these rest on the replay and on the invariants, not on an offline metric.
+**Action items:** Implemented with regression tests. Refresh citation counts
+(zero for every paper since 2025-06) and ingest papers after 2026-07-30, or
+Tier 0's fresh lane has no quality signal. Build a small judged set before
+tuning further; multi-medoid retrieval for loose clusters is deferred until then.
