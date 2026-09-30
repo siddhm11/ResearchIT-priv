@@ -1,0 +1,81 @@
+# Daily data refresh: yesterday's arXiv papers + recent citation counts.
+#
+# Runs scripts/daily_refresh.py, which writes new papers to the recent-papers
+# Qdrant shard and Turso, refreshes citations for the last three months, and
+# fails the run if any store disagrees. New papers reach personalised feeds,
+# paper pages and similarity the moment they are written; the starter feed and
+# keyword search catch up at the next sidecar publish (PHASE7 §8).
+#
+# OFF until switched on: every job is gated on the repository variable
+# DAILY_REFRESH == "on" (Settings > Secrets and variables > Actions > Variables),
+# so merging this file runs nothing. It needs these repository secrets:
+#   QDRANT_RECENT_URL, QDRANT_RECENT_API_KEY, TURSO_URL, TURSO_DB_TOKEN, S2_API_KEY
+#
+# Timing: arXiv announces new papers around 00:00 UTC Sunday-Thursday. 02:30 UTC
+# gives the listing time to settle. The 3-day lookback makes a missed day, a
+# weekend or a late announcement harmless: re-runs skip stored papers, and point
+# ids come from the arXiv id, so a manual run overlapping this one cannot
+# collide with it.
+#
+# Budget: ~900 papers/day encoded on CPU, roughly 10-20 minutes a run.
+
+name: Daily refresh
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "Days to look back (re-runs skip stored papers)"
+        default: "3"
+      skip_citations:
+        description: "Skip the citation refresh"
+        type: boolean
+        default: false
+
+concurrency:
+  # Never two refreshes at once; a queued run waits instead of cancelling.
+  group: daily-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    if: vars.DAILY_REFRESH == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Cache the BGE-M3 model (~2.2 GB)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: bge-m3-${{ hashFiles('constraints.txt') }}
+
+      - name: Install the encoder stack (pinned by constraints.txt, CPU torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch -c constraints.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          pip install FlagEmbedding httpx -c constraints.txt
+
+      - name: Refresh
+        env:
+          QDRANT_RECENT_URL: ${{ secrets.QDRANT_RECENT_URL }}
+          QDRANT_RECENT_API_KEY: ${{ secrets.QDRANT_RECENT_API_KEY }}
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_DB_TOKEN: ${{ secrets.TURSO_DB_TOKEN }}
+          S2_API_KEY: ${{ secrets.S2_API_KEY }}
+          INGEST_DEVICE: cpu
+        run: |
+          python scripts/daily_refresh.py \
+            --lookback-days "${{ inputs.lookback_days || '3' }}" \
+            ${{ inputs.skip_citations && '--skip-citations' || '' }}
