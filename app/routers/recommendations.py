@@ -418,7 +418,9 @@ async def _build_feed(
 
     # ── Tier 0: category trending (cold start, Phase 5) ──────────────────
     if not state.has_enough_for_recs():
-        category_filter = await db.get_user_category_filter(user_id)
+        # Grouped by interest, so the starter pool balances interests rather
+        # than arXiv codes (see discovery_svc.starter_papers).
+        category_filter = await db.get_user_category_groups(user_id)
         # No categories means the reader skipped onboarding. That used to fall
         # straight through to the empty state and stay there; a reader who told
         # us nothing still gets a feed, just a broader one. See

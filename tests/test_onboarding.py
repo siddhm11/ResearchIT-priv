@@ -136,3 +136,12 @@ def test_expand_category_groups_unknown_key():
     assert "cs.CL" in result
     # unknown key produced nothing extra
     assert len(result) == 2  # cs.CL + cs.IR
+
+
+async def test_get_user_category_groups_keeps_interests_apart(tmp_db):
+    import app.db as db
+    await db.init_db()
+    await db.save_onboarding_categories("u1", ["ml", "robotics"])
+    groups = await db.get_user_category_groups("u1")
+    assert groups == {"ml": {"cs.LG", "stat.ML"}, "robotics": {"cs.RO"}}
+    assert await db.get_user_category_groups("nobody") == {}

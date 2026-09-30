@@ -633,6 +633,20 @@ async def get_user_category_filter(user_id: str) -> set[str]:
     return expand_category_groups(state["selected_categories"])
 
 
+async def get_user_category_groups(user_id: str) -> dict[str, set[str]]:
+    """The reader's selected interests, each mapped to its arXiv codes.
+
+    Same source as get_user_category_filter, without flattening: starter feeds
+    balance per interest, and flattening loses which codes belong together.
+    """
+    state = await get_onboarding_state(user_id)
+    if state is None:
+        return {}
+    from app.config import expand_category_groups
+    return {key: codes for key in state["selected_categories"]
+            if (codes := expand_category_groups([key]))}
+
+
 # ── Phase 6.5 B3: Cluster snapshot versioning ─────────────────────────────────
 
 async def save_cluster_snapshot(user_id: str, clusters: list[dict]) -> str:
