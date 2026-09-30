@@ -40,3 +40,14 @@ async def test_similarity_with_a_missing_paper_is_null_not_zero(vectors):
     out = await space.space_similarity(a="2410.24164", b="9999.99999", authorization=None)
     assert out["cosine"] is None
     assert out["a"]["found"] and not out["b"]["found"]
+
+
+def test_similarity_serialises_over_http(vectors):
+    """Calling the function directly hid a 500: np.float32 is not JSON."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    app.include_router(space.router)
+    r = TestClient(app).get("/api/space/similarity", params={"a": "2410.24164", "b": "2504.16054"})
+    assert r.status_code == 200
+    assert r.json()["cosine"] == pytest.approx(0.6)
