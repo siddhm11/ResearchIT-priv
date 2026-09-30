@@ -79,3 +79,30 @@ def test_failed_fetch_reports_unknown_total(monkeypatch):
     monkeypatch.setattr(ingest_arxiv.urllib.request, "urlopen", boom)
     monkeypatch.setattr(ingest_arxiv.time, "sleep", lambda s: None)
     assert ingest_arxiv.fetch_page("cs.CV", "2026-08-01", "2026-08-02", 0) == ([], None)
+
+
+def test_windows_split_until_each_fits_one_query(monkeypatch):
+    # 11,092 papers over 64 days, spread evenly: two halves of ~5.5k fit.
+    def probe(cat, since, until, start):
+        from datetime import date
+        days = (date.fromisoformat(until) - date.fromisoformat(since)).days
+        return [], round(11092 * days / 64)
+    w = ingest_arxiv.plan_windows("cs.AI", "2026-07-29", "2026-10-01", probe=probe)
+    assert w == [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+
+
+def test_small_or_failed_probe_keeps_one_window():
+    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
+                                     probe=lambda *a: ([], 3273)) == [["2026-07-29", "2026-10-01"]]
+    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
+                                     probe=lambda *a: ([], None)) == [["2026-07-29", "2026-10-01"]]
+
+
+def test_coverage_checks_every_window(capsys):
+    w = [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+    k1, k2 = (ingest_arxiv.window_key("cs.AI", w, x) for x in w)
+    state = {"cs.AI#windows": w, k1: 5342, f"{k1}#total": 5342, k2: 4000, f"{k2}#total": 5750}
+    assert ingest_arxiv.report_coverage(["cs.AI"], state) == 3
+    assert "cs.AI@2026-08-30..2026-10-01 4000/5750" in capsys.readouterr().out
+    state[k2] = 5750
+    assert ingest_arxiv.report_coverage(["cs.AI"], state) == 0
