@@ -7,7 +7,7 @@ These encode a product rule as much as a code path. The pipeline is gated —
 multi-interest tier — and until now none of that reached the screen, so a user
 on three saves silently got the weaker path and read it as a bad feed.
 """
-from app.recommend.clustering import MIN_PAPERS_FOR_CLUSTERING
+from app.recommend.clustering import MIN_PAPERS_FOR_CLUSTERING, MIN_SAVES_FOR_INTERESTS
 from app.routers.recommendations import (
     _MIN_EWMA_INTERACTIONS,
     _feed_interests,
@@ -44,19 +44,18 @@ def test_empty_feed_defaults_to_tier_1():
 
 # ── Progress toward the next tier ────────────────────────────────────────────
 
-def test_tier_2_user_is_told_what_clustering_costs():
-    s = _profile_strength(entry({"a": tag("ewma_longterm")}), save_count=3)
+def test_tier_3_user_is_pointed_at_the_multi_interest_threshold():
+    """From two saves every save is its own interest; that is the next step."""
+    s = _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1)
     assert s is not None
-    assert s["target"] == MIN_PAPERS_FOR_CLUSTERING
-    assert s["remaining"] == MIN_PAPERS_FOR_CLUSTERING - 3
+    assert s["target"] == MIN_SAVES_FOR_INTERESTS
+    assert s["remaining"] == MIN_SAVES_FOR_INTERESTS - 1
     assert "multi-interest" in s["unlocks"]
 
 
-def test_tier_3_user_is_pointed_at_the_ewma_threshold():
-    s = _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1)
-    assert s is not None
-    assert s["target"] == _MIN_EWMA_INTERACTIONS
-    assert s["remaining"] == _MIN_EWMA_INTERACTIONS - 1
+def test_tier_2_is_a_fallback_and_never_nags():
+    """Tier 2 now only serves when the multi-interest path failed at 2+ saves."""
+    assert _profile_strength(entry({"a": tag("ewma_longterm")}), save_count=3) is None
 
 
 def test_tier_1_has_nothing_left_to_unlock():
@@ -76,7 +75,7 @@ def test_no_nag_when_the_threshold_is_met_but_the_tier_did_not_engage():
 
 
 def test_percentage_is_bounded():
-    s = _profile_strength(entry({"a": tag("ewma_longterm")}), save_count=4)
+    s = _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1)
     assert 0 <= s["pct"] <= 100
 
 

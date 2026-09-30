@@ -37,7 +37,9 @@ from app.recommend.clustering import (
     save_clusters_to_db,
     load_clusters_from_db,
     stabilize_cluster_ids,
+    per_save_clusters,
     MIN_PAPERS_FOR_CLUSTERING,
+    MIN_SAVES_FOR_INTERESTS,
 )
 from app.recommend.fusion import (
     allocate_quotas,
@@ -547,8 +549,8 @@ _TIER_BY_SOURCE = {
 # What the user gets at each step up, keyed by the tier they are ON now.
 _NEXT_UNLOCK = {
     0: (REC_MIN_POSITIVES, "papers matched to your library"),
-    3: (_MIN_EWMA_INTERACTIONS, "ranking against your full reading profile"),
-    2: (MIN_PAPERS_FOR_CLUSTERING, "multi-interest feed — every interest keeps its own slots"),
+    3: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
+    2: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
 }
 
 
@@ -687,8 +689,10 @@ async def _multi_interest_recommend(
     *, query_id: str = "",
 ) -> tuple[list[str], list[str], dict[str, dict], int, dict]:
     """
-    Full recommendation pipeline (Phase 2b + Phase 4 corrections):
-      1. Ward clustering → identify distinct interests
+    Full recommendation pipeline (Phase 2b + Phase 4 corrections), from
+    MIN_SAVES_FOR_INTERESTS saves:
+      1. Ward clustering → identify distinct interests (below
+         MIN_PAPERS_FOR_CLUSTERING saves, one interest per save)
       2. Quota allocation → per-cluster slot budgets (replaces RRF)
       3. Parallel per-cluster ANN searches → retrieve candidates
       4. Hungarian matching → stabilise cluster IDs across reclusters
@@ -700,7 +704,7 @@ async def _multi_interest_recommend(
     Returns ([], {}, 0, {}) to trigger fallback to Tier 2.
     Phase 4.5: second element is {arxiv_id: {ranker_version, candidate_source, cluster_id}}.
     """
-    if len(state.positive_list) < MIN_PAPERS_FOR_CLUSTERING:
+    if len(state.positive_list) < MIN_SAVES_FOR_INTERESTS:
         return [], [], {}, 0, {}
 
     try:
@@ -726,12 +730,12 @@ async def _multi_interest_recommend(
             errors.report("recommendations",
                           "save-history read failed, using in-memory deque", e)
 
-        if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
+        if len(positives) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
-        if len(vectors) < MIN_PAPERS_FOR_CLUSTERING:
+        if len(vectors) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
         timing = {}  # Collect per-stage timing breakdown
@@ -752,7 +756,11 @@ async def _multi_interest_recommend(
 
         # ── Step 1: Compute interest clusters ─────────────────────────────
         t0_cluster = time.time()
-        clusters = compute_clusters(aligned_ids, aligned_embs, aligned_times)
+        # Too few saves to find structure: each save is its own interest, so
+        # unrelated early saves are not averaged into one blurred vector.
+        clusters = (compute_clusters(aligned_ids, aligned_embs, aligned_times)
+                    if len(aligned_ids) >= MIN_PAPERS_FOR_CLUSTERING
+                    else per_save_clusters(aligned_ids, aligned_embs, aligned_times))
 
         # ── Step 4.2: Stabilise cluster IDs with Hungarian matching ───────
         old_clusters_data = await load_clusters_from_db(user_id)
