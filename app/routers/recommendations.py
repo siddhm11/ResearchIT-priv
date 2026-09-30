@@ -682,6 +682,34 @@ async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
         for aid in entry["ranked"]
     )
     return papers, has_more
+# ── Exploration from ticked interests the clusters do not cover ─────────────
+
+_UNCOVERED_POOL = 30
+
+
+async def _uncovered_interest_papers(
+    user_id: str, medoid_ids: list[str], exclude: set[str],
+) -> list[str]:
+    """Starter papers from ticked interests no cluster medoid belongs to.
+
+    Empty when every ticked interest is covered or none were ticked; the caller
+    then keeps its default exploration pool.
+    """
+    groups = await db.get_user_category_groups(user_id)
+    if not groups or not medoid_ids:
+        return []
+    meta = await turso_svc.fetch_metadata_batch(medoid_ids)
+    covered_codes = {code for m in meta.values()
+                     for code in (m.get("arxiv_categories") or "").split()}
+    uncovered = {g: codes for g, codes in groups.items() if not codes & covered_codes}
+    if not uncovered or len(meta) < len(set(medoid_ids)):
+        # Unknown medoid categories would make every interest look uncovered.
+        return []
+    papers = await discovery_svc.starter_papers(uncovered, limit=_UNCOVERED_POOL)
+    return [p["arxiv_id"] for p in papers
+            if p.get("arxiv_id") and p["arxiv_id"] not in exclude]
+
+
 # ── Tier 1: Multi-interest clustering + quota fusion ─────────────────────────
 
 async def _multi_interest_recommend(
@@ -1154,6 +1182,24 @@ async def _multi_interest_recommend(
             )
             explore_pool = scored[: max(2, len(scored) // 2)]
 
+        # Ticked interests with no cluster of their own supply the pool instead.
+        # This is the retrieval the note above says is missing: papers from
+        # outside every medoid's neighbourhood, chosen by the reader rather than
+        # at random. Replayed on 2026-09-30, a reader with 7 saves who ticked
+        # Computer Vision had its one vision save folded into an LLM-agents
+        # cluster, so vision was never searched and "Something different" drew
+        # a code-agent and a robotics paper. A ticked interest counts as
+        # covered when any medoid lists one of its codes.
+        uncovered: list[str] = []
+        try:
+            uncovered = await _uncovered_interest_papers(
+                user_id, [c.medoid_paper_id for c in clusters],
+                exclude=seen | set(mmr_selected))
+        except Exception as e:  # exploration is optional; keep the far half
+            errors.report("recommendations", "uncovered-interest exploration failed", e)
+        if uncovered:
+            explore_pool = uncovered
+
         # Phase 4.5 + 6.5: per-paper instrumentation, for the whole pool.
         # candidate_source here is the RETRIEVAL origin; papers served as an
         # exploration pick get that overridden at page-build time, since the
@@ -1186,6 +1232,8 @@ async def _multi_interest_recommend(
             cluster_idx = paper_cluster_map.get(aid)
             if cluster_idx == -1:
                 source = "short_term_supplement"
+            elif aid in uncovered:
+                source = "uncovered_interest"
             elif cluster_idx is not None:
                 source = f"cluster_{cluster_idx}"
             else:
