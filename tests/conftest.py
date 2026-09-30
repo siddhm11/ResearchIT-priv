@@ -30,8 +30,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolate_application_state(tmp_path, monkeypatch):
+def _isolate_application_state(request, tmp_path, monkeypatch):
     """Tests must never write to the developer's actual reading library."""
+    # Browser tests drive a separate server process, so this process's state is
+    # not theirs to isolate. Their module-scoped playwright fixture also keeps an
+    # event loop running, where the asyncio.run() below would raise.
+    if request.node.get_closest_marker("browser"):
+        return
     from app import config, db, user_state
     from app.routers import recommendations
     path = str(tmp_path / "isolated-app.db")

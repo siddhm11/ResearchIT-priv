@@ -24,10 +24,14 @@ RUNNING
 -------
     .venv/bin/python -m pytest tests/test_e2e_browser.py -v
 
-Requires a live server; by default http://127.0.0.1:7860.  Point at the
-deployed Space with:
+Requires a live server; by default http://127.0.0.1:7860.  Run that server
+with scratch storage and replication off, since these tests save and dismiss
+papers:
 
-    E2E_BASE_URL=https://siddhm11-researchit.hf.space .venv/bin/python -m pytest tests/test_e2e_browser.py -v
+    DB_PATH=/tmp/e2e.db TURSO_SYNC_DISABLED=1 .venv/bin/python run.py
+
+Do not point E2E_BASE_URL at the deployed Space: every run would write
+synthetic saves and dismissals into real reader data.
 
 Skips itself (rather than failing) when playwright is absent or no server is
 reachable, so it never blocks the unit suite in an environment without them.
@@ -63,9 +67,10 @@ def _server_up() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _server_up(), reason=f"no server reachable at {BASE_URL}"
-)
+pytestmark = [
+    pytest.mark.browser,
+    pytest.mark.skipif(not _server_up(), reason=f"no server reachable at {BASE_URL}"),
+]
 
 
 @pytest.fixture(scope="module")
