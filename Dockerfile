@@ -54,10 +54,12 @@ RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cro
 # reproducible, and publishing a new sidecar changes this line, which
 # invalidates the Docker layer below. Pointing at `main` meant a rebuild
 # silently reused the cached copy and shipped stale metadata.
-# 015c096 = 1,799,348 papers + FTS5 index (the sparse retrieval arm), with
-# citation counts refreshed from Semantic Scholar on 2026-09-30 (every paper
-# since 2025-06 had 0). Previous: d241ff1.
-ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/015c09631dc768a0913fcc46003b32dc75ac457d/metadata.sqlite
+# 7585841 = 1,853,777 papers (newest 2026-09-29) + FTS5 index (the sparse
+# retrieval arm): 015c096 plus the 54,429 papers ingested 2026-07-29..09-30,
+# and citation counts refreshed from Semantic Scholar for the whole corpus on
+# 2026-10-01. Built by scripts/append_to_sidecar.py and refresh_citations.py
+# (PHASE7 §8). Previous: 015c096, d241ff1.
+ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/75858413acdc5a694a7d7023ce96577acdeea912/metadata.sqlite
 ENV METADATA_SIDECAR_PATH=/app/data/metadata.sqlite
 RUN mkdir -p /app/data && \
     if [ -n "$METADATA_SIDECAR_URL" ]; then \

@@ -33,6 +33,8 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 | Library | All current saves; the 20-example retrieval deque no longer limits the library view | saved router |
 | Attribution | Ranked visits are clicks with origin fields; direct visits are views without fabricated policy/propensity | `app/routers/paper.py` |
 | Persistence | Local SQLite; periodic Turso replication of four core tables only | `app/turso_sync.py:TABLES` |
+| Corpus freshness | 1,853,777 papers through 2026-09-29 (2026-10-01). New papers go to `arxiv_recent` + Turso via `scripts/ingest_arxiv.py`; the sidecar catches up at the next publish + deploy. A daily job exists (`scripts/daily_refresh.py`, `.github/workflows/daily-refresh.yml`) but is off until `DAILY_REFRESH=on` | PHASE7 §8 |
+| Citations | Semantic Scholar counts for the whole corpus, refreshed 2026-10-01 (99.47% found); the daily job refreshes the last three months | `scripts/refresh_citations.py` |
 
 ## Constants worth protecting
 

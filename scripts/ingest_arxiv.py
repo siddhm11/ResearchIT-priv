@@ -120,8 +120,10 @@ def parse_entry(entry) -> dict | None:
     }
 
 
-def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int]:
-    """One page of results. Returns (papers, total_available)."""
+def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int | None]:
+    """One page of results. Returns (papers, total_available); total is None
+    when the request failed, so a failure is never mistaken for an empty
+    category."""
     q = (f"cat:{category} AND submittedDate:"
          f"[{since.replace('-', '')}0000 TO {until.replace('-', '')}0000]")
     url = f"{ARXIV_API}?" + urllib.parse.urlencode({
@@ -139,13 +141,45 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
         except Exception as e:
             if attempt == 3:
                 print(f"    [{category}] fetch failed: {str(e)[:90]}")
-                return [], 0
+                return [], None
             time.sleep(5 * (attempt + 1))
     root = ET.fromstring(xml)
     total_el = root.find("opensearch:totalResults", NS)
     total = int(total_el.text) if total_el is not None and total_el.text else 0
     papers = [p for p in (parse_entry(e) for e in root.findall("atom:entry", NS)) if p]
     return papers, total
+
+
+# arXiv's query API fails (HTTP 500, every time) once start + max_results passes
+# 10,000 for one query: measured 2026-10-01, cs.AI over nine weeks had 11,092
+# papers and stopped at 10,000. Larger windows are split by date.
+MAX_RESULTS_PER_QUERY = 9_800
+
+
+def _midpoint(since: str, until: str) -> str:
+    from datetime import date
+    a, b = date.fromisoformat(since), date.fromisoformat(until)
+    return (a + (b - a) / 2).isoformat()
+
+
+def plan_windows(category: str, since: str, until: str, probe=None) -> list[list[str]]:
+    """Date windows for one category, each small enough for one arXiv query.
+
+    Costs one request per window probed. A window that cannot be split further
+    (a single day) is returned as is and will surface in the coverage report.
+    """
+    probe = probe or fetch_page
+    _papers, total = probe(category, since, until, 0)
+    time.sleep(ARXIV_DELAY if probe is fetch_page else 0)
+    mid = _midpoint(since, until)
+    if total is None or total <= MAX_RESULTS_PER_QUERY or mid in (since, until):
+        return [[since, until]]
+    return (plan_windows(category, since, mid, probe)
+            + plan_windows(category, mid, until, probe))
+
+
+def window_key(category: str, windows: list[list[str]], w: list[str]) -> str:
+    return category if len(windows) == 1 else f"{category}@{w[0]}..{w[1]}"
 
 
 # ── Stores ───────────────────────────────────────────────────────────────────
@@ -225,11 +259,21 @@ def main() -> int:
     seen_total = new_total = 0
     t0 = time.time()
 
+    units = []
     for cat in cats:
-        start = int(state.get(cat, 0))
+        windows = state.get(f"{cat}#windows")
+        if windows is None:
+            windows = plan_windows(cat, args.since, args.until)
+            state[f"{cat}#windows"] = windows
+        units += [(cat, window_key(cat, windows, w), w) for w in windows]
+
+    for cat, key, (w_since, w_until) in units:
+        start = int(state.get(key, 0))
         while True:
-            papers, total = fetch_page(cat, args.since, args.until, start)
+            papers, total = fetch_page(cat, w_since, w_until, start)
             time.sleep(ARXIV_DELAY)
+            if total is not None:
+                state[f"{key}#total"] = total
             if not papers:
                 break
 
@@ -259,12 +303,12 @@ def main() -> int:
 
             new_total += len(fresh)
             start += len(papers)
-            state[cat] = start
+            state[key] = start
             os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
             json.dump(state, open(args.state, "w"))
 
             el = time.time() - t0
-            print(f"  {cat:<16} {start:>6}/{total:<7} seen={seen_total:,} "
+            print(f"  {key:<16} {start:>6}/{total:<7} seen={seen_total:,} "
                   f"new={new_total:,}  {el/60:.1f} min", flush=True)
 
             if start >= total or (args.limit and seen_total >= args.limit):
@@ -274,6 +318,30 @@ def main() -> int:
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")
+    if args.limit:
+        return 0
+    return report_coverage(cats, state)
+
+
+def report_coverage(cats: list[str], state: dict) -> int:
+    """Compare each category's offset with arXiv's own total.
+
+    An empty page mid-listing ends a category's loop, so "done" alone does not
+    mean complete. Re-running with the same --state resumes from the offset.
+    """
+    gaps = []
+    for cat in cats:
+        windows = state.get(f"{cat}#windows") or [None]
+        for w in windows:
+            key = cat if w is None else window_key(cat, windows, w)
+            got, total = int(state.get(key, 0)), state.get(f"{key}#total")
+            if total is None or got < int(total):
+                gaps.append(f"{key} {got}/{total}")
+    if gaps:
+        print(f"coverage: {len(gaps)} categories short of arXiv's total -> re-run to resume: "
+              + ", ".join(gaps))
+        return 3
+    print(f"coverage: all {len(cats)} categories reached arXiv's total")
     return 0
 
 
