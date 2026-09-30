@@ -38,7 +38,10 @@ import argparse
 import os
 import sqlite3
 import sys
+import threading
 import time
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 
@@ -60,6 +63,7 @@ _KEY = {"value": os.getenv("S2_API_KEY") or None}
 # A key is limited to 1 request/second across all endpoints; stay under it.
 _KEYED_INTERVAL_S = 1.1
 _last = {"t": 0.0}
+_rate_lock = threading.Lock()
 
 
 def _post(client: httpx.Client, ids: list[str]) -> list | None:
@@ -67,10 +71,13 @@ def _post(client: httpx.Client, ids: list[str]) -> list | None:
     codes = []
     for attempt in range(14):   # ~10 min of backoff: S2 has multi-minute 429/5xx bursts
         if headers:
-            wait = _last["t"] + _KEYED_INTERVAL_S - time.monotonic()
-            if wait > 0:
-                time.sleep(wait)
-            _last["t"] = time.monotonic()
+            # Space request STARTS, across worker threads: the limit is on the
+            # request rate, and a 500-paper batch takes ~6 s to answer.
+            with _rate_lock:
+                wait = _last["t"] + _KEYED_INTERVAL_S - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                _last["t"] = time.monotonic()
         try:
             r = client.post(API, params={"fields": "citationCount,influentialCitationCount"},
                             headers=headers, json={"ids": [f"ARXIV:{i}" for i in ids]})
@@ -102,11 +109,23 @@ def fetch(args) -> int:
         ids = [i for i in ids if i[:4].isdigit() and i >= args.since]
     print(f"[citations] {len(ids):,} to fetch ({len(done):,} already staged)")
     t0 = time.time()
-    with httpx.Client(timeout=120) as client:
-        for n, i in enumerate(range(0, len(ids), BATCH)):
-            chunk = ids[i:i + BATCH]
-            res = _post(client, chunk)
+    chunks = [ids[i:i + BATCH] for i in range(0, len(ids), BATCH)]
+    workers = max(1, args.workers) if _KEY["value"] else 1
+    with httpx.Client(timeout=120) as client, ThreadPoolExecutor(workers) as pool:
+        # A bounded window of in-flight requests, consumed in submission order:
+        # results are staged in order, and on a failure at most `workers`
+        # requests are still outstanding (Executor.map would queue them all).
+        pending: deque = deque()
+        nxt = 0
+        for n in range(len(chunks)):
+            while nxt < len(chunks) and len(pending) < workers:
+                pending.append(pool.submit(_post, client, chunks[nxt]))
+                nxt += 1
+            chunk, res = chunks[n], pending.popleft().result()
+            i = n * BATCH
             if res is None:
+                for f in pending:
+                    f.cancel()
                 print(f"[citations] giving up on batch at {chunk[0]}; re-run to resume", file=sys.stderr)
                 return 1
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -200,6 +219,8 @@ def main() -> int:
         p.add_argument("--staging", required=True, help="where fetched counts are written")
         if name == "fetch":
             p.add_argument("--since", default="", help="only ids >= this prefix, e.g. 2506")
+            p.add_argument("--workers", type=int, default=4,
+                           help="requests in flight with a key (starts stay 1.1 s apart)")
     args = ap.parse_args()
     return {"fetch": fetch, "diff": diff, "apply-sidecar": apply_sidecar,
             "apply-turso": apply_turso}[args.cmd](args)
