@@ -163,7 +163,7 @@ async def seed_search(
             except Exception as e:
                 print(f"[onboarding] keyword fallback failed: {e}")
     else:
-        categories = await db.get_user_category_filter(user_id)
+        categories = await db.get_user_category_groups(user_id)
         if categories:
             try:
                 papers = await discovery_svc.starter_papers(categories, limit=12)

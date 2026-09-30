@@ -551,3 +551,27 @@ async def fetch_trending_by_categories(
         for p in papers:
             _cache_put(p["arxiv_id"], p)
     return papers
+
+
+async def fetch_fresh_by_categories(categories: set[str], limit: int = 10) -> list[dict]:
+    """
+    Papers published in the corpus's last three months in `categories`, from
+    the sidecar only (see local_meta.fetch_fresh). Turso has no index that
+    makes this affordable, so without the sidecar the lane is simply empty.
+    """
+    if not categories:
+        return []
+    cache_key = ("fresh", tuple(sorted(categories)), limit)
+    cached = _TRENDING_CACHE.get(cache_key)
+    if cached is not None and (time.time() - cached[0]) < _TRENDING_TTL_SECONDS:
+        return cached[1]
+    from app import local_meta
+    if not local_meta.is_available():
+        return []
+    rows = await asyncio.to_thread(local_meta.fetch_fresh, set(categories), limit)
+    papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
+    if papers:
+        _TRENDING_CACHE[cache_key] = (time.time(), papers)
+        for p in papers:
+            _cache_put(p["arxiv_id"], p)
+    return papers

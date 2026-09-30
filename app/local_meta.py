@@ -209,26 +209,61 @@ def newest_update_date() -> str | None:
     return _max_date
 
 
+def _published_since(conn: sqlite3.Connection, codes: set[str],
+                     cutoff: tuple[int, int]) -> list[tuple[str, int, tuple[int, int]]]:
+    """(arxiv_id, citations, publication month) for papers in `codes` published
+    at or after `cutoff`.
+
+    Filters on the (code, update_date) index first. update_date is the last
+    revision, which is never earlier than publication, so it is a superset of
+    the window; the identifier then gives the true publication month. Only ids
+    and counts are read here, so a 24-month cs.LG window stays cheap.
+    """
+    ph = ",".join("?" * len(codes))
+    rows = conn.execute(
+        f"""SELECT arxiv_id, MAX(citation_count) FROM paper_categories
+            WHERE code IN ({ph}) AND update_date >= ?
+            GROUP BY arxiv_id""",
+        (*codes, f"{cutoff[0]:04d}-{cutoff[1]:02d}-01"),
+    ).fetchall()
+    out = []
+    for aid, cit in rows:
+        ym = pub_year_month(aid)
+        if ym is not None and ym >= cutoff:
+            out.append((aid, cit or 0, ym))
+    return out
+
+
+def _rows_in_order(conn: sqlite3.Connection, ids: list[str]) -> list[dict]:
+    got = {r["arxiv_id"]: r for r in fetch_rows(ids)}
+    return [got[i] for i in ids if i in got]
+
+
 def fetch_trending(
     codes: set[str],
     limit: int = 10,
     recency_months: int = 24,
 ) -> list[dict]:
     """
-    Well-cited *recent* papers in any of `codes`.
+    Papers in any of `codes` that are gathering citations fastest.
 
     Ordering by all-time citations returns the same canonical papers to every
     user forever — for cs.LG that is Adam (2014), scikit-learn (2011) and
     BatchNorm (2015).  Those are famous, not trending, and this feeds Tier 0,
-    which is the very first thing a new user sees.  Restricting to a recent
-    window over the same data returns Llama 3, DPO and DeepSeek-R1 instead.
+    which is the very first thing a new user sees.
+
+    Within the window, papers are ranked by citations per month since
+    publication, not by raw totals. Raw totals inside a 24-month window still
+    hand the top slots to the oldest papers in it, which have had two years to
+    accumulate; measured 2026-09-30, the starter pool for six ML interests held
+    147 papers from 2024 and none from 2026. The rate is floored at three
+    months of age so a week-old paper with two citations does not outrank
+    everything.
 
     Two details that matter:
 
       * The window is measured back from the newest paper in the corpus, not
-        from today.  The corpus is a static snapshot ending 2025-05-30, so an
-        absolute cutoff would silently empty out; anchoring to the data means
-        this keeps working if ingestion is added later.
+        from today, so a corpus whose ingestion lags keeps working.
       * Categories are wildly uneven (~302k papers in cs.LG vs ~7.9k in
         q-bio.NC), so a fixed window starves the thin ones.  The window widens
         and finally drops away entirely rather than returning a short list.
@@ -238,6 +273,25 @@ def fetch_trending(
     conn = connection() if codes else None
     if conn is None:
         return []
+
+    anchor = newest_update_date()
+    now = _months_before(anchor, 0) if anchor else None
+    if now is not None:
+        try:
+            for months in (recency_months, recency_months * 2, recency_months * 4):
+                cutoff = _months_before(anchor, months)
+                if cutoff is None:
+                    break
+                window = _published_since(conn, codes, cutoff)
+                if len(window) < limit:
+                    continue
+                age = lambda ym: (now[0] - ym[0]) * 12 + (now[1] - ym[1]) + 1
+                window.sort(key=lambda r: (-r[1] / max(age(r[2]), 3), -r[1], r[0]))
+                picked = _rows_in_order(conn, [r[0] for r in window[:limit]])
+                if len(picked) >= limit:
+                    return picked
+        except Exception as e:
+            print(f"[local_meta] trending window failed ({e}) — using citation order")
 
     ph = ",".join("?" * len(codes))
     # Read the most-cited papers in these categories in one index-ordered pass,
@@ -292,3 +346,28 @@ def fetch_trending(
 
     # No window could fill the slots — fall back to plain citation order.
     return (best or candidates)[:limit]
+
+
+def fetch_fresh(codes: set[str], limit: int = 10, recency_months: int = 3) -> list[dict]:
+    """
+    The newest papers in `codes`: published in the last `recency_months` of the
+    corpus, most-cited first, newest first among ties.
+
+    fetch_trending cannot supply these however it ranks: a paper a few weeks
+    old has almost no citations yet. This lane exists so a new reader's first
+    feed contains the current month of their field at all. Returns [] when the
+    sidecar is unavailable; there is no Turso fallback for this lane.
+    """
+    conn = connection() if codes else None
+    anchor = newest_update_date() if conn is not None else None
+    cutoff = _months_before(anchor, recency_months - 1) if anchor else None
+    if cutoff is None:
+        return []
+    try:
+        window = _published_since(conn, codes, cutoff)
+        window.sort(key=lambda r: r[0], reverse=True)   # newest id first...
+        window.sort(key=lambda r: -r[1])                # ...then by citations (stable)
+        return _rows_in_order(conn, [r[0] for r in window[:limit]])
+    except Exception as e:
+        print(f"[local_meta] fresh lane failed ({e})")
+        return []

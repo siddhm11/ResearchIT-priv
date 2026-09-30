@@ -15,6 +15,7 @@ import numpy as np
 
 from app.recommend.clustering import (
     compute_clusters,
+    per_save_clusters,
     stabilize_cluster_ids,
     InterestCluster,
     MIN_PAPERS_FOR_CLUSTERING,
@@ -419,3 +420,48 @@ def test_cluster_db_roundtrip(setup_db):
             assert abs(db_row["importance"] - orig.importance) < 1e-4
 
     asyncio.run(_run())
+
+
+
+# ── 2026-09-30: cap floor 2, singleton-free cuts, per-save interests ──────────
+
+def _noisy_topics(sizes, noise=0.05, seed=42):
+    """Topic centres plus per-dimension noise. At 0.05 x 1024 dims the noise
+    norm (~1.6) exceeds the centre's, which is roughly how far apart real
+    same-topic BGE-M3 vectors are."""
+    rng = np.random.RandomState(seed)
+    centres = [rng.randn(1024).astype(np.float32) for _ in sizes]
+    embs, ids = [], []
+    for t, (c, k) in enumerate(zip(centres, sizes)):
+        c /= np.linalg.norm(c)
+        for i in range(k):
+            v = c + rng.randn(1024).astype(np.float32) * noise
+            embs.append(v / np.linalg.norm(v))
+            ids.append(f"t{t}_{i}")
+    return ids, np.array(embs, dtype=np.float32)
+
+
+def test_minority_pair_is_not_dissolved_into_the_majority():
+    """3 + 2 noisy saves: a cut at K=3 splits the pair into two singletons, and
+    folding each into the nearest multi-paper cluster erased the interest."""
+    ids, embs = _noisy_topics([3, 2])
+    clusters = compute_clusters(ids, embs)
+    assert sorted(sorted(c.paper_ids) for c in clusters) == [
+        ["t0_0", "t0_1", "t0_2"], ["t1_0", "t1_1"]]
+
+
+def test_four_distinct_pairs_keep_four_interests():
+    """Eight saves, two per topic. A size floor of 4 capped this at 2."""
+    ids, embs = _noisy_topics([2, 2, 2, 2], noise=0.02)
+    clusters = compute_clusters(ids, embs)
+    assert len(clusters) == 4
+    assert all(len({p[:2] for p in c.paper_ids}) == 1 for c in clusters)
+
+
+def test_per_save_clusters_make_each_save_an_interest():
+    ids, embs = _noisy_topics([1, 1, 1])
+    clusters = per_save_clusters(ids, embs)   # newest first
+    assert [c.paper_ids for c in clusters] == [["t0_0"], ["t1_0"], ["t2_0"]]
+    assert [c.medoid_paper_id for c in clusters] == ["t0_0", "t1_0", "t2_0"]
+    assert clusters[0].importance > clusters[1].importance > clusters[2].importance
+    assert np.allclose(clusters[1].medoid_embedding, embs[1])

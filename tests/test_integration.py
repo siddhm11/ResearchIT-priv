@@ -184,11 +184,17 @@ def test_recommendations_after_save(client, monkeypatch):
 
 # ── Full pipeline smoke test ───────────────────────────────────────────────────
 
-def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
+@pytest.mark.parametrize("saved_ids", [
+    ["nlp_a", "nlp_b", "nlp_c", "rl_a", "rl_b"],
+    # Two unrelated saves: below the clustering threshold each is its own
+    # interest. Averaged into one vector, both got a blurred middle instead.
+    ["nlp_a", "rl_a"],
+])
+def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch, saved_ids):
     """
-    Phase 4.1 end-to-end check: with 5+ saves forming 2 distinct interests,
-    the quota pipeline must surface papers from BOTH clusters in the final feed.
-    This is the exact failure mode RRF was causing.
+    Phase 4.1 end-to-end check: with saves forming 2 distinct interests, the
+    quota pipeline must surface papers from BOTH in the final feed. This is the
+    exact failure mode RRF was causing.
     """
     import numpy as np
     import app.qdrant_svc as qs
@@ -199,8 +205,7 @@ def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
     # Set up cookie
     client.get("/")
 
-    # 5 saved papers, split into two topics (3 "NLP", 2 "RL") via embeddings
-    saved_ids = ["nlp_a", "nlp_b", "nlp_c", "rl_a", "rl_b"]
+    # Saved papers split into two topics ("NLP", "RL") via embeddings
     rng = np.random.RandomState(42)
     nlp_center = rng.randn(1024).astype(np.float32)
     nlp_center /= np.linalg.norm(nlp_center)
@@ -283,7 +288,6 @@ def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
     from unittest.mock import AsyncMock
     monkeypatch.setattr(arxiv, "fetch_metadata_batch", AsyncMock(return_value={}))
 
-    # Save 5 papers to cross the MIN_PAPERS_FOR_CLUSTERING threshold
     for aid in saved_ids:
         client.post(f"/api/papers/{aid}/save", data={"source": "search"})
 
@@ -295,6 +299,7 @@ def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch):
     has_rl_rec = any(f"rl_cand_{i}" in resp.text for i in range(50))
     assert has_nlp_rec, "No NLP cluster recs — dominant cluster failed to surface"
     assert has_rl_rec, "Minority RL cluster starved — quota fusion is not working"
+    assert "cluster_" in resp.text, "feed was not served by the multi-interest path"
 
 
 def test_full_pipeline_smoke(client, monkeypatch):

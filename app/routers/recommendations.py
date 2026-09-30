@@ -37,7 +37,9 @@ from app.recommend.clustering import (
     save_clusters_to_db,
     load_clusters_from_db,
     stabilize_cluster_ids,
+    per_save_clusters,
     MIN_PAPERS_FOR_CLUSTERING,
+    MIN_SAVES_FOR_INTERESTS,
 )
 from app.recommend.fusion import (
     allocate_quotas,
@@ -418,7 +420,9 @@ async def _build_feed(
 
     # ── Tier 0: category trending (cold start, Phase 5) ──────────────────
     if not state.has_enough_for_recs():
-        category_filter = await db.get_user_category_filter(user_id)
+        # Grouped by interest, so the starter pool balances interests rather
+        # than arXiv codes (see discovery_svc.starter_papers).
+        category_filter = await db.get_user_category_groups(user_id)
         # No categories means the reader skipped onboarding. That used to fall
         # straight through to the empty state and stay there; a reader who told
         # us nothing still gets a feed, just a broader one. See
@@ -545,8 +549,8 @@ _TIER_BY_SOURCE = {
 # What the user gets at each step up, keyed by the tier they are ON now.
 _NEXT_UNLOCK = {
     0: (REC_MIN_POSITIVES, "papers matched to your library"),
-    3: (_MIN_EWMA_INTERACTIONS, "ranking against your full reading profile"),
-    2: (MIN_PAPERS_FOR_CLUSTERING, "multi-interest feed — every interest keeps its own slots"),
+    3: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
+    2: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
 }
 
 
@@ -678,6 +682,34 @@ async def _build_page(entry: dict, seen: set[str]) -> tuple[list[dict], bool]:
         for aid in entry["ranked"]
     )
     return papers, has_more
+# ── Exploration from ticked interests the clusters do not cover ─────────────
+
+_UNCOVERED_POOL = 30
+
+
+async def _uncovered_interest_papers(
+    user_id: str, medoid_ids: list[str], exclude: set[str],
+) -> list[str]:
+    """Starter papers from ticked interests no cluster medoid belongs to.
+
+    Empty when every ticked interest is covered or none were ticked; the caller
+    then keeps its default exploration pool.
+    """
+    groups = await db.get_user_category_groups(user_id)
+    if not groups or not medoid_ids:
+        return []
+    meta = await turso_svc.fetch_metadata_batch(medoid_ids)
+    covered_codes = {code for m in meta.values()
+                     for code in (m.get("arxiv_categories") or "").split()}
+    uncovered = {g: codes for g, codes in groups.items() if not codes & covered_codes}
+    if not uncovered or len(meta) < len(set(medoid_ids)):
+        # Unknown medoid categories would make every interest look uncovered.
+        return []
+    papers = await discovery_svc.starter_papers(uncovered, limit=_UNCOVERED_POOL)
+    return [p["arxiv_id"] for p in papers
+            if p.get("arxiv_id") and p["arxiv_id"] not in exclude]
+
+
 # ── Tier 1: Multi-interest clustering + quota fusion ─────────────────────────
 
 async def _multi_interest_recommend(
@@ -685,8 +717,10 @@ async def _multi_interest_recommend(
     *, query_id: str = "",
 ) -> tuple[list[str], list[str], dict[str, dict], int, dict]:
     """
-    Full recommendation pipeline (Phase 2b + Phase 4 corrections):
-      1. Ward clustering → identify distinct interests
+    Full recommendation pipeline (Phase 2b + Phase 4 corrections), from
+    MIN_SAVES_FOR_INTERESTS saves:
+      1. Ward clustering → identify distinct interests (below
+         MIN_PAPERS_FOR_CLUSTERING saves, one interest per save)
       2. Quota allocation → per-cluster slot budgets (replaces RRF)
       3. Parallel per-cluster ANN searches → retrieve candidates
       4. Hungarian matching → stabilise cluster IDs across reclusters
@@ -698,7 +732,7 @@ async def _multi_interest_recommend(
     Returns ([], {}, 0, {}) to trigger fallback to Tier 2.
     Phase 4.5: second element is {arxiv_id: {ranker_version, candidate_source, cluster_id}}.
     """
-    if len(state.positive_list) < MIN_PAPERS_FOR_CLUSTERING:
+    if len(state.positive_list) < MIN_SAVES_FOR_INTERESTS:
         return [], [], {}, 0, {}
 
     try:
@@ -724,12 +758,12 @@ async def _multi_interest_recommend(
             errors.report("recommendations",
                           "save-history read failed, using in-memory deque", e)
 
-        if len(positives) < MIN_PAPERS_FOR_CLUSTERING:
+        if len(positives) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
-        if len(vectors) < MIN_PAPERS_FOR_CLUSTERING:
+        if len(vectors) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
         timing = {}  # Collect per-stage timing breakdown
@@ -750,7 +784,11 @@ async def _multi_interest_recommend(
 
         # ── Step 1: Compute interest clusters ─────────────────────────────
         t0_cluster = time.time()
-        clusters = compute_clusters(aligned_ids, aligned_embs, aligned_times)
+        # Too few saves to find structure: each save is its own interest, so
+        # unrelated early saves are not averaged into one blurred vector.
+        clusters = (compute_clusters(aligned_ids, aligned_embs, aligned_times)
+                    if len(aligned_ids) >= MIN_PAPERS_FOR_CLUSTERING
+                    else per_save_clusters(aligned_ids, aligned_embs, aligned_times))
 
         # ── Step 4.2: Stabilise cluster IDs with Hungarian matching ───────
         old_clusters_data = await load_clusters_from_db(user_id)
@@ -1144,6 +1182,24 @@ async def _multi_interest_recommend(
             )
             explore_pool = scored[: max(2, len(scored) // 2)]
 
+        # Ticked interests with no cluster of their own supply the pool instead.
+        # This is the retrieval the note above says is missing: papers from
+        # outside every medoid's neighbourhood, chosen by the reader rather than
+        # at random. Replayed on 2026-09-30, a reader with 7 saves who ticked
+        # Computer Vision had its one vision save folded into an LLM-agents
+        # cluster, so vision was never searched and "Something different" drew
+        # a code-agent and a robotics paper. A ticked interest counts as
+        # covered when any medoid lists one of its codes.
+        uncovered: list[str] = []
+        try:
+            uncovered = await _uncovered_interest_papers(
+                user_id, [c.medoid_paper_id for c in clusters],
+                exclude=seen | set(mmr_selected))
+        except Exception as e:  # exploration is optional; keep the far half
+            errors.report("recommendations", "uncovered-interest exploration failed", e)
+        if uncovered:
+            explore_pool = uncovered
+
         # Phase 4.5 + 6.5: per-paper instrumentation, for the whole pool.
         # candidate_source here is the RETRIEVAL origin; papers served as an
         # exploration pick get that overridden at page-build time, since the
@@ -1176,6 +1232,8 @@ async def _multi_interest_recommend(
             cluster_idx = paper_cluster_map.get(aid)
             if cluster_idx == -1:
                 source = "short_term_supplement"
+            elif aid in uncovered:
+                source = "uncovered_interest"
             elif cluster_idx is not None:
                 source = f"cluster_{cluster_idx}"
             else:

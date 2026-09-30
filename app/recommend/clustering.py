@@ -38,14 +38,25 @@ MAX_CLUSTERS = 7   # RFC: PinnerSage uses 3-5 for typical users, cap at 7
 
 # Average papers per cluster floor — used to derive a soft cap on K from N.
 # K_soft_cap = max(MIN_CLUSTERS, ceil(N / AVG_CLUSTER_SIZE_FLOOR)).
-# Set to 4: at N=5 -> K_max=2, at N=10 -> K_max=3, at N=28 -> K_max=7.
-# Without this, gap-based thresholding over-splits at small N: 5 same-domain
-# papers were producing K=4 (3 singletons), which then got over-weighted by
-# the quota floor of 3 slots per cluster.
-AVG_CLUSTER_SIZE_FLOOR = 4
+# Set to 2: at N=5 -> K_max=3, at N=7 -> K_max=4, at N=14 -> K_max=7.
+#
+# It was 4, added because gap-based thresholding over-split at small N: 5
+# same-domain papers produced K=4 (3 singletons) that the quota floor then
+# over-weighted. _merge_singletons now removes singletons directly, so the cap
+# no longer has to. At 4 it also starved genuinely multi-interest readers:
+# replayed on 2026-09-30 with production vectors, 7 saves across five interests
+# gave 2 groups (vision folded into an LLM-agents group and never searched),
+# and 12 saves across six gave 3. At 2 they give 3 and 5, while an 8-paper
+# single-interest reader still gets 2. The gap threshold, not this cap, still
+# decides K; this is only its upper bound. See doc 06, 2026-09-30.
+AVG_CLUSTER_SIZE_FLOOR = 2
 
 # Minimum saved papers before clustering is meaningful
 MIN_PAPERS_FOR_CLUSTERING = 5
+
+# From this many saves the feed runs per-interest retrieval (quota + MMR);
+# below MIN_PAPERS_FOR_CLUSTERING each save is its own interest.
+MIN_SAVES_FOR_INTERESTS = 2
 
 
 @dataclass
@@ -251,9 +262,22 @@ def compute_clusters(
         unique_labels = np.unique(labels)
         n_clusters = len(unique_labels)
 
+    # Prefer the finest dendrogram cut, at or below this K, that leaves no
+    # singleton. Folding singletons into the nearest multi-paper cluster
+    # afterwards is not the same thing: when a cut splits a real pair into two
+    # singletons, each is folded into some OTHER cluster and the interest
+    # disappears. Measured with 3 NLP + 2 RL saves: maxclust=3 gave
+    # [nlp, nlp, nlp, rl, rl'] and the merge produced one cluster of five,
+    # where maxclust=2 gives the correct 3/2 split.
+    for k in range(n_clusters, 1, -1):
+        cut = labels if k == n_clusters else fcluster(linkage, t=k, criterion="maxclust")
+        if np.unique(cut, return_counts=True)[1].min() >= 2:
+            labels = cut
+            break
+
     # Final safety net: merge any remaining singleton clusters into their
-    # nearest non-singleton neighbour. The soft cap usually eliminates them,
-    # but a 6-1-1-1 distribution after maxclust=4 would still leave 3.
+    # nearest non-singleton neighbour, for when no cut above avoids them
+    # (e.g. one outlier whose only coarser cut is K=1).
     labels = _merge_singletons(labels, embeddings)
     unique_labels = np.unique(labels)
 
@@ -287,6 +311,37 @@ def compute_clusters(
         ))
 
     # Sort by importance (most important first)
+    clusters.sort(key=lambda c: c.importance, reverse=True)
+    return clusters
+
+
+def per_save_clusters(
+    paper_ids: list[str],
+    embeddings: np.ndarray,
+    timestamps: list[str] | None = None,
+) -> list[InterestCluster]:
+    """One interest per saved paper, for readers with too few saves to cluster.
+
+    Below MIN_PAPERS_FOR_CLUSTERING the feed used to average the saves into one
+    vector. For unrelated saves that average sits between them: replayed on
+    2026-09-30, Llama 3 + pi0 + OpenHands returned generic "LLM agents" surveys
+    that matched none of the three. Treating each save as its own interest lets
+    quota and per-cluster MMR keep every one of them on the page. Importance is
+    the same recency weight compute_clusters uses, so newer saves lead.
+    """
+    n = len(paper_ids)
+    assert embeddings.shape == (n, 1024), f"Expected ({n}, 1024), got {embeddings.shape}"
+    weights = _recency_weights(n, timestamps)
+    clusters = [
+        InterestCluster(
+            cluster_idx=i,
+            medoid_paper_id=paper_ids[i],
+            medoid_embedding=embeddings[i],
+            paper_ids=[paper_ids[i]],
+            importance=float(weights[i]),
+        )
+        for i in range(n)
+    ]
     clusters.sort(key=lambda c: c.importance, reverse=True)
     return clusters
 

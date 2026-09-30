@@ -56,7 +56,7 @@ async def test_starter_suggestions_use_selected_categories_and_mark_saved(client
                                        'category':'cs.CL','year':2026}])
     monkeypatch.setattr(discovery_svc, 'starter_papers', starter)
     r = await client.get('/api/onboarding/seed-search')
-    starter.assert_awaited_once_with({'cs.CL','cs.IR'}, limit=12)
+    starter.assert_awaited_once_with({'nlp': {'cs.CL','cs.IR'}}, limit=12)
     assert 'An NLP seed' in r.text and 'Saved' in r.text
     assert 'hx-post=' not in r.text
 
@@ -167,3 +167,40 @@ async def test_cookieless_paper_visit_records_nothing(monkeypatch):
     async with aiosqlite.connect(db.DB_PATH) as conn:
         n = (await (await conn.execute("SELECT COUNT(*) FROM interactions")).fetchone())[0]
     assert n == 0
+
+
+def _lanes(monkeypatch, trending_per_code, fresh_per_group):
+    monkeypatch.setattr(discovery_svc.local_meta, 'is_available', lambda: True)
+
+    async def trending(cats, limit):
+        (code,) = cats
+        return [{'arxiv_id': f'{code}:{i}'} for i in range(trending_per_code.get(code, 0))]
+
+    async def fresh(cats, limit):
+        key = '+'.join(sorted(cats))
+        return [{'arxiv_id': f'fresh:{key}:{i}'} for i in range(fresh_per_group.get(key, 0))]
+
+    monkeypatch.setattr(turso_svc, 'fetch_trending_by_categories', trending)
+    monkeypatch.setattr(turso_svc, 'fetch_fresh_by_categories', fresh)
+
+
+async def test_starters_balance_interests_not_arxiv_codes(monkeypatch):
+    """ML spans two codes and robotics one; each interest still gets half."""
+    _lanes(monkeypatch, {'cs.LG': 50, 'stat.ML': 50, 'cs.RO': 50}, {})
+    papers = await discovery_svc.starter_papers(
+        {'ml': {'cs.LG', 'stat.ML'}, 'robotics': {'cs.RO'}}, limit=20)
+    ids = [p['arxiv_id'] for p in papers]
+    assert sum(a.startswith('cs.RO') for a in ids) == 10
+    assert sum(a.startswith(('cs.LG', 'stat.ML')) for a in ids) == 10
+
+
+async def test_every_third_starter_slot_per_interest_is_recent(monkeypatch):
+    _lanes(monkeypatch, {'cs.RO': 50}, {'cs.RO': 50})
+    papers = await discovery_svc.starter_papers({'robotics': {'cs.RO'}}, limit=9)
+    assert [p['arxiv_id'].startswith('fresh:') for p in papers] == [False, False, True] * 3
+
+
+async def test_starters_fall_back_to_established_when_fresh_lane_is_empty(monkeypatch):
+    _lanes(monkeypatch, {'cs.RO': 50}, {})
+    papers = await discovery_svc.starter_papers({'robotics': {'cs.RO'}}, limit=9)
+    assert len(papers) == 9 and not any(p['arxiv_id'].startswith('fresh:') for p in papers)

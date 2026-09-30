@@ -106,7 +106,8 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - Algorithm: **Ward hierarchical agglomerative** via `scipy.cluster.hierarchy.ward`.
 - Code lives in: `app/recommend/clustering.py`.
 - **L2-normalize embeddings BEFORE Ward, then use Euclidean distance.** Cosine Ward via sklearn is mathematically not Ward (Murtagh and Legendre 2014). L2-norm + Euclidean is monotonically equivalent to cosine and gives the intended behavior. This normalization is already in the code.
-- **No fixed K.** Cut the dendrogram by adaptive gap-based threshold (see `_adaptive_threshold()`). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist).
+- **No fixed K.** Cut the dendrogram by adaptive gap-based threshold (see `_adaptive_threshold()`). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist) and at ceil(N/2) (`AVG_CLUSTER_SIZE_FLOOR = 2`). Take the finest cut within the cap that leaves no singleton; never fold a split pair into another cluster (doc 06, 2026-09-30).
+- **From 2 saves, not 5.** Below `MIN_PAPERS_FOR_CLUSTERING = 5` each save is its own interest (`per_save_clusters`) on the same quota/MMR path. Do not average unrelated early saves into one vector; Tier 2 EWMA is only the fallback.
 - **Medoid, not centroid.** Medoid = arg min over cluster members of sum of squared distances. Cache medoid paper IDs. This is implemented in `_find_medoid()`.
 - **Hungarian-match cluster IDs across reclusterings** — implemented via `stabilize_cluster_ids`.
 - Recompute on each feed request currently (not nightly batch — no batch job infrastructure yet).
@@ -144,7 +145,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
   took a correct 61/39 pool and selected 39/1, dumping 60 minority papers into the
   exploration pool where no later quota stage could recover them. See doc 06,
   2026-08-21.
-- Exploration injection: 2 serendipitous papers per feed. Code in `app/recommend/diversity.py` via `inject_exploration()`.
+- Exploration: 2 serendipitous papers per page, drawn in `_build_page()`. The pool is starter papers from ticked interests that no cluster medoid covers (`_uncovered_interest_papers`), otherwise the far half of the reader's own candidates. Draws stay uniform so propensities hold.
 - Quota (3.1) handles cross-cluster diversity. MMR handles within-quota redundancy.
   This is a statement about WHERE each runs, not just what it is for.
 - Do NOT use DPPs in v1.
@@ -479,7 +480,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Reranker? | Personalized heuristic by default; optional LightGBM/auto. |
 | Latency budget? | <30ms end-to-end (compute only; metadata I/O excluded). |
 | Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). Author import removed from current roadmap. |
-| When does behavioral take over? | ~10 saved papers. Currently activates at 5 (clustering) / 3 (EWMA) / 1 (BEST_SCORE). |
+| When does behavioral take over? | ~10 saved papers. Currently: 1 save = similar-to, 2–4 = one interest per save, 5+ = Ward clustering; EWMA single-vector is a fallback. |
 | When to add CF? | 500+ users (Phase 9). |
 | Current status? | Local implementation and validation are distinct from deployed status. See `docs/CURRENT-STATE.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
