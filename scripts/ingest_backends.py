@@ -77,10 +77,13 @@ class Encoder:
         from FlagEmbedding import BGEM3FlagModel
         import torch
 
-        dev = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        dev = (device or os.getenv("INGEST_DEVICE")
+               or ("cuda" if torch.cuda.is_available() else "cpu"))
         print(f"[ingest] loading {BGE_MODEL} on {dev} ...", flush=True)
+        # fp16 only on CUDA: that is where the stored vectors were produced in
+        # half precision; on Apple MPS or CPU full precision is the safe choice.
         self.model = BGEM3FlagModel(
-            BGE_MODEL, use_fp16=(dev != "cpu"), device=dev)
+            BGE_MODEL, use_fp16=(dev == "cuda"), device=dev)
         print("[ingest] model ready", flush=True)
 
     def encode(self, texts: list[str]) -> list[tuple[list[float], dict]]:
