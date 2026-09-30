@@ -45,14 +45,13 @@ def test_apply_sidecar_updates_both_tables_and_keeps_unknown_counts(tmp_path):
         "SELECT citation_count FROM paper_categories WHERE arxiv_id='2506.00001'")} == {1488}
 
 
-def test_only_changed_known_rows_go_to_turso(tmp_path):
-    side, stage = tmp_path / "m.sqlite", tmp_path / "c.sqlite"
-    _sidecar(side)
-    _stage(stage)
-    db = rc._staging(str(stage))
-    # The same read-only URI attach apply-turso uses.
-    db.execute(f"ATTACH DATABASE 'file:{side}?mode=ro' AS s")
-    assert db.execute(rc._changed(db)).fetchall() == [("2506.00001", 1488, 158)]
+def test_only_changed_known_rows_go_to_turso():
+    current = {"2506.00001": (0, 0), "2401.00001": (50, 5), "2401.00002": (7, 1)}
+    staged = [("2506.00001", 1488, 158, 1),   # was 0: write
+              ("2401.00001", 50, 5, 1),       # unchanged: skip
+              ("2401.00002", None, None, 0),  # unknown to S2: keep stored count
+              ("2609.99999", 3, 0, 1)]        # not in Turso: not an update
+    assert rc.diff_against(current, staged) == [("2506.00001", 1488, 158)]
 
 
 def test_fetch_stages_every_batch_in_order_with_workers(tmp_path, monkeypatch):
