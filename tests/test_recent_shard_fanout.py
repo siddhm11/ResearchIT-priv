@@ -46,6 +46,14 @@ def test_merge_skips_entries_without_arxiv_id():
 
 # ── fan-out behaviour ────────────────────────────────────────────────────────
 
+@pytest.fixture(autouse=True)
+def _no_shard_b(monkeypatch):
+    """These tests are about the recent shard. Shard B is configured from the
+    developer's .env.local, so leaving it alone made them pass in CI and fail
+    on any machine with full credentials."""
+    monkeypatch.setattr(config, "SEARCH_FANOUT_B", False)
+
+
 @pytest.fixture
 def fanout_on(monkeypatch):
     monkeypatch.setattr(config, "SEARCH_FANOUT_RECENT", True)
