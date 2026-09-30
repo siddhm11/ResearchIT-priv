@@ -31,7 +31,11 @@ import urllib.error
 import urllib.request
 
 BGE_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
-QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "arxiv_bgem3_dense")
+# New papers go to the recent-papers shard, never the primary. The primary is
+# at its free-tier disk limit and degraded (d985e35); that is why the shard
+# exists. This used to read QDRANT_URL/QDRANT_COLLECTION, so with the app's own
+# environment an ingest would have written straight into the full primary.
+QDRANT_COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
 ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 MAX_LENGTH = 512  # must match the original ingest
 
@@ -72,8 +76,14 @@ class Upserter:
     """Writes to Qdrant, Zilliz and Turso."""
 
     def __init__(self):
-        self.qurl = os.environ["QDRANT_URL"].rstrip("/")
-        self.qkey = os.environ["QDRANT_API_KEY"]
+        self.qurl = os.environ.get("QDRANT_RECENT_URL", "").rstrip("/")
+        self.qkey = os.environ.get("QDRANT_RECENT_API_KEY", "")
+        if not self.qurl or not self.qkey:
+            raise SystemExit(
+                "QDRANT_RECENT_URL and QDRANT_RECENT_API_KEY must be set: ingest "
+                "writes only to the recent-papers shard (see QDRANT_COLLECTION).")
+        if self.qurl == os.environ.get("QDRANT_URL", "").rstrip("/"):
+            raise SystemExit("QDRANT_RECENT_URL points at the primary cluster; refusing.")
         self.zuri = os.environ["ZILLIZ_URI"].rstrip("/")
         self.ztok = os.environ["ZILLIZ_TOKEN"]
         self.turl = os.environ["TURSO_URL"].rstrip("/")
