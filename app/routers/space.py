@@ -214,7 +214,8 @@ async def space_similarity(
         # null rather than 0.0 when either vector is missing: absent is not
         # "completely dissimilar", and the UI has to say so.
         "cosine": round(_cosine(va, vb), 6) if both else None,
-        "dimensions": len(va) if va else None,
+        # numpy arrays: `if va` raises on any vector longer than one element.
+        "dimensions": len(va) if va is not None else None,
         "model": "BAAI/bge-m3",
     }
 
