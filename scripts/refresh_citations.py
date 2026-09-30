@@ -64,7 +64,8 @@ _last = {"t": 0.0}
 
 def _post(client: httpx.Client, ids: list[str]) -> list | None:
     headers = {"x-api-key": _KEY["value"]} if _KEY["value"] else {}
-    for attempt in range(8):
+    codes = []
+    for attempt in range(14):   # ~10 min of backoff: S2 has multi-minute 429/5xx bursts
         if headers:
             wait = _last["t"] + _KEYED_INTERVAL_S - time.monotonic()
             if wait > 0:
@@ -78,11 +79,13 @@ def _post(client: httpx.Client, ids: list[str]) -> list | None:
             r = None
         if r is not None and r.status_code == 200:
             return r.json()
+        codes.append(r.status_code if r is not None else "net")
         if r is not None and r.status_code in (401, 403) and headers:
             print("[citations] S2_API_KEY rejected; using the public pool from now on", file=sys.stderr)
             _KEY["value"], headers = None, {}
             continue
         time.sleep(min(60, 2 ** attempt))
+    print(f"[citations] batch failed; statuses seen: {codes}", file=sys.stderr)
     return None
 
 
