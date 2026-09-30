@@ -2,7 +2,12 @@
 
 > Historical record. For current implementation and defaults (2026-09-24), see [Current technical contract](../CURRENT-STATE.md). Old phase status, service counts, and benchmarks are not live verification.
 
-**Status:** Planning · **Created:** 2026-07-30
+> **Status 2026-10-01:** 7.2 ran (July 2026: 202,251 papers since 2025-05, in their own
+> `arxiv_recent` collection on cluster 2) and again for 2026-07-29 → 2026-09-30. Citation
+> counts were refreshed from Semantic Scholar for the whole corpus (open question 4). The
+> repeatable procedure is §8. Figures in §1–§4 are the 2026-07-30 measurements.
+
+**Status:** Executed (see §8) · **Created:** 2026-07-30
 **Prerequisite for:** Phase 8 (reranker retrain), Phase 9 (exploration / CF)
 
 Every figure below was measured against the live deployment on 2026-07-29/30,
@@ -280,3 +285,32 @@ re-encoding 1.6M papers and doubles peak Qdrant disk during the swap. Defer.
    citation boost lean on this, so new papers are systematically disadvantaged
    until a Semantic Scholar enrichment pass runs. `S2_API_KEY` already exists
    for offline scripts.
+
+
+---
+
+## 8. Operating procedure (data refresh)
+
+Run in this order. Every write step is idempotent or resumable, and each has a check
+that must pass before the next starts. Credentials come from `.env.local`
+(`QDRANT_RECENT_*`, `TURSO_*`, `S2_API_KEY`, `HUGGINGFACE_TOKEN`).
+
+| # | Step | Command | Must pass |
+|---|---|---|---|
+| 1 | Baseline | counts of `arxiv_recent`, Turso `MAX(rowid)`/`COUNT(*)`, sidecar tables | Turso max rowid == count (new rows are exactly those above it) |
+| 2 | Size the window | one `ingest_arxiv.fetch_page` per category | every category answers |
+| 3 | Canary | `ingest_arxiv.py --categories cs.RO --limit 200 --state <canary>` then the same again | ids contiguous above the old max; stored vector == fresh encoding; re-run writes 0 |
+| 4 | Backfill | `INGEST_DEVICE=mps ingest_arxiv.py --since <day before last> --until <today> --state <file>` | exit 0 and "coverage: all 43 categories reached arXiv's total" (exit 3 = re-run the same command) |
+| 5 | Citations | `refresh_citations.py fetch --sidecar <sidecar with new papers> --staging <file> --workers 4` | ≥ 95% found; then `apply-turso` |
+| 6 | Sidecar | copy the pinned sidecar; `append_to_sidecar.py --after-rowid <baseline max rowid>`; `refresh_citations.py apply-sidecar` | `append_to_sidecar.py --verify` exit 0 (quick_check, FTS5 integrity-check, every paper has category rows) |
+| 7 | Publish | upload to `siddhm11/researchit-metadata` | uploaded sha256 == built file; resolve URL serves full size |
+| 8 | Ship | bump `METADATA_SIDECAR_URL` pin in the Dockerfile via PR; merge; `git push hf main` | `/healthz/deep` shows the new sidecar size and newest date |
+
+Notes:
+- New vectors go to `arxiv_recent` only; `ingest_backends.py` refuses the primary.
+- Zilliz is not written (it holds only the 2025-05 snapshot); FTS5 in the sidecar is the
+  sparse arm. `INGEST_WRITE_ZILLIZ=1` re-enables it.
+- A Semantic Scholar key allows 1 request/second; the fetch keeps request starts 1.1 s
+  apart with up to 4 in flight. Two fetches at once would exceed the limit.
+- Vector search sees new papers as soon as step 4 writes them; the starter feed and
+  keyword search only after step 8.
