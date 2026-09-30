@@ -28,8 +28,9 @@ Usage
     # write changed counts to Turso (production metadata; run deliberately)
     python scripts/refresh_citations.py apply-turso --sidecar data/metadata.sqlite --staging data/citations.sqlite
 
-S2_API_KEY is used when set and valid; without it the public pool is used,
-with backoff on 429 (measured ~4 h for the full corpus, ~30 min for 2025-06+).
+S2_API_KEY is used when set and valid, throttled to its 1 request/second limit
+(500 papers per request). Without it the shared public pool is used, with
+backoff on 429; that pool gave up mid-run twice on 2026-09-30.
 """
 from __future__ import annotations
 
@@ -56,11 +57,19 @@ def _staging(path: str) -> sqlite3.Connection:
 
 
 _KEY = {"value": os.getenv("S2_API_KEY") or None}
+# A key is limited to 1 request/second across all endpoints; stay under it.
+_KEYED_INTERVAL_S = 1.1
+_last = {"t": 0.0}
 
 
 def _post(client: httpx.Client, ids: list[str]) -> list | None:
     headers = {"x-api-key": _KEY["value"]} if _KEY["value"] else {}
     for attempt in range(8):
+        if headers:
+            wait = _last["t"] + _KEYED_INTERVAL_S - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            _last["t"] = time.monotonic()
         try:
             r = client.post(API, params={"fields": "citationCount,influentialCitationCount"},
                             headers=headers, json={"ids": [f"ARXIV:{i}" for i in ids]})
