@@ -80,21 +80,60 @@ def test_failed_fetch_reports_unknown_total(monkeypatch):
     assert ingest_arxiv.fetch_page("cs.CV", "2026-08-01", "2026-08-02", 0) == ([], None)
 
 
-def test_windows_split_until_each_fits_one_query(monkeypatch):
-    # 11,092 papers over 64 days, spread evenly: two halves of ~5.5k fit.
-    def probe(cat, since, until, start):
-        from datetime import date
-        days = (date.fromisoformat(until) - date.fromisoformat(since)).days
-        return [], round(11092 * days / 64)
-    w = ingest_arxiv.plan_windows("cs.AI", "2026-07-29", "2026-10-01", probe=probe)
-    assert w == [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+class FakeArxiv:
+    """Papers spread evenly over days; fails pages that pass arXiv's 10k cap."""
+    def __init__(self, per_day: dict, fail=()):
+        self.per_day, self.fail, self.calls = per_day, set(fail), []
+
+    def __call__(self, cat, since, until, start):
+        from datetime import date, timedelta
+        self.calls.append((cat, since, until, start))
+        if cat in self.fail:
+            return [], None
+        a, b = date.fromisoformat(since), date.fromisoformat(until)
+        ids = [f"{cat}:{(a + timedelta(d)).isoformat()}:{i}"
+               for d in range((b - a).days) for i in range(self.per_day[cat])]
+        if start + 200 > 10_000 and len(ids) > 10_000:
+            return [], None                                   # the real API's 500
+        return [{"arxiv_id": x} for x in ids[start:start + 200]], len(ids)
 
 
-def test_small_or_failed_probe_keeps_one_window():
-    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
-                                     probe=lambda *a: ([], 3273)) == [["2026-07-29", "2026-10-01"]]
-    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
-                                     probe=lambda *a: ([], None)) == [["2026-07-29", "2026-10-01"]]
+def _walk(fake, cats, state=None):
+    state = {} if state is None else state
+    handled = []
+    seen, new = ingest_arxiv.walk(cats, "2026-07-29", "2026-10-01", state,
+                                  lambda ps: handled.extend(p["arxiv_id"] for p in ps) or len(ps),
+                                  lambda: None, fetch=fake, delay=0, log=lambda m: None)
+    return state, handled, seen, new
+
+
+def test_small_category_costs_only_its_own_pages():
+    fake = FakeArxiv({"cs.RO": 10})                           # 640 papers, 4 pages
+    state, handled, seen, new = _walk(fake, ["cs.RO"])
+    assert len(fake.calls) == 4 and seen == new == 640 == len(set(handled))
+    assert ingest_arxiv.report_coverage(["cs.RO"], state) == 0
+
+
+def test_oversized_window_splits_before_processing_and_covers_everything():
+    fake = FakeArxiv({"cs.AI": 175})                          # 11,200 papers in 64 days
+    state, handled, seen, _ = _walk(fake, ["cs.AI"])
+    assert state["cs.AI#windows"] == [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+    assert seen == len(handled) == len(set(handled)) == 11_200   # nothing twice, nothing lost
+    assert ingest_arxiv.report_coverage(["cs.AI"], state) == 0
+
+
+def test_failed_requests_leave_a_coverage_gap():
+    fake = FakeArxiv({"cs.CL": 5, "cs.CV": 5}, fail={"cs.CL"})
+    state, _h, _s, _n = _walk(fake, ["cs.CL", "cs.CV"])
+    assert ingest_arxiv.report_coverage(["cs.CL", "cs.CV"], state) == 3
+
+
+def test_resumed_run_keeps_the_recorded_split():
+    fake = FakeArxiv({"cs.AI": 175})
+    state, _h, _s, _n = _walk(fake, ["cs.AI"])
+    fake2 = FakeArxiv({"cs.AI": 175})
+    _st, handled, seen, _n = _walk(fake2, ["cs.AI"], state=state)
+    assert seen == 0 and all(c[3] > 0 for c in fake2.calls)      # resumes at the end, no re-split
 
 
 def test_coverage_checks_every_window(capsys):
