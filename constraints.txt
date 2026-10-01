@@ -154,7 +154,7 @@ pandas==3.0.6
     #   pymilvus
 pluggy==1.6.0
     # via pytest
-portalocker==3.2.0
+portalocker==4.4.0
     # via qdrant-client
 propcache==0.5.4
     # via
