@@ -13,4 +13,4 @@
 -r requirements.txt
 
 playwright>=1.63.0
-pytest-playwright>=0.4
+pytest-playwright>=0.9.0
