@@ -124,6 +124,26 @@ def parse_entry(entry) -> dict | None:
     }
 
 
+FETCH_ATTEMPTS = 6
+
+
+def retry_wait(error: Exception, attempt: int) -> float:
+    """Seconds to wait before retrying a failed arXiv request.
+
+    A rate limit (429/503) gets arXiv's Retry-After when it sends one, else an
+    exponential back-off from 30 s, capped at 5 min: on 2026-10-01 retries 5,
+    10 and 15 s apart failed every time once arXiv had started throttling.
+    Other errors (timeouts, resets) retry sooner.
+    """
+    code = getattr(error, "code", None)
+    if code in (429, 503):
+        after = (getattr(error, "headers", None) or {}).get("Retry-After", "")
+        if str(after).strip().isdigit():
+            return min(300.0, float(after))
+        return min(300.0, 30.0 * 2 ** attempt)
+    return 5.0 * (attempt + 1)
+
+
 def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int | None]:
     """One page of results. Returns (papers, total_available); total is None
     when the request failed, so a failure is never mistaken for an empty
@@ -137,17 +157,17 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
         "sortBy": "submittedDate",
         "sortOrder": "ascending",
     })
-    for attempt in range(4):
+    for attempt in range(FETCH_ATTEMPTS):
         try:
             with deadline(150, f"arXiv {category} @{start}"), \
                     urllib.request.urlopen(url, timeout=120) as r:
                 xml = r.read()
             break
         except Exception as e:
-            if attempt == 3:
+            if attempt == FETCH_ATTEMPTS - 1:
                 print(f"    [{category}] fetch failed: {str(e)[:90]}")
                 return [], None
-            time.sleep(5 * (attempt + 1))
+            time.sleep(retry_wait(e, attempt))
     root = ET.fromstring(xml)
     total_el = root.find("opensearch:totalResults", NS)
     total = int(total_el.text) if total_el is not None and total_el.text else 0

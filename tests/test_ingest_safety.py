@@ -153,3 +153,33 @@ def test_point_ids_are_stable_disjoint_and_fit_uint64():
     assert len(set(ids)) == len(ids)                      # 300k ids, no collision
     assert min(ids) >= 1 << 62 > 300_000                  # never meets sequential ids
     assert max(ids) < 1 << 63                             # Qdrant ids are unsigned 64-bit
+
+
+def test_rate_limits_back_off_for_minutes_and_honour_retry_after():
+    import urllib.error
+    def http(code, retry_after=None):
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        return urllib.error.HTTPError("u", code, "x", headers, None)
+    assert ingest_arxiv.retry_wait(http(429), 0) == 30
+    assert ingest_arxiv.retry_wait(http(429), 2) == 120
+    assert ingest_arxiv.retry_wait(http(429), 5) == 300           # capped
+    assert ingest_arxiv.retry_wait(http(503, "45"), 0) == 45      # server's own advice
+    assert ingest_arxiv.retry_wait(TimeoutError("x"), 0) == 5     # transient: retry soon
+
+
+def test_fetch_page_retries_a_rate_limit_then_succeeds(monkeypatch):
+    import io, urllib.error
+    calls, waits = [], []
+    feed = (b'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">'
+            b'<opensearch:totalResults>0</opensearch:totalResults></feed>')
+
+    def urlopen(url, timeout):
+        calls.append(url)
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+        return io.BytesIO(feed)
+
+    monkeypatch.setattr(ingest_arxiv.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ingest_arxiv.time, "sleep", waits.append)
+    assert ingest_arxiv.fetch_page("cs.RO", "2026-09-28", "2026-10-02", 0) == ([], 0)
+    assert waits == [30, 60] and len(calls) == 3
