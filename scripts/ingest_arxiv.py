@@ -55,6 +55,9 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from net_deadline import deadline  # noqa: E402
+
 ARXIV_API = "https://export.arxiv.org/api/query"
 NS = {"atom": "http://www.w3.org/2005/Atom",
       "arxiv": "http://arxiv.org/schemas/atom",
@@ -136,7 +139,8 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
     })
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(url, timeout=120) as r:
+            with deadline(150, f"arXiv {category} @{start}"), \
+                    urllib.request.urlopen(url, timeout=120) as r:
                 xml = r.read()
             break
         except Exception as e:
@@ -231,7 +235,7 @@ def turso_execute(url: str, token: str, stmts: list[dict]) -> None:
         f"{url.rstrip('/')}/v2/pipeline", data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
         data = json.loads(r.read())
     for res in data.get("results", []):
         if res.get("type") == "error":
@@ -248,7 +252,7 @@ def turso_existing(url: str, token: str, ids: list[str]) -> set[str]:
         f"{url.rstrip('/')}/v2/pipeline", data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
         data = json.loads(r.read())
     res = data["results"][0]
     if res.get("type") == "error":
@@ -271,6 +275,11 @@ def main() -> int:
                          "the GPU path without needing database credentials.")
     ap.add_argument("--state", default="data/ingest_state.json")
     args = ap.parse_args()
+
+    # If a run stalls, its log names the line: dump every thread's stack every
+    # INGEST_STACK_DUMP_S seconds (default 10 min) for as long as it runs.
+    import faulthandler
+    faulthandler.dump_traceback_later(int(os.getenv("INGEST_STACK_DUMP_S", "600")), repeat=True)
 
     cats = ([c.strip() for c in args.categories.split(",") if c.strip()]
             or DEFAULT_CATEGORIES)

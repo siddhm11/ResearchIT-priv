@@ -147,13 +147,19 @@ def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str
 
 # ── stages ───────────────────────────────────────────────────────────────────
 
-def stage_ingest(since: str, until: str) -> tuple[int | None, str]:
+def stage_ingest(since: str, until: str, timeout_s: int = 3600) -> tuple[int | None, str]:
     state = Path(tempfile.mkdtemp()) / "state.json"
     cmd = [sys.executable, str(HERE / "ingest_arxiv.py"), "--since", since, "--until", until,
            "--state", str(state)]
     log = ""
     for attempt in (1, 2):
-        p = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+        except subprocess.TimeoutExpired as e:
+            out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+            err = (e.stderr or b"").decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            print(out[-4000:], err[-6000:], sep="\n", flush=True)    # includes faulthandler stacks
+            raise SystemExit(f"ingest exceeded {timeout_s // 60} min; stacks above") from None
         log += p.stdout + p.stderr
         print(p.stdout[-4000:], p.stderr[-2000:], sep="\n", flush=True)
         if p.returncode == 0:
@@ -234,6 +240,8 @@ def main() -> int:
     ap.add_argument("--max-recent-points", type=int, default=600_000,
                     help="refuse to write past this many points (free-tier headroom)")
     ap.add_argument("--today", default="", help="YYYY-MM-DD, for re-running a past day")
+    ap.add_argument("--ingest-timeout-min", type=int, default=60,
+                    help="fail the run if one ingest attempt takes longer")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-citations", action="store_true")
     args = ap.parse_args()
@@ -257,7 +265,7 @@ def main() -> int:
         return _finish(summary, 0)
 
     t0 = time.time()
-    ingest_new, _log = stage_ingest(since, until)
+    ingest_new, _log = stage_ingest(since, until, args.ingest_timeout_min * 60)
     summary["ingest"] = {"new_papers": ingest_new, "minutes": round((time.time() - t0) / 60, 1)}
 
     if not args.skip_citations:
