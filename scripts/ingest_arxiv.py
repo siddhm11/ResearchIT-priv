@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import deque
 import os
 import re
 import sys
@@ -53,6 +54,9 @@ import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from net_deadline import deadline  # noqa: E402
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 NS = {"atom": "http://www.w3.org/2005/Atom",
@@ -120,6 +124,26 @@ def parse_entry(entry) -> dict | None:
     }
 
 
+FETCH_ATTEMPTS = 6
+
+
+def retry_wait(error: Exception, attempt: int) -> float:
+    """Seconds to wait before retrying a failed arXiv request.
+
+    A rate limit (429/503) gets arXiv's Retry-After when it sends one, else an
+    exponential back-off from 30 s, capped at 5 min: on 2026-10-01 retries 5,
+    10 and 15 s apart failed every time once arXiv had started throttling.
+    Other errors (timeouts, resets) retry sooner.
+    """
+    code = getattr(error, "code", None)
+    if code in (429, 503):
+        after = (getattr(error, "headers", None) or {}).get("Retry-After", "")
+        if str(after).strip().isdigit():
+            return min(300.0, float(after))
+        return min(300.0, 30.0 * 2 ** attempt)
+    return 5.0 * (attempt + 1)
+
+
 def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[dict], int | None]:
     """One page of results. Returns (papers, total_available); total is None
     when the request failed, so a failure is never mistaken for an empty
@@ -133,16 +157,17 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
         "sortBy": "submittedDate",
         "sortOrder": "ascending",
     })
-    for attempt in range(4):
+    for attempt in range(FETCH_ATTEMPTS):
         try:
-            with urllib.request.urlopen(url, timeout=120) as r:
+            with deadline(150, f"arXiv {category} @{start}"), \
+                    urllib.request.urlopen(url, timeout=120) as r:
                 xml = r.read()
             break
         except Exception as e:
-            if attempt == 3:
+            if attempt == FETCH_ATTEMPTS - 1:
                 print(f"    [{category}] fetch failed: {str(e)[:90]}")
                 return [], None
-            time.sleep(5 * (attempt + 1))
+            time.sleep(retry_wait(e, attempt))
     root = ET.fromstring(xml)
     total_el = root.find("opensearch:totalResults", NS)
     total = int(total_el.text) if total_el is not None and total_el.text else 0
@@ -162,20 +187,58 @@ def _midpoint(since: str, until: str) -> str:
     return (a + (b - a) / 2).isoformat()
 
 
-def plan_windows(category: str, since: str, until: str, probe=None) -> list[list[str]]:
-    """Date windows for one category, each small enough for one arXiv query.
+def walk(cats, since, until, state, handle_page, save_state, *, fetch=None,
+         limit: int = 0, delay: float = ARXIV_DELAY, log=print) -> tuple[int, int]:
+    """Fetch every category's window page by page; returns (examined, new).
 
-    Costs one request per window probed. A window that cannot be split further
-    (a single day) is returned as is and will surface in the coverage report.
+    A window is split by date only when its own first page reports more than
+    MAX_RESULTS_PER_QUERY results, so small windows (the daily case) cost no
+    extra requests. Probing every category up front doubled the requests and
+    drew 19 minutes of HTTP 429 back-off from arXiv on 2026-10-01. Splits are
+    recorded in `state` so a resumed run keeps the same windows.
     """
-    probe = probe or fetch_page
-    _papers, total = probe(category, since, until, 0)
-    time.sleep(ARXIV_DELAY if probe is fetch_page else 0)
-    mid = _midpoint(since, until)
-    if total is None or total <= MAX_RESULTS_PER_QUERY or mid in (since, until):
-        return [[since, until]]
-    return (plan_windows(category, since, mid, probe)
-            + plan_windows(category, mid, until, probe))
+    fetch = fetch or fetch_page
+    queue: deque = deque()
+    for cat in cats:
+        windows = state.setdefault(f"{cat}#windows", [[since, until]])
+        queue.extend((cat, w) for w in windows)
+    seen = new = 0
+    t0 = time.time()
+    while queue:
+        cat, w = queue.popleft()
+        windows = state[f"{cat}#windows"]
+        key = window_key(cat, windows, w)
+        start = int(state.get(key, 0))
+        while True:
+            papers, total = fetch(cat, w[0], w[1], start)
+            if delay:
+                time.sleep(delay)
+            if total is not None and start == 0 and total > MAX_RESULTS_PER_QUERY:
+                mid = _midpoint(w[0], w[1])
+                if mid not in (w[0], w[1]):
+                    halves = [[w[0], mid], [mid, w[1]]]
+                    i = windows.index(w)
+                    windows[i:i + 1] = halves
+                    save_state()
+                    queue.extendleft(reversed([(cat, h) for h in halves]))
+                    log(f"  {cat}: {total:,} results in {w[0]}..{w[1]} -> split at {mid}")
+                    break
+            if total is not None:
+                state[f"{key}#total"] = total
+            if not papers:
+                break
+            seen += len(papers)
+            new += handle_page(papers)
+            start += len(papers)
+            state[key] = start
+            save_state()
+            log(f"  {key:<16} {start:>6}/{total:<7} seen={seen:,} new={new:,}  "
+                f"{(time.time() - t0) / 60:.1f} min")
+            if start >= (total or 0) or (limit and seen >= limit):
+                break
+        if limit and seen >= limit:
+            break
+    return seen, new
 
 
 def window_key(category: str, windows: list[list[str]], w: list[str]) -> str:
@@ -192,7 +255,7 @@ def turso_execute(url: str, token: str, stmts: list[dict]) -> None:
         f"{url.rstrip('/')}/v2/pipeline", data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
         data = json.loads(r.read())
     for res in data.get("results", []):
         if res.get("type") == "error":
@@ -209,7 +272,7 @@ def turso_existing(url: str, token: str, ids: list[str]) -> set[str]:
         f"{url.rstrip('/')}/v2/pipeline", data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=180) as r:
+    with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
         data = json.loads(r.read())
     res = data["results"][0]
     if res.get("type") == "error":
@@ -232,6 +295,11 @@ def main() -> int:
                          "the GPU path without needing database credentials.")
     ap.add_argument("--state", default="data/ingest_state.json")
     args = ap.parse_args()
+
+    # If a run stalls, its log names the line: dump every thread's stack every
+    # INGEST_STACK_DUMP_S seconds (default 10 min) for as long as it runs.
+    import faulthandler
+    faulthandler.dump_traceback_later(int(os.getenv("INGEST_STACK_DUMP_S", "600")), repeat=True)
 
     cats = ([c.strip() for c in args.categories.split(",") if c.strip()]
             or DEFAULT_CATEGORIES)
@@ -259,62 +327,30 @@ def main() -> int:
     seen_total = new_total = 0
     t0 = time.time()
 
-    units = []
-    for cat in cats:
-        windows = state.get(f"{cat}#windows")
-        if windows is None:
-            windows = plan_windows(cat, args.since, args.until)
-            state[f"{cat}#windows"] = windows
-        units += [(cat, window_key(cat, windows, w), w) for w in windows]
+    def handle_page(papers: list[dict]) -> int:
+        ids = [p["arxiv_id"] for p in papers]
+        if args.dry_run:
+            return len(ids)
+        if args.encode_only:
+            vecs = encoder.encode([f"{p['title'][:256]} {p['abstract'][:1024]}" for p in papers])
+            d, _s = vecs[0]
+            nz = sum(len(sp) for _dv, sp in vecs) / len(vecs)
+            print(f"    encoded {len(vecs)}: dense dim={len(d)} norm={sum(x * x for x in d) ** 0.5:.4f}"
+                  f" | sparse avg {nz:.0f} terms/doc", flush=True)
+            return len(ids)
+        have = turso_existing(turso_url, turso_tok, ids)
+        todo = [p for p in papers if p["arxiv_id"] not in have]
+        if todo:
+            vecs = encoder.encode([f"{p['title'][:256]} {p['abstract'][:1024]}" for p in todo])
+            upserter.upsert(todo, vecs)
+        return len(todo)
 
-    for cat, key, (w_since, w_until) in units:
-        start = int(state.get(key, 0))
-        while True:
-            papers, total = fetch_page(cat, w_since, w_until, start)
-            time.sleep(ARXIV_DELAY)
-            if total is not None:
-                state[f"{key}#total"] = total
-            if not papers:
-                break
+    def save_state() -> None:
+        os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
+        json.dump(state, open(args.state, "w"))
 
-            seen_total += len(papers)
-            ids = [p["arxiv_id"] for p in papers]
-
-            if args.dry_run:
-                fresh = ids
-            elif args.encode_only:
-                fresh = ids
-                vecs = encoder.encode([
-                    f"{p['title'][:256]} {p['abstract'][:1024]}" for p in papers])
-                d, s = vecs[0]
-                nz = sum(len(sp) for _dv, sp in vecs) / len(vecs)
-                norm = sum(x * x for x in d) ** 0.5
-                print(f"    encoded {len(vecs)}: dense dim={len(d)} "
-                      f"norm={norm:.4f} | sparse avg {nz:.0f} terms/doc",
-                      flush=True)
-            else:
-                have = turso_existing(turso_url, turso_tok, ids)
-                fresh = [i for i in ids if i not in have]
-                todo = [p for p in papers if p["arxiv_id"] in set(fresh)]
-                if todo:
-                    vecs = encoder.encode([
-                        f"{p['title'][:256]} {p['abstract'][:1024]}" for p in todo])
-                    upserter.upsert(todo, vecs)
-
-            new_total += len(fresh)
-            start += len(papers)
-            state[key] = start
-            os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
-            json.dump(state, open(args.state, "w"))
-
-            el = time.time() - t0
-            print(f"  {key:<16} {start:>6}/{total:<7} seen={seen_total:,} "
-                  f"new={new_total:,}  {el/60:.1f} min", flush=True)
-
-            if start >= total or (args.limit and seen_total >= args.limit):
-                break
-        if args.limit and seen_total >= args.limit:
-            break
+    seen_total, new_total = walk(cats, args.since, args.until, state, handle_page, save_state,
+                                 limit=args.limit, log=lambda m: print(m, flush=True))
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")
