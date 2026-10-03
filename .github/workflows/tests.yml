@@ -56,7 +56,7 @@ jobs:
           pip install \
             fastapi 'uvicorn>=0.30' jinja2 httpx aiosqlite \
             'qdrant-client>=1.9' pydantic numpy scipy python-multipart \
-            python-dotenv \
+            python-dotenv 'groq>=1.0' \
             pytest pytest-asyncio 'anyio[asyncio]'
 
       - name: Run tests
