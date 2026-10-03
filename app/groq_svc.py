@@ -139,6 +139,49 @@ def model_status() -> dict:
     return {"configured": list(config.GROQ_MODELS), "benched": benched}
 
 
+_PROBE_TIMEOUT_S = 10.0
+
+
+def probe_models() -> dict:
+    """Which configured models Groq still serves to this key (one request).
+
+    Synchronous; run it in a thread. A configured model Groq no longer lists
+    is benched straight away, so requests stop paying a 404 to find out. This
+    is what /healthz/deep reports and the keepalive workflow alerts on --
+    the check that would have caught the 2026-08-16 Llama shutdown the day it
+    happened instead of seven weeks later.
+    """
+    configured = list(config.GROQ_MODELS)
+    client = _get_client()
+    if client is None:
+        return {"status": "skipped", "configured": configured,
+                "reason": "GROQ_API_KEY not set or groq not installed"}
+    t0 = time.perf_counter()
+    try:
+        served = {m.id for m in client.models.list(timeout=_PROBE_TIMEOUT_S).data}
+    except Exception as e:
+        return {"status": "error", "configured": configured,
+                "error": str(e)[:200],
+                "time_ms": int((time.perf_counter() - t0) * 1000)}
+
+    available = {m: m in served for m in configured}
+    for model, ok in available.items():
+        if not ok:
+            _bench(model, _GONE_COOLDOWN_S, "not listed by Groq")
+    ready = _ready_models()
+    return {
+        # Degraded but serving is still "ok": a fallback answering is the
+        # chain doing its job. "primary_available" is the early warning.
+        "status": "ok" if ready else "error",
+        "configured": configured,
+        "available": available,
+        "primary_available": bool(configured) and available[configured[0]],
+        "active": ready[0] if ready else None,
+        "benched": model_status()["benched"],
+        "time_ms": int((time.perf_counter() - t0) * 1000),
+    }
+
+
 class Completion(NamedTuple):
     text: str
     model: str
