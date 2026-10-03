@@ -61,7 +61,7 @@ def _chain(monkeypatch):
 
 def _complete(client, timeout: float = 5.0) -> str:
     return groq_svc._complete(client, [{"role": "user", "content": "q"}],
-                              temperature=0.1, max_tokens=60, timeout=timeout)
+                              temperature=0.1, max_tokens=60, timeout=timeout).text
 
 
 def test_first_model_answers_when_healthy():
@@ -167,3 +167,52 @@ def test_explain_cache_key_follows_the_head_of_the_chain(monkeypatch):
     assert groq_svc.explain_model() == "qwen/qwen3.8-27b"
     assert groq_svc.explain_cache_key("1706.03762", "abstract") != before
 
+
+
+# ── Output hygiene ───────────────────────────────────────────────────────────
+
+def _only(client_text: str, finish: str = "stop") -> FakeClient:
+    return FakeClient({m: _completion(client_text, finish) for m in CHAIN})
+
+
+def test_completion_reports_model_and_truncation():
+    result = groq_svc._complete(_only("abc", "length"), [{"role": "user", "content": "q"}],
+                                temperature=0.1, max_tokens=60, timeout=5.0)
+    assert result == groq_svc.Completion("abc", CHAIN[0], True)
+
+
+def test_inline_reasoning_is_stripped():
+    assert groq_svc._clean("<think>plan the answer</think>LLM hallucination") == \
+        "LLM hallucination"
+    # Cut off before the closing tag: nothing after <think> is an answer.
+    assert groq_svc._clean("<think>still thinking when the cap hit") == ""
+
+
+def test_typographic_hyphens_become_ascii():
+    assert groq_svc._clean("Large\u2011language\u00a0model") == "Large-language model"
+
+
+async def test_truncated_rewrite_is_discarded(monkeypatch):
+    # gpt-oss at a too-small cap returned "LLa" for "the llama model by facebook".
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only("LLa", "length"))
+    assert await groq_svc.rewrite("the llama model by facebook") == \
+        "the llama model by facebook"
+
+
+async def test_truncated_overview_keeps_whole_sentences(monkeypatch):
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only(
+        "**Transformers** replaced recurrence. Scaling laws predict loss. Underpinning these", "length"))
+    papers = [{"title": "A", "abstract": "x"}, {"title": "B", "abstract": "y"}]
+    html = await groq_svc.generate_search_summary("llm pretraining", papers)
+    assert html == "<strong>Transformers</strong> replaced recurrence. Scaling laws predict loss."
+
+
+async def test_truncated_explanation_without_a_full_sentence_is_dropped(monkeypatch):
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only("The problem is that", "length"))
+    assert await groq_svc.explain_paper("Title", "a" * 200) is None
+
+
+async def test_complete_explanation_is_returned_untouched(monkeypatch):
+    text = "One problem. One method. One finding."
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only(text))
+    assert await groq_svc.explain_paper("Title", "a" * 200) == text

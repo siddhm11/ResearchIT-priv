@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 import threading
 import time
+from typing import NamedTuple
 
 from app import config
 
@@ -138,8 +139,37 @@ def model_status() -> dict:
     return {"configured": list(config.GROQ_MODELS), "benched": benched}
 
 
+class Completion(NamedTuple):
+    text: str
+    model: str
+    truncated: bool     # stopped at the token cap, mid-thought
+
+
+# Reasoning a model emits inline instead of in its own field, including an
+# opening tag the token cap cut off before it closed.
+_THINK = re.compile(r"<think>.*?(?:</think>|\Z)", re.S | re.I)
+# gpt-oss writes typographic hyphens and spaces (U+2011 "Large‑language‑model");
+# they render, but break copy-paste into a search box and FTS5 tokenisation.
+_TYPOGRAPHIC = str.maketrans({"\u2010": "-", "\u2011": "-", "\u2012": "-",
+                              "\u00a0": " ", "\u202f": " ", "\u2009": " "})
+
+
+def _clean(text: str) -> str:
+    text = _THINK.sub("", text or "").translate(_TYPOGRAPHIC)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+_SENTENCE_END = re.compile(r"[.!?][\"')\]]?(?=\s|$)")
+
+
+def _trim_to_sentence(text: str) -> str:
+    """Drop a trailing fragment the token cap cut off mid-sentence."""
+    ends = list(_SENTENCE_END.finditer(text))
+    return text[:ends[-1].end()].strip() if ends else ""
+
+
 def _complete(client, messages: list[dict], *, temperature: float,
-              max_tokens: int, timeout: float) -> str:
+              max_tokens: int, timeout: float) -> Completion:
     """One chat completion from the first configured model that answers.
 
     ``timeout`` is the budget for the whole call, failover included. Retired
@@ -177,7 +207,9 @@ def _complete(client, messages: list[dict], *, temperature: float,
                   f"skipping it; update GROQ_MODELS ({e})")
             last_error = e
             continue
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+        return Completion(_clean(choice.message.content),
+                          model, choice.finish_reason == "length")
 
     raise RuntimeError(
         f"no Groq model answered (configured: {config.GROQ_MODELS}, "
@@ -275,7 +307,11 @@ async def rewrite(query: str) -> str:
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _run_rewrite, client, query)
-        rewritten = result.strip().strip('"').strip("'").strip()
+        # A rewrite cut off at the cap ("LLa") is worse than none: it would be
+        # embedded and searched as if it were the reader's intent.
+        if result.truncated:
+            return query
+        rewritten = result.text.strip('"').strip("'").strip()
 
         # Sanity check: rewritten should be non-empty and not absurdly long
         if not rewritten or len(rewritten) > 200:
@@ -288,7 +324,7 @@ async def rewrite(query: str) -> str:
         return query
 
 
-def _run_rewrite(client, query: str) -> str:
+def _run_rewrite(client, query: str) -> Completion:
     """Sync helper: call Groq chat completion with timeout."""
     return _complete(
         client,
@@ -344,7 +380,7 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _run_summary, client, prompt)
         
-        summary = result.strip()
+        summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
             return None
             
@@ -359,7 +395,7 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
         return None
 
 
-def _run_summary(client, prompt: str) -> str:
+def _run_summary(client, prompt: str) -> Completion:
     """Sync helper: call Groq chat completion for summaries with 4s timeout."""
     return _complete(
         client,
@@ -447,13 +483,15 @@ async def explain_paper(title: str, abstract: str) -> str | None:
     try:
         import asyncio
         loop = asyncio.get_event_loop()
-        text = await loop.run_in_executor(
+        result = await loop.run_in_executor(
             None, _run_explain, client, prompt)
     except Exception as e:
         print(f"[groq_svc] explain failed: {e}")
         return None
 
-    text = (text or "").strip()
+    # Cut off at the cap: keep the complete sentences rather than cache a
+    # fragment, which would be served to every later reader of this paper.
+    text = _trim_to_sentence(result.text) if result.truncated else result.text
     # The model's own refusal path. Honoured rather than second-guessed: a
     # summary of a mutilated abstract is worse than no summary.
     if not text or text.upper().startswith("INSUFFICIENT"):
@@ -461,7 +499,7 @@ async def explain_paper(title: str, abstract: str) -> str | None:
     return text
 
 
-def _run_explain(client, prompt: str) -> str:
+def _run_explain(client, prompt: str) -> Completion:
     return _complete(
         client,
         [
