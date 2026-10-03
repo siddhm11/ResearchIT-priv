@@ -69,4 +69,25 @@ jobs:
             exit 1
           fi
 
+          # Groq retires models every few months and every LLM feature degrades
+          # silently, so "overall: healthy" is not enough: Llama 3.3 70B was
+          # shut down on 2026-08-16 and nothing noticed for seven weeks. Fail
+          # (and so notify) as soon as the PRIMARY model is gone, even while a
+          # fallback in GROQ_MODELS keeps answering.
+          LLM=$(echo "$BODY" | python3 -c 'import json,sys; l=json.load(sys.stdin).get("services",{}).get("llm",{}); print(l.get("status","missing"), l.get("primary_available"), l.get("active"))')
+          echo "LLM: $LLM"
+          case "$LLM" in
+            "ok True "*) ;;
+            "skipped "*)
+              echo "::warning::GROQ_API_KEY is not set on the Space: the LLM features are off" ;;
+            "missing "*)
+              echo "::warning::/healthz/deep has no llm block (deployment predates the check)" ;;
+            "ok False "*)
+              echo "::error::Primary Groq model is no longer served; requests are on the fallback ($LLM). Update GROQ_MODELS -- see console.groq.com/docs/deprecations"
+              exit 1 ;;
+            *)
+              echo "::error::No configured Groq model is available ($LLM): query rewrite, search overview and paper explanations are off"
+              exit 1 ;;
+          esac
+
           echo "All services healthy."
