@@ -3,7 +3,7 @@ Groq LLM query rewriter — Phase 3.
 
 Responsibilities:
   - Rewrite casual user queries into dense academic keyword strings
-  - Uses one Groq-hosted model (_MODEL) for every call in this module
+  - Uses the first available model in config.GROQ_MODELS (see _complete)
   - Falls back to original query on ANY error or timeout
   - Skips rewriting for queries that already look academic
   - This is an ENHANCEMENT, not a dependency — search works without it
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 
 from app import config
 
@@ -47,27 +48,140 @@ def _get_client():
             print("[groq_svc] groq not installed -- summaries and rewrite disabled")
             return None
 
-        _client = Groq(api_key=config.GROQ_API_KEY)
+        # max_retries=0: the SDK's own retry loop would re-send a 429 or 5xx to
+        # the SAME model with backoff, spending the rewrite's 2s budget on a
+        # model that already said no. _complete() moves to the next model.
+        _client = Groq(api_key=config.GROQ_API_KEY, max_retries=0)
         print("[groq_svc] Groq client initialized")
         return _client
 
 
-# ── Completion helper ────────────────────────────────────────────────────────
+# ── Model chain ──────────────────────────────────────────────────────────────
+#
+# Groq retires models every few months. This module used to hard-code
+# llama-3.3-70b-versatile; Groq shut it down on 2026-08-16 and every call
+# returned 404 for seven weeks with no visible symptom, because each caller
+# degrades by design to "no rewrite / no overview / no explanation". So the
+# model is now an ordered list (config.GROQ_MODELS): a model Groq reports as
+# gone or rate-limited is benched for a while and the next one answers.
 
-_MODEL = "llama-3.3-70b-versatile"
+_GONE_COOLDOWN_S = 3600.0       # re-check a retired model hourly, not per call
+_RATE_LIMIT_COOLDOWN_S = 20.0   # when a 429 carries no Retry-After
+_MAX_COOLDOWN_S = 300.0
+_MIN_ATTEMPT_S = 0.25           # too little budget left to be worth a request
+
+# gpt-oss always reasons, and its reasoning is spent from the same completion
+# budget as the answer: at the rewrite's 60-token cap it returned empty or
+# cut-off strings ("LLa") in testing on 2026-10-04. It gets headroom and its
+# reasoning is kept out of the response. Qwen can switch reasoning off.
+_REASONING_HEADROOM = 512
+
+_benched: dict[str, tuple[float, str]] = {}   # model -> (until, reason)
+_bench_lock = threading.Lock()
+
+
+def _request_options(model: str, max_tokens: int) -> dict:
+    """Per-family parameters; max_tokens is the budget for the visible answer."""
+    if model.startswith("openai/gpt-oss"):
+        return {"reasoning_effort": "low", "include_reasoning": False,
+                "max_completion_tokens": max_tokens + _REASONING_HEADROOM}
+    if model.startswith("qwen/"):
+        return {"reasoning_effort": "none", "max_completion_tokens": max_tokens}
+    return {"max_completion_tokens": max_tokens}
+
+
+def _bench(model: str, seconds: float, reason: str) -> None:
+    with _bench_lock:
+        _benched[model] = (time.monotonic() + seconds, reason)
+
+
+def _ready_models() -> list[str]:
+    """Configured models in order, minus any still benched."""
+    now = time.monotonic()
+    with _bench_lock:
+        return [m for m in config.GROQ_MODELS
+                if _benched.get(m, (0.0, ""))[0] <= now]
+
+
+def _error_code(exc) -> str:
+    body = getattr(exc, "body", None)
+    if isinstance(body, dict):
+        err = body.get("error", body)
+        if isinstance(err, dict):
+            return str(err.get("code") or "")
+    return ""
+
+
+def _model_gone(exc) -> bool:
+    """True when Groq says this model no longer exists for this key."""
+    return (getattr(exc, "status_code", None) == 404
+            or _error_code(exc) in ("model_not_found", "model_decommissioned"))
+
+
+def _retry_after(exc) -> float:
+    response = getattr(exc, "response", None)
+    try:
+        seconds = float(response.headers.get("retry-after"))
+    except (AttributeError, TypeError, ValueError):
+        seconds = _RATE_LIMIT_COOLDOWN_S
+    return min(max(seconds, 1.0), _MAX_COOLDOWN_S)
+
+
+def model_status() -> dict:
+    """The configured chain and which models are benched right now."""
+    now = time.monotonic()
+    with _bench_lock:
+        benched = {
+            m: {"seconds_left": int(until - now), "reason": reason}
+            for m, (until, reason) in _benched.items() if until > now
+        }
+    return {"configured": list(config.GROQ_MODELS), "benched": benched}
 
 
 def _complete(client, messages: list[dict], *, temperature: float,
               max_tokens: int, timeout: float) -> str:
-    """One chat completion. Every LLM call in this module goes through here."""
-    response = client.chat.completions.create(
-        messages=messages,
-        model=_MODEL,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-    )
-    return response.choices[0].message.content or ""
+    """One chat completion from the first configured model that answers.
+
+    ``timeout`` is the budget for the whole call, failover included. Retired
+    and rate-limited models are benched and skipped; any other failure raises,
+    and every caller already degrades to its no-LLM path on an exception.
+    """
+    import groq
+
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    for model in _ready_models():
+        remaining = deadline - time.monotonic()
+        if remaining < _MIN_ATTEMPT_S:
+            break
+        try:
+            response = client.chat.completions.create(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                timeout=remaining,
+                **_request_options(model, max_tokens),
+            )
+        except groq.RateLimitError as e:
+            _bench(model, _retry_after(e), "rate limited")
+            last_error = e
+            continue
+        except groq.InternalServerError as e:
+            last_error = e          # one bad response; not worth benching
+            continue
+        except groq.APIStatusError as e:
+            if not _model_gone(e):
+                raise
+            _bench(model, _GONE_COOLDOWN_S, f"unavailable (HTTP {e.status_code})")
+            print(f"[groq_svc] WARNING: Groq no longer serves {model!r} -- "
+                  f"skipping it; update GROQ_MODELS ({e})")
+            last_error = e
+            continue
+        return response.choices[0].message.content or ""
+
+    raise RuntimeError(
+        f"no Groq model answered (configured: {config.GROQ_MODELS}, "
+        f"status: {model_status()['benched']})") from last_error
 
 
 # ── Rewrite prompt ───────────────────────────────────────────────────────────
@@ -269,7 +383,6 @@ def _run_summary(client, prompt: str) -> str:
 # presenting it as the paper's own words.
 
 _EXPLAIN_PROMPT_VERSION = "v1"
-_EXPLAIN_MODEL = _MODEL
 
 _EXPLAIN_SYSTEM = """You explain research papers to capable readers who work in \
 a DIFFERENT field. They are not beginners — do not talk down — but they do not \
@@ -290,6 +403,15 @@ the same sentence.
 exactly: INSUFFICIENT"""
 
 
+def explain_model() -> str:
+    """The model an explanation is attributed to: the head of the chain.
+
+    A fallback model may have written a given explanation, but the cache key
+    tracks the configured policy, so changing GROQ_MODELS regenerates them.
+    """
+    return config.GROQ_MODELS[0] if config.GROQ_MODELS else ""
+
+
 def explain_cache_key(arxiv_id: str, abstract: str) -> str:
     """Content-addressed, per doc 07 §A.4.
 
@@ -307,7 +429,7 @@ def explain_cache_key(arxiv_id: str, abstract: str) -> str:
     h.update(b"\x00")
     h.update(_EXPLAIN_PROMPT_VERSION.encode())
     h.update(b"\x00")
-    h.update(_EXPLAIN_MODEL.encode())
+    h.update(explain_model().encode())
     return h.hexdigest()
 
 

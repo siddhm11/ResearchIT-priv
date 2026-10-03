@@ -247,7 +247,7 @@ async def explain(arxiv_id: str, request: Request):
         if text:
             try:
                 await db.save_explanation(
-                    key, arxiv_id, text, groq_svc._EXPLAIN_MODEL)
+                    key, arxiv_id, text, groq_svc.explain_model())
             except Exception as e:
                 print(f"[paper] explanation cache write failed: {e}")
 

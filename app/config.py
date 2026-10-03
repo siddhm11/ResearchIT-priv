@@ -239,8 +239,21 @@ ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 #   sparse_vector SPARSE_FLOAT_VECTOR  (BGE-M3 lexical weights, int token IDs)
 #   Index: SPARSE_INVERTED_INDEX, metric_type="IP"
 
-# ── Groq (LLM query rewriter) — Phase 3 ──────────────────────────────────────
+# ── Groq (query rewrite, search overview, paper explanations) ───────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+# Tried in order. A model Groq reports as retired or rate-limited is benched and
+# the next one answers, so one deprecation can no longer switch off every LLM
+# feature at once: llama-3.3-70b-versatile, the single hard-coded model until
+# 2026-10, was shut down by Groq on 2026-08-16 and all three features failed
+# silently for seven weeks. Keep a Groq *production* model first — preview
+# models "may be discontinued at short notice" (console.groq.com/docs/models),
+# and the Qwen line on Groq turned over twice between July and September 2026.
+GROQ_MODELS = [
+    m.strip() for m in os.getenv(
+        "GROQ_MODELS",
+        "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b",
+    ).split(",") if m.strip()
+]
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
