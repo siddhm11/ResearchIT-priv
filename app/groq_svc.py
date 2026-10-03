@@ -3,7 +3,7 @@ Groq LLM query rewriter — Phase 3.
 
 Responsibilities:
   - Rewrite casual user queries into dense academic keyword strings
-  - Uses llama-3.3-70b-versatile via Groq's ultra-fast inference
+  - Uses one Groq-hosted model (_MODEL) for every call in this module
   - Falls back to original query on ANY error or timeout
   - Skips rewriting for queries that already look academic
   - This is an ENHANCEMENT, not a dependency — search works without it
@@ -50,6 +50,24 @@ def _get_client():
         _client = Groq(api_key=config.GROQ_API_KEY)
         print("[groq_svc] Groq client initialized")
         return _client
+
+
+# ── Completion helper ────────────────────────────────────────────────────────
+
+_MODEL = "llama-3.3-70b-versatile"
+
+
+def _complete(client, messages: list[dict], *, temperature: float,
+              max_tokens: int, timeout: float) -> str:
+    """One chat completion. Every LLM call in this module goes through here."""
+    response = client.chat.completions.create(
+        messages=messages,
+        model=_MODEL,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+    )
+    return response.choices[0].message.content or ""
 
 
 # ── Rewrite prompt ───────────────────────────────────────────────────────────
@@ -158,25 +176,42 @@ async def rewrite(query: str) -> str:
 
 def _run_rewrite(client, query: str) -> str:
     """Sync helper: call Groq chat completion with timeout."""
-    response = client.chat.completions.create(
-        messages=[
+    return _complete(
+        client,
+        [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ],
-        model="llama-3.3-70b-versatile",
         temperature=0.1,
         max_tokens=60,
         timeout=2.0,  # Hard 2s timeout — search must not stall
     )
-    return response.choices[0].message.content
 
 
 # ── AI Search Summaries ──────────────────────────────────────────────────────
 
+def _summary_prompt(query: str, papers: list[dict]) -> str:
+    """The search-overview prompt over the top five results."""
+    # Build context from top 5 papers max
+    context_lines = []
+    for i, p in enumerate(papers[:5]):
+        context_lines.append(f"Paper {i+1}: {p['title']}\nAbstract: {p['abstract'][:800]}...")
+    context_str = "\n\n".join(context_lines)
+
+    prompt = f"""You are an expert AI research assistant. 
+The user searched for: "{query}"
+
+Here are the top papers returned for this query:
+{context_str}
+
+Task: Write a concise, synthesized overview (3-4 sentences max) that answers the user's query based ONLY on these papers. 
+Format: Return plain text with basic markdown (bolding key terms is good). DO NOT start with "Here is a summary" or similar filler. DO NOT output bullet points. Be direct, educational, and authoritative."""
+    return prompt
+
+
 async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     """
     Generate a short 3-4 sentence AI summary synthesizing the top papers.
-    Uses llama-3.3-70b-versatile via Groq.
     
     Returns:
         Summary HTML string, or None if error or not enough papers.
@@ -188,20 +223,7 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     if client is None:
         return None
         
-    # Build context from top 5 papers max
-    context_lines = []
-    for i, p in enumerate(papers[:5]):
-        context_lines.append(f"Paper {i+1}: {p['title']}\nAbstract: {p['abstract'][:800]}...")
-    context_str = "\n\n".join(context_lines)
-    
-    prompt = f"""You are an expert AI research assistant. 
-The user searched for: "{query}"
-
-Here are the top papers returned for this query:
-{context_str}
-
-Task: Write a concise, synthesized overview (3-4 sentences max) that answers the user's query based ONLY on these papers. 
-Format: Return plain text with basic markdown (bolding key terms is good). DO NOT start with "Here is a summary" or similar filler. DO NOT output bullet points. Be direct, educational, and authoritative."""
+    prompt = _summary_prompt(query, papers)
 
     try:
         import asyncio
@@ -225,16 +247,13 @@ Format: Return plain text with basic markdown (bolding key terms is good). DO NO
 
 def _run_summary(client, prompt: str) -> str:
     """Sync helper: call Groq chat completion for summaries with 4s timeout."""
-    response = client.chat.completions.create(
-        messages=[
-            {"role": "user", "content": prompt},
-        ],
-        model="llama-3.3-70b-versatile",
+    return _complete(
+        client,
+        [{"role": "user", "content": prompt}],
         temperature=0.3,
         max_tokens=150,
         timeout=4.0,  # 4s timeout so it doesn't hang indefinitely
     )
-    return response.choices[0].message.content
 
 
 # ── Plain-language paper explanation ─────────────────────────────────────────
@@ -250,7 +269,7 @@ def _run_summary(client, prompt: str) -> str:
 # presenting it as the paper's own words.
 
 _EXPLAIN_PROMPT_VERSION = "v1"
-_EXPLAIN_MODEL = "llama-3.3-70b-versatile"
+_EXPLAIN_MODEL = _MODEL
 
 _EXPLAIN_SYSTEM = """You explain research papers to capable readers who work in \
 a DIFFERENT field. They are not beginners — do not talk down — but they do not \
@@ -321,14 +340,13 @@ async def explain_paper(title: str, abstract: str) -> str | None:
 
 
 def _run_explain(client, prompt: str) -> str:
-    response = client.chat.completions.create(
-        messages=[
+    return _complete(
+        client,
+        [
             {"role": "system", "content": _EXPLAIN_SYSTEM},
             {"role": "user", "content": prompt},
         ],
-        model=_EXPLAIN_MODEL,
         temperature=0.2,
         max_tokens=220,
         timeout=8.0,
     )
-    return response.choices[0].message.content or ""
