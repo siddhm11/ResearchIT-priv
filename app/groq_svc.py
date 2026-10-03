@@ -384,9 +384,13 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
         if not summary:
             return None
             
-        # Basic markdown to HTML (bolding)
-        import re
-        summary_html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', summary)
+        # Escape first, then bold. ai_summary.html renders this with |safe, and
+        # the model's text is steered by the search query -- which arrives in
+        # the URL -- and by paper abstracts, so it must never reach the page
+        # as markup. Only the <strong> tags added here are HTML.
+        import html
+        summary_html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>',
+                              html.escape(summary, quote=False))
         
         return summary_html
         

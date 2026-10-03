@@ -216,3 +216,16 @@ async def test_complete_explanation_is_returned_untouched(monkeypatch):
     text = "One problem. One method. One finding."
     monkeypatch.setattr(groq_svc, "_get_client", lambda: _only(text))
     assert await groq_svc.explain_paper("Title", "a" * 200) == text
+
+
+# ── The overview is rendered with |safe ──────────────────────────────────────
+
+async def test_overview_markup_from_the_model_is_escaped(monkeypatch):
+    # The prompt carries the URL's query, so a crafted link can ask the model
+    # to echo markup. Only the **bold** conversion may produce tags.
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only(
+        'See **this** <img src=x onerror="alert(1)"> and <script>x()</script>.'))
+    papers = [{"title": "A", "abstract": "x"}, {"title": "B", "abstract": "y"}]
+    html = await groq_svc.generate_search_summary("q", papers)
+    assert "<img" not in html and "<script" not in html
+    assert "&lt;img" in html and "<strong>this</strong>" in html
