@@ -17,6 +17,7 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 | Concern | Current behavior | Source |
 |---|---|---|
 | Search | Original + optional rewritten query; dense shard fanout and independent FTS5; Zilliz without FTS; RRF; optional top-10 MiniLM; title/citation boost | `app/hybrid_search_svc.py`, `app/config.py` |
+| LLM features | Query rewrite, search overview and paper explanations call Groq through an ordered failover chain, `GROQ_MODELS` (default `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`). Retired models are benched for 1 h and rate-limited ones for their Retry-After. Truncated output is trimmed or discarded, and every failure degrades to no LLM output. `/healthz/deep` `services.llm` reports availability, and the keepalive fails once the primary is gone. Llama 3.3 70B, the previous single model, was shut down by Groq on 2026-08-16, and the three features were off until this change (2026-10-04, not yet deployed) | `app/groq_svc.py`, `app/config.py`, `scripts/eval_groq_models.py` |
 | Missing encodings | Available FTS query forms still run; actual contributing arms determine `retrieval_mode` | `app/hybrid_search_svc.py` |
 | Search total miss | arXiv keyword fallback; no invented hits for unfamiliar concepts | `app/routers/search.py` |
 | Detailed interests | Saved papers -> long/short/negative EWMA. 2–4 saves: one interest per save; 5+: Ward medoids, K ≤ min(7, ceil(N/2)), finest singleton-free cut (2026-09-30) | `app/recommend/profiles.py`, `clustering.py` |

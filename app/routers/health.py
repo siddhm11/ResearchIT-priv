@@ -424,6 +424,18 @@ async def healthz_deep():
             "status": "skipped", "available": False, "error": str(e),
         }
 
+    # ── Groq LLM models ──────────────────────────────────────────────────
+    # Rewrite, the search overview and explanations all degrade silently by
+    # design, so a retired model is invisible from the outside: Llama 3.3 70B
+    # was shut down on 2026-08-16 and nothing noticed for seven weeks. "error"
+    # here means no configured model is served; the keepalive alerts on it.
+    try:
+        from app import groq_svc
+        results["services"]["llm"] = await loop.run_in_executor(
+            None, groq_svc.probe_models)
+    except Exception as e:
+        results["services"]["llm"] = {"status": "error", "error": str(e)[:200]}
+
     # ── Overall status ───────────────────────────────────────────────────
     all_ok = all(
         s.get("status") == "ok"

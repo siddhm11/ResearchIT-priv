@@ -239,8 +239,39 @@ ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 #   sparse_vector SPARSE_FLOAT_VECTOR  (BGE-M3 lexical weights, int token IDs)
 #   Index: SPARSE_INVERTED_INDEX, metric_type="IP"
 
-# ── Groq (LLM query rewriter) — Phase 3 ──────────────────────────────────────
+# ── Groq (query rewrite, search overview, paper explanations) ───────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+# Tried in order. A model Groq reports as retired or rate-limited is benched and
+# the next one answers, so one deprecation can no longer switch off every LLM
+# feature at once: llama-3.3-70b-versatile, the single hard-coded model until
+# 2026-10, was shut down by Groq on 2026-08-16 and all three features failed
+# silently for seven weeks.
+#
+# Order measured with scripts/eval_groq_models.py on 2026-10-04 (production
+# prompts, 16 rewrites / 4 overviews / 8 explanations per model):
+#
+#   model                rewrite p50/p95   overview p50   explain p50
+#   qwen/qwen3.8-27b       114 / 125 ms        439 ms        367 ms
+#   openai/gpt-oss-20b     453 / 559 ms        441 ms        534 ms
+#   openai/gpt-oss-120b    487 / 737 ms        851 ms        836 ms
+#
+# The rewrite overlaps the 285-642 ms BGE-M3 encode, so only Qwen reliably
+# finishes inside it. Read side by side, Qwen's overviews also introduced
+# the fewest details absent from the papers ("~0.1 %-0.01 %", "Chinchilla"
+# came from gpt-oss-120b).
+#
+# The catch: Groq labels Qwen 3.8 a *Preview* model that "may be discontinued
+# at short notice", and the Qwen line on Groq turned over twice between July
+# and September 2026. That risk is what the chain absorbs: when it goes,
+# requests fall through to the two production gpt-oss models within one call,
+# and the keepalive workflow fails because the primary is gone. Fixing that
+# needs no deploy -- set GROQ_MODELS as a Space variable.
+GROQ_MODELS = [
+    m.strip() for m in os.getenv(
+        "GROQ_MODELS",
+        "qwen/qwen3.8-27b,openai/gpt-oss-20b,openai/gpt-oss-120b",
+    ).split(",") if m.strip()
+]
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")

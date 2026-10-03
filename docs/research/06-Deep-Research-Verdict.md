@@ -480,3 +480,23 @@ so these rest on the replay and on the invariants, not on an offline metric.
 (zero for every paper since 2025-06) and ingest papers after 2026-07-30, or
 Tier 0's fresh lane has no quality signal. Build a small judged set before
 tuning further; multi-medoid retrieval for loose clusters is deferred until then.
+
+### 2026-10-04 — Groq models are an ordered, monitored failover chain
+**Decision:** `groq_svc` no longer names a model. It walks `GROQ_MODELS`
+(default `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`),
+benching a model Groq reports as retired (1 h) or rate-limited (Retry-After).
+Output cut off at the token cap is never served as if complete. `/healthz/deep`
+reports model availability as `services.llm`, and the keepalive workflow fails
+once the primary model is gone, even while a fallback answers.
+**Supersedes:** the single hard-coded `llama-3.3-70b-versatile` (PHASE3 doc,
+historical).
+**Rationale:** Groq shut Llama 3.3 70B down on 2026-08-16. Query rewrite, the
+search overview and explanations all degrade silently by design, so they were
+off for seven weeks with no symptom. Qwen 3.8 leads on measured latency (rewrite
+p50 114 ms vs ~450–490 ms for gpt-oss, inside the 285–642 ms encode it overlaps)
+and on grounding read side by side, despite Groq's Preview label. The chain and
+the alert are what make a Preview primary acceptable.
+**Action items:** Done in code. Re-run `scripts/eval_groq_models.py` whenever
+Groq announces a deprecation. Pending: `_looks_academic` matches every word as an
+"acronym" under IGNORECASE, so queries of more than 6 words are never rewritten.
+That is a search-behaviour change, so it is left for a separate decision.

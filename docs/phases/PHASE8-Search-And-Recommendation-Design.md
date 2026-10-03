@@ -46,7 +46,7 @@ query
 
 | # | Stage | Constants | Measured |
 |---|---|---|---|
-| 1 | Groq rewrite | `groq_svc.rewrite`, skipped if ≤2 words or `_looks_academic` | 161–329 ms, **overlapped** |
+| 1 | Groq rewrite | `groq_svc.rewrite`, skipped if ≤2 words or `_looks_academic`; model chain `GROQ_MODELS`, a truncated answer is discarded | 161–329 ms on Llama 3.3 (retired 2026-08-16); ~115 ms p50 on `qwen/qwen3.8-27b` (2026-10-04), **overlapped** |
 | 2 | BGE-M3 encode | `max_length=512`, LRU 128, `run_in_executor` | 285–642 ms |
 | 3a | Qdrant dense | `limit = 10 × SEARCH_FETCH_K_MULTIPLIER(6) = 60` | **~190 ms** |
 | 3b | Zilliz sparse | same limit | ~network |
