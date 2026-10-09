@@ -1,0 +1,3 @@
+{"id": "siddhm11/researchit-embed-bakeoff", "title": "researchit-embed-bakeoff", "code_file": "encode.py",
+ "language": "python", "kernel_type": "script", "is_private": true, "enable_gpu": true, "enable_internet": true,
+ "dataset_sources": ["siddhm11/researchit-embedeval-texts"], "competition_sources": [], "kernel_sources": []}
