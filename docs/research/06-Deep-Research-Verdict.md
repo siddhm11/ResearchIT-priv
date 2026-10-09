@@ -528,3 +528,39 @@ Step 2 of the upgrade plan (similarity rescaling) was measured but not shipped:
 as written it cuts the share of last-12-month papers in the top 10 from 43% to
 10%, so the recency weight needs a product decision first
 (`scripts/embedding_eval/step2_tradeoff.py`).
+
+### 2026-10-09 — Personalised scoring: rescaled similarities, recency weight 0.45
+**Decision:** In `heuristic_score`, readers with a profile get their long- and
+short-term similarities rescaled across the candidate set (as the cold-start
+branch already did with the Qdrant cosine), and recency is weighted 0.45
+instead of 0.15. The cold-start branch keeps 0.15. Chosen by the project owner
+as option C of a measured relevance/freshness frontier.
+**Supersedes:** the CLAUDE.md §3.4 weight budget `0.40*lt + 0.25*st + 0.15*recency
++ 0.10*position - 0.15*neg` for the personalised branch (updated there).
+**Rationale:** Raw profile similarities barely vary across a reader's candidates
+(weighted spreads: 0.006 long-term, 0.005 short-term, against 0.026 recency and
+0.012 position), so recency and position decided the order. Rescaling alone
+lifted the held-out right answer's top-10 rate from 55% to 74% but cut
+last-12-month papers in the top 10 from 43% to 10% (they are 6% of the candidate
+pool: today's freshness came from promoting less relevant new papers). The
+frontier (`scripts/embedding_eval/step2_tradeoff.py`, 272 simulated readers +
+526 real readers' Scholar Inbox votes):
+
+| Variant | Top-10 hit | Recent in top 10 | Real-reader AUC |
+|---|---|---|---|
+| Old formula | 55.1% | 43.0% | 0.684 |
+| Rescaled, recency 0.15 | 73.5% | 9.8% | 0.715 |
+| Rescaled, recency 0.30 | 72.4% | 17.9% | 0.712 |
+| **Rescaled, recency 0.45 (chosen)** | **68.4%** | **28.3%** | **0.703** |
+| Rescaled, recency 0.60 | 66.9% | 35.2% | 0.692 |
+
+The chosen variant's AUC gain is +0.019 (95% CI +0.011 to +0.027; 251 readers
+better, 185 worse). More recency weight does not find relevant new papers: the
+hit rate for newer right answers stays ~60% in every variant. Two independent
+scripts reproduce the reference numbers to the last digit, and the installed
+code matches the reference at pool sizes 30, 60 and 100 (top 10 identical for
+769 of 770 reader-pools; the one difference is a 1.5e-6 score tie).
+**Action items:** Done in `app/recommend/reranker.py` with tests. The negative
+penalty is still on the raw cosine scale; measure before rescaling it. The
+freshness numbers come from readers built from random corpus papers; re-run
+`step2_tradeoff.py` on real ResearchIT readers once impression logs allow.

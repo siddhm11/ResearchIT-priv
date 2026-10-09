@@ -418,6 +418,12 @@ def _unit_spread(x: np.ndarray) -> np.ndarray:
     return (x - lo) / (hi - lo)
 
 
+# Recency weights in heuristic_score. Different per branch on purpose; see the
+# comment above the relevance term for the measurements behind each.
+PERSONALISED_RECENCY_WEIGHT = 0.45
+COLD_START_RECENCY_WEIGHT = 0.15
+
+
 def heuristic_score(features: np.ndarray) -> np.ndarray:
     """
     Hand-tuned scoring function.  Used before LightGBM model is available
@@ -454,13 +460,34 @@ def heuristic_score(features: np.ndarray) -> np.ndarray:
     # monotonic.
     #
     # This is the cold-start path, so it is exactly what a brand-new user gets.
+    #
+    # The personalised branch has the same problem and gets the same fix. Its
+    # raw profile similarities barely vary across a reader's candidates, so
+    # recency and position decided the order. Measured on 272 simulated readers
+    # (~100 candidates each), the spread of each weighted term was 0.006 for
+    # 0.40*long-term, 0.005 for 0.25*short-term, 0.026 for 0.15*recency and
+    # 0.012 for 0.10*position. Rescaling put relevance back in charge, but with
+    # recency still at 0.15 the share of last-12-month papers in the top 10 fell
+    # from 43% to 10%. Today's feed was buying that freshness by promoting less
+    # relevant new papers: only 6% of the candidate pool is that recent.
+    #
+    # So the personalised branch rescales the similarities AND weights recency
+    # at 0.45. That was option C of a measured frontier, chosen by the project
+    # owner (doc 06 changelog, 2026-10-09). Against the old formula, on the same
+    # readers: held-out right answer in the top 10 55.1% -> 68.4%; recent share
+    # of the top 10 43% -> 28%; on 526 real readers' votes, AUC 0.684 -> 0.703.
+    # The cold-start branch keeps 0.15: this frontier did not test it.
+    # scripts/embedding_eval/step2_tradeoff.py and validate_steps.py reproduce
+    # these numbers.
     has_ewma = np.any(lt_sim != 0)
     if has_ewma:
-        relevance = 0.40 * lt_sim + 0.25 * st_sim
+        relevance = 0.40 * _unit_spread(lt_sim) + 0.25 * _unit_spread(st_sim)
+        recency_weight = PERSONALISED_RECENCY_WEIGHT
     else:
         relevance = 0.65 * _unit_spread(qdrant_cosine)
+        recency_weight = COLD_START_RECENCY_WEIGHT
 
-    # Recency: exponential decay with ~365-day half-life
+    # Recency: exp(-0.002 * age_days), a ~347-day half-life
     recency = features[:, 6]  # candidate_recency_score (pre-computed)
 
     # Position confidence: inverse of rank position
@@ -471,7 +498,7 @@ def heuristic_score(features: np.ndarray) -> np.ndarray:
 
     scores = (
         relevance
-        + 0.15 * recency
+        + recency_weight * recency
         + 0.10 * position_inv
         - 0.15 * neg_penalty
     )

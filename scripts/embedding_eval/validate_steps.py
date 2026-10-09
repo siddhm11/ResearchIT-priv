@@ -85,16 +85,26 @@ def main() -> None:
             return rec_upd(aid, now)
         return np.exp(-0.002 * max(0.0, days(now, p)))
 
+    def frozen_heuristic(F, rescale, rec_weight):
+        """heuristic_score as it was on origin/main (b2aea4b), with the two knobs
+        under test exposed. Frozen here so the reference never depends on the
+        code being checked, even in installed mode."""
+        lt, st, neg, q = F[:, 20], F[:, 21], F[:, 22], F[:, 0]
+        if np.any(lt != 0):
+            relevance = (0.40 * _unit_spread(lt) + 0.25 * _unit_spread(st)) if rescale else (0.40 * lt + 0.25 * st)
+        else:
+            relevance = 0.65 * _unit_spread(q)
+        return relevance + rec_weight * F[:, 6] + 0.10 * F[:, 35] - 0.15 * np.clip(neg, 0.0, None)
+
     def variants(F, rec_u, rec_p):
-        """Scores for today / step2 / step3 / steps 2+3 from one feature matrix."""
+        """Reference scores for today / step2 / step3 / steps 2+3 / option C."""
         out = {}
-        for name, resc, rec in (("today", False, rec_u), ("step2", True, rec_u),
-                                ("step3", False, rec_p), ("steps2+3", True, rec_p)):
+        for name, resc, rec, w in (("today", False, rec_u, 0.15), ("step2", True, rec_u, 0.15),
+                                   ("step3", False, rec_p, 0.15), ("steps2+3", True, rec_p, 0.15),
+                                   ("optionC", True, rec_p, 0.45)):
             G = F.copy()
             G[:, 6] = rec
-            if resc and MODE == "reference":
-                G[:, 20], G[:, 21] = _unit_spread(F[:, 20]), _unit_spread(F[:, 21])
-            out[name] = heuristic_score(G)
+            out[name] = frozen_heuristic(G, resc, w)
         return out
 
     res = {"mode": MODE, "reranker_file": reranker.__file__}
@@ -104,9 +114,10 @@ def main() -> None:
     # search); the top-100 list is cached, so pools 30 and 60 are its prefixes.
     import pickle
     pools = pickle.loads((CACHE / "validate_pools.pkl").read_bytes())
-    per = {pool: {v: [] for v in ("today", "step2", "step3", "steps2+3")} for pool in POOLS}
-    by_kind = {k: {v: [] for v in ("today", "step2", "step3", "steps2+3")} for k in ("cites", "cited_by")}
-    fresh = {v: [] for v in ("today", "step2", "step3", "steps2+3")}
+    VARS = ("today", "step2", "step3", "steps2+3", "optionC")
+    per = {pool: {v: [] for v in VARS} for pool in POOLS}
+    by_kind = {k: {v: [] for v in VARS} for k in ("cites", "cited_by")}
+    fresh = {v: [] for v in VARS + (("installed",) if MODE == "installed" else ())}
     agree_top10: list[float] = []
     users = len(pools)
     for p in pools:
@@ -150,7 +161,7 @@ def main() -> None:
                         kt = np.array([i in held and i in members for i in ids])
                         if kt.any():
                             rk = np.where(kt[order])[0][0]
-                            by_kind[kind][v].append(float(rk < 10))
+                            by_kind[kind].setdefault(v, []).append(float(rk < 10))
     lengths = {pool: {v: len(x) for v, x in d.items()} for pool, d in per.items()}
     assert all(len(set(d.values())) == 1 for d in lengths.values()), lengths
     rng = np.random.default_rng(SEED)
@@ -191,7 +202,7 @@ def main() -> None:
     sub = ratings[ratings.user_id.isin(users_r)].sort_values(["user_id", "time"])
     vec = asyncio.run(stored(sorted(sub.arxiv_id.unique())))
     from sklearn.metrics import roc_auc_score
-    auc = {v: [] for v in ("today", "step2", "step3", "steps2+3")}
+    auc = {v: [] for v in ("today", "step2", "step3", "steps2+3", "optionC")}
     for u in users_r:
         r = sub[(sub.user_id == u) & sub.arxiv_id.isin(vec)]
         cut = int(len(r) * 0.7)
