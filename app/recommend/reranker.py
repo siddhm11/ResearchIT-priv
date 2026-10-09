@@ -24,7 +24,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app import config
+from app import config, local_meta
 
 
 # ── LightGBM model loading (graceful fallback) ──────────────────────────────
@@ -138,6 +138,33 @@ def _parse_year(date_str: str) -> int:
         return int(date_str[:4])
     except (ValueError, TypeError, IndexError):
         return 2020
+
+
+def _publication_date(meta: dict) -> str:
+    """When a paper first appeared, as YYYY-MM-DD, for every age feature.
+
+    The `published` field of a sidecar/Turso paper dict is `update_date`, the
+    date of the paper's LATEST arXiv version (turso_svc._to_paper_dict). Ageing
+    from it makes a revised classic look new: "Attention Is All You Need"
+    (2017) carries 2023-08-03, so it collected a recency score of 0.098
+    instead of 0.001 and a fresh-paper boost it never earned. At least 69,399
+    papers first posted 2007-2022 carry a 2023-or-later revision date.
+
+    The arXiv ID encodes the month of first submission
+    (local_meta.pub_year_month, already used for trending), so age is measured
+    from there, taking the 15th as the midpoint of the month. The metadata
+    date is only the fallback for IDs that do not parse.
+
+    Measured before shipping (scripts/embedding_eval/validate_steps.py): on 272
+    simulated readers the held-out right answer reached the top 10 for 3.3
+    points more readers (95% CI +1.5 to +5.5; 9 better, 0 worse), with no
+    change in how many recent papers reach the top 10. On 526 real readers'
+    votes it was neutral (-0.002 AUC, CI spans zero).
+    """
+    ym = local_meta.pub_year_month(str(meta.get("arxiv_id") or ""))
+    if ym is not None:
+        return f"{ym[0]:04d}-{ym[1]:02d}-15"
+    return meta.get("published", "") or meta.get("update_date", "") or ""
 
 
 def _parse_age_days(date_str: str) -> int:
@@ -285,7 +312,7 @@ def compute_features(
         features[i, 4] = float(inf_cit)
 
         # 5: candidate_age_days
-        pub_str = meta.get("published", "") or meta.get("update_date", "") or ""
+        pub_str = _publication_date(meta)
         cand_age = _parse_age_days(pub_str)
         features[i, 5] = float(cand_age)
 

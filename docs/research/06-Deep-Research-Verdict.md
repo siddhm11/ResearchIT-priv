@@ -500,3 +500,31 @@ the alert are what make a Preview primary acceptable.
 Groq announces a deprecation. Pending: `_looks_academic` matches every word as an
 "acronym" under IGNORECASE, so queries of more than 6 words are never rewritten.
 That is a search-behaviour change, so it is left for a separate decision.
+
+### 2026-10-09 — Paper age is measured from first publication, not last revision
+**Decision:** Every age-derived reranker feature (5 age, 6 recency, 9 year
+difference, 13 is-newer, 17 citations per year) is computed from the month of
+first submission, decoded from the arXiv ID (`local_meta.pub_year_month`, mid-
+month). The metadata date is only the fallback for IDs that do not parse.
+**Supersedes:** ageing from `published`, which `turso_svc._to_paper_dict` fills
+with `update_date`, the date of the paper's latest arXiv version. The Phase 6
+handoff already documented feature 5 as "days since publication"; the source
+was wrong, not the intent.
+**Rationale:** Revised classics were scored as new papers: "Attention Is All You
+Need" (2017, revised 2023-08-03) collected recency 0.098 instead of 0.001. At
+least 69,399 papers first posted 2007–2022 carry a 2023-or-later revision date.
+Measured before shipping (`scripts/embedding_eval/validate_steps.py`, 272
+simulated readers built from citation links): held-out right answers reached the
+top 10 for 3.3 points more readers (95% CI +1.5 to +5.5; 9 better, 0 worse), and
+the share of recent papers in the top 10 did not fall (43.0% → 43.8%). On 526
+real readers' votes (Scholar Inbox ratings) it was neutral (−0.002 AUC, CI spans
+zero). After implementation the installed code reproduced the reference top 10
+for 100% of readers at pool sizes 30, 60 and 100.
+**Action items:** Done in `app/recommend/reranker.py` with tests. LightGBM mode
+(off by default) now receives the corrected age inputs. The model was trained on
+the old source, so re-check it before switching `RERANKER_MODE`. Card display
+(`year` in `turso_svc`) still shows the revision year; that is a separate UI fix.
+Step 2 of the upgrade plan (similarity rescaling) was measured but not shipped:
+as written it cuts the share of last-12-month papers in the top 10 from 43% to
+10%, so the recency weight needs a product decision first
+(`scripts/embedding_eval/step2_tradeoff.py`).
