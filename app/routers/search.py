@@ -82,9 +82,13 @@ async def search(
     user_id = user_id or str(uuid.uuid4())
     # Phase 6.5 B1: one query_id per search request for per-feed CTR
     query_id = str(uuid.uuid4())
+    # Labels come from the durable decision log, not the hot deques: those keep
+    # only the newest 20 saves / 50 dismissals for retrieval, so an older saved
+    # paper rendered with a live Save button and invited a duplicate save.
     state = await us.ensure_loaded(user_id)
-    saved_ids = set(state.positive_list)
-    dismissed_ids = set(state.negative_list)
+    feedback = await db.get_current_feedback(user_id)
+    saved_ids = {r["paper_id"] for r in feedback if r["event_type"] == "save"}
+    dismissed_ids = {r["paper_id"] for r in feedback if r["event_type"] == "not_interested"}
 
     for idx, p in enumerate(papers):
         p["saved"] = p["arxiv_id"] in saved_ids
