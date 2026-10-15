@@ -2,16 +2,20 @@
 Cross-Encoder Reranker service singleton.
 
 Responsibilities:
-  - Load cross-encoder/ms-marco-MiniLM-L-6-v2 once (lazily or eagerly via get_reranker())
+  - Load config.RERANKER_MODEL once (lazily or eagerly via get_reranker())
   - rerank(query, papers) -> (sorted_papers, compute_time_ms)
   - CPU float32, graceful fallback if model loading or computation fails
   - Thread-safe (model is read-only after load)
 
 Model notes:
-  - MiniLM-L-6 is a 22M-param cross-encoder (~20x lighter than bge-reranker-v2-m3)
-  - Achieves ~200-400ms for 10 pairs on CPU (vs ~7s for BGE-reranker)
-  - Trained on MS MARCO passage ranking — generalizes well to academic search
-  - Scores are logits: higher = more relevant (no sigmoid needed for ranking)
+  - Default mixedbread-ai/mxbai-rerank-xsmall-v1 (70M, DeBERTa-v3), read at
+    RERANKER_MAX_LENGTH=256 tokens. Previously ms-marco-MiniLM-L-6-v2 (22M).
+  - Scores are always returned as raw LOGITS. Some cross-encoders (mxbai,
+    gte-reranker) ship a Sigmoid activation and return probabilities; the
+    search pipeline applies its own sigmoid, and a second one squeezes every
+    score into ~0.5-0.73, where the title/citation boosts overwhelm the
+    reranker. Measured: with the double sigmoid mxbai looked WORSE than
+    MiniLM. predict(activation_fn=Identity) gives logits for every model.
 """
 from __future__ import annotations
 
@@ -43,13 +47,26 @@ def get_reranker():
 
         print(f"[reranker_svc] Loading {config.RERANKER_MODEL} on {config.BGE_M3_DEVICE}...")
 
+        from app import compute_pool
+        compute_pool.configure_torch()
         _reranker = CrossEncoder(
             config.RERANKER_MODEL,
-            max_length=512,
+            max_length=config.RERANKER_MAX_LENGTH,
             device=config.BGE_M3_DEVICE,
+            revision=config.RERANKER_REVISION,
         )
         print("[reranker_svc] Cross-encoder reranker model loaded successfully")
         return _reranker
+
+
+def _identity():
+    """Identity activation, so predict() returns logits. None without torch,
+    which only happens where no cross-encoder can be loaded anyway."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch.nn.Identity()
 
 
 def rerank(
@@ -90,8 +107,11 @@ def rerank(
             doc_text = f"Title: {title}\nAbstract: {abstract}"
             pairs.append([query, doc_text])
 
-        # Inference — CrossEncoder.predict() returns numpy array of scores
-        scores = model.predict(pairs, show_progress_bar=False)
+        # Inference — CrossEncoder.predict() returns numpy array of scores.
+        # Identity activation: logits for every model (see module docstring).
+        scores = model.predict(pairs, show_progress_bar=False,
+                               batch_size=max(1, len(pairs)),
+                               activation_fn=_identity())
 
         # Normalize to list of floats
         if hasattr(scores, 'tolist'):

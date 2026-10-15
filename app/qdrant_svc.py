@@ -258,9 +258,10 @@ async def _in_executor(fn, *args):
     its default inside the worker and /healthz/ab would silently compare a
     against a. Copying the context explicitly carries the selection across.
     """
-    loop = asyncio.get_event_loop()
-    ctx = contextvars.copy_context()
-    return await loop.run_in_executor(None, lambda: ctx.run(fn, *args))
+    # Dedicated io pool: a feed load issues up to ~24 of these at once, and on
+    # the shared default executor they starved encoding and reranking.
+    from app import compute_pool
+    return await compute_pool.run_io(fn, *args)
 
 
 # ── Client (sync, thread-safe, reused across requests) ───────────────────────

@@ -10,6 +10,8 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import os
+
 import threading
 from functools import lru_cache
 
@@ -21,6 +23,26 @@ from app import config
 
 _model = None
 _model_lock = threading.Lock()
+
+
+def model_path() -> str:
+    """Local snapshot of the pinned BGE-M3 revision.
+
+    FlagEmbedding downloads whatever the repo's latest commit is when given a
+    repo id, and takes no revision. Resolving the pinned snapshot here and
+    passing its path keeps the query encoder on the weights that encoded the
+    corpus. The Docker image bakes this snapshot in, so the local lookup hits.
+    """
+    name, rev = config.BGE_M3_MODEL, config.BGE_M3_REVISION
+    if not rev or os.path.exists(name):
+        return name
+    from huggingface_hub import snapshot_download
+    kw = dict(repo_id=name, revision=rev, cache_dir=os.getenv("HF_HUB_CACHE"),
+              ignore_patterns=["flax_model.msgpack", "rust_model.ot", "tf_model.h5"])
+    try:
+        return snapshot_download(local_files_only=True, **kw)
+    except (FileNotFoundError, ValueError):   # LocalEntryNotFoundError is both
+        return snapshot_download(**kw)
 
 
 def get_model():
@@ -39,6 +61,8 @@ def get_model():
         if _model is not None:
             return _model
 
+        from app import compute_pool
+        compute_pool.configure_torch()
         from FlagEmbedding import BGEM3FlagModel
 
         print(f"[embed_svc] Loading {config.BGE_M3_MODEL} on {config.BGE_M3_DEVICE}...")
@@ -46,7 +70,7 @@ def get_model():
         # use_fp16=False on CPU (fp16 requires CUDA)
         use_fp16 = config.BGE_M3_DEVICE != "cpu"
         _model = BGEM3FlagModel(
-            config.BGE_M3_MODEL,
+            model_path(),
             use_fp16=use_fp16,
             device=config.BGE_M3_DEVICE,
         )
