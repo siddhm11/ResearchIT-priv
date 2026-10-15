@@ -140,3 +140,27 @@ YouTube is a later comprehension feature: verified paper-to-video links using
 arXiv IDs/DOIs in descriptions, explicit provenance, creator/title/date, and
 user choice. Do not equate video popularity with paper quality or infer paper
 claims from an unverified video match. No YouTube integration is built here.
+
+## Parked for later: a second embedding index (requested 2026-10-09)
+
+Idea (from the project owner): embed the corpus once more with a scientific,
+citation-trained model (SPECTER2 is the current lead) and keep it in a vector
+store next to BGE-M3, so each paper has two representations and the feed can
+use the better one, or a mix, at each step. Not scheduled; recorded so it is
+not lost.
+
+What is already measured (`scripts/embedding_eval/`, results in
+`reports/embedding_eval/`): on 167 real readers' votes (Scholar Inbox ratings,
+time split), today's profile scoring separates liked from disliked papers with
+AUC 0.717 on BGE-M3 and 0.773 on SPECTER2 (+0.056, 95% CI +0.036 to +0.074).
+SPECTER2 also halves keyword-lookalike errors on citation-labelled pairs (12.0%
+to 6.2%). `model_bakeoff.py` compares BGE-M3, SPECTER2, SciNCL, GTE-large and
+MiniLM, and mixes of them, per pipeline step.
+
+Open questions before building: Qdrant free-tier disk (a 768-dim float16 index
+for 1.85M papers is roughly the size of today's BGE-M3 shards); whether the
+second vector is needed for retrieval or only for ranking (ranking-only fits
+in a compact sidecar column); keeping it fresh for new papers (how
+quickly Semantic Scholar publishes vectors for new arXiv papers is measured by
+the bake-off's freshness test; local encoding runs ~8 papers/s on 2 CPU
+threads); and a doc 06 decision, since it adds a model to the pipeline.

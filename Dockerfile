@@ -36,9 +36,14 @@ RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Pre-download models into the image (baked in, no cold-start download)
 # BGE-M3 for dense+sparse embeddings (~2.2GB)
-RUN python -c "from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel('BAAI/bge-m3', use_fp16=False)"
-# MiniLM cross-encoder for search reranking (~80MB)
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+# Pinned to the commit the corpus vectors were made with (config.BGE_M3_PINS; a test checks they agree).
+RUN python -c "from huggingface_hub import snapshot_download; from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel(snapshot_download('BAAI/bge-m3', revision='5617a9f61b028005a4858fdac845db406aefb181', ignore_patterns=['flax_model.msgpack', 'rust_model.ot', 'tf_model.h5']), use_fp16=False)"
+# Search cross-encoders. mxbai-rerank-xsmall (~150MB on disk) is config.RERANKER_MODEL
+# (tests/test_search_speed.py fails if the two disagree, so a model change cannot
+# silently become a first-request download). MiniLM (~80MB) stays baked in so
+# RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 rolls back without a rebuild.
+# Revisions are pinned (config.RERANKER_PINS) so a rebuild bakes in exactly the evaluated weights.
+RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('mixedbread-ai/mxbai-rerank-xsmall-v1', revision='b5c6e9da73abc3711f593f705371cdbe9e0fe422'); CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2', revision='233902d25c440f23af6f7d6e94d2946bac0bee0a')"
 
 # ── Metadata sidecar (optional but strongly recommended) ─────────────────────
 # A local SQLite mirror of the Turso `papers` table, built by

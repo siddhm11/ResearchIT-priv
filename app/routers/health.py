@@ -5,6 +5,7 @@ Endpoints:
   /healthz/reranker  -- Phase 6.3: verify LightGBM model deployment status
   /healthz/deep      -- Deep health check: ping search and map Qdrant, Zilliz, Turso
   /healthz/client    -- what the rate limiter derives for the calling client
+  /healthz/runtime   -- memory, CPUs, thread pools, recent search/feed timings
 """
 import asyncio
 import hashlib
@@ -46,6 +47,24 @@ async def healthz_client(request: Request):
             "socket_peer": request.client.host if request.client else None,
         },
         "rate_limit": rate_limit.stats(),
+    }
+
+
+@router.get("/healthz/runtime")
+async def healthz_runtime():
+    """What the live process is using and how long its requests take.
+
+    `timings` holds p50/p95/max per stage over the last 200 searches and feed
+    builds since the last restart. Search stage times overlap (the rewrite runs
+    alongside encoding and retrieval), so they do not sum to `total_ms`.
+    """
+    from app import compute_pool, runtime_stats
+    return {
+        "memory": runtime_stats.memory(),
+        "cpu": compute_pool.stats(),
+        "models": runtime_stats.models(),
+        "vector_cache": qdrant_svc.vector_cache_stats(),
+        "timings": runtime_stats.timings(),
     }
 
 

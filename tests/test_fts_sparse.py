@@ -127,3 +127,34 @@ def test_stats_reports_index_size(sidecar):
     s = fts_svc.stats()
     assert s["available"] is True
     assert s["indexed"] == 3
+
+
+def test_filler_words_are_not_matched(sidecar):
+    """Filler words would turn the OR fallback into a scan of most of the corpus."""
+    assert fts_svc._terms("how do diffusion transformers handle video") == [
+        "diffusion", "transformers", "handle", "video"]
+    out = run("what are the papers about diffusion video")
+    assert [r["arxiv_id"] for r in out][:1] == ["2506.00001"]
+
+
+def test_all_filler_query_still_searches(sidecar):
+    assert fts_svc._terms("what is it") == ["what", "is", "it"]
+
+
+def test_over_budget_search_returns_nothing_instead_of_waiting(sidecar, monkeypatch):
+    """A late lexical list blocks the whole search; a missing one only costs RRF
+    one input. Past the budget the arm must give up, not finish."""
+    monkeypatch.setattr(config, "SEARCH_FTS_BUDGET_MS", -1)
+    monkeypatch.setattr(fts_svc, "_PROGRESS_STEPS", 1)
+    assert run("diffusion transformer video") == []
+
+
+def test_budget_handler_is_cleared_after_search(sidecar, monkeypatch):
+    """The per-thread connection is shared with metadata reads, which must not
+    inherit an expired deadline."""
+    monkeypatch.setattr(fts_svc, "_PROGRESS_STEPS", 1)
+    assert fts_svc._probe()
+    assert fts_svc._search_sync("diffusion transformer video", 10)   # same thread, same handle
+    monkeypatch.setattr(fts_svc.time, "monotonic", lambda: 1e18)     # any old deadline is now past
+    conn = local_meta.connection()
+    assert conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0] == 3

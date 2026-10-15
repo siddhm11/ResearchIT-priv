@@ -23,6 +23,8 @@ from __future__ import annotations
 import asyncio
 import re
 
+from app import compute_pool
+from app import runtime_stats
 from app import config
 from app import embed_svc
 from app import qdrant_svc
@@ -63,9 +65,9 @@ async def search(
         return ([], {}) if return_meta else []
 
     import time
+    t_start = time.perf_counter()
     search_meta = {"rewritten_query": None, "groq_time_ms": 0, "groq_status": "off"}
 
-    loop = asyncio.get_running_loop()
 
     # ── Step 1: LLM rewrite — started now, collected after the first encode ──
     #
@@ -94,17 +96,55 @@ async def search(
     # blocks the event loop for that whole time, which serialises every
     # concurrent request and would also stop the rewrite task above from making
     # progress. It belongs in an executor, as the cross-encoder stage already is.
-    t0_encode = time.perf_counter()
+    use_fts = config.SPARSE_BACKEND == "fts" and fts_svc.is_available()
+    search_meta["sparse_backend"] = "fts5" if use_fts else "zilliz"
+    # How many candidates to fetch before reranking
+    fetch_k = limit * config.SEARCH_FETCH_K_MULTIPLIER
+
+    # Retrieval for each query form starts the moment that form is ready.
+    # Before 2026-10-14 every list waited for the Groq rewrite to come back,
+    # so the rewrite's ~150-300 ms sat on the critical path of every search,
+    # including the majority it leaves unchanged (prod: "encode" time equalled
+    # "rewrite" time to the millisecond on 9 of 14 timed searches). The lists
+    # and the fusion are identical; only the waiting moved.
+    tasks: list[asyncio.Task] = []
+    task_labels: list[str] = []
+    t0_retrieval = time.perf_counter()
+
+    def start_lexical(i: int, text: str) -> None:
+        # Keyword retrieval does not require an embedding model. Keep it
+        # alive even if one or every encode failed.
+        if use_fts:
+            tasks.append(asyncio.create_task(fts_svc.search_sparse(text, limit=fetch_k)))
+            task_labels.append(f"fts_q{i}")
+
+    def start_vector(i: int, pair: tuple) -> None:
+        dense_vec, sparse_dict = pair
+        tasks.append(asyncio.create_task(
+            qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k)))
+        task_labels.append(f"qdrant_q{i}")
+        if not use_fts:
+            tasks.append(asyncio.create_task(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k)))
+            task_labels.append(f"zilliz_q{i}")
+
+    # BM25 needs only the text, so it runs alongside the encode.
+    start_lexical(0, query)
+
     # Key encodings by their actual text; partial failures cannot misalign a
     # rewrite's vector with the original query's lexical results.
+    t0_encode = time.perf_counter()
+    encode_ms = 0
     encoded: dict[str, tuple] = {}
     try:
-        d, s = await loop.run_in_executor(None, embed_svc.encode_query, query)
+        d, s = await compute_pool.run_inference(embed_svc.encode_query, query)
         encoded[query] = (d, s)
+        start_vector(0, encoded[query])
     except Exception as e:
         print(f"[hybrid_search] Encoding failed for {query!r}: {e}")
+    encode_ms += int((time.perf_counter() - t0_encode) * 1000)
 
-    # Collect the rewrite, which has been running throughout the encode above.
+    # Collect the rewrite, which has been running throughout the encode above
+    # and now overlaps the original query's retrieval too.
     rewritten_query = query
     if rewrite_task is not None:
         try:
@@ -125,48 +165,22 @@ async def search(
             rewritten_query = query  # Fallback guaranteed
             search_meta["groq_status"] = "error (fallback)"
     search_meta["groq_time_ms"] = int((time.perf_counter() - start_groq) * 1000)
-    # groq_time_ms now OVERLAPS encode_time_ms rather than preceding it, so the
-    # stage timings must not be summed to reconstruct the total.
+    # groq_time_ms OVERLAPS encode_time_ms and retrieval_time_ms, so the stage
+    # timings must not be summed to reconstruct the total.
     search_meta["groq_overlapped"] = True
 
     if rewritten_query != query:
+        start_lexical(1, rewritten_query)
+        t1 = time.perf_counter()
         try:
-            d, s = await loop.run_in_executor(
-                None, embed_svc.encode_query, rewritten_query)
+            d, s = await compute_pool.run_inference(embed_svc.encode_query, rewritten_query)
             encoded[rewritten_query] = (d, s)
+            start_vector(1, encoded[rewritten_query])
         except Exception as e:
             print(f"[hybrid_search] Encoding failed for {rewritten_query!r}: {e}")
-    search_meta["encode_time_ms"] = int((time.perf_counter() - t0_encode) * 1000)
-
-    # How many candidates to fetch before reranking
-    fetch_k = limit * config.SEARCH_FETCH_K_MULTIPLIER
-
-    # ── Step 3: Parallel dense + sparse search for every encoded form ───
-    # Build a flat list of search coroutines: [dense_q1, sparse_q1, dense_q2, sparse_q2, ...]
-    t0_retrieval = time.perf_counter()
-    tasks = []
-    task_labels = []
-    query_texts = [query]
-    if rewritten_query != query:
-        query_texts.append(rewritten_query)
-
-    use_fts = config.SPARSE_BACKEND == "fts" and fts_svc.is_available()
-    search_meta["sparse_backend"] = "fts5" if use_fts else "zilliz"
-
-    for i, text in enumerate(query_texts):
-        pair = encoded.get(text)
-        if pair is not None:
-            dense_vec, sparse_dict = pair
-            tasks.append(qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k))
-            task_labels.append(f"qdrant_q{i}")
-        if use_fts:
-            # Keyword retrieval does not require an embedding model. Keep it
-            # alive even if one or every encode failed.
-            tasks.append(fts_svc.search_sparse(text, limit=fetch_k))
-            task_labels.append(f"fts_q{i}")
-        elif pair is not None:
-            tasks.append(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k))
-            task_labels.append(f"zilliz_q{i}")
+        encode_ms += int((time.perf_counter() - t1) * 1000)
+    # Model time only. It used to include the wait for the rewrite.
+    search_meta["encode_time_ms"] = encode_ms
 
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
     search_meta["retrieval_time_ms"] = int((time.perf_counter() - t0_retrieval) * 1000)
@@ -204,7 +218,8 @@ async def search(
     bge_time_ms = 0
 
     if fused and config.SEARCH_BGE_RERANK:
-        top_n = min(len(fused), config.SEARCH_RERANK_TOP_N)
+        top_n = min(len(fused), rerank_depth())
+        search_meta["rerank_depth"] = top_n
         top_candidates = fused[:top_n]
         top_ids = [item["arxiv_id"] for item in top_candidates]
 
@@ -231,14 +246,11 @@ async def search(
                     "abstract": p_meta.get("abstract") or "",
                 })
 
-            # Run BGE Reranker in executor to avoid blocking the async event loop
+            # Cross-encoder on the inference pool, off the event loop.
             from app import reranker_bge_svc
-            loop = asyncio.get_running_loop()
 
-            reranked_papers, bge_time_ms = await loop.run_in_executor(
-                None,
-                lambda: reranker_bge_svc.rerank(query, papers_to_rerank, top_n=top_n)
-            )
+            reranked_papers, bge_time_ms = await compute_pool.run_inference(
+                reranker_bge_svc.rerank, query, papers_to_rerank, top_n)
 
             # Map each cross-encoder logit to a [0, 1] relevance probability.
             # Sigmoid is monotonic, so this preserves the reranker's ordering;
@@ -297,7 +309,22 @@ async def search(
 
     # ── Step 6: Return top results ───────────────────────────────────────
     final_results = [item["arxiv_id"] for item in ranked[:limit]]
+    search_meta["total_ms"] = int((time.perf_counter() - t_start) * 1000)
+    runtime_stats.record("search", search_meta)
     return (final_results, search_meta) if return_meta else final_results
+
+
+def rerank_depth() -> int:
+    """How many fused candidates the cross-encoder scores for this search.
+
+    The deeper idle window when no other inference job is queued or running,
+    otherwise the base window, so a burst of searches does not each pay double
+    reranker time while waiting on one another. Never below the base window.
+    """
+    base = config.SEARCH_RERANK_TOP_N
+    if compute_pool.pending() == 0:
+        return max(base, config.SEARCH_RERANK_TOP_N_IDLE)
+    return base
 
 
 # ── RRF fusion ───────────────────────────────────────────────────────────────

@@ -276,10 +276,52 @@ GROQ_MODELS = [
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 BGE_M3_DEVICE = os.getenv("BGE_M3_DEVICE", "cpu")
+# Exact Hugging Face commit of BGE-M3. The stored corpus vectors were made with
+# these weights; a query encoder that silently picked up new ones would drift
+# away from them with no error anywhere. 5617a9f6 has been the repo's main since
+# 2024-07-03, so pinning it changes nothing about what production runs today.
+# BGE_M3_REVISION overrides; a different BGE_M3_MODEL with no override is unpinned.
+BGE_M3_PINS = {"BAAI/bge-m3": "5617a9f61b028005a4858fdac845db406aefb181"}
+BGE_M3_REVISION = os.getenv("BGE_M3_REVISION", "").strip() or BGE_M3_PINS.get(BGE_M3_MODEL)
 ENCODE_CACHE_SIZE = 128  # LRU cache for encoded queries
 
+# ── Thread pools (app/compute_pool.py) ────────────────────────────────────────
+# 0 = derive from the CPUs the container may use. On the 2-vCPU Space that is
+# one inference worker with torch on 2 threads.
+INFERENCE_WORKERS = int(os.getenv("INFERENCE_WORKERS", "0"))
+INFERENCE_THREADS = int(os.getenv("INFERENCE_THREADS", "0"))
+# Blocking network clients (Qdrant). Threads here wait rather than compute, but
+# the cap still matters: the free Qdrant clusters lose throughput when pushed
+# harder (measured 2026-10-15: 8.8 full 3-shard searches/s at 4 concurrent,
+# 5.0 at 8, 3.8 at 16, with p95 rising from 0.8 s to 8.6 s). 12 threads = 4
+# concurrent fan-outs across 3 shards, the measured sweet spot. Extra calls
+# queue here instead of slowing everyone down inside Qdrant.
+IO_POOL_WORKERS = int(os.getenv("IO_POOL_WORKERS", "12"))
+
 # ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
-RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# mxbai-rerank-xsmall-v1 (70M, Apache-2.0) replaced ms-marco-MiniLM-L-6-v2 on
+# 2026-10-14 (doc 06 changelog). On 847 known-item queries, scored on the text
+# production actually serves (the sidecar's abstract_preview, cut at ~500 chars
+# for ~78% of papers), MRR@10 rose 0.523 -> 0.563 at depth 10 (+7.7%, 95% CI
+# +4% to +11%). With full abstracts the same reranker reaches 0.611 / 0.618 at
+# depth 10 / 20, so most of the remaining gain waits on the abstract backfill
+# (PHASE7 7.3). Set RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 and
+# RERANKER_MAX_LENGTH=512 to roll back without a deploy.
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "mixedbread-ai/mxbai-rerank-xsmall-v1")
+# Tokens of "Title: ...\nAbstract: ..." the cross-encoder reads. 256 holds the
+# title and most of a stored abstract (90% are cut at 500 chars) and is 2.2x
+# faster than 512 at the same MRR; 128 loses most of the gain (0.611 -> ~0.56).
+RERANKER_MAX_LENGTH = int(os.getenv("RERANKER_MAX_LENGTH", "256"))
+
+# Exact Hugging Face commits, so a rebuild cannot pick up a changed model and
+# drift away from what was evaluated. The Dockerfile bakes in these same
+# revisions (tests/test_search_speed.py checks they agree). RERANKER_REVISION
+# overrides; an unknown model with no override loads the repo's latest.
+RERANKER_PINS = {
+    "mixedbread-ai/mxbai-rerank-xsmall-v1": "b5c6e9da73abc3711f593f705371cdbe9e0fe422",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+}
+RERANKER_REVISION = os.getenv("RERANKER_REVISION", "").strip() or RERANKER_PINS.get(RERANKER_MODEL)
 # How deep the cross-encoder reranks. Measured 2026-08-02 against a 60-query
 # known-item eval set on the live Space:
 #
@@ -299,6 +341,14 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 # be returned -- values below ARXIV_MAX_RESULTS would shrink the result page.
 SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "10"))
 
+# Depth used when no other inference job is queued or running. The sweep above
+# was MiniLM's, which got worse with depth. mxbai-rerank-xsmall improves with
+# depth on FULL abstracts (MRR@10 0.611 @10 -> 0.618 @20 -> 0.624 @30) but not
+# on today's truncated ones (0.563 @10 and @20), so the default stays at 10:
+# a deeper window would cost ~2x reranker time for nothing. Raise it to 20 once
+# the abstract backfill lands. Under load search always uses SEARCH_RERANK_TOP_N.
+SEARCH_RERANK_TOP_N_IDLE = int(os.getenv("SEARCH_RERANK_TOP_N_IDLE", "10"))
+
 # Whether to run the cross-encoder at all.
 #
 # It costs ~58% of end-to-end latency, and the depth sweep above shows its
@@ -314,6 +364,12 @@ SEARCH_BGE_RERANK = os.getenv("SEARCH_BGE_RERANK", "1").strip().lower() in (
 # HNSW graph lives: free on a RAM-resident graph, not free on an on-disk one.
 # Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
 SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
+
+# Time budget for one FTS5 lexical search (AND attempt + OR fallback together).
+# Over budget the lexical arm returns nothing and the dense arm answers alone.
+# After filler-word removal the slowest of 847 eval queries took 1.4 s on a
+# contended laptop, so 1.5 s only trips on genuine outliers.
+SEARCH_FTS_BUDGET_MS = int(os.getenv("SEARCH_FTS_BUDGET_MS", "1500"))
 
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator
