@@ -219,3 +219,33 @@ def test_dockerfile_has_no_recursive_chmod_and_skips_onnx():
     assert "COPY --chown=1000:1000 . ." in d
     assert d.count("'onnx/*'") >= 2
     assert not any("BGEM3FlagModel(" in l or "CrossEncoder(" in l for l in lines if l.startswith("RUN"))
+
+
+def test_reranker_scores_short_and_long_pairs_in_separate_batches(monkeypatch):
+    """Padding to the longest text made one full abstract slow down all ten."""
+    batches = []
+
+    def predict(pairs, **kw):
+        batches.append([len(p[1]) for p in pairs])
+        return np.array([float(len(p[1])) for p in pairs])
+
+    monkeypatch.setattr(reranker_bge_svc, "_reranker", types.SimpleNamespace(predict=predict))
+    monkeypatch.setattr(reranker_bge_svc, "_identity", lambda: None)
+    papers = [{"arxiv_id": f"p{i}", "title": "t", "abstract": "x" * (1200 if i in (2, 7) else 400)}
+              for i in range(10)]
+    out, _ = reranker_bge_svc.rerank("q", papers, top_n=10)
+    assert len(batches) == 2
+    assert all(n <= reranker_bge_svc._LONG_PAIR_CHARS for n in batches[0])
+    assert all(n > reranker_bge_svc._LONG_PAIR_CHARS for n in batches[1])
+    # each paper keeps its own score, so the long ones sort first here
+    assert [p["arxiv_id"] for p in out[:2]] == ["p2", "p7"]
+    assert {p["arxiv_id"]: p["bge_rerank_score"] for p in out}["p0"] == float(len("Title: t\nAbstract: " + "x" * 400))
+
+
+def test_reranker_uses_one_batch_when_all_pairs_are_short(monkeypatch):
+    batches = []
+    monkeypatch.setattr(reranker_bge_svc, "_reranker", types.SimpleNamespace(
+        predict=lambda pairs, **kw: (batches.append(len(pairs)), np.zeros(len(pairs)))[1]))
+    monkeypatch.setattr(reranker_bge_svc, "_identity", lambda: None)
+    reranker_bge_svc.rerank("q", [{"arxiv_id": str(i), "title": "t", "abstract": "a"} for i in range(10)], top_n=10)
+    assert batches == [10]
