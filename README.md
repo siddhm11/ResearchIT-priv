@@ -8,7 +8,7 @@ pinned: false
 short_description: A multi-interest arXiv recommender over 1.8M papers
 models:
   - BAAI/bge-m3
-  - cross-encoder/ms-marco-MiniLM-L6-v2
+  - mixedbread-ai/mxbai-rerank-xsmall-v1 (search cross-encoder; MiniLM-L6 kept as rollback)
   - siddhm11/researchit-reranker-phase6
 datasets:
   - siddhm11/researchit-metadata
@@ -39,7 +39,7 @@ Browser: HTMX + Jinja2
           |-- Search: original query + optional Groq rewrite
           |     |-- BGE-M3 -> Qdrant dense shard fanout
           |     |-- FTS5 over local metadata; Zilliz fallback
-          |     `-- RRF -> MiniLM top-10 rerank -> title/citation adjustments
+          |     `-- RRF -> mxbai-xsmall top-10 rerank -> title/citation adjustments
           |
           |-- Discovery: preferences / saved-paper interests
           |     `-- retrieval -> quota + heuristic scoring -> within-cluster MMR
@@ -53,7 +53,7 @@ Browser: HTMX + Jinja2
 **Search:** FTS5 is the preferred lexical backend. It works even when embedding
 generation fails. If the sidecar/FTS index is unavailable, learned sparse retrieval
 uses Zilliz and requires a successful BGE encoding. Original and rewritten query
-forms remain distinct. RRF combines available lists; MiniLM reranks 10 candidates
+forms remain distinct. RRF combines available lists; mxbai-rerank-xsmall reranks 10 candidates
 by default. Search does not apply a general recency boost that buries classic
 papers. The HTTP route can fall back to the arXiv keyword API.
 

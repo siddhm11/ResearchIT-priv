@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-10-09
+> **Last updated**: 2026-10-14
 
 ---
 
@@ -123,7 +123,8 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - The caller in `recommendations.py` passes **all 37 features** including per-candidate cluster importance and medoid distances (Phase 6.1+6.2).
 - The heuristic fallback uses features 0, 6, 20-22, 35.
 - Weight budget (heuristic only), readers with a profile: `0.40 * unit(lt) + 0.25 * unit(st) + 0.45 * recency + 0.10 * position - 0.15 * negative_penalty`, where `unit()` min-max rescales across the candidate set. Cold start (no profile): `0.65 * unit(qdrant_cosine) + 0.15 * recency + 0.10 * position`. Recency is `exp(-0.002 * age)` with age from first publication (arXiv ID), not the revision date. Measured and chosen 2026-10-09 (doc 06 changelog); re-check any change with `scripts/embedding_eval/validate_steps.py` and `step2_tradeoff.py`.
-- **Cross-Encoder Reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) is used in the Search serving path**, for the **top-10 candidates** (configured via `SEARCH_RERANK_TOP_N` in `config.py`). MiniLM-L-6 is a 22M-param model achieving ~200-400ms for 10 pairs on CPU — fast enough for the hot path. Recommendations must not use the Cross-Encoder in the hot path, but keep using the configured heuristic/LightGBM scoring path.
+- **Cross-Encoder Reranker (`mixedbread-ai/mxbai-rerank-xsmall-v1`, 256 tokens) is used in the Search serving path**, over the **top 10 candidates** (`SEARCH_RERANK_TOP_N`; `SEARCH_RERANK_TOP_N_IDLE` deepens it when the inference pool is idle, default also 10 until full abstracts are restored, then 20). It must return **logits** (`activation_fn=Identity`): the pipeline applies its own sigmoid, and a second one lets the title/citation boosts overwhelm it. Replaced MiniLM-L-6 on 2026-10-14: +7.7% MRR@10 on the truncated abstracts production serves, +18% with full abstracts (doc 06 changelog); `RERANKER_MODEL` rolls back without a rebuild. Recommendations must not use the Cross-Encoder in the hot path, but keep using the configured heuristic/LightGBM scoring path.
+- **Model inference and blocking network calls run on separate pools** (`app/compute_pool.py`): `run_inference` for encoders and cross-encoders (sized from usable CPUs, torch threads set to match), `run_io` for sync Qdrant calls. Do not put model calls on the default executor or Qdrant calls on the inference pool. `/healthz/runtime` reports memory, CPUs and stage timings.
 - If a cross-encoder signal is wanted for recommendations: distill BGE-reranker-v2 offline into a TinyBERT-L2 student (FlashRank recipe) and use the student score as a LightGBM feature on top-20. Phase 8.
 - **Model trained on citation pseudo-labels, NOT real user signal.** Features 23-30 were zero during training. Retraining is deferred to Phase 6.4 (100 users or synthetic simulator).
 - Health check: `GET /healthz/reranker` → reports `model_loaded`, `n_trees`, `feature_schema_hash`.
@@ -233,7 +234,7 @@ scripts are starting points for a held-out quality framework.
 **Out of scope until later phases — do not build:**
 - S2/ORCID author import for onboarding (removed — not the direction we want).
 - Collaborative filtering / LightFM (Phase 9, 500+ users).
-- Cross-encoder reranking in the recommendation serving path. Search already uses MiniLM.
+- Cross-encoder reranking in the recommendation serving path. Search already uses mxbai-rerank-xsmall.
 - Claude/Groq-generated cluster summaries (Phase 8).
 - Learned bandit policies. Cold-start epsilon-greedy selection already exists; it is not a learned bandit.
 - DPPs, Semantic IDs, TIGER, PinnerFormer-style single-vector models (Phase 9+, only if scale warrants).
@@ -484,7 +485,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | When to add CF? | 500+ users (Phase 9). |
 | Current status? | Local implementation and validation are distinct from deployed status. See `docs/CURRENT-STATE.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
-| Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights. Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
+| Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
 | Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. |
@@ -493,4 +494,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-10-09. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-10-14. Update this date when CLAUDE.md changes.*
