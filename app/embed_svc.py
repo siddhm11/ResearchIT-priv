@@ -38,7 +38,7 @@ def model_path() -> str:
         return name
     from huggingface_hub import snapshot_download
     kw = dict(repo_id=name, revision=rev, cache_dir=os.getenv("HF_HUB_CACHE"),
-              ignore_patterns=["flax_model.msgpack", "rust_model.ot", "tf_model.h5"])
+              ignore_patterns=["flax_model.msgpack", "rust_model.ot", "tf_model.h5", "onnx/*"])
     try:
         return snapshot_download(local_files_only=True, **kw)
     except (FileNotFoundError, ValueError):   # LocalEntryNotFoundError is both
