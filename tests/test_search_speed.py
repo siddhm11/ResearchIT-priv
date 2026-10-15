@@ -179,7 +179,7 @@ def test_docker_image_bakes_in_the_configured_reranker():
     from pathlib import Path
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
     for model, rev in config.RERANKER_PINS.items():
-        assert f"CrossEncoder('{model}', revision='{rev}')" in dockerfile
+        assert f"snapshot_download('{model}', revision='{rev}'" in dockerfile
     assert config.RERANKER_MODEL in config.RERANKER_PINS
 
 
@@ -206,3 +206,16 @@ def test_embed_model_path_resolves_pinned_snapshot(monkeypatch, tmp_path):
     assert embed_svc.model_path() == str(tmp_path)
     assert [c["revision"] for c in calls] == [config.BGE_M3_REVISION] * 2
     assert calls[0]["local_files_only"] is True
+
+
+def test_dockerfile_has_no_recursive_chmod_and_skips_onnx():
+    """A `chmod -R` layer duplicated every file under /app, and the ONNX copies
+    added ~2.7 GB nothing loads; together they made the image too large for the
+    HF builder's push step (exit 137, 2026-10-16)."""
+    from pathlib import Path
+    d = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
+    lines = [l for l in d.splitlines() if not l.lstrip().startswith("#")]
+    assert not any("chmod -R" in l for l in lines)
+    assert "COPY --chown=1000:1000 . ." in d
+    assert d.count("'onnx/*'") >= 2
+    assert not any("BGEM3FlagModel(" in l or "CrossEncoder(" in l for l in lines if l.startswith("RUN"))

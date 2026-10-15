@@ -106,7 +106,7 @@ class Encoder:
         if BGE_REVISION and not os.path.exists(BGE_MODEL):
             from huggingface_hub import snapshot_download
             path = snapshot_download(BGE_MODEL, revision=BGE_REVISION, ignore_patterns=[
-                "flax_model.msgpack", "rust_model.ot", "tf_model.h5"])
+                "flax_model.msgpack", "rust_model.ot", "tf_model.h5", "onnx/*"])
         self.model = BGEM3FlagModel(
             path, use_fp16=(dev == "cuda"), device=dev)
         print("[ingest] model ready", flush=True)
