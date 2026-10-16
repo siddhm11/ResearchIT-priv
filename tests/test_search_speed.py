@@ -173,6 +173,9 @@ def test_runtime_endpoint_reports_memory_cpu_models_and_timings():
     assert body["models"]["search_reranker"] == config.RERANKER_MODEL
     assert "peak_rss_gb" in body["memory"]
     assert isinstance(body["timings"], dict)
+    assert isinstance(body["counters"], dict)
+    # The suite turns the warm-up off (conftest), and the endpoint says so.
+    assert body["sidecar_warmup"]["status"] in ("disabled", "no sidecar")
 
 
 def test_docker_image_bakes_in_the_configured_reranker():

@@ -101,6 +101,61 @@ def is_available() -> bool:
     return _probe()
 
 
+# ── Page-cache warm-up ───────────────────────────────────────────────────────
+# Word match and metadata lookups read the sidecar at random. On the Space the
+# file comes from the image layer, and a flight test (2026-10-16) found reads
+# there far slower than on a laptop with the file cached. Reading the file once,
+# sequentially, in the background after startup puts it in the OS page cache
+# (reclaimable, so it cannot push the app out of memory) and measures the disk:
+# /healthz/runtime reports MB/s. SIDECAR_WARMUP=0 turns it off.
+_warmup: dict = {"status": "not started"}
+_warmup_thread: threading.Thread | None = None
+
+
+def _warm(path: str, chunk: int) -> None:
+    import time
+    size = os.path.getsize(path)
+    _warmup.update(status="running", size_mb=round(size / 1e6))
+    buf = bytearray(chunk)
+    done, t0 = 0, time.perf_counter()
+    try:
+        with open(path, "rb", buffering=0) as f:
+            while n := f.readinto(buf):
+                done += n
+                if done % (256 << 20) < chunk:
+                    _warmup["read_mb"] = round(done / 1e6)
+    except OSError as e:
+        _warmup.update(status="failed", error=str(e)[:120])
+        print(f"[local_meta] sidecar warm-up failed: {e}")
+        return
+    secs = time.perf_counter() - t0
+    _warmup.update(status="done", read_mb=round(done / 1e6), seconds=round(secs, 1),
+                   mb_per_s=round(done / 1e6 / secs, 1) if secs else None)
+    print(f"[local_meta] sidecar warm-up: {done / 1e6:,.0f} MB in {secs:.1f} s "
+          f"({_warmup['mb_per_s']} MB/s)")
+
+
+def start_warmup(chunk: int = 8 << 20) -> bool:
+    """Read the sidecar into the page cache on a daemon thread. Idempotent."""
+    global _warmup_thread
+    if _warmup_thread is not None:
+        return False
+    if os.getenv("SIDECAR_WARMUP", "1") == "0":
+        _warmup["status"] = "disabled"
+        return False
+    if not SIDECAR_PATH or not os.path.isfile(SIDECAR_PATH):
+        _warmup["status"] = "no sidecar"
+        return False
+    _warmup_thread = threading.Thread(target=_warm, args=(SIDECAR_PATH, chunk),
+                                      name="sidecar-warmup", daemon=True)
+    _warmup_thread.start()
+    return True
+
+
+def warmup_status() -> dict:
+    return dict(_warmup)
+
+
 def stats() -> dict:
     """Diagnostics for the health endpoint."""
     conn = connection()

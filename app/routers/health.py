@@ -58,13 +58,15 @@ async def healthz_runtime():
     builds since the last restart. Search stage times overlap (the rewrite runs
     alongside encoding and retrieval), so they do not sum to `total_ms`.
     """
-    from app import compute_pool, runtime_stats
+    from app import compute_pool, local_meta, runtime_stats
     return {
         "memory": runtime_stats.memory(),
         "cpu": compute_pool.stats(),
         "models": runtime_stats.models(),
         "vector_cache": qdrant_svc.vector_cache_stats(),
         "timings": runtime_stats.timings(),
+        "counters": runtime_stats.counters(),
+        "sidecar_warmup": local_meta.warmup_status(),
     }
 
 

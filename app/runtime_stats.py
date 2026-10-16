@@ -16,6 +16,7 @@ from collections import deque
 
 _N = 200
 _buffers: dict[str, deque] = {}
+_counters: dict[str, int] = {}
 _lock = threading.Lock()
 
 
@@ -27,6 +28,17 @@ def record(kind: str, timings: dict) -> None:
         return
     with _lock:
         _buffers.setdefault(kind, deque(maxlen=_N)).append(row)
+
+
+def count(name: str, n: int = 1) -> None:
+    """Bump an event counter (since the last restart)."""
+    with _lock:
+        _counters[name] = _counters.get(name, 0) + n
+
+
+def counters() -> dict[str, int]:
+    with _lock:
+        return dict(sorted(_counters.items()))
 
 
 def _pct(xs: list[float], p: float) -> float:

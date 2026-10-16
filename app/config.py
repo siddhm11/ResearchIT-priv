@@ -367,8 +367,9 @@ SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
 
 # Time budget for one FTS5 lexical search (AND attempt + OR fallback together).
 # Over budget the lexical arm returns nothing and the dense arm answers alone.
-# After filler-word removal the slowest of 847 eval queries took 1.4 s on a
-# contended laptop, so 1.5 s only trips on genuine outliers.
+# With ranking inside FTS before the `papers` join (fts_svc._SQL, 2026-10-16) the
+# slowest of 865 queries took 0.9 s on a contended laptop; before it, production
+# hit this budget on ~40% of searches. /healthz/runtime counts the skips.
 SEARCH_FTS_BUDGET_MS = int(os.getenv("SEARCH_FTS_BUDGET_MS", "1500"))
 
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────

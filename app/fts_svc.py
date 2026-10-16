@@ -24,7 +24,7 @@ import re
 import sqlite3
 import time
 
-from app import config, local_meta
+from app import config, local_meta, runtime_stats
 
 # Title matches are weighted above abstract matches. bm25() returns a NEGATIVE
 # score where more negative is better, so results sort ascending.
@@ -37,6 +37,17 @@ _available = False
 # SQLite VM instructions between budget checks: ~1 ms of work, so the check is
 # free and the budget is honoured to within a millisecond or two.
 _PROGRESS_STEPS = 10_000
+
+# Rank inside FTS first, then look up only the `limit` winners in `papers`.
+# Joining before the sort made SQLite fetch the papers row of EVERY match: 56k
+# for "LLM", 280k for "learning", each a random read into a 1.7 GB table. Warm
+# on a laptop that cost 0.06-2.9 s; on the Space's cold disk "LLM" ran past the
+# 1.5 s budget on every try, so ~40% of searches lost the lexical arm
+# (flight test 2026-10-16). Same rows in the same order (847 eval queries).
+_SQL = ("SELECT p.arxiv_id, f.s FROM ("
+        "SELECT rowid AS rid, bm25(papers_fts, ?, ?) AS s FROM papers_fts "
+        "WHERE papers_fts MATCH ? ORDER BY s LIMIT ?"
+        ") f JOIN papers p ON p.rowid = f.rid ORDER BY f.s")
 
 
 def _probe() -> bool:
@@ -109,9 +120,7 @@ def _search_sync(query: str, limit: int) -> list[dict]:
     if not terms:
         return []
 
-    sql = ("SELECT p.arxiv_id, bm25(papers_fts, ?, ?) AS s "
-           "FROM papers_fts JOIN papers p ON p.rowid = papers_fts.rowid "
-           "WHERE papers_fts MATCH ? ORDER BY s LIMIT ?")
+    sql = _SQL
 
     # Conjunction first: precise and fast, because the term intersection is
     # small. It also returns nothing when one term is absent from the corpus,
@@ -126,26 +135,41 @@ def _search_sync(query: str, limit: int) -> list[dict]:
     # and aborts the statement when it returns non-zero.
     deadline = time.monotonic() + config.SEARCH_FTS_BUDGET_MS / 1000
     conn.set_progress_handler(lambda: int(time.monotonic() > deadline), _PROGRESS_STEPS)
+    t0 = time.perf_counter()
+    timing: dict[str, int] = {}
+    outcome = "empty"
     try:
-        for match in attempts:
+        for kind, match in zip(("and_ms", "or_ms"), attempts):
+            t_try = time.perf_counter()
             try:
                 rows = conn.execute(sql, (_TITLE_WEIGHT, _ABSTRACT_WEIGHT,
                                           match, limit)).fetchall()
             except sqlite3.OperationalError as e:
                 if time.monotonic() > deadline:
+                    outcome = "budget_skip"
                     print(f"[fts_svc] over {config.SEARCH_FTS_BUDGET_MS} ms budget, "
                           f"lexical arm skipped for {len(terms)} terms")
                 else:
+                    outcome = "error"
                     print(f"[fts_svc] query failed ({e})")
                 return []
             except sqlite3.Error as e:
+                outcome = "error"
                 print(f"[fts_svc] query failed ({e})")
                 return []
+            finally:
+                timing[kind] = int((time.perf_counter() - t_try) * 1000)
             if rows:
+                outcome = "or_hit" if kind == "or_ms" else "and_hit"
                 return [{"arxiv_id": a, "score": -float(s)} for a, s in rows]
         return []
     finally:
         conn.set_progress_handler(None, 0)
+        # Live evidence for the lexical arm: how long it takes on the Space's
+        # disk and how often the budget drops it (/healthz/runtime).
+        timing["fts_ms"] = int((time.perf_counter() - t0) * 1000)
+        runtime_stats.record("fts", timing)
+        runtime_stats.count(f"fts_{outcome}")
 
 
 async def search_sparse(query: str, limit: int = 50) -> list[dict]:
