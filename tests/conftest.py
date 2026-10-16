@@ -74,6 +74,22 @@ def _disable_turso_replication():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _no_sidecar_warmup():
+    """App startup reads the 2.9 GB sidecar into the page cache in production
+    (local_meta.start_warmup). Tests that boot the app must not pay for that;
+    tests of the warm-up itself call _warm() directly."""
+    previous = os.environ.get("SIDECAR_WARMUP")
+    os.environ["SIDECAR_WARMUP"] = "0"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("SIDECAR_WARMUP", None)
+        else:
+            os.environ["SIDECAR_WARMUP"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _disable_rate_limiting():
     """Rate limiting off by default for the suite.
 

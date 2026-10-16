@@ -83,6 +83,11 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old feed exposure rows")
     except Exception as e:
         print(f"[main] Exposure pruning skipped: {e}")
+    # After the models are in memory, so the read does not compete with loading
+    # them from the same disk. Background thread; the app serves meanwhile.
+    from app import local_meta
+    if local_meta.start_warmup():
+        print("[main] sidecar page-cache warm-up started")
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()

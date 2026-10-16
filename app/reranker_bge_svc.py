@@ -59,6 +59,32 @@ def get_reranker():
         return _reranker
 
 
+# A batch is padded to its longest text, so one full-length abstract (papers
+# ingested since 2025-06 store the full text) made all ten pairs cost as much as
+# the long one: measured on the Space 2026-10-16, a median of 1.22 s per search
+# with a full abstract in the top 10 against 0.50 s without. Scoring short and
+# long pairs as separate batches gives identical scores, no extra cost when all
+# are short, and 32-36% less time when they are mixed (laptop, 2 threads).
+_LONG_PAIR_CHARS = 800
+
+
+def _score_in_length_groups(model, pairs: list[list[str]]) -> list[float]:
+    groups = ([i for i, p in enumerate(pairs) if len(p[1]) <= _LONG_PAIR_CHARS],
+              [i for i, p in enumerate(pairs) if len(p[1]) > _LONG_PAIR_CHARS])
+    scores = [0.0] * len(pairs)
+    for idx in groups:
+        if not idx:
+            continue
+        out = model.predict([pairs[i] for i in idx], show_progress_bar=False,
+                            batch_size=len(idx), activation_fn=_identity())
+        out = out.tolist() if hasattr(out, "tolist") else list(out)
+        if isinstance(out, (int, float)):
+            out = [out]
+        for i, s in zip(idx, out):
+            scores[i] = float(s)
+    return scores
+
+
 def _identity():
     """Identity activation, so predict() returns logits. None without torch,
     which only happens where no cross-encoder can be loaded anyway."""
@@ -107,11 +133,9 @@ def rerank(
             doc_text = f"Title: {title}\nAbstract: {abstract}"
             pairs.append([query, doc_text])
 
-        # Inference — CrossEncoder.predict() returns numpy array of scores.
-        # Identity activation: logits for every model (see module docstring).
-        scores = model.predict(pairs, show_progress_bar=False,
-                               batch_size=max(1, len(pairs)),
-                               activation_fn=_identity())
+        # Inference: logits for every model (Identity activation, see the
+        # module docstring), scored in length groups (see _score_in_length_groups).
+        scores = _score_in_length_groups(model, pairs)
 
         # Normalize to list of floats
         if hasattr(scores, 'tolist'):

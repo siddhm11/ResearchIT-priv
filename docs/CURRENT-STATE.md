@@ -46,7 +46,8 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 - Feed: 10 core cards, up to 2 exploration cards; ranked pool 60.
 - Refresh suppression: 7 days for personalized retrieval. Cold start remembers the
   available local impression history and recycles only when fresh supply is thin.
-- Policy version: `v10_fresh_discovery`; search `search_v2_independent_lexical`.
+- Policy version: `v11_rescaled_pubdate` (from the 2026-10-16 follow-up deploy;
+  `v10_fresh_discovery` before); search `search_v2_independent_lexical`.
 
 No new model, training procedure, EWMA weight, or clustering threshold was added.
 Category selection guides the initial feed and existing features; it does not

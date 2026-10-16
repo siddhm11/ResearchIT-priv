@@ -629,3 +629,28 @@ BGE-M3 is now pinned too (`config.BGE_M3_PINS`, commit 5617a9f6, the repo's main
 since 2024-07-03, so production's weights are unchanged) in the app, the
 Dockerfile and the ingest encoder, so query vectors cannot drift from the stored
 corpus vectors on a rebuild.
+
+### 2026-10-16 — Word match ranks inside FTS before reading `papers`; feed policy v11
+**Decision:** The FTS5 query sorts and limits inside the FTS virtual table and
+joins `papers` only for the `limit` winners (`fts_svc._SQL`). The sidecar is read
+once into the page cache at startup (`SIDECAR_WARMUP=0` disables it). Feed
+`policy_id` / `_RANKER_VERSION` is `v11_rescaled_pubdate`.
+**Supersedes:** the join-then-sort query in place since the FTS arm landed, and
+the "1.5 s only trips on genuine outliers" premise of the 2026-10-14 budget.
+**Rationale:** A read-only flight test of production after the 2026-10-16 deploy
+found the lexical arm dropped by the 1.5 s budget on ~40% of searches (19 log
+lines, "LLM" on 3 consecutive tries; locally the same query took 83 ms). The old
+query fetched the `papers` row of every match before sorting: 56k random reads
+into a 1.7 GB table for "LLM", 280k for "learning". On 865 queries (847 eval +
+18 probes) the new query returns identical rows in identical order on all 1,509
+AND/OR attempts; per-search time (4 processes in parallel on a laptop) median
+877 -> 288 ms, max 4.6 -> 0.9 s, over 1.5 s 51 -> 0, total CPU -66%. The
+2026-10-14 "same quality with the budget" result was measured where the budget
+never fired, so production search quality was below it until this lands. The
+feed ordering changed on 2026-10-16 (rescaled similarities, recency 0.45, first
+publication age) but kept the v10 label; rows logged from 2026-10-16 19:27 UTC
+until this deploy need a time split, not a policy split.
+**Action items:** Done. `/healthz/runtime` now reports `timings.fts`
+(`and_ms`, `or_ms`, `fts_ms`), `counters.fts_*` (and_hit, or_hit, empty,
+budget_skip, error) and `sidecar_warmup` (MB/s of the Space's disk). Re-run the
+flight test after deploy; if budget skips persist, the disk itself is the limit.
