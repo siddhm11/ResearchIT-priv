@@ -28,8 +28,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from net_deadline import deadline  # noqa: E402
 
 BGE_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 # Same pin as app/config.BGE_M3_PINS: new papers must be encoded with the weights
@@ -156,7 +160,7 @@ class Upserter:
             f"{self.qurl}{path}", data=data, method=method,
             headers={"api-key": self.qkey, "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with deadline(timeout + 30, path), urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             # A missing point id is a 404, which urllib raises rather than
@@ -173,7 +177,7 @@ class Upserter:
             f"{self.zuri}{path}", data=json.dumps(body).encode(),
             headers={"Authorization": f"Bearer {self.ztok}",
                      "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with deadline(timeout + 30, path), urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
 
     # ── Turso ────────────────────────────────────────────────────────────
@@ -185,7 +189,7 @@ class Upserter:
             f"{self.turl}/v2/pipeline", data=payload,
             headers={"Authorization": f"Bearer {self.ttok}",
                      "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with deadline(timeout + 30, "Turso pipeline"), urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read())
         for res in data.get("results", []):
             if res.get("type") == "error":
