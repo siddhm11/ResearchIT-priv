@@ -68,7 +68,11 @@ router = APIRouter(prefix="/api")
 # v9.1 = MMR runs WITHIN each cluster against its own budget instead of
 #      globally, because a global MMR truncated minority interests out of
 #      the pool before the quota stage could arrange them (doc 06, 2026-08-21).
-_RANKER_VERSION = "v10_fresh_discovery"
+# Bump whenever served orderings change, so logs can be split by policy.
+# v11 (2026-10-16): rescaled lt/st similarities, recency 0.45, age from first
+# publication (doc 06, 2026-10-09). Those shipped on 2026-10-16 19:27 UTC under
+# the v10 label; rows logged between then and this deploy need a time split.
+_RANKER_VERSION = "v11_rescaled_pubdate"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
