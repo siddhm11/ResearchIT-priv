@@ -51,6 +51,7 @@ sentence-transformers==5.7.0
 pymilvus>=3.0.2
 groq>=1.0  # 1.0+ drops the `proxies` kwarg internally so httpx>=0.28 works
 python-dotenv>=1.0
+pillow>=11.0  # figure thumbnails for the redesigned paper page and feed (app/routers/figures.py)
 
 # ── Phase 6: LightGBM reranker ───────────────────────────────────────────
 lightgbm>=4.7.0,<5.0

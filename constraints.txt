@@ -152,6 +152,8 @@ pandas==3.0.6
     # via
     #   datasets
     #   pymilvus
+pillow==13.0.0
+    # via -r requirements.txt
 pluggy==1.6.0
     # via pytest
 portalocker==3.2.0
