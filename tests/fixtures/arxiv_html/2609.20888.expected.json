@@ -1,0 +1,218 @@
+{
+ "status": "ok",
+ "version": "v2",
+ "licence_text": "CC BY 4.0",
+ "title": "Elastic Threshold Attention: Learned Contextual Sparsity for Long-Context Decoding",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S1.SS0.SSS0.Px1",
+   "",
+   "Our Contributions",
+   4,
+   "paragraph"
+  ],
+  [
+   "S1.SS1",
+   "1.1",
+   "Related Work",
+   3,
+   "subsection"
+  ],
+  [
+   "S1.SS1.SSS0.Px1",
+   "",
+   "Heuristic Eviction and Windowing.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S1.SS1.SSS0.Px2",
+   "",
+   "Dynamic Routing and Block-Sparse Selectors.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S1.SS1.SSS0.Px3",
+   "",
+   "Trainable Sparse Attention.",
+   4,
+   "paragraph"
+  ],
+  [
+   "A3",
+   "Appendix C",
+   "Additive vs Multiplicative Masking",
+   2,
+   "appendix"
+  ],
+  [
+   "A3.SS0.SSS0.Px1",
+   "",
+   "Inference Performance and Masking Mode Comparison.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S5",
+   "5",
+   "Limitations and Conclusion",
+   2,
+   "section"
+  ],
+  [
+   "S5.SSx1",
+   "",
+   "AI use statement",
+   3,
+   "subsection"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "The attention mechanism is the core computational and memory bottleneck of long-",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "In this work, we ask whether inference-time selectivity can be made naturally co",
+   [
+    "S0.F1"
+   ]
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "To learn this contextual policy from scratch without losing dense representation",
+   []
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "This uniform background floor offers two important advantages: First, as we form",
+   [
+    "S2",
+    "A7.SS1"
+   ]
+  ],
+  [
+   "S1.SS0.SSS0.Px1.p1",
+   "S1.SS0.SSS0.Px1",
+   "• Temper, not Prune & Elimination of Attention Sinks: We show theoretically and ",
+   [
+    "A7"
+   ]
+  ],
+  [
+   "S1.SS1.p1",
+   "S1.SS1",
+   "The literature of efficient attention methods is vast with techniques spanning b",
+   []
+  ],
+  [
+   "S1.SS1.SSS0.Px1.p1",
+   "S1.SS1.SSS0.Px1",
+   "Early subquadratic attention methods relied on structural heuristics like slidin",
+   []
+  ],
+  [
+   "S1.SS1.SSS0.Px2.p1",
+   "S1.SS1.SSS0.Px2",
+   "To bridge theoretical FLOP reductions and practical GPU acceleration (Jiang et a",
+   []
+  ],
+  [
+   "S1.SS1.SSS0.Px3.p1",
+   "S1.SS1.SSS0.Px3",
+   "Recent architectures seek to incorporate sparsity natively into pretraining. HiR",
+   []
+  ],
+  [
+   "A3.p1",
+   "A3",
+   "In this section we examine additive masking as a substitute for multiplicative m",
+   []
+  ],
+  [
+   "A3.p2",
+   "A3",
+   "As illustrated in Figure 5(a), both formulations exhibit nearly identical cross-",
+   [
+    "A3.F5"
+   ]
+  ],
+  [
+   "A3.SS0.SSS0.Px1.p1",
+   "A3.SS0.SSS0.Px1",
+   "As reported in Table 6, additive masking proves inferior to multiplicative maski",
+   [
+    "A3.T6"
+   ]
+  ],
+  [
+   "S5.p1",
+   "S5",
+   "We introduced Elastic Threshold Attention (ETA), an end-to-end trainable sparse ",
+   []
+  ],
+  [
+   "S5.p2",
+   "S5",
+   "Natural extensions of this work span both systems and modeling. On the systems s",
+   []
+  ],
+  [
+   "S5.SSx1.p1",
+   "S5.SSx1",
+   "In this work, we used generative AI tools for editing and tightening prose and a",
+   [
+    "A4.SS1"
+   ]
+  ],
+  [
+   "S5.SSx1.p2",
+   "S5.SSx1",
+   "We have not used generative AI tools for research ideation, retrieval and discov",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "A3.F5",
+   "Figure 5",
+   "Pretraining dynamics and sparsity evolution across ETA masking formulations (126",
+   [
+    [
+     "",
+     null,
+     null,
+     "",
+     true
+    ]
+   ]
+  ]
+ ],
+ "tables": [
+  [
+   "A3.T6",
+   "Table 6",
+   "Downstream perplexity and sparsity comparison between Normal and Strict ETA (126"
+  ],
+  [
+   "A3.T7",
+   "Table 7",
+   "Mechanistic and downstream comparison of masking formulations (126M parameters, "
+  ]
+ ]
+}

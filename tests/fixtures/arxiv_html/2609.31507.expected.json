@@ -1,0 +1,373 @@
+{
+ "status": "ok",
+ "version": "v1",
+ "licence_text": "CC BY 4.0",
+ "title": "SatNav: A Scalable Benchmark for Long-Horizon UAV Vision-Language Navigation from Satellite Imagery",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S3",
+   "3",
+   "SatNav Bench",
+   2,
+   "section"
+  ],
+  [
+   "S3.SS1",
+   "3.1",
+   "Task Definition",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS2",
+   "3.2",
+   "Geospatial Data Resources",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3",
+   "3.3",
+   "Episode Generation",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3.SSS0.Px1",
+   "",
+   "Cue extraction and validation.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S3.SS3.SSS0.Px2",
+   "",
+   "Trajectory generation.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S3.SS3.SSS0.Px3",
+   "",
+   "Instruction construction.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S3.SS3.SSS0.Px4",
+   "",
+   "Episode packaging.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S3.SS4",
+   "3.4",
+   "Dataset Statistics and Splits",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS4.SSS0.Px1",
+   "",
+   "Dataset statistics.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S3.SS4.SSS0.Px2",
+   "",
+   "Dataset splits.",
+   5,
+   "paragraph"
+  ],
+  [
+   "S4",
+   "4",
+   "SwiftVLN",
+   2,
+   "section"
+  ],
+  [
+   "S4.SS1",
+   "4.1",
+   "Framework Overview",
+   3,
+   "subsection"
+  ],
+  [
+   "S4.SS2",
+   "4.2",
+   "Satellite-to-UAV Generalization",
+   3,
+   "subsection"
+  ],
+  [
+   "S6",
+   "6",
+   "Limitations",
+   2,
+   "section"
+  ],
+  [
+   "S7",
+   "7",
+   "Conclusion",
+   2,
+   "section"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "Vision-language navigation (VLN) is a foundational problem at the intersection o",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "In contrast, urban uncrewed aerial vehicle (UAV) navigation offers a natural and",
+   []
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "To address these limitations, we exploit the observation that long-horizon UAV n",
+   []
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "Building on this insight, we introduce SatNav, a benchmark for memory-demanding ",
+   []
+  ],
+  [
+   "S1.p5",
+   "S1",
+   "We summarize our contributions as follows: • We introduce SatNav, a scalable ben",
+   []
+  ],
+  [
+   "S3.SS1.p1",
+   "S3.SS1",
+   "SatNav formulates satellite-view VLN as an instruction-following sequential deci",
+   [
+    "S1.F1",
+    "A1.SS1"
+   ]
+  ],
+  [
+   "S3.SS1.p2",
+   "S3.SS1",
+   "To evaluate complementary aspects of memory-intensive long-horizon navigation, S",
+   []
+  ],
+  [
+   "S3.SS1.p3",
+   "S3.SS1",
+   "Boundary tasks require the agent to follow the perimeter of a lake, stadium, or ",
+   []
+  ],
+  [
+   "S3.SS1.p4",
+   "S3.SS1",
+   "Landmark tasks require the agent to follow a route to a specified destination, u",
+   []
+  ],
+  [
+   "S3.SS1.p5",
+   "S3.SS1",
+   "Route tasks require the agent to navigate along roads, waterways, or combination",
+   []
+  ],
+  [
+   "S3.SS2.p1",
+   "S3.SS2",
+   "SatNav is constructed from scalable 2D geospatial resources rather than reconstr",
+   [
+    "A1.SS2"
+   ]
+  ],
+  [
+   "S3.SS3.p1",
+   "S3.SS3",
+   "SatNav generates episodes through a unified cue-to-episode pipeline, as illustra",
+   [
+    "S3.F2",
+    "A3"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p1",
+   "S3.SS3.SSS0.Px1",
+   "For each selected scene, SatNav aligns the satellite image and OSM annotations i",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p1",
+   "S3.SS3.SSS0.Px2",
+   "Given the validated cue set, SatNav generates candidate trajectories according t",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px3.p1",
+   "S3.SS3.SSS0.Px3",
+   "Navigation instructions are grounded in the physical and geometric cues associat",
+   [
+    "A4"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px4.p1",
+   "S3.SS3.SSS0.Px4",
+   "The final stage standardizes the generated data into the unified SatNav episode ",
+   []
+  ],
+  [
+   "S3.SS4.SSS0.Px1.p1",
+   "S3.SS4.SSS0.Px1",
+   "Figure 3 summarizes the main statistics of SatNav. The benchmark contains 118,49",
+   [
+    "S3.F3",
+    "A2"
+   ]
+  ],
+  [
+   "S3.SS4.SSS0.Px2.p1",
+   "S3.SS4.SSS0.Px2",
+   "SatNav is organized into Train, Test Seen, and Test Unseen splits. The Train spl",
+   []
+  ],
+  [
+   "S4.SS1.p1",
+   "S4.SS1",
+   "The SwiftVLN framework refactors the training and evaluation pipeline of StreamV",
+   [
+    "S4.F4"
+   ]
+  ],
+  [
+   "S4.SS1.p2",
+   "S4.SS1",
+   "Following the dual-memory design of StreamVLN, SwiftVLN maintains both short-ter",
+   []
+  ],
+  [
+   "S4.SS1.p3",
+   "S4.SS1",
+   "Historical observations that fall outside the short-term context window are proc",
+   []
+  ],
+  [
+   "S4.SS1.p4",
+   "S4.SS1",
+   "Together, these plug-and-play variants establish a comprehensive testbed for sys",
+   [
+    "A5.SS1",
+    "A5.SS3"
+   ]
+  ],
+  [
+   "S4.SS2.p1",
+   "S4.SS2",
+   "A key concern for SatNav is whether policies trained on satellite imagery can be",
+   [
+    "A5.SS5"
+   ]
+  ],
+  [
+   "S6.p1",
+   "S6",
+   "SatNav has three main limitations. First, navigation uses four discrete actions ",
+   []
+  ],
+  [
+   "S7.p1",
+   "S7",
+   "We presented SatNav, a scalable benchmark for evaluating memory-intensive long-h",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "S1.F1",
+   "Figure 1",
+   "Overview of SatNav. The benchmark spans diverse cities and scenes, and introduce",
+   [
+    [
+     "2609.31507v1/overview-final.png",
+     476,
+     235,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S3.F2",
+   "Figure 2",
+   "Overview of the SatNav episode-generation pipeline. Structured geospatial cues f",
+   [
+    [
+     "2609.31507v1/pipeline-final.png",
+     476,
+     159,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S3.F3",
+   "Figure 3",
+   "SatNav episode-level statistics",
+   [
+    [
+     "2609.31507v1/figures/satnav_bench/statistics/b.jpg",
+     476,
+     419,
+     "S3.F3.sf2",
+     false
+    ],
+    [
+     "2609.31507v1/figures/satnav_bench/statistics/c.jpg",
+     476,
+     476,
+     "S3.F3.sf3",
+     false
+    ],
+    [
+     "2609.31507v1/figures/satnav_bench/statistics/d.jpg",
+     476,
+     476,
+     "S3.F3.sf4",
+     false
+    ]
+   ]
+  ],
+  [
+   "S4.F4",
+   "Figure 4",
+   "Overview of the SwiftVLN framework.",
+   [
+    [
+     "2609.31507v1/model-arch-with-window.png",
+     405,
+     178,
+     "",
+     false
+    ]
+   ]
+  ]
+ ],
+ "tables": []
+}

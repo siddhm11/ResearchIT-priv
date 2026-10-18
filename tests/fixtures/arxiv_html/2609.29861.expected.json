@@ -1,0 +1,320 @@
+{
+ "status": "ok",
+ "version": "v2",
+ "licence_text": "CC BY 4.0",
+ "title": "GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S2",
+   "2",
+   "Evaluation Setup",
+   2,
+   "section"
+  ],
+  [
+   "S2.SS1",
+   "2.1",
+   "Navigation Interface",
+   3,
+   "subsection"
+  ],
+  [
+   "S2.SS2",
+   "2.2",
+   "Evaluation Protocol and Metrics",
+   3,
+   "subsection"
+  ],
+  [
+   "S4",
+   "4",
+   "From Instructions to Adaptive Navigation",
+   2,
+   "section"
+  ],
+  [
+   "S4.SS1",
+   "4.1",
+   "How Does GPT-6-Astra Ground Spatial Instructions?",
+   3,
+   "subsection"
+  ],
+  [
+   "S4.SS2",
+   "4.2",
+   "How Closely Do Successful Trajectories Follow Reference Paths?",
+   3,
+   "subsection"
+  ],
+  [
+   "S4.SS3",
+   "4.3",
+   "How Does GPT-6-Astra Adjust Routes and Movements?",
+   3,
+   "subsection"
+  ],
+  [
+   "S6",
+   "6",
+   "Implications for Embodied Navigation",
+   2,
+   "section"
+  ],
+  [
+   "S6.SS1",
+   "6.1",
+   "Do General-Purpose Models Offer Another Route to VLN?",
+   3,
+   "subsection"
+  ],
+  [
+   "S6.SS2",
+   "6.2",
+   "How Can Navigation Expertise Complement General-Purpose Models?",
+   3,
+   "subsection"
+  ],
+  [
+   "S6.SS3",
+   "6.3",
+   "How Should Future Navigation Systems Be Evaluated?",
+   3,
+   "subsection"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "Can a general-purpose foundation model navigate an unfamiliar environment by dir",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "Early VLN research developed navigation policies trained on annotated instructio",
+   []
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "(1) GPT-6-Astra achieves strong zero-shot VLN performance using only monocular R",
+   [
+    "S0.F1"
+   ]
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "(2) GPT-6-Astra exhibits promising capabilities in interpreting multi-stage inst",
+   []
+  ],
+  [
+   "S1.p5",
+   "S1",
+   "(3) Reliable route execution and goal verification remain challenging, even with",
+   []
+  ],
+  [
+   "S1.p6",
+   "S1",
+   "(4) These results motivate combining general-purpose model capabilities with nav",
+   []
+  ],
+  [
+   "S2.SS1.p1",
+   "S2.SS1",
+   "Given a natural-language instruction, GPT-6-Astra navigates an unfamiliar indoor",
+   []
+  ],
+  [
+   "S2.SS1.p2",
+   "S2.SS1",
+   "Each episode runs within a continuous Codex session. GPT-6-Astra itself interpre",
+   [
+    "S2.F2"
+   ]
+  ],
+  [
+   "S2.SS1.p3",
+   "S2.SS1",
+   "The observe() tool returns the current camera view without advancing the simulat",
+   []
+  ],
+  [
+   "S2.SS2.p1",
+   "S2.SS2",
+   "Following prior zero-shot VLN-CE evaluation protocols [27, 28, 29], we evaluate ",
+   [
+    "footnote2"
+   ]
+  ],
+  [
+   "S2.SS2.p2",
+   "S2.SS2",
+   "We evaluate GPT-6-Astra with medium and ultra reasoning effort using the same ta",
+   []
+  ],
+  [
+   "S2.SS2.p3",
+   "S2.SS2",
+   "Success requires an explicit STOP with a final geodesic distance to the goal bel",
+   []
+  ],
+  [
+   "S4.p1",
+   "S4",
+   "We analyze three runs of GPT-6-Astra (ultra reasoning) on R2R-CE-100 to examine ",
+   []
+  ],
+  [
+   "S4.SS1.p1",
+   "S4.SS1",
+   "GPT-6-Astra can use target order and positions relative to landmarks to guide na",
+   [
+    "S4.T2"
+   ]
+  ],
+  [
+   "S4.SS1.p2",
+   "S4.SS1",
+   "EP218 and EP244 illustrate the behaviors behind these aggregates and succeed in ",
+   []
+  ],
+  [
+   "S4.SS2.p1",
+   "S4.SS2",
+   "Successful trajectories generally show high agreement with reference paths. Acro",
+   [
+    "S4.F3"
+   ]
+  ],
+  [
+   "S4.SS2.p2",
+   "S4.SS2",
+   "EP116 illustrates instruction following across successive room transitions. In t",
+   []
+  ],
+  [
+   "S4.SS2.p3",
+   "S4.SS2",
+   "Some successful trajectories nevertheless deviate substantially from the referen",
+   []
+  ],
+  [
+   "S4.SS3.p1",
+   "S4.SS3",
+   "Recorded trajectories show GPT-6-Astra returning to earlier locations and changi",
+   [
+    "S4.F3"
+   ]
+  ],
+  [
+   "S4.SS3.p2",
+   "S4.SS3",
+   "EP42 illustrates a route adjustment followed by successful completion (Figure 3c",
+   [
+    "S4.F3"
+   ]
+  ],
+  [
+   "S4.SS3.p3",
+   "S4.SS3",
+   "Route adjustment does not ensure an efficient trajectory. Among the successful t",
+   []
+  ],
+  [
+   "S6.SS1.p1",
+   "S6.SS1",
+   "The present results support another route to VLN through direct interaction with",
+   []
+  ],
+  [
+   "S6.SS1.p2",
+   "S6.SS1",
+   "Prior VLN research provides benchmarks and methods for visual grounding, spatial",
+   []
+  ],
+  [
+   "S6.SS2.p1",
+   "S6.SS2",
+   "Spatial representations could help relate current observations to previously vis",
+   []
+  ],
+  [
+   "S6.SS2.p2",
+   "S6.SS2",
+   "Navigation experience could support adaptation through learning from trajectorie",
+   []
+  ],
+  [
+   "S6.SS2.p3",
+   "S6.SS2",
+   "Learned control skills could provide efficient movement and recovery routines th",
+   []
+  ],
+  [
+   "S6.SS2.p4",
+   "S6.SS2",
+   "Our evaluation motivates these directions but does not test the proposed additio",
+   []
+  ],
+  [
+   "S6.SS3.p1",
+   "S6.SS3",
+   "Future studies should compare direct model control with variants that add a spat",
+   []
+  ],
+  [
+   "S6.SS3.p2",
+   "S6.SS3",
+   "Evaluation should measure task success, path efficiency, and reference-path agre",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "S2.F2",
+   "Figure 2",
+   "Minimal navigation interface for GPT-6-Astra. Within the Codex harness, GPT-6-As",
+   [
+    [
+     "2609.29861v2/figure2_navigation_interface.png",
+     685,
+     545,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S4.F3",
+   "Figure 3",
+   "Route following and navigation adjustments. GPT-6-Astra (ultra reasoning): (a) s",
+   [
+    [
+     "2609.29861v2/figure3_navigation_behaviors.png",
+     685,
+     509,
+     "",
+     false
+    ]
+   ]
+  ]
+ ],
+ "tables": [
+  [
+   "S4.T2",
+   "Table 2",
+   "Navigation performance by instruction type. GPT-6-Astra (ultra reasoning), mean "
+  ]
+ ]
+}
