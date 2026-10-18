@@ -188,3 +188,24 @@ def test_healthz_client_reports_what_the_limiter_sees(client):
     assert body["client_key"] == "203.0.113.99"
     assert body["sources"]["x_forwarded_for"] == "203.0.113.99, 10.0.0.1"
     assert body["rate_limit"]["enabled"] is True
+
+
+def test_per_paper_routes_are_limited_by_suffix_across_all_papers(monkeypatch):
+    from app import rate_limit
+    monkeypatch.setitem(rate_limit.PAPER_SUFFIX_LIMITS, "/explain", (2, 60))
+    rate_limit.reset()
+    assert rate_limit.check("/api/papers/2609.31507/explain", "1.2.3.4")[0]
+    assert rate_limit.check("/api/papers/1706.03762/explain", "1.2.3.4")[0]
+    allowed, retry = rate_limit.check("/api/papers/2609.00001/explain", "1.2.3.4")
+    assert not allowed and retry >= 1
+    # A different client, and Save on the same paper, are untouched.
+    assert rate_limit.check("/api/papers/2609.00001/explain", "5.6.7.8")[0]
+    for _ in range(10):
+        assert rate_limit.check("/api/papers/2609.00001/save", "1.2.3.4")[0]
+
+
+def test_a_suffix_only_counts_under_api_papers():
+    from app import rate_limit
+    assert rate_limit._rule_for("/explain") is None
+    assert rate_limit._rule_for("/api/papers/2609.31507/explain")[0] == "/api/papers/*/explain"
+    assert rate_limit._rule_for("/api/papers/2609.31507/code")[0] == "/api/papers/*/code"

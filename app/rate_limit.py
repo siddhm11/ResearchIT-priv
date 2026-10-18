@@ -69,6 +69,16 @@ LIMITS: dict[str, tuple[int, int]] = {
 
 # Bound the memory. Each key holds at most `max requests` timestamps, so the
 # worst case is roughly MAX_KEYS * 60 floats -- a few MB at this cap.
+# Per-paper routes carry the paper id in the middle of the path
+# (/api/papers/2609.31507/explain), which a prefix can't express: a rule for
+# "/api/papers" would throttle Save and Pass too. These match the path's end,
+# under /api/papers/, and each suffix gets one budget across all papers. Each
+# one can spend model quota or an outside request, which is what they guard.
+PAPER_SUFFIX_LIMITS: dict[str, tuple[int, int]] = {
+    "/explain": (30, 60),
+    "/code": (30, 60),
+}
+
 MAX_KEYS = 10_000
 
 _hits: dict[tuple[str, str], deque[float]] = {}
@@ -100,6 +110,10 @@ def client_key(request) -> str | None:
 
 
 def _rule_for(path: str) -> tuple[str, int, int] | None:
+    if path.startswith("/api/papers/"):
+        for suffix, (limit, window) in PAPER_SUFFIX_LIMITS.items():
+            if path.endswith(suffix):
+                return f"/api/papers/*{suffix}", limit, window
     for prefix, (limit, window) in LIMITS.items():
         if path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?"):
             return prefix, limit, window
@@ -154,7 +168,9 @@ def stats() -> dict:
     """Snapshot for the health endpoint."""
     return {
         "enabled": config.RATE_LIMIT_ENABLED,
-        "limits": {p: {"requests": l, "per_seconds": w} for p, (l, w) in LIMITS.items()},
+        "limits": {**{p: {"requests": l, "per_seconds": w} for p, (l, w) in LIMITS.items()},
+                   **{f"/api/papers/*{s}": {"requests": l, "per_seconds": w}
+                      for s, (l, w) in PAPER_SUFFIX_LIMITS.items()}},
         "tracked_keys": len(_hits),
     }
 
