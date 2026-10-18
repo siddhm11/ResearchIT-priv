@@ -159,6 +159,12 @@ async def _security_and_cache_headers(request: Request, call_next):
     if request.url.path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", _STATIC_CACHE_CONTROL)
 
+    # ?preview=<token> turns on the owner's preview of switched features for
+    # this browser; ?preview=off turns it off. See app/features.py.
+    if "preview" in request.query_params:
+        from app import features
+        features.apply_preview_cookie(request, response)
+
     return response
 
 
