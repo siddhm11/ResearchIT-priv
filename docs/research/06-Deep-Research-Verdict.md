@@ -654,3 +654,28 @@ until this deploy need a time split, not a policy split.
 (`and_ms`, `or_ms`, `fts_ms`), `counters.fts_*` (and_hit, or_hit, empty,
 budget_skip, error) and `sidecar_warmup` (MB/s of the Space's disk). Re-run the
 flight test after deploy; if budget skips persist, the disk itself is the limit.
+
+### 2026-10-19 — Redesign foundations: paper source layer, full abstracts, figure licences
+**Decision:** Each paper's arXiv HTML page is read once, in the background, by
+`app/paper_source_svc.py` (switch `PAPER_SOURCES`), and figures, sections and
+paragraphs are served only from what it saved; no reader-facing request waits on
+arXiv. Cut abstracts are replaced by full ones fetched from the arXiv API on first
+open (`app/abstract_svc.py`, switch `FULL_ABSTRACTS`). `paper_explanations`,
+`paper_abstracts` and `paper_sources` replicate to Turso on an AUTOINCREMENT `id`
+watermark and restore in pages. Figures show for every licence (`FIGURE_LICENCES`
+defaults to `all`), the owner's decision on 2026-10-19 while ResearchIT is a
+personal project; every figure carries a credit and licence line.
+**Supersedes:** nothing in the ranking design. The plan's proposal to show figures
+only for Creative Commons papers (docs/redesign/02-implementation-plan.md) is
+replaced by the owner's choice above.
+**Rationale:** Readers need more than a 500-character abstract to understand a
+paper, and arXiv publishes HTML for most papers (54 of 60 sampled new papers).
+Fetching once and caching keeps arXiv load at one request per paper and keeps the
+feed's latency unchanged. A timestamp watermark skips rows in a burst, and one
+unpaged SELECT of a large table times out at boot, hence the id watermark and
+paged restore. arXiv's default licence grants distribution rights to arXiv only:
+narrow `FIGURE_LICENCES` (for example to `CC-BY-4.0,CC-BY-SA-4.0,CC0-1.0`) before
+the project is offered more widely.
+**Action items:** Done on branch `feat/paper-source-svc` and the branches below
+it. Switch `PAPER_SOURCES` to `shadow` first and watch `/healthz/sources` for
+three days. Display-only throughout: no ranking, quota, MMR or scoring change.
