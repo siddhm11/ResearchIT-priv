@@ -1,0 +1,13 @@
+{#
+  Code chip: the paper's GitHub repository, from Hugging Face's papers API.
+  Renders nothing when there is no repository. The URL was checked to be
+  exactly https://github.com/<owner>/<repo> before it reached this template.
+#}
+{% if repo %}
+<a class="code-chip" href="{{ repo }}" target="_blank" rel="noopener"
+   title="Code for this paper on GitHub{% if stars is not none %}, {{ stars | commafy }} stars{% endif %}">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+       stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5" /></svg>
+  Code{% if stars %} <span class="st">★ {{ stars | commafy }}</span>{% endif %}
+</a>
+{% endif %}

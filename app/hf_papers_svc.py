@@ -95,3 +95,47 @@ async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = No
                 raise ValueError("Daily Papers response exceeds 4 MB")
     import json
     return normalize_snapshot(json.loads(body), now or datetime.now(timezone.utc))
+
+
+# ── Code links for one paper (the paper page's Code chip) ────────────────────
+#
+# Hugging Face's papers API names a paper's GitHub repository and its stars.
+# Called after the paper page paints, cached in paper_sources for a week (a
+# "no repo" answer too), and only for papers already in our metadata.
+
+PAPER_ENDPOINT = "https://huggingface.co/api/papers/{arxiv_id}"
+_GITHUB_REPO = re.compile(r"^https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/?$")
+
+
+def github_repo(url: object) -> str:
+    """The URL if it is exactly a GitHub repository, else ""."""
+    text = str(url or "").strip()
+    return text.rstrip("/") if _GITHUB_REPO.match(text) else ""
+
+
+async def fetch_paper_code(client: httpx.AsyncClient, arxiv_id: str, *,
+                           user_agent: str = "", timeout: float = 4.0) -> tuple[str, int | None] | None:
+    """(repo URL or "", stars or None) from Hugging Face; None when the lookup failed.
+
+    A 404 means Hugging Face has no page for the paper, which is an answer
+    ("no repo"), not a failure; anything else unexpected is a failure, so the
+    caller doesn't cache it for a week.
+    """
+    url = PAPER_ENDPOINT.format(arxiv_id=arxiv_id)
+    try:
+        resp = await client.get(url, timeout=timeout,
+                                headers={"User-Agent": user_agent} if user_agent else None)
+    except httpx.HTTPError:
+        return None
+    if resp.status_code == 404:
+        return "", None
+    if resp.status_code != 200:
+        return None
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    stars = data.get("githubStars")
+    return github_repo(data.get("githubRepo")), stars if isinstance(stars, int) and stars >= 0 else None
