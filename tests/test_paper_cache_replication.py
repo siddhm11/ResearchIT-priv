@@ -81,7 +81,7 @@ async def test_replacing_an_explanation_gives_it_a_new_id(local_db):
         assert await cur.fetchall() == [(2, "second")]
 
 
-@pytest.mark.parametrize("table", ["paper_explanations", "paper_abstracts"])
+@pytest.mark.parametrize("table", ["paper_explanations", "paper_abstracts", "paper_sources"])
 def test_paper_caches_replicate_on_an_integer_id(table):
     spec = turso_sync.TABLES[table]
     assert spec["watermark"] == "id" and spec["wm_kind"] == "int"

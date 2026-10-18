@@ -333,3 +333,22 @@ def test_with_full_abstracts_off_nothing_changes(monkeypatch):
     assert seen["explained_from"] == _STUMP
     assert seen["fetches"] == 0
     assert "stored truncated" in page.text
+
+
+def test_opening_a_paper_schedules_its_arxiv_page_without_waiting(monkeypatch):
+    from app import paper_source_svc
+    scheduled = []
+    monkeypatch.setattr(paper_source_svc, "schedule", scheduled.append)
+    meta, search = _client_with()
+    with meta, search:
+        with TestClient(app) as c:
+            assert c.get("/p/1706.03762").status_code == 200
+    assert scheduled == ["1706.03762"]
+
+
+def test_healthz_sources_reports_the_paper_source_layer(monkeypatch):
+    monkeypatch.setenv("PAPER_SOURCES", "shadow")
+    with TestClient(app) as c:
+        body = c.get("/healthz/sources").json()
+    assert body["switch"] == "shadow"
+    assert body["by_status"] == {} and body["breaker_open"] is False

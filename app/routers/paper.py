@@ -29,8 +29,8 @@ import uuid
 from fastapi import APIRouter, Cookie, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (abstract_svc, arxiv_svc, db, groq_svc, qdrant_svc, readability,
-                 runtime_stats, turso_svc, user_state as us)
+from app import (abstract_svc, arxiv_svc, db, groq_svc, paper_source_svc, qdrant_svc,
+                 readability, runtime_stats, turso_svc, user_state as us)
 from app.config import COOKIE_NAME
 from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
@@ -133,6 +133,9 @@ async def paper_page(
     # Off the request path: request() only schedules the fetch.
     if abstract_svc.is_truncated(paper.get("abstract")):
         abstract_svc.request(arxiv_id)
+    # Likewise the arXiv HTML page (figures, sections, paragraphs), read once
+    # in the background when PAPER_SOURCES is shadow or on. Never awaited here.
+    paper_source_svc.schedule(arxiv_id)
 
     paper = {
         **paper,

@@ -71,6 +71,21 @@ async def healthz_runtime():
     }
 
 
+@router.get("/healthz/sources")
+async def healthz_sources():
+    """How much of the corpus has been read from arXiv HTML, and how politely.
+
+    `by_status` counts saved pages (ok, no_html, error), `licence_mix` the
+    licences among them, `breaker_open` whether arXiv recently pushed back and
+    fetching is paused. See app/paper_source_svc.py.
+    """
+    from app import paper_source_svc
+    try:
+        return await paper_source_svc.stats()
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
 @router.get("/healthz/reranker")
 async def healthz_reranker():
     """
