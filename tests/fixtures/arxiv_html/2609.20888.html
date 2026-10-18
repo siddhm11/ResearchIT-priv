@@ -16,7 +16,14 @@
 arXiv:2609.20888v2 [cs.LG] 25 Sep 2026</div>
 </div>
 <h1 class="ltx_title ltx_title_document">Elastic Threshold Attention: Learned Contextual Sparsity for Long-Context Decoding</h1>
-
+<div id="abstract1" class="ltx_abstract"><h6 class="ltx_title ltx_title_abstract">Abstract</h6>
+    
+<p id="abstract1.1" class="ltx_p">Massive KV caches can cause severe memory-bandwidth bottlenecks during long-context decoding. Sparse attention methods mitigate this problem, but often drop necessary context, leading to quality degradation. We introduce <span id="abstract1.1.1" class="ltx_text ltx_font_bold">Elastic Threshold Attention (ETA)</span>, an end-to-end trainable architecture that rivals dense model quality under hardware-aligned block-sparse decoding. ETA predicts dynamic, contextual thresholds directly from query representations, adjusting context retention depending on the task at hand. To learn this policy from scratch while enabling near lossless KV cache pruning at inference time, we filter attention logits through a shifted SiLU gate during training. We show theoretically and empirically that this creates a smooth, near-uniform attention floor that neutralizes sub-threshold value contributions while simultaneously causing localized attention sinks on initial tokens to disappear. To materialize these advantages, we implement a fused inference-time kernel in Triton that screens KV blocks in <math id="abstract1.m1" class="ltx_Math" alttext="O(1)" display="inline" intent=":literal"><semantics><mrow><mi>O</mi><mo>⁡</mo><mrow><mo stretchy="false">(</mo><mn>1</mn><mo stretchy="false">)</mo></mrow></mrow><annotation encoding="application/x-tex">O(1)</annotation></semantics></math> time using cached geometric-probabilistic bounds. Across language modeling, reasoning, and RULER benchmarks, our 1.45B ETA model matches or exceeds dense quality, outperforming alternative fast decoding methods (Quest, H<sub id="abstract1.1.2" class="ltx_sub">2</sub>O, NSA) while achieving higher sparsity levels. Our kernel also achieves up to <math id="abstract1.m3" class="ltx_math_unparsed" alttext="2.15\times" display="inline" intent=":literal"><semantics><mrow><mn>2.15</mn><mo lspace="0.222em">×</mo></mrow><annotation encoding="application/x-tex">2.15\times</annotation></semantics></math> end-to-end speedups over FlashAttention-2 at context lengths of up to <math id="abstract1.m4" class="ltx_Math" alttext="512" display="inline" intent=":literal"><semantics><mn>512</mn><annotation encoding="application/x-tex">512</annotation></semantics></math>K tokens. Finally,
+we introduce an offline calibration algorithm for domain-specific deployments
+that freezes per-head constant thresholds, cutting
+attention compute by an additional 27% at no quality cost.</p>
+  
+</div>
 <section id="S1" class="ltx_section">
 <h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
 

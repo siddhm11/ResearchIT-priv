@@ -162,3 +162,11 @@ def test_cutting_a_page_anywhere_never_raises(aid):
     rng = random.Random(aid)
     for cut in sorted(rng.sample(range(1, len(html)), 50)):
         arxiv_html.parse(html[:cut], aid)
+
+
+@pytest.mark.parametrize("aid", IDS)
+def test_every_fixture_has_a_title_an_abstract_and_paragraphs(aid):
+    """A trimming mistake once dropped every abstract and the golden files
+    recorded the gap faithfully; this catches it directly."""
+    p = load(aid)
+    assert p.title and len(p.abstract) > 200 and len(p.paragraphs) >= 5

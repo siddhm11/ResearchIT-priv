@@ -3,7 +3,7 @@
  "version": "v2",
  "licence_text": "CC BY 4.0",
  "title": "GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments",
- "abstract_start": "",
+ "abstract_start": "We investigate whether GPT-6-Astra, a general-purpose foundation model, can navigate unfamiliar environments using its own perception, reasoning, and decision-m",
  "sections": [
   [
    "S1",

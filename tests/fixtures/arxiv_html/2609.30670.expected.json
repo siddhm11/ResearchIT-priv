@@ -3,7 +3,7 @@
  "version": "v1",
  "licence_text": "CC BY 4.0",
  "title": "TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding",
- "abstract_start": "",
+ "abstract_start": "Streaming video understanding requires models to interpret evidence as it arrives, yet current evaluations often report task scores without specifying when evid",
  "sections": [
   [
    "S1",
