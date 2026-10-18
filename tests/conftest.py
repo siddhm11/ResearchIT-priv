@@ -110,3 +110,18 @@ def _disable_rate_limiting():
         yield
     finally:
         config.RATE_LIMIT_ENABLED = original
+
+
+def pytest_addoption(parser):
+    """`--update-golden` rewrites expected-output files instead of comparing.
+
+    Used by tests/test_arxiv_html.py after a deliberate parser change; review
+    the resulting diff of tests/fixtures/ by hand before committing it.
+    """
+    parser.addoption("--update-golden", action="store_true", default=False,
+                     help="rewrite golden files in tests/fixtures/ from current output")
+
+
+@pytest.fixture
+def update_golden(request) -> bool:
+    return request.config.getoption("--update-golden")

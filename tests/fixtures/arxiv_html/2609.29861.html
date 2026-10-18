@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GPT-6-Astra Lights Up Embodied Navigation
+
+Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments</title>
+</head>
+<body>
+<!-- Test fixture trimmed from arXiv HTML by scripts/make_arxiv_fixture.py. arXiv:2609.29861, GPT-6-Astra Lights Up Embodied Navigation: Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments, by Guangzhao Dai, Qianru Sun, Qi Wu, Bin Zhu. CC BY 4.0, https://arxiv.org/abs/2609.29861 -->
+<nav class="ltx_TOC"><ol><li><a href="#S1" class="ltx_ref">Contents stub</a></li></ol></nav>
+<div class="ltx_page_main">
+<div id="infobox" class="infobox">
+  <a id="license-tr" href="https://info.arxiv.org/help/license/index.html#licenses-available">
+    License: CC BY 4.0
+  </a>
+  <div id="watermark-tr">
+arXiv:2609.29861v2 [cs.RO] 25 Sep 2026</div>
+</div>
+<h1 class="ltx_title ltx_title_document" style="font-size:120%;"><span id="id1" class="ltx_text" style="font-size:83%;">GPT-6-Astra Lights Up Embodied Navigation
+<br class="ltx_break" style="--ltx-break-space:3.0pt;">
+</span>Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments</h1>
+
+<section id="S1" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
+
+<div id="S1.p1" class="ltx_para">
+<p id="S1.p1.1" class="ltx_p">Can a general-purpose foundation model navigate an unfamiliar environment by directing its own interaction with it?
+Here, we use GPT-6-Astra to study this question through Vision-and-Language Navigation (VLN), where an agent follows natural-language instructions to reach a destination in a visual environment <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib1" title="" class="ltx_ref">3</a>]</cite>. Completing this task requires the agent to follow a language instruction to recognize landmarks, ground spatial relations, track its progress, and choose actions. In continuous environments, it must also coordinate turns and forward movements, inspect uncertain situations, recover from mistakes, and stop at the appropriate location <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib3" title="" class="ltx_ref">19</a>]</cite>. VLN therefore tests whether a foundation model can bring perception, reasoning, memory, and action together over an extended interaction.</p>
+</div>
+<div id="S1.p2" class="ltx_para">
+<p id="S1.p2.1" class="ltx_p">Early VLN research developed navigation policies trained on annotated instructions and trajectories <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib1" title="" class="ltx_ref">3</a>, <a href="#bib.bib2" title="" class="ltx_ref">13</a>]</cite>. With the emergence of models such as GPT-4 <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib4" title="" class="ltx_ref">25</a>]</cite>, Gemini-2.5-Pro <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib6" title="" class="ltx_ref">14</a>]</cite>, and Qwen2.5-VL <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib5" title="" class="ltx_ref">4</a>]</cite>, attention increasingly shifted toward transferring general language and visual capabilities to navigation <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib16" title="" class="ltx_ref">6</a>, <a href="#bib.bib41" title="" class="ltx_ref">12</a>]</cite>.
+Many approaches adapt these capabilities through navigation-specific training or human-designed workflows for planning, memory, and action selection <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib25" title="" class="ltx_ref">44</a>, <a href="#bib.bib30" title="" class="ltx_ref">39</a>, <a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>]</cite>.
+This report does not introduce a new navigation method. Following the harness-based setup of <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib19" title="" class="ltx_ref">50</a>]</cite>, we use the Codex harness<span id="footnote1" class="ltx_note ltx_role_footnote"><sup class="ltx_note_mark">1</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">1</sup>
+            <span class="ltx_tag ltx_tag_note">1</span>
+            
+            
+            
+            
+            
+            
+            
+          <a name="Hfootnote.1a" id="Hfootnote.1a" class="ltx_anchor"></a>The Codex harness maintains a continuous session in which GPT-6-Astra itself perceives, reasons, and makes navigation decisions.</span></span></span> to run GPT-6-Astra with a minimal interface for monocular RGB observations and primitive actions. Here, Codex only sustains the session, while GPT-6-Astra makes the navigation decisions. This setting allows us to examine the model’s capabilities as expressed through its own interaction with the environment. Our evaluation yields four key findings and implications.</p>
+</div>
+<div id="S1.p3" class="ltx_para">
+<p id="S1.p3.1" class="ltx_p"><span id="S1.p3.1.1" class="ltx_text ltx_font_bold ltx_font_italic">(1) GPT-6-Astra achieves strong zero-shot VLN performance using only monocular RGB observations.</span>
+Following prior zero-shot evaluation protocols <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>, <a href="#bib.bib17" title="" class="ltx_ref">11</a>, <a href="#bib.bib11" title="" class="ltx_ref">29</a>]</cite>, we evaluate GPT-6-Astra on R2R-CE-100<span id="footnote2" class="ltx_note ltx_role_footnote"><sup class="ltx_note_mark">2</sup><span class="ltx_note_outer"><span class="ltx_note_content"><sup class="ltx_note_mark">2</sup>
+            <span class="ltx_tag ltx_tag_note">2</span>
+            
+            
+            
+            
+            
+            
+            
+          <a name="Hfootnote.2a" id="Hfootnote.2a" class="ltx_anchor"></a>Following established zero-shot evaluation protocols <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>, <a href="#bib.bib17" title="" class="ltx_ref">11</a>]</cite>, we use the 100-episode R2R-CE subset introduced by Open-Nav <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib9" title="" class="ltx_ref">27</a>]</cite>; trained-method results use the full validation-unseen split. Although not strictly fair, these comparisons help the VLN community assess the competitiveness and research value of zero-shot navigation with advanced foundation models.</span></span></span>. GPT-6-Astra achieves success rates of <span id="S1.p3.1.2" class="ltx_text ltx_font_bold">75.7%</span> (medium reasoning) and <span id="S1.p3.1.3" class="ltx_text ltx_font_bold">81.3%</span> (ultra reasoning), with corresponding SPL scores of <span id="S1.p3.1.4" class="ltx_text ltx_font_bold">65.6%</span> and <span id="S1.p3.1.5" class="ltx_text ltx_font_bold">71.5%</span>. As shown in Figure <a href="#S0.F1" title="Figure 1 ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a>, GPT-6-Astra (ultra reasoning) outperforms state-of-the-art VLN methods, with SR gains of <span id="S1.p3.1.6" class="ltx_text ltx_font_bold">15.3</span> percentage points over zero-shot methods and <span id="S1.p3.1.7" class="ltx_text ltx_font_bold">9.2</span> points over trained methods <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib38" title="" class="ltx_ref">47</a>, <a href="#bib.bib44" title="" class="ltx_ref">45</a>]</cite>. Although evaluation subsets and configurations differ, these results demonstrate superiority in navigation without additional navigation-specific training or a pre-built scene map.</p>
+</div>
+<div id="S1.p4" class="ltx_para">
+<p id="S1.p4.1" class="ltx_p"><span id="S1.p4.1.1" class="ltx_text ltx_font_bold ltx_font_italic">(2) GPT-6-Astra exhibits promising capabilities in interpreting multi-stage instructions, understanding the environment, and adjusting routes.</span>
+Recorded trajectories show GPT-6-Astra identifying instructed landmarks, grounding spatial relations, and following successive turns and room transitions in the specified order. With ultra reasoning, the median nDTW among successful trajectories ranges from <span id="S1.p4.1.2" class="ltx_text ltx_font_bold ltx_font_italic">90.3% to 91.0%</span> across runs, indicating close agreement with reference paths. Recorded interactions also show the model taking additional observations, returning to earlier locations, and adjusting its route and movement direction. These results highlight GPT-6-Astra’s own capabilities for instruction following and adaptive navigation.</p>
+</div>
+<div id="S1.p5" class="ltx_para">
+<p id="S1.p5.1" class="ltx_p"><span id="S1.p5.1.1" class="ltx_text ltx_font_bold ltx_font_italic">(3) Reliable route execution and goal verification remain challenging, even with ultra reasoning effort.</span>
+Across both reasoning settings, 8.0% of tasks fail in all evaluations, while 30.0% have mixed outcomes. Failure cases include substantial route deviations despite plausible landmark matches, ineffective movement, and arrival claims inconsistent with the final position. These results distinguish persistent task failures from run-to-run variation and show that higher reasoning effort does not ensure reliable completion in the evaluated setting.</p>
+</div>
+<div id="S1.p6" class="ltx_para">
+<p id="S1.p6.1" class="ltx_p"><span id="S1.p6.1.1" class="ltx_text ltx_font_bold ltx_font_italic">(4) These results motivate combining general-purpose model capabilities with navigation-specific expertise.</span>
+Prior VLN research provides benchmarks and methods for visual grounding, memory, and action selection <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib1" title="" class="ltx_ref">3</a>, <a href="#bib.bib3" title="" class="ltx_ref">19</a>, <a href="#bib.bib2" title="" class="ltx_ref">13</a>, <a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>]</cite>. Our findings motivate examining which navigation capabilities general-purpose models can provide directly and where navigation-specific learning can extend them. Spatial representations, navigation experience, and learned control skills could improve progress tracking, error recovery, and goal verification while preserving route flexibility.</p>
+</div>
+</section>
+<section id="S2" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">2 </span>Evaluation Setup</h2>
+
+<section id="S2.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">2.1 </span>Navigation Interface</h3>
+
+<div id="S2.SS1.p1" class="ltx_para">
+<p id="S2.SS1.p1.1" class="ltx_p">Given a natural-language instruction, GPT-6-Astra navigates an unfamiliar indoor scene through low-level actions in continuous space <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib3" title="" class="ltx_ref">19</a>]</cite>. Its visual input consists of <math id="S2.SS1.p1.m1" class="ltx_Math" alttext="512\!\times\!512" display="inline" intent=":literal"><semantics><mrow><mphantom></mphantom><mo lspace="0.222em" rspace="0.222em">×</mo><mn>512</mn></mrow><annotation encoding="application/x-tex">512\!\times\!512</annotation></semantics></math> monocular RGB observations. Scene maps, reference trajectories, goal coordinates, global poses, and depth are unavailable through the navigation interface.</p>
+</div>
+<div id="S2.SS1.p2" class="ltx_para">
+<p id="S2.SS1.p2.1" class="ltx_p">Each episode runs within a continuous Codex session. GPT-6-Astra itself interprets the instruction and available interaction context to select observations, action sequences, and when to stop. The Model Context Protocol (MCP) interface connects the model to the simulator (Figure <a href="#S2.F2" title="Figure 2 ‣ 2.1 Navigation Interface ‣ 2 Evaluation Setup ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">2</span></a>). The prompt specifies tool use, budgets, and stopping rules.</p>
+</div>
+<div id="S2.SS1.p3" class="ltx_para">
+<p id="S2.SS1.p3.1" class="ltx_p">The <span id="S2.SS1.p3.1.1" class="ltx_text ltx_font_typewriter">observe()</span> tool returns the current camera view without advancing the simulator or consuming an action step. The <span id="S2.SS1.p3.1.2" class="ltx_text ltx_font_typewriter">step(actions)</span> tool executes an ordered sequence of primitive actions: forward motion of 0.25 m, left/right turns of <math id="S2.SS1.p3.m1" class="ltx_Math" alttext="15^{\circ}" display="inline" intent=":literal"><semantics><msup><mn>15</mn><mo>∘</mo></msup><annotation encoding="application/x-tex">15^{\circ}</annotation></semantics></math>, camera tilts of <math id="S2.SS1.p3.m2" class="ltx_Math" alttext="30^{\circ}" display="inline" intent=":literal"><semantics><msup><mn>30</mn><mo>∘</mo></msup><annotation encoding="application/x-tex">30^{\circ}</annotation></semantics></math> up/down, and STOP. It returns execution counts, remaining budget, and termination status; obtaining a new RGB image requires another <span id="S2.SS1.p3.1.3" class="ltx_text ltx_font_typewriter">observe()</span> call.</p>
+</div>
+<figure id="S2.F2" class="ltx_figure"><img src="2609.29861v2/figure2_navigation_interface.png" id="S2.F2.g1" class="ltx_graphics ltx_centering ltx_img_landscape" style="aspect-ratio:685/545;" width="685" height="545" alt="Refer to caption">
+<figcaption class="ltx_caption ltx_centering"><span class="ltx_tag ltx_tag_figure"><span id="S2.F2.6" class="ltx_text" style="font-size:90%;">Figure 2</span>: </span><span id="S2.F2.7" class="ltx_text ltx_font_bold" style="font-size:90%;">Minimal navigation interface for GPT-6-Astra.<span id="S2.F2.7.1" class="ltx_text ltx_font_medium"> Within the Codex harness, GPT-6-Astra calls <span id="S2.F2.7.1.1" class="ltx_text ltx_font_typewriter">observe()</span> and <span id="S2.F2.7.1.2" class="ltx_text ltx_font_typewriter">step(actions)</span> via the Model Context Protocol (MCP) to obtain monocular RGB observations and execute primitive actions. This minimal external interface aims to fully unleash the model’s own navigation capabilities.</span></span></figcaption>
+</figure>
+</section>
+<section id="S2.SS2" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">2.2 </span>Evaluation Protocol and Metrics</h3>
+
+<div id="S2.SS2.p1" class="ltx_para">
+<p id="S2.SS2.p1.1" class="ltx_p">Following prior zero-shot VLN-CE evaluation protocols <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>, <a href="#bib.bib11" title="" class="ltx_ref">29</a>]</cite>, we evaluate on the same 100-episode R2R-CE validation-unseen subset.
+The subset spans 10 scenes (Footnote <a href="#footnote2" title="Footnote 2 ‣ 1 Introduction ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">2</span></a>). We use no navigation-specific fine-tuning, trained waypoint predictor, or pre-built scene map.</p>
+</div>
+<div id="S2.SS2.p2" class="ltx_para">
+<p id="S2.SS2.p2.1" class="ltx_p">We evaluate GPT-6-Astra with medium and ultra reasoning effort using the same tasks, task prompt, and navigation tools. Each episode has a budget of 500 primitive actions and a 2,400 s time limit, ending upon STOP or exhaustion of either limit.</p>
+</div>
+<div id="S2.SS2.p3" class="ltx_para">
+<p id="S2.SS2.p3.1" class="ltx_p">Success requires an explicit STOP with a final geodesic distance to the goal below 3 m. We report success rate (SR) and success weighted by path length (SPL) for task completion and path efficiency. Navigation error (NE), oracle success rate (OSR), and normalized dynamic time warping (nDTW) additionally measure final goal distance, whether any trajectory position enters the success radius, and reference-path agreement, respectively <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib3" title="" class="ltx_ref">19</a>, <a href="#bib.bib20" title="" class="ltx_ref">17</a>]</cite>.</p>
+</div>
+</section>
+</section>
+<section id="S4" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">4 </span>From Instructions to Adaptive Navigation</h2>
+
+<figure id="S4.F3" class="ltx_figure"><img src="2609.29861v2/figure3_navigation_behaviors.png" id="S4.F3.g1" class="ltx_graphics ltx_centering ltx_img_landscape" style="aspect-ratio:685/509;" width="685" height="509" alt="Refer to caption">
+<figcaption class="ltx_caption ltx_centering"><span class="ltx_tag ltx_tag_figure"><span id="S4.F3.4" class="ltx_text" style="font-size:90%;">Figure 3</span>: </span><span id="S4.F3.5" class="ltx_text ltx_font_bold" style="font-size:90%;">Route following and navigation adjustments.<span id="S4.F3.5.1" class="ltx_text ltx_font_medium"> GPT-6-Astra (ultra reasoning): (a) successful trajectories across three runs; (b) outcomes for trajectories with observed route or movement adjustments, with median SPL among successes in each run; (c) returning to the kitchen before reaching the goal in EP42 (run 1). SPL measures complete trajectories. Intermediate frames are omitted; action labels show the next executed tool call.</span></span></figcaption>
+</figure>
+<div id="S4.p1" class="ltx_para">
+<p id="S4.p1.1" class="ltx_p">We analyze three runs of GPT-6-Astra (ultra reasoning) on R2R-CE-100 to examine instruction following, environment understanding, and route adjustment. Navigation metrics summarize task outcomes and reference-path agreement; RGB observations and executed actions show how the model identifies landmarks, follows room transitions, and changes its route or movements. Trajectories from separate runs are repeated observations of the same tasks. Unless stated otherwise, illustrated RGB sequences come from the first run.</p>
+</div>
+<figure id="S4.T2" class="ltx_table">
+<figcaption class="ltx_caption ltx_centering" style="font-size:80%;"><span class="ltx_tag ltx_tag_table"><span id="S4.T2.9" class="ltx_text" style="font-size:113%;">Table 2</span>: </span><span id="S4.T2.10" class="ltx_text ltx_font_bold" style="font-size:113%;">Navigation performance by instruction type.<span id="S4.T2.10.1" class="ltx_text ltx_font_medium"> GPT-6-Astra (ultra reasoning), mean <math id="S4.T2.m3" class="ltx_Math" alttext="\pm" display="inline" intent=":literal"><semantics><mo>±</mo><annotation encoding="application/x-tex">\pm</annotation></semantics></math> sample SD across three runs. <math id="S4.T2.m4" class="ltx_Math" alttext="N" display="inline" intent=":literal"><semantics><mi>N</mi><annotation encoding="application/x-tex">N</annotation></semantics></math> counts fixed tasks; scores (%) measure whole-task outcomes. Selection types are defined in Section <a href="#S4.SS1" title="4.1 How Does GPT-6-Astra Ground Spatial Instructions? ‣ 4 From Instructions to Adaptive Navigation ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">4.1</span></a>.</span></span></figcaption>
+<table id="S4.T2.11" class="ltx_tabular ltx_centering ltx_guessed_headers ltx_align_middle">
+<thead class="ltx_thead">
+<tr id="S4.T2.11.1" class="ltx_tr">
+<th id="S4.T2.11.1.1" class="ltx_td ltx_align_left ltx_th ltx_th_column ltx_th_row ltx_border_tt" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.1.1.1" class="ltx_text" style="font-size:80%;">Instruction subset</span></th>
+<th id="S4.T2.11.1.2" class="ltx_td ltx_align_right ltx_th ltx_th_column ltx_border_tt" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m5" class="ltx_Math" alttext="N" display="inline" intent=":literal"><semantics><mi mathsize="0.800em">N</mi><annotation encoding="application/x-tex">N</annotation></semantics></math></th>
+<th id="S4.T2.11.1.3" class="ltx_td ltx_align_right ltx_th ltx_th_column ltx_border_tt" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.1.3.1" class="ltx_text" style="font-size:80%;">SR</span></th>
+<th id="S4.T2.11.1.4" class="ltx_td ltx_align_right ltx_th ltx_th_column ltx_border_tt" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.1.4.1" class="ltx_text" style="font-size:80%;">SPL</span></th>
+<th id="S4.T2.11.1.5" class="ltx_td ltx_nopad_r ltx_align_right ltx_th ltx_th_column ltx_border_tt" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.1.5.1" class="ltx_text" style="font-size:80%;">nDTW</span></th></tr>
+</thead>
+<tbody class="ltx_tbody">
+<tr id="S4.T2.11.2" class="ltx_tr">
+<th id="S4.T2.11.2.1" class="ltx_td ltx_align_left ltx_th ltx_th_row ltx_border_t" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.2.1.1" class="ltx_text" style="font-size:80%;">R2R-CE-100</span></th>
+<td id="S4.T2.11.2.2" class="ltx_td ltx_align_right ltx_border_t" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.2.2.1" class="ltx_text" style="font-size:80%;">100</span></td>
+<td id="S4.T2.11.2.3" class="ltx_td ltx_align_right ltx_border_t" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m6" class="ltx_Math" alttext="81.3\!\pm\!2.5" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">2.5</mn></mrow><annotation encoding="application/x-tex">81.3\!\pm\!2.5</annotation></semantics></math></td>
+<td id="S4.T2.11.2.4" class="ltx_td ltx_align_right ltx_border_t" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m7" class="ltx_Math" alttext="71.5\!\pm\!1.7" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">1.7</mn></mrow><annotation encoding="application/x-tex">71.5\!\pm\!1.7</annotation></semantics></math></td>
+<td id="S4.T2.11.2.5" class="ltx_td ltx_nopad_r ltx_align_right ltx_border_t" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m8" class="ltx_Math" alttext="74.0\!\pm\!1.2" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">1.2</mn></mrow><annotation encoding="application/x-tex">74.0\!\pm\!1.2</annotation></semantics></math></td></tr>
+<tr id="S4.T2.11.3" class="ltx_tr">
+<th id="S4.T2.11.3.1" class="ltx_td ltx_align_left ltx_th ltx_th_row" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.3.1.1" class="ltx_text" style="font-size:80%;">Order-based selection</span></th>
+<td id="S4.T2.11.3.2" class="ltx_td ltx_align_right" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.3.2.1" class="ltx_text" style="font-size:80%;">14</span></td>
+<td id="S4.T2.11.3.3" class="ltx_td ltx_align_right" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m9" class="ltx_Math" alttext="95.2\!\pm\!8.2" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">8.2</mn></mrow><annotation encoding="application/x-tex">95.2\!\pm\!8.2</annotation></semantics></math></td>
+<td id="S4.T2.11.3.4" class="ltx_td ltx_align_right" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m10" class="ltx_Math" alttext="77.3\!\pm\!8.2" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">8.2</mn></mrow><annotation encoding="application/x-tex">77.3\!\pm\!8.2</annotation></semantics></math></td>
+<td id="S4.T2.11.3.5" class="ltx_td ltx_nopad_r ltx_align_right" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m11" class="ltx_Math" alttext="75.9\!\pm\!3.2" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">3.2</mn></mrow><annotation encoding="application/x-tex">75.9\!\pm\!3.2</annotation></semantics></math></td></tr>
+<tr id="S4.T2.11.4" class="ltx_tr">
+<th id="S4.T2.11.4.1" class="ltx_td ltx_align_left ltx_th ltx_th_row ltx_border_bb" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.4.1.1" class="ltx_text" style="font-size:80%;">Landmark-based selection</span></th>
+<td id="S4.T2.11.4.2" class="ltx_td ltx_align_right ltx_border_bb" style="padding-left:2.4pt;padding-right:2.4pt;"><span id="S4.T2.11.4.2.1" class="ltx_text" style="font-size:80%;">13</span></td>
+<td id="S4.T2.11.4.3" class="ltx_td ltx_align_right ltx_border_bb" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m12" class="ltx_Math" alttext="74.4\!\pm\!11.8" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">11.8</mn></mrow><annotation encoding="application/x-tex">74.4\!\pm\!11.8</annotation></semantics></math></td>
+<td id="S4.T2.11.4.4" class="ltx_td ltx_align_right ltx_border_bb" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m13" class="ltx_Math" alttext="69.0\!\pm\!8.1" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">8.1</mn></mrow><annotation encoding="application/x-tex">69.0\!\pm\!8.1</annotation></semantics></math></td>
+<td id="S4.T2.11.4.5" class="ltx_td ltx_nopad_r ltx_align_right ltx_border_bb" style="padding-left:2.4pt;padding-right:2.4pt;"><math id="S4.T2.m14" class="ltx_Math" alttext="73.9\!\pm\!2.0" display="inline" intent=":literal"><semantics><mrow><mo mathsize="0.800em">±</mo><mn mathsize="0.800em">2.0</mn></mrow><annotation encoding="application/x-tex">73.9\!\pm\!2.0</annotation></semantics></math></td></tr>
+</tbody>
+</table>
+</figure>
+<section id="S4.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">4.1 </span>How Does GPT-6-Astra Ground Spatial Instructions?</h3>
+
+<div id="S4.SS1.p1" class="ltx_para">
+<p id="S4.SS1.p1.1" class="ltx_p">GPT-6-Astra can use target order and positions relative to landmarks to guide navigation, with different task-level outcomes across instruction types. We retain two fixed instruction subsets. <em id="S4.SS1.p1.1.1" class="ltx_emph ltx_font_italic">Order-based selection</em> identifies a target by its order or position among alternatives, such as the <em id="S4.SS1.p1.1.2" class="ltx_emph ltx_font_italic">second room</em> or <em id="S4.SS1.p1.1.3" class="ltx_emph ltx_font_italic">rightmost doorway</em>. <em id="S4.SS1.p1.1.4" class="ltx_emph ltx_font_italic">Landmark-based selection</em> identifies a target relative to a reference landmark, using <em id="S4.SS1.p1.1.5" class="ltx_emph ltx_font_italic">left/right of</em>, <em id="S4.SS1.p1.1.6" class="ltx_emph ltx_font_italic">between</em>, or <em id="S4.SS1.p1.1.7" class="ltx_emph ltx_font_italic">behind</em>. Across three runs, mean SR is <math id="S4.SS1.p1.m1" class="ltx_Math" alttext="95.2\pm 8.2" display="inline" intent=":literal"><semantics><mrow><mn>95.2</mn><mo>±</mo><mn>8.2</mn></mrow><annotation encoding="application/x-tex">95.2\pm 8.2</annotation></semantics></math>% for the 14 order-based tasks and <math id="S4.SS1.p1.m2" class="ltx_Math" alttext="74.4\pm 11.8" display="inline" intent=":literal"><semantics><mrow><mn>74.4</mn><mo>±</mo><mn>11.8</mn></mrow><annotation encoding="application/x-tex">74.4\pm 11.8</annotation></semantics></math>% for the 13 landmark-based tasks (Table <a href="#S4.T2" title="Table 2 ‣ 4 From Instructions to Adaptive Navigation ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">2</span></a>). These are whole-task navigation scores, not the accuracy of individual spatial decisions. The subsets may overlap and differ in scene layout and route difficulty; score differences therefore do not isolate relation difficulty.</p>
+</div>
+<div id="S4.SS1.p2" class="ltx_para">
+<p id="S4.SS1.p2.1" class="ltx_p">EP218 and EP244 illustrate the behaviors behind these aggregates and succeed in all six evaluations across both reasoning settings. In the first run with ultra reasoning, EP218 follows the hallway past a bathroom identified in the public account as the first room on the left, then approaches the next doorway. In EP244, GPT-6-Astra selects the doorway <em id="S4.SS1.p2.1.1" class="ltx_emph ltx_font_italic">to the left of the white double doors</em>. Their final NE values in this run are 2.6 m and 1.8 m, respectively. These sequences illustrate spatial selection along successful routes, but do not verify every intermediate interpretation.</p>
+</div>
+</section>
+<section id="S4.SS2" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">4.2 </span>How Closely Do Successful Trajectories Follow Reference Paths?</h3>
+
+<div id="S4.SS2.p1" class="ltx_para">
+<p id="S4.SS2.p1.1" class="ltx_p">Successful trajectories generally show high agreement with reference paths. Across the three runs, median nDTW among successes ranges from 90.3% to 91.0%. Figure <a href="#S4.F3" title="Figure 3 ‣ 4 From Instructions to Adaptive Navigation ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">3</span></a>a shows all 244 successful trajectories, which are repeated observations of the same task set, not 244 distinct tasks. nDTW measures reference-path agreement rather than the correctness of individual instruction steps.</p>
+</div>
+<div id="S4.SS2.p2" class="ltx_para">
+<p id="S4.SS2.p2.1" class="ltx_p">EP116 illustrates instruction following across successive room transitions. In the first run, GPT-6-Astra leaves the closet, crosses the bedroom, and stops in the bathroom beside the tub and sink, with 0.1 m NE and 89.2% nDTW.</p>
+</div>
+<div id="S4.SS2.p3" class="ltx_para">
+<p id="S4.SS2.p3.1" class="ltx_p">Some successful trajectories nevertheless deviate substantially from the reference path: 8, 7, and 7 score below 50.0% nDTW in the three runs, respectively, corresponding to <math id="S4.SS2.p3.m1" class="ltx_Math" alttext="9.0\pm 1.0" display="inline" intent=":literal"><semantics><mrow><mn>9.0</mn><mo>±</mo><mn>1.0</mn></mrow><annotation encoding="application/x-tex">9.0\pm 1.0</annotation></semantics></math>% of successes. EP42 in the first run succeeds with 0.7 m NE but has 27.5% nDTW and 41.2% SPL. Its return to the kitchen illustrates this detour.</p>
+</div>
+</section>
+<section id="S4.SS3" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">4.3 </span>How Does GPT-6-Astra Adjust Routes and Movements?</h3>
+
+<div id="S4.SS3.p1" class="ltx_para">
+<p id="S4.SS3.p1.1" class="ltx_p">Recorded trajectories show GPT-6-Astra returning to earlier locations and changing its route or movement direction during navigation. We count a trajectory when the model reports a route mismatch or difficulty moving forward, changes its subsequent actions, and the corresponding RGB observations support a change in route or approach. Routine orientation and statements without matching execution evidence are excluded. Across the three runs, 16, 16, and 12 trajectories meet this criterion, of which 10, 6, and 7 succeed, respectively (Figure <a href="#S4.F3" title="Figure 3 ‣ 4 From Instructions to Adaptive Navigation ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">3</span></a>b).</p>
+</div>
+<div id="S4.SS3.p2" class="ltx_para">
+<p id="S4.SS3.p2.1" class="ltx_p">EP42 illustrates a route adjustment followed by successful completion (Figure <a href="#S4.F3" title="Figure 3 ‣ 4 From Instructions to Adaptive Navigation ‣ GPT-6-Astra Lights Up Embodied Navigation Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments" class="ltx_ref"><span class="ltx_text ltx_ref_tag">3</span></a>c). After reaching a bedroom, GPT-6-Astra checks whether the route matches the instructed sequence, returns to the kitchen, follows its inner aisle, and crosses the small living area into the bedroom on the left. The RGB sequence and executed actions support this return and change of route.</p>
+</div>
+<div id="S4.SS3.p3" class="ltx_para">
+<p id="S4.SS3.p3.1" class="ltx_p">Route adjustment does not ensure an efficient trajectory. Among the successful trajectories counted above, median SPL is 45.5%, 30.3%, and 35.6% in the three runs, respectively, while median nDTW ranges from 8.9% to 44.3%. These scores measure complete trajectories, including detours before an adjustment. They characterize selected trajectories with route mismatches or movement difficulties and do not isolate the effect of adjustment.</p>
+</div>
+</section>
+</section>
+<section id="S6" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">6 </span>Implications for Embodied Navigation</h2>
+
+<section id="S6.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.1 </span>Do General-Purpose Models Offer Another Route to VLN?</h3>
+
+<div id="S6.SS1.p1" class="ltx_para">
+<p id="S6.SS1.p1.1" class="ltx_p">The present results support another route to VLN through direct interaction with the environment. Within the evaluated interface, GPT-6-Astra selects observations, movements, and stopping decisions without additional navigation-specific fine-tuning. Recorded trajectories show it interpreting instructions and adjusting routes during execution. These behaviors motivate examining which capabilities general-purpose models can provide directly and where navigation-specific learning can help.</p>
+</div>
+<div id="S6.SS1.p2" class="ltx_para">
+<p id="S6.SS1.p2.1" class="ltx_p">Prior VLN research provides benchmarks and methods for visual grounding, spatial memory, and action selection <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib1" title="" class="ltx_ref">3</a>, <a href="#bib.bib3" title="" class="ltx_ref">19</a>, <a href="#bib.bib2" title="" class="ltx_ref">13</a>, <a href="#bib.bib9" title="" class="ltx_ref">27</a>, <a href="#bib.bib10" title="" class="ltx_ref">28</a>]</cite>. How best to divide perception, planning, and control between general-purpose models and specialized methods remains an empirical question.</p>
+</div>
+</section>
+<section id="S6.SS2" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.2 </span>How Can Navigation Expertise Complement General-Purpose Models?</h3>
+
+<div id="S6.SS2.p1" class="ltx_para">
+<p id="S6.SS2.p1.1" class="ltx_p">Spatial representations could help relate current observations to previously visited places and completed instruction steps. A useful representation would preserve landmark relations and route history while allowing the model to revise uncertain spatial judgments. Such representations could support progress tracking and goal verification in visually similar locations.</p>
+</div>
+<div id="S6.SS2.p2" class="ltx_para">
+<p id="S6.SS2.p2.1" class="ltx_p">Navigation experience could support adaptation through learning from trajectories or demonstrations supplied at inference time. Pairing observations and actions with their outcomes may help the model use past interactions when choosing routes or recovering from mistakes. The research question is which experiences remain useful across different instructions and scene layouts.</p>
+</div>
+<div id="S6.SS2.p3" class="ltx_para">
+<p id="S6.SS2.p3.1" class="ltx_p">Learned control skills could provide efficient movement and recovery routines that a general-purpose model can select or revise <cite class="ltx_cite ltx_citemacro_cite">[<a href="#bib.bib25" title="" class="ltx_ref">44</a>, <a href="#bib.bib30" title="" class="ltx_ref">39</a>]</cite>. Execution feedback could help detect ineffective motion, while goal verification could compare the current view with the instruction and traversed route. These additions should preserve the model’s flexibility to observe and adjust routes.</p>
+</div>
+<div id="S6.SS2.p4" class="ltx_para">
+<p id="S6.SS2.p4.1" class="ltx_p">Our evaluation motivates these directions but does not test the proposed additions. Because added components may introduce errors or restrict useful model behavior, their contributions require controlled evaluation.</p>
+</div>
+</section>
+<section id="S6.SS3" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.3 </span>How Should Future Navigation Systems Be Evaluated?</h3>
+
+<div id="S6.SS3.p1" class="ltx_para">
+<p id="S6.SS3.p1.1" class="ltx_p">Future studies should compare direct model control with variants that add a spatial representation, an experience mechanism, or a learned skill. Comparisons should fix the model, tasks, observations, primitive actions, and budgets, and disclose any added information. Component ablations and repeated runs can establish which failures change and whether gains persist across evaluations.</p>
+</div>
+<div id="S6.SS3.p2" class="ltx_para">
+<p id="S6.SS3.p2.1" class="ltx_p">Evaluation should measure task success, path efficiency, and reference-path agreement alongside progress tracking, recovery, and stopping behavior. It should also test whether an added component preserves the flexibility to acquire new observations and adjust routes. Inference cost and execution latency should be reported alongside navigation outcomes. Tests across environments, instruction lengths, and layouts should assess transfer beyond R2R-CE-100.</p>
+</div>
+</section>
+</section>
+<section id="bib" class="ltx_bibliography"><h2 class="ltx_title ltx_title_bibliography">References</h2><ul class="ltx_biblist"><li id="bib.bib1" class="ltx_bibitem">Bibliography stub, never parsed.</li></ul></section>
+</div>
+</body>
+</html>
