@@ -242,6 +242,49 @@ CREATE TABLE IF NOT EXISTS paper_paragraphs (
     PRIMARY KEY (arxiv_id, anchor)
 );
 
+-- Every model call the redesign makes (app/llm.py): what it was for, roughly
+-- how much it read and wrote, and its estimated cost. Replicated, so the daily
+-- budget guard still knows today's spend after a restart.
+CREATE TABLE IF NOT EXISTS llm_calls (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature     TEXT NOT NULL,
+    provider    TEXT,
+    model       TEXT,
+    chars_in    INTEGER,
+    chars_out   INTEGER,
+    usd_est     REAL,
+    latency_ms  INTEGER,
+    status      TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
+
+-- Briefings ("Three things to know", "How it works", "Where you'd use this"),
+-- one per paper version, parser, prompt and model (app/briefing_svc.py).
+-- status: ok | insufficient | failed. Replicated: each costs a model call.
+CREATE TABLE IF NOT EXISTS paper_briefings (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key      TEXT NOT NULL UNIQUE,
+    arxiv_id       TEXT NOT NULL,
+    status         TEXT NOT NULL,
+    briefing_json  TEXT,
+    provider       TEXT,
+    model          TEXT,
+    prompt_version TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_briefings_paper ON paper_briefings(arxiv_id);
+
+-- "Report a problem" on generated text. Replicated; reviewed by hand.
+CREATE TABLE IF NOT EXISTS content_reports (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    arxiv_id    TEXT NOT NULL,
+    feature     TEXT NOT NULL,
+    reason      TEXT,
+    user_id     TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Full abstracts for papers whose sidecar copy stops at 500 characters,
 -- fetched from the arXiv API the first time someone opens them
 -- (app/abstract_svc.py). The 2.9 GB sidecar ships inside the image and can't

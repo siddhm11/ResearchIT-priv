@@ -53,6 +53,18 @@ FULLTEXT_MAX_PAPERS = int(os.getenv("FULLTEXT_MAX_PAPERS", "5000"))
 FIG_CACHE_DIR = os.getenv("FIG_CACHE_DIR", "/tmp/figcache").strip()
 FIG_CACHE_MAX_MB = int(os.getenv("FIG_CACHE_MAX_MB", "1024"))
 
+# Model features of the redesign (app/llm.py). The provider is the Groq chain
+# in GROQ_MODELS unless set otherwise; "fake" exists only for tests and refuses
+# to load unless RESEARCHIT_ENV=test. Every call is logged to llm_calls, and new
+# calls stop for the day once either cap is reached (UTC days).
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").strip().lower()
+LLM_DAILY_USD_CAP = float(os.getenv("LLM_DAILY_USD_CAP", "2.0") or 0)
+LLM_DAILY_CALLS = int(os.getenv("LLM_DAILY_CALLS", "1500"))
+# USD per million characters (in, out) by model name, for the spend estimate.
+# Groq's free tier costs nothing; set this when moving to a paid provider, as
+# "model=in:out;model=in:out".
+LLM_PRICES = os.getenv("LLM_PRICES", "").strip()
+
 # Owner-only preview of switched features (app/features.py). Visiting any page
 # with ?preview=<PREVIEW_TOKEN> sets a cookie that shows `preview` features to
 # that browser only. Empty means preview is visible to nobody.

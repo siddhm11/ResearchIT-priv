@@ -81,13 +81,19 @@ async def test_replacing_an_explanation_gives_it_a_new_id(local_db):
         assert await cur.fetchall() == [(2, "second")]
 
 
-@pytest.mark.parametrize("table", ["paper_explanations", "paper_abstracts", "paper_sources"])
+@pytest.mark.parametrize("table", ["paper_explanations", "paper_abstracts", "paper_sources",
+                                   "llm_calls", "paper_briefings", "content_reports"])
 def test_paper_caches_replicate_on_an_integer_id(table):
     spec = turso_sync.TABLES[table]
     assert spec["watermark"] == "id" and spec["wm_kind"] == "int"
     assert spec["cols"][0] == "id"
     assert spec.get("paged") is True
-    assert any(f"EXISTS {table}" in ddl and "UNIQUE" in ddl for ddl in turso_sync.REMOTE_DDL)
+    ddl = next(d for d in turso_sync.REMOTE_DDL if f"EXISTS {table} " in d or f"EXISTS {table}(" in d)
+    assert "id INTEGER PRIMARY KEY" in ddl
+    # Caches upsert on a natural key, so the remote needs it UNIQUE too;
+    # append-only logs have none.
+    if table not in ("llm_calls", "content_reports"):
+        assert "UNIQUE" in ddl
 
 
 def _paged_remote(monkeypatch, n_rows):
