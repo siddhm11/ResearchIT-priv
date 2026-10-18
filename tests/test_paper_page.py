@@ -217,6 +217,24 @@ def test_the_card_link_carries_the_feed_provenance():
         assert key in card, f"card title link drops {key}"
 
 
+@pytest.mark.parametrize("surface", ["search", "recommendation", "saved"])
+def test_card_link_names_its_surface(surface):
+    """The click log groups by surface, so the card must say which one it is on.
+
+    The link used to read `_source`, a variable that only exists inside
+    action_buttons.html. A `set` in an included template never flows back to
+    the includer, so every rendered link ended `sf=` and paper.py stored every
+    click -- search results included -- as a recommendation.
+    """
+    from app.templates_env import templates
+    card = templates.env.get_template("partials/paper_card.html")
+    html = card.render(paper={**PAPER, "query_id": "q1", "position": 2,
+                              "candidate_source": "cluster_0"},
+                       source=surface)
+    href = re.search(r'class="card-title"\s+href="([^"]+)"', html).group(1)
+    assert f"sf={surface}" in href.replace("&amp;", "&")
+
+
 def test_position_zero_is_recorded_not_discarded():
     """Rank 0 is the top of the feed and the slot CTR analysis cares about most.
 
