@@ -1484,3 +1484,139 @@ a.card-title:hover { color: var(--accent); }
 .interest-choice { display: flex; align-items: flex-start; gap: .75rem; cursor: pointer; }
 .interest-choice input { margin-top: .35rem; width: 1.1rem; height: 1.1rem; flex-shrink: 0; }
 .interest-choice:has(input:checked) { outline: 2px solid currentColor; outline-offset: -2px; }
+
+/* ══ Redesign (docs/redesign/) ═════════════════════════════════════════════
+   Ported from the approved v3 preview. Every colour is an existing token;
+   two are added: --plate, white "paper" behind figures (warm grey in dark
+   mode, where pure white glares), and --note, the annotation colour kept
+   apart from Save green. */
+
+:root {
+  --plate: #FFFFFF;
+  --note: var(--info);
+  --note-bg: var(--info-bg);
+  --wide: 84rem;
+  --sticky-top: calc(var(--topbar-h) + 1.25rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --plate: #ECE7DD; }
+}
+:root[data-theme="dark"] { --plate: #ECE7DD; }
+
+/* Components hide with the hidden attribute; a component's own display rule
+   must not override it (the preview needed this). */
+[hidden] { display: none !important; }
+
+.page-wide .topbar .wrap { max-width: var(--wide); }
+.wrap--wide { max-width: var(--wide); }
+
+/* ── shared bits: code chip, figure plate, overflow menu ── */
+.code-chip { display: inline-flex; align-items: center; gap: .3rem; font-family: var(--font-mono); font-size: .7rem;
+  font-weight: 600; padding: .14rem .5rem; border: 1px solid var(--border-2); border-radius: 999px;
+  color: var(--text-2); white-space: nowrap; }
+.code-chip svg { width: .8rem; height: .8rem; }
+.code-chip:hover { color: var(--accent); border-color: var(--accent-br); }
+.code-chip .st { color: var(--text-3); font-weight: 500; }
+.code-slot:empty { display: none; }
+
+.plate { display: block; width: 100%; padding: .55rem; background: var(--plate); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: zoom-in; }
+.plate img { display: block; width: 100%; height: auto; max-height: 30rem; object-fit: contain; }
+.plate-cap { display: flex; flex-wrap: wrap; gap: .15rem .5rem; margin-top: .35rem; font-size: .74rem;
+  color: var(--text-3); line-height: 1.4; }
+.plate-cap b { color: var(--text-2); font-weight: 600; }
+.kf { margin: 0; }
+
+.pc-menu { position: relative; }
+.pc-menu-btn { width: 2rem; height: 2rem; border-radius: var(--radius-sm); color: var(--text-3);
+  display: inline-flex; align-items: center; justify-content: center; }
+.pc-menu-btn:hover, .pc-menu-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
+.pc-menu-btn svg { width: 1.1rem; height: 1.1rem; }
+.menu { position: absolute; right: 0; top: 2.2rem; z-index: 30; min-width: 12.5rem; padding: .3rem;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-2); display: flex; flex-direction: column; }
+.menu a, .menu button { text-align: left; padding: .5rem .65rem; font-size: .84rem; border-radius: 4px; color: var(--text-2); }
+.menu a:hover, .menu button:hover, .menu a:focus-visible, .menu button:focus-visible { background: var(--surface-2); color: var(--text); }
+
+/* Plain terms / Abstract switch: the paper page's summary box and every card */
+.tx-tabs { display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid var(--border); }
+.tx-tab { font-family: var(--font-mono); font-size: .64rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-3); padding: .15rem 0 .4rem; margin-bottom: -1px; border-bottom: 2px solid transparent; }
+.tx-tab:hover { color: var(--text-2); }
+.tx-tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tx-tab:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+.tx-body { font-family: var(--font-read); font-size: 1rem; line-height: 1.6; color: var(--text); padding-top: .55rem; margin: 0; }
+.tx-body--abs { font-size: .94rem; color: var(--text-2); }
+.tx-note { display: block; margin-top: .4rem; font-family: var(--font-ui); font-size: .7rem; color: var(--text-3); }
+.tx-note a { color: var(--accent); }
+.tx-loading { padding-top: .55rem; margin: 0; font-size: .85rem; color: var(--text-3); }
+
+/* ── paper page: outline · reading · Ask ── */
+.px { display: block; }
+@media (min-width: 900px) {
+  .px { display: grid; grid-template-columns: minmax(0, 1fr) 21.5rem; gap: 2rem; align-items: start; }
+  .px--noask { display: block; }
+}
+@media (min-width: 1180px) {
+  .px { grid-template-columns: 12rem minmax(0, 1fr) 23rem; gap: 2.25rem; }
+  .px--noask { display: grid; grid-template-columns: 12rem minmax(0, 1fr); }
+}
+.px--noask .px-main { max-width: 46rem; }
+.outline { display: none; }
+@media (min-width: 1180px) {
+  .outline { display: flex; flex-direction: column; gap: 1.4rem; position: sticky; top: var(--sticky-top); }
+}
+.outline h2 { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: .45rem; }
+.outline nav { display: flex; flex-direction: column; }
+.outline nav a { padding: .3rem .7rem; border-left: 2px solid var(--border); font-size: .84rem; color: var(--text-3); }
+.outline nav a:hover { color: var(--text); }
+.outline nav a.is-active { border-left-color: var(--accent); color: var(--text); font-weight: 580; }
+.outline .acts { display: flex; flex-direction: column; align-items: flex-start; gap: .45rem; }
+.outline .acts .lnk { font-size: .84rem; color: var(--text-2); padding: .2rem .1rem; }
+.outline .acts .lnk:hover { color: var(--accent); }
+.px-main { min-width: 0; }
+.px-main .paper-title { font-size: clamp(1.55rem, 3.2vw, 2.15rem); }
+.inline-acts { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .9rem; }
+.inline-acts .paper-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0; }
+.inline-acts .pc-menu { margin-left: auto; }
+.inline-acts .lnk { font-size: .84rem; color: var(--text-2); padding: .3rem .2rem; }
+.pp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-family: var(--font-mono);
+  font-size: .7rem; color: var(--text-3); margin-top: .35rem; }
+.pp-meta .sep { opacity: .45; }
+.sum-box { padding: .85rem 1.1rem 1rem; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); }
+.brief { margin-top: 2.1rem; display: flex; flex-direction: column; gap: .8rem; scroll-margin-top: 5rem; }
+.sum-box.brief { margin-top: 1.25rem; gap: 0; }
+.brief-h { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: .68rem;
+  font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); margin: 0; }
+.brief-h::after { content: ""; flex: 1 1 2rem; height: 1px; background: var(--border); order: 9; }
+.gen-tag { font-family: var(--font-ui); font-size: .66rem; font-weight: 500; letter-spacing: 0; text-transform: none;
+  color: var(--text-3); border: 1px dashed var(--border-2); border-radius: 999px; padding: .08rem .5rem; }
+.gen-tag--solid { border-style: solid; }
+.figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .75rem; }
+.figs > button { display: flex; flex-direction: column; text-align: left; min-width: 0; }
+.figs .plate { padding: .3rem; }
+.figs .plate img { aspect-ratio: 4 / 3; height: auto; }
+.figs .cap { display: block; margin-top: .3rem; font-size: .72rem; line-height: 1.35; color: var(--text-3); }
+.figs .cap b { color: var(--text-2); }
+.figs-credit { font-size: .72rem; color: var(--text-3); margin: 0; }
+.near-note { font-size: .8rem; color: var(--text-3); margin: 0; }
+.near { list-style: none; display: flex; flex-direction: column; margin: 0; padding: 0; }
+.near li { padding: .75rem 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: .2rem; }
+.near a { font-family: var(--font-read); font-size: 1.04rem; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+.near a:hover { color: var(--accent); }
+.near .m { font-size: .78rem; color: var(--text-3); }
+
+/* ── figure lightbox ── */
+dialog.lb { border: 0; padding: 0; background: transparent; width: min(64rem, 94vw); max-width: 94vw; }
+dialog.lb::backdrop { background: rgba(12, 10, 8, .74); }
+.lb-inner { background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-2); }
+.lb-inner img { display: block; width: 100%; max-height: 72vh; object-fit: contain; background: var(--plate); padding: .75rem; }
+.lb-cap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .6rem 1rem;
+  padding: .7rem 1rem; font-size: .85rem; color: var(--text-2); }
+.lb-cap small { display: block; color: var(--text-3); font-size: .74rem; }
+
+/* KaTeX inherits the reading font size; keep long formulas from widening the page. */
+.tex .katex { font-size: 1.02em; }
+.tex .katex-display { overflow-x: auto; overflow-y: hidden; }
