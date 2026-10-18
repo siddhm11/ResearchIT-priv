@@ -77,6 +77,8 @@ LIMITS: dict[str, tuple[int, int]] = {
 PAPER_SUFFIX_LIMITS: dict[str, tuple[int, int]] = {
     "/explain": (30, 60),
     "/code": (30, 60),
+    "/briefing": (20, 60),
+    "/report": (10, 60),
 }
 
 MAX_KEYS = 10_000

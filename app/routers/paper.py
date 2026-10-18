@@ -23,15 +23,16 @@ GET /p/{arxiv_id}
 """
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 
-from fastapi import APIRouter, Cookie, Query, Request
+from fastapi import APIRouter, Cookie, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (abstract_svc, arxiv_svc, config, db, features, groq_svc, hf_papers_svc,
-                 http_client, paper_source_svc, qdrant_svc, readability, runtime_stats, turso_svc,
-                 user_state as us)
+from app import (abstract_svc, arxiv_svc, briefing_svc, config, db, features, groq_svc,
+                 hf_papers_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
+                 turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
 from app.config import COOKIE_NAME
 from app.routers.events import _NO_POSITION, _position
@@ -394,3 +395,62 @@ async def code_link(arxiv_id: str, request: Request):
                 print(f"[paper] saving the code link of {arxiv_id} failed: {e}")
     return templates.TemplateResponse(request, "partials/paper/code_chip.html",
                                       {"repo": hf_papers_svc.github_repo(repo), "stars": stars})
+
+
+
+# ── Briefing (three things, how it works, where you'd use this) ──────────────
+
+BRIEFING_WAIT_S = 12.0
+_pending_work: set[asyncio.Task] = set()      # strong references (see events._spawn)
+
+
+async def _known_paper(arxiv_id: str) -> dict | None:
+    """Metadata from the sidecar or Turso only: no arXiv fallback, so an invented
+    id can't spend a model call or an outside request."""
+    if not paper_source_svc.ID_PATTERN.match(arxiv_id):
+        return None
+    meta = await turso_svc.fetch_metadata_batch([arxiv_id])
+    paper = meta.get(arxiv_id)
+    return (await abstract_svc.overlay([paper]))[0] if paper else None
+
+
+@router.get("/api/papers/{arxiv_id}/briefing", response_class=HTMLResponse)
+async def briefing(arxiv_id: str, request: Request):
+    """The briefing fragment, or nothing.
+
+    Generated once per paper version and cached. A reader waits at most
+    BRIEFING_WAIT_S; past that the page shows nothing this time and the
+    generation finishes in the background for the next visit. In shadow mode
+    it generates and stores, and always answers empty.
+    """
+    if not features.active("BRIEFING"):
+        return HTMLResponse("")
+    paper = await _known_paper(arxiv_id)
+    if paper is None:
+        return HTMLResponse("")
+    work = asyncio.ensure_future(briefing_svc.get_or_generate(
+        arxiv_id, paper.get("title") or "", paper.get("abstract") or ""))
+    _pending_work.add(work)
+    work.add_done_callback(_pending_work.discard)
+    try:
+        status, result = await asyncio.wait_for(asyncio.shield(work), BRIEFING_WAIT_S)
+    except asyncio.TimeoutError:
+        return HTMLResponse("")                         # it finishes for the next visit
+    if status != "ok" or not features.visible("BRIEFING", request):
+        return HTMLResponse("")
+    source = await paper_source_svc.get(arxiv_id)
+    return templates.TemplateResponse(request, "partials/paper/briefing.html",
+                                      {"briefing": result, "paper_source": source})
+
+
+@router.post("/api/papers/{arxiv_id}/report", response_class=HTMLResponse)
+async def report_problem(arxiv_id: str, request: Request, feature: str = Form(default=""),
+                         reason: str = Form(default=""),
+                         user_id: str | None = Cookie(default=None, alias=COOKIE_NAME)):
+    """Record a reader's report on generated text; reviewed by hand."""
+    if paper_source_svc.ID_PATTERN.match(arxiv_id) and feature in ("briefing", "ask", "explain"):
+        try:
+            await briefing_svc.report(arxiv_id, feature, reason, user_id)
+        except Exception as e:
+            print(f"[paper] saving a report failed: {e}")
+    return HTMLResponse('<span class="report-done">Thanks — we\'ll look at it.</span>')
