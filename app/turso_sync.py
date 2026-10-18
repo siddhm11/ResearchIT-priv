@@ -89,7 +89,32 @@ TABLES: dict[str, dict] = {
                  "created_at", "updated_at"],
         "blobs": [],
     },
+    # Paper-level caches that cost money or outside requests to rebuild. Each
+    # has an AUTOINCREMENT `id` as its watermark (a one-second timestamp skips
+    # rows in a burst) and a UNIQUE natural key, so INSERT OR REPLACE here and
+    # on the remote both resolve an update to one row. `paged` restores them in
+    # chunks: one unpaged SELECT of a large table times out at boot.
+    "paper_explanations": {
+        "remote": "paper_explanations",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "cache_key", "arxiv_id", "explanation", "model", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    "paper_abstracts": {
+        "remote": "paper_abstracts",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "arxiv_id", "abstract", "source", "fetched_at"],
+        "blobs": [],
+        "paged": True,
+    },
 }
+
+RESTORE_PAGE = 2000
 
 REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS user_interactions (
@@ -110,6 +135,12 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS user_onboarding (
         user_id TEXT PRIMARY KEY, selected_categories TEXT,
         onboarding_completed INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS paper_explanations (
+        id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
+        explanation TEXT NOT NULL, model TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS paper_abstracts (
+        id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL UNIQUE, abstract TEXT NOT NULL,
+        source TEXT, fetched_at TEXT)""",
 ]
 
 _LOCAL_STATE_DDL = """CREATE TABLE IF NOT EXISTS sync_state (
@@ -293,6 +324,28 @@ async def _reserve_id_space(conn, local: str, spec: dict) -> bool:
     return True
 
 
+async def _fetch_remote(spec: dict, cols: str) -> list[list]:
+    """Every remote row of one table: one query, or pages of RESTORE_PAGE by id.
+
+    Pages are gathered before anything is written, so a failure partway leaves
+    the local table empty and the caller's failure handling applies unchanged.
+    """
+    if not spec.get("paged"):
+        return (await _execute([{"sql": f"SELECT {cols} FROM {spec['remote']}"}]))[0]
+    rows: list[list] = []
+    last = 0
+    while True:
+        page = (await _execute([{
+            "sql": (f"SELECT {cols} FROM {spec['remote']} WHERE id > ? "
+                    f"ORDER BY id LIMIT {RESTORE_PAGE}"),
+            "args": [_cell(last)],
+        }]))[0]
+        rows.extend(page)
+        if len(page) < RESTORE_PAGE:
+            return rows
+        last = int(page[-1][spec["cols"].index("id")])
+
+
 async def restore() -> dict:
     """Pull user data from Turso into the local DB.
 
@@ -311,8 +364,7 @@ async def restore() -> dict:
                 continue  # local already has data; leave it alone
             cols = ", ".join(spec["cols"])
             try:
-                rows = (await _execute(
-                    [{"sql": f"SELECT {cols} FROM {spec['remote']}"}]))[0]
+                rows = await _fetch_remote(spec, cols)
             except Exception as e:
                 print(f"[turso_sync] restore {local} failed: {str(e)[:120]}")
                 # The rows are not here, so this container cannot know which
