@@ -238,11 +238,23 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
         print(f"[paper] saved source unavailable for {arxiv_id}: {e}")
     figures = []
     if source is not None and features.visible("FIGURES", request):
+        # The replicated row cuts captions at 300 characters; the local full
+        # text, when this container has it, holds them whole.
+        full_captions = {}
+        try:
+            full = await paper_source_svc.fulltext(arxiv_id) if source.ok else None
+            full_captions = {f["anchor"]: f.get("caption") or "" for f in (full or {}).get("figures", [])}
+        except Exception as e:
+            print(f"[paper] full text unavailable for {arxiv_id}: {e}")
         for n, f in enumerate(source.figures):
             url = figure_url(source, n)
-            if url:
-                figures.append({"n": n, "url": url, "label": f.get("label") or "",
-                                "caption": f.get("caption") or "", "w": f.get("w"), "h": f.get("h")})
+            if not url:
+                continue
+            caption = full_captions.get(f.get("anchor")) or f.get("caption") or ""
+            if caption == f.get("caption") and len(caption) >= paper_source_svc.REPLICATED_CAPTION:
+                caption = caption.rstrip() + "…"
+            figures.append({"n": n, "url": url, "label": f.get("label") or "",
+                            "caption": caption, "w": f.get("w"), "h": f.get("h")})
     ask_visible = features.visible("ASK", request)
     briefing_visible = features.visible("BRIEFING", request)
     outline = [("sec-sum", "Summary")]

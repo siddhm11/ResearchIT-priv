@@ -263,3 +263,25 @@ def test_the_code_chip_needs_the_new_page(page, monkeypatch):
     calls = hf(monkeypatch, lambda r: httpx.Response(200, json={"githubRepo": "https://github.com/a/b"}))
     assert get("/api/papers/2609.31507/code").text.strip() == ""
     assert calls == []
+
+
+def test_the_full_caption_is_used_when_this_container_has_the_full_text(page, monkeypatch):
+    monkeypatch.setenv("FIGURES", "on")
+    long_cut = "A" * 300
+    figs = [{"anchor": "S1.F1", "label": "Figure 1", "caption": long_cut, "src": FIG_SRC, "w": 10, "h": 10}]
+
+    async def go(with_fulltext):
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            await conn.execute("INSERT OR REPLACE INTO paper_sources (arxiv_id, status, version, licence, "
+                               "figures_json, parser_version) VALUES (?, 'ok', 'v1', 'CC-BY-4.0', ?, 1)",
+                               (PAPER["arxiv_id"], json.dumps(figs)))
+            await conn.execute("DELETE FROM paper_fulltext")
+            if with_fulltext:
+                await conn.execute("INSERT INTO paper_fulltext (arxiv_id, figures_json) VALUES (?, ?)",
+                                   (PAPER["arxiv_id"], json.dumps([{"anchor": "S1.F1", "caption": long_cut + " ends here."}])))
+            await conn.commit()
+
+    asyncio.run(go(False))
+    assert long_cut + "…" in get("/p/2609.31507").text
+    asyncio.run(go(True))
+    assert long_cut + " ends here." in get("/p/2609.31507").text
