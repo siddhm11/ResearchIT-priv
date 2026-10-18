@@ -217,6 +217,36 @@ def test_the_card_link_carries_the_feed_provenance():
         assert key in card, f"card title link drops {key}"
 
 
+def test_paper_page_records_timings():
+    """A redesign of this page is judged against these numbers."""
+    from app import runtime_stats
+    meta, search = _client_with()
+    with meta, search:
+        with TestClient(app) as c:
+            assert c.get("/p/1706.03762").status_code == 200
+            body = c.get("/healthz/runtime").json()
+    row = runtime_stats.timings()["paper_page"]
+    assert {"meta_ms", "related_ms", "total_ms"} <= set(row)
+    assert "paper_page" in body["timings"]
+
+
+def test_explain_counts_cache_hits_and_misses():
+    from app import db, groq_svc, runtime_stats
+    before = runtime_stats.counters()
+    meta, search = _client_with()
+
+    async def fake_explain(title, abstract):
+        return "A plain summary."
+
+    with meta, search, patch.object(groq_svc, "explain_paper", side_effect=fake_explain):
+        with TestClient(app) as c:
+            c.get("/api/papers/1706.03762/explain")
+            c.get("/api/papers/1706.03762/explain")
+    after = runtime_stats.counters()
+    assert after.get("explain_cache_miss", 0) - before.get("explain_cache_miss", 0) == 1
+    assert after.get("explain_cache_hit", 0) - before.get("explain_cache_hit", 0) == 1
+
+
 @pytest.mark.parametrize("surface", ["search", "recommendation", "saved"])
 def test_card_link_names_its_surface(surface):
     """The click log groups by surface, so the card must say which one it is on.
