@@ -336,4 +336,64 @@
   document.body.addEventListener('htmx:afterRequest', function (e) {
     if (isSearchRequest(e)) searchProgressStop();
   });
+
+  /* ── Overflow menus ("⋯") and Copy arXiv ID ───────────────────────────
+     Used by the redesigned paper page and feed cards. One menu open at a
+     time; Escape or a click elsewhere closes it and returns focus to its
+     button. Delegated, so htmx-appended cards need no binding. */
+
+  function closeMenus(except) {
+    document.querySelectorAll('[data-menu][aria-expanded="true"]').forEach(function (b) {
+      if (b === except) return;
+      b.setAttribute('aria-expanded', 'false');
+      var m = b.nextElementSibling;
+      if (m) m.hidden = true;
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var target = e.target;
+    var btn = target.closest && target.closest('[data-menu]');
+    if (btn) {
+      e.preventDefault();
+      var menu = btn.nextElementSibling;
+      var open = btn.getAttribute('aria-expanded') !== 'true';
+      closeMenus(btn);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (menu) {
+        menu.hidden = !open;
+        var first = open && menu.querySelector('a, button');
+        if (first) first.focus();
+      }
+      return;
+    }
+    var copy = target.closest && target.closest('[data-copy]');
+    if (copy) {
+      e.preventDefault();
+      var text = copy.getAttribute('data-copy');
+      var done = function () {
+        var t = makeToast('Copied ' + text);
+        if (t) setTimeout(function () { closeToast(t); }, 2000);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () {});
+      }
+    }
+    if (!(target.closest && target.closest('.menu'))) closeMenus(null);
+    else if (target.closest('a, button')) closeMenus(null);
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var open = document.querySelector('[data-menu][aria-expanded="true"]');
+    if (open) { closeMenus(null); open.focus(); }
+  });
+
+  /* Shared with paper.js and the feed. */
+  window.ResearchIT = window.ResearchIT || {};
+  window.ResearchIT.toast = function (message, ms) {
+    var t = makeToast(message);
+    if (t) setTimeout(function () { closeToast(t); }, ms || 2600);
+    return t;
+  };
 })();
