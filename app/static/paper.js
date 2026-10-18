@@ -139,6 +139,102 @@
     }
   }
 
+  /* ── Ask this paper ──────────────────────────────────────────────────────
+     The question is echoed into the log (textContent) as it is sent; the
+     server answers with the bot bubble only. A panel from 900 px; below that
+     a bottom sheet with focus kept inside it until it closes. */
+
+  var ask = document.querySelector('[data-ask]');
+  if (ask) {
+    var form = document.getElementById('chat-form');
+    var input = document.getElementById('chat-input');
+    var log = document.getElementById('chat-log');
+    var keyField = form.querySelector('input[name="key"]');
+    var backdrop = document.querySelector('.sheet-backdrop');
+    var fab = document.querySelector('[data-ask-open]');
+    var wide = window.matchMedia ? window.matchMedia('(min-width: 900px)') : { matches: true };
+
+    var autosize = function () {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 96) + 'px';
+    };
+    var echo = function (text) {
+      var d = document.createElement('div');
+      d.className = 'msg msg-user';
+      d.textContent = text;
+      log.appendChild(d);
+      log.scrollTop = log.scrollHeight;
+    };
+    var send = function (text, key) {
+      if (!text || form.classList.contains('htmx-request')) return;
+      input.value = text;
+      keyField.value = key || '';
+      if (form.requestSubmit) form.requestSubmit(); else window.htmx.trigger(form, 'submit');
+    };
+
+    form.addEventListener('htmx:beforeRequest', function () {
+      var text = input.value.trim();
+      if (text) echo(text);
+      input.value = '';
+      autosize();
+    });
+    form.addEventListener('htmx:afterRequest', function () {
+      keyField.value = '';
+      log.scrollTop = log.scrollHeight;
+      renderMath(log);
+    });
+    input.addEventListener('input', autosize);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input.value.trim(), ''); }
+    });
+    var sugg = document.getElementById('ask-sugg');
+    if (sugg) {
+      sugg.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-ask-q]');
+        if (!b) return;
+        send(b.getAttribute('data-ask-q'), b.getAttribute('data-ask-key'));
+        b.remove();
+      });
+    }
+
+    var openSheet = function () {
+      if (wide.matches) { input.focus(); return; }
+      ask.classList.add('is-sheet');
+      if (backdrop) backdrop.hidden = false;
+      if (fab) fab.hidden = true;
+      input.focus();
+    };
+    var closeSheet = function () {
+      ask.classList.remove('is-sheet');
+      if (backdrop) backdrop.hidden = true;
+      if (fab) { fab.hidden = false; fab.focus(); }
+    };
+    var trap = function (e) {
+      var f = Array.prototype.filter.call(ask.querySelectorAll('button, textarea, a[href]'),
+                                          function (x) { return x.offsetParent !== null; });
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    };
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('[data-ask-open]')) openSheet();
+      else if (e.target.closest('[data-ask-close]')) closeSheet();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (!ask.classList.contains('is-sheet')) return;
+      if (e.key === 'Escape') closeSheet();
+      else if (e.key === 'Tab') trap(e);
+    });
+    if (wide.addEventListener) {
+      wide.addEventListener('change', function () { if (wide.matches && ask.classList.contains('is-sheet')) closeSheet(); });
+    }
+    /* "Ask about this figure" in the lightbox. */
+    document.addEventListener('researchit:ask', function (e) {
+      openSheet();
+      send(e.detail && e.detail.question, '');
+    });
+  }
+
   /* ── Outline: mark the section in view ───────────────────────────────── */
 
   var links = document.querySelectorAll('.outline nav a[data-sec]');
