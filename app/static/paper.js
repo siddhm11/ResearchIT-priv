@@ -142,17 +142,33 @@
   /* ── Outline: mark the section in view ───────────────────────────────── */
 
   var links = document.querySelectorAll('.outline nav a[data-sec]');
+
+  function markActive(id) {
+    links.forEach(function (a) {
+      var on = a.getAttribute('data-sec') === id;
+      a.classList.toggle('is-active', on);
+      if (on) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current');
+    });
+  }
+
   if (links.length && 'IntersectionObserver' in window) {
     var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (en) {
-        if (!en.isIntersecting) return;
-        links.forEach(function (a) {
-          var on = a.getAttribute('data-sec') === en.target.id;
-          a.classList.toggle('is-active', on);
-          if (on) a.setAttribute('aria-current', 'location'); else a.removeAttribute('aria-current');
-        });
-      });
+      entries.forEach(function (en) { if (en.isIntersecting) markActive(en.target.id); });
     }, { rootMargin: '-20% 0px -70% 0px' });
+    /* A short last section never reaches that band, so at the bottom of the
+       page the last link is the one in view. */
+    var ticking = false;
+    window.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () {
+        ticking = false;
+        var doc = document.documentElement;
+        if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) {
+          markActive(links[links.length - 1].getAttribute('data-sec'));
+        }
+      });
+    }, { passive: true });
     function watch() {
       links.forEach(function (a) {
         var el = document.getElementById(a.getAttribute('data-sec'));
