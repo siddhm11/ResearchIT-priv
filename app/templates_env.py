@@ -273,6 +273,24 @@ from app import config  # noqa: E402  (after `templates` exists, avoids a cycle)
 
 templates.env.globals["space_app_url"] = config.SPACE_APP_URL
 
+# Versioned static URLs. /static/ responses are cached for an hour, so without
+# a version in the URL a deploy could serve new HTML with the old stylesheet and
+# script for that hour. The version is a hash of the files' contents, so it only
+# changes when they do.
+def _static_version() -> str:
+    import hashlib
+    from pathlib import Path
+    h = hashlib.sha1()
+    static = Path(__file__).resolve().parent / "static"
+    for name in ("styles.css", "app.js", "htmx.min.js", "paper.js"):
+        path = static / name
+        if path.exists():
+            h.update(path.read_bytes())
+    return h.hexdigest()[:10]
+
+
+templates.env.globals["static_version"] = _static_version()
+
 # Redesign switches (app/features.py). Templates ask `feature_visible("ASK",
 # request)` rather than reading the environment themselves.
 from app import features  # noqa: E402

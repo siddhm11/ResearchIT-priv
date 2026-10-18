@@ -10,7 +10,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>Welcome — ResearchIT</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v={{ static_version }}" />
   <script>
     (function () {
       try {
@@ -68,8 +68,8 @@
 
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-  <script src="/static/htmx.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/htmx.min.js?v={{ static_version }}"></script>
+  <script src="/static/app.js?v={{ static_version }}"></script>
   <script>
     var selectedCategories = new Set({{ selected | tojson }});
 
