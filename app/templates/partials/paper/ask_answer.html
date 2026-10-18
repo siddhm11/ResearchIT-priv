@@ -1,0 +1,31 @@
+{#
+  One answer bubble, appended to the chat log. Everything is escaped text;
+  links are built here from anchors the checks accepted, never from the model.
+#}
+<div class="msg msg-bot">
+  {% if answer.kind == "answer" %}
+    <div class="bubble">
+      {{ answer.answer }}
+      {% for q in answer.quotes %}<blockquote class="tex">“{{ q.text }}”</blockquote>{% endfor %}
+    </div>
+    <div class="cites">From the paper:
+      {% for c in answer.cites %}
+        <a class="cite" href="{{ paper_source.html_url(c.anchor) if paper_source else 'https://arxiv.org/abs/' ~ arxiv_id }}"
+           target="_blank" rel="noopener" title="Open this passage on arXiv">{{ c.label }}</a>
+      {% endfor %}
+    </div>
+    {% if answer.abstract_only %}<div class="cites">Answered from the abstract only.</div>{% endif %}
+  {% elif answer.kind == "unanswerable" %}
+    <div class="bubble">The paper doesn't say. {{ answer.answer }}</div>
+  {% elif answer.kind == "nosupport" %}
+    <div class="bubble">{{ answer.answer }}</div>
+  {% elif answer.kind == "cap" %}
+    <div class="bubble">You've asked {{ cap }} questions today, the daily limit. It resets at midnight UTC.</div>
+  {% elif answer.kind == "busy" %}
+    <div class="bubble">The answering model is busy right now. Try again in a minute.</div>
+  {% elif answer.kind == "invalid" %}
+    <div class="bubble">{{ answer.answer }}</div>
+  {% else %}
+    <div class="bubble">Couldn't answer just now. Try again.</div>
+  {% endif %}
+</div>

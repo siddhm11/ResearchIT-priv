@@ -275,6 +275,49 @@ CREATE TABLE IF NOT EXISTS paper_briefings (
 );
 CREATE INDEX IF NOT EXISTS idx_briefings_paper ON paper_briefings(arxiv_id);
 
+-- Ask this paper (app/ask_svc.py). Answers to the suggested questions are
+-- cached per paper version, parser, question, prompt and model (replicated);
+-- free-form questions are not cached.
+CREATE TABLE IF NOT EXISTS paper_answers (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key      TEXT NOT NULL UNIQUE,
+    arxiv_id       TEXT NOT NULL,
+    question_key   TEXT NOT NULL,
+    answer_json    TEXT NOT NULL,
+    model          TEXT,
+    prompt_version TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Questions per reader per UTC day, for ASK_DAILY_CAP. Local only.
+CREATE TABLE IF NOT EXISTS ask_usage (
+    user_id  TEXT NOT NULL,
+    day      TEXT NOT NULL,
+    n        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+);
+
+-- One row per question, counts only: never the question's text. Local only
+-- and pruned after 30 days. Ask never writes to `interactions`, so it can't
+-- touch reading profiles.
+CREATE TABLE IF NOT EXISTS ask_log (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id        TEXT,
+    arxiv_id       TEXT NOT NULL,
+    question_len   INTEGER,
+    question_key   TEXT,
+    passages       INTEGER,
+    quotes_kept    INTEGER,
+    quotes_dropped INTEGER,
+    cites_kept     INTEGER,
+    cites_dropped  INTEGER,
+    kind           TEXT,
+    latency_ms     INTEGER,
+    model          TEXT,
+    status         TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- "Report a problem" on generated text. Replicated; reviewed by hand.
 CREATE TABLE IF NOT EXISTS content_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
