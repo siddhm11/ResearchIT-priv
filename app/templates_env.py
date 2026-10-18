@@ -278,4 +278,11 @@ templates.env.globals["space_app_url"] = config.SPACE_APP_URL
 from app import features  # noqa: E402
 
 templates.env.globals["feature_visible"] = features.visible
+
+# Figure thumbnails: URLs that pass the licence and path checks, and the credit
+# line every displayed figure carries (app/routers/figures.py).
+from app.routers.figures import figure_credit, figure_url  # noqa: E402
+
+templates.env.globals["figure_url"] = figure_url
+templates.env.globals["figure_credit"] = figure_credit
 templates.env.globals["space_paper_url"] = config.space_paper_url
