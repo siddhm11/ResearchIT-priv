@@ -95,6 +95,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.discovery.stop()
+        from app import abstract_svc
+        await abstract_svc.stop()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:

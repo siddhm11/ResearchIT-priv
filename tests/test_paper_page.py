@@ -284,3 +284,52 @@ def test_a_genuinely_absent_position_is_still_null():
     assert _position(None) is None
     assert _position(0) == 0
     assert _position(7) == 7
+
+
+# ── full abstracts on first open (app/abstract_svc.py) ───────────────────────
+
+_STUMP = ("We study the problem of learning models " * 20)[:499] + "z"
+_FULL = _STUMP + " and then finish the sentence, with results."
+
+
+def _cut_paper_client(monkeypatch, switch):
+    from app import abstract_svc, groq_svc
+    monkeypatch.setenv("FULL_ABSTRACTS", switch)
+    seen = {"explained_from": None, "fetches": 0}
+
+    async def fake_fetch(ids):
+        seen["fetches"] += 1
+        return {i: _FULL for i in ids}
+
+    async def fake_explain(title, abstract):
+        seen["explained_from"] = abstract
+        return "Plain words."
+
+    monkeypatch.setattr(abstract_svc, "_fetch", fake_fetch)
+    monkeypatch.setattr(groq_svc, "explain_paper", fake_explain)
+    meta, search = _client_with({**PAPER, "abstract": _STUMP})
+    return meta, search, seen
+
+
+def test_explain_waits_for_the_full_abstract(monkeypatch):
+    meta, search, seen = _cut_paper_client(monkeypatch, "on")
+    with meta, search:
+        with TestClient(app) as c:
+            r = c.get("/api/papers/1706.03762/explain")
+            page = c.get("/p/1706.03762")
+    assert r.status_code == 200 and "Plain words." in r.text
+    assert seen["explained_from"] == _FULL
+    assert seen["fetches"] == 1
+    assert "finish the sentence, with results." in page.text
+    assert "stored truncated" not in page.text
+
+
+def test_with_full_abstracts_off_nothing_changes(monkeypatch):
+    meta, search, seen = _cut_paper_client(monkeypatch, "off")
+    with meta, search:
+        with TestClient(app) as c:
+            c.get("/api/papers/1706.03762/explain")
+            page = c.get("/p/1706.03762")
+    assert seen["explained_from"] == _STUMP
+    assert seen["fetches"] == 0
+    assert "stored truncated" in page.text
