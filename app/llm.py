@@ -201,8 +201,11 @@ async def complete_json(feature: str, system: str, user: str, *, max_tokens: int
             text, model = await asyncio.wait_for(_ask_groq(system, user, max_tokens, timeout), timeout + 1)
     except Exception as e:
         call.latency_ms = int((time.perf_counter() - t0) * 1000)
-        call.status = "failed"
-        print(f"[llm] {feature} call failed: {type(e).__name__}: {str(e)[:160]}")
+        # Every model benched (rate limits on Groq's free tier) or no key: the
+        # paper is not the problem, so callers retry soon instead of caching it.
+        text = str(e)
+        call.status = "unavailable" if ("no Groq model answered" in text or "no Groq client" in text) else "failed"
+        print(f"[llm] {feature} call {call.status}: {type(e).__name__}: {text[:160]}")
         await _log(call)
         return None, call
     call.latency_ms = int((time.perf_counter() - t0) * 1000)

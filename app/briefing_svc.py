@@ -30,7 +30,13 @@ from app import arxiv_html, config, errors, llm, paper_source_svc
 SWITCH = "BRIEFING"
 PROMPT_VERSION = "b1"
 PASSAGE_CHARS = 1200
-TOTAL_CHARS = 24_000
+TOTAL_CHARS = 16_000
+# Briefing prompts are the largest the app sends, and Groq's free tier shares
+# one tokens-per-minute budget with search rewriting and "In plain terms".
+# Measured 2026-10-19: four ~24,000-character prompts back to back benched
+# every model in the chain. So one briefing call at a time, at least this far
+# apart; a reader who'd wait past the endpoint's budget sees it next visit.
+MIN_CALL_INTERVAL_S = float(__import__("os").getenv("BRIEFING_MIN_INTERVAL_S", "8"))
 RETRY_FAILED_S = 24 * 3600
 
 _INTRO = re.compile(r"\bintroduction\b", re.I)
@@ -259,9 +265,24 @@ async def _store(arxiv_id: str, version: str, status: str, briefing: dict, model
         await conn.commit()
 
 
-# ── generation (one in flight per paper) ─────────────────────────────────────
+# ── generation (one in flight per paper, one model call at a time) ──────────
 
 _in_flight: dict[tuple, asyncio.Future] = {}
+_pacing: dict = {}          # loop -> (lock, [last call time])
+
+
+async def _paced_call(system: str, user: str):
+    import time as _time
+    loop = asyncio.get_running_loop()
+    lock, last = _pacing.setdefault(loop, (asyncio.Lock(), [0.0]))
+    async with lock:
+        wait = last[0] + MIN_CALL_INTERVAL_S - _time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        try:
+            return await llm.complete_json("briefing", system, user, max_tokens=900, timeout=12)
+        finally:
+            last[0] = _time.monotonic()
 
 
 async def _generate(arxiv_id: str, title: str, abstract: str) -> tuple[str, dict]:
@@ -274,10 +295,10 @@ async def _generate(arxiv_id: str, title: str, abstract: str) -> tuple[str, dict
     if len(passages) < 3:
         await _store(arxiv_id, source.version, "insufficient", {"error": "too few passages"}, "")
         return "insufficient", {}
-    data, call = await llm.complete_json("briefing", SYSTEM, build_prompt(title, passages),
-                                         max_tokens=900, timeout=12)
-    if call.status == "over_budget":
-        return "insufficient", {"error": "over budget"}       # not stored: try again tomorrow
+    data, call = await _paced_call(SYSTEM, build_prompt(title, passages))
+    if call.status in ("over_budget", "unavailable"):
+        # Not the paper's fault, so nothing is stored and a later visit retries.
+        return "insufficient", {"error": f"model {call.status}"}
     status, briefing = verify(data, passages)
     if call.status != "ok" and status == "failed":
         briefing["error"] = f"model call {call.status}"

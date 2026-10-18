@@ -303,3 +303,28 @@ def test_briefing_and_report_routes_are_rate_limited():
 ])
 def test_names_with_digits_are_not_numbers(sentence, numbers):
     assert briefing_svc._numbers(sentence) == numbers
+
+
+async def test_an_unavailable_model_is_not_cached_so_the_next_visit_retries(fake, monkeypatch):
+    await satnav_inputs()
+    llm.fake_reply(RuntimeError("no Groq model answered (configured: [...])"), good_reply)
+    monkeypatch.setattr(briefing_svc, "MIN_CALL_INTERVAL_S", 0)
+    status, b = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    assert status == "insufficient" and b["error"] == "model unavailable"
+    assert await briefing_svc.cached(AID, PARSED.version) is None
+    status, _ = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    assert status == "ok"
+
+
+async def test_briefing_calls_are_spaced_out(fake, monkeypatch):
+    import time
+    monkeypatch.setattr(briefing_svc, "MIN_CALL_INTERVAL_S", 0.2)
+    stamps = []
+
+    def stamp(system, user):
+        stamps.append(time.monotonic())
+        return '{"insufficient": true}'
+
+    llm.fake_reply(stamp, stamp)
+    await asyncio.gather(briefing_svc._paced_call("s", "u"), briefing_svc._paced_call("s", "u"))
+    assert stamps[1] - stamps[0] >= 0.19

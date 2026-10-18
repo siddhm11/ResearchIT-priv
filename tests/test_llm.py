@@ -84,9 +84,15 @@ def test_the_fake_provider_refuses_outside_tests(monkeypatch):
     assert llm._provider() == "groq"
 
 
-async def test_groq_without_a_key_fails_quietly(monkeypatch):
+async def test_groq_without_a_key_is_unavailable_not_failed(monkeypatch):
+    """Not the paper's fault, so callers retry later rather than caching it."""
     from app import groq_svc
     monkeypatch.setattr(config, "LLM_PROVIDER", "groq")
     monkeypatch.setattr(groq_svc, "_get_client", lambda: None)
     data, call = await llm.complete_json("ask", "s", "u")
-    assert data is None and call.status == "failed"
+    assert data is None and call.status == "unavailable"
+
+
+async def test_every_model_rate_limited_is_unavailable(fake):
+    llm.fake_reply(RuntimeError("no Groq model answered (configured: [...])"))
+    assert (await llm.complete_json("ask", "s", "u"))[1].status == "unavailable"
