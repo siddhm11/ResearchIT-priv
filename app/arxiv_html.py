@@ -24,6 +24,10 @@ fixtures in tests/fixtures/arxiv_html/:
                  "2609.31507v1/overview-final.png"; a missing image has src=""
                  and class ltx_missing_image; alt text is always "Refer to
                  caption", so captions serve as alt text instead
+    vector       <object type="image/svg+xml" data="2508.12461v3/x.svg"> for
+                 an SVG file (kind "svg"), or <svg class="ltx_picture"> drawn
+                 inline (kind "svg-inline", no src: inline_svgs() lifts the
+                 drawing out of the page when the figure is first wanted)
     tables       figure.ltx_table, kept only as citation targets
     skipped      nav (contents), section.ltx_bibliography, header, footer,
                  scripts and styles, footnote bodies, images under /static/
@@ -31,10 +35,11 @@ fixtures in tests/fixtures/arxiv_html/:
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
 
-PARSER_VERSION = 1
+PARSER_VERSION = 2
 MAX_HTML_BYTES = 8 * 1024 * 1024
 MAX_PARAGRAPHS = 600
 MAX_FIGURES = 80
@@ -72,6 +77,7 @@ class Image:
     height: int | None
     panel: str = ""
     missing: bool = False
+    kind: str = "img"                  # img, svg (a file) or svg-inline (drawn in the page)
 
 
 @dataclass
@@ -82,7 +88,7 @@ class Figure:
     images: list[Image] = field(default_factory=list)
 
     def first_image(self) -> Image | None:
-        return next((i for i in self.images if not i.missing and i.src), None)
+        return next((i for i in self.images if not i.missing and (i.src or i.kind == "svg-inline")), None)
 
 
 @dataclass
@@ -161,6 +167,7 @@ class _Parser(HTMLParser):
         self.abstract: _Collector | None = None
         self.in_abstract_title = False
         self.full = False
+        self.svg_depth = 0                         # inside an inline <svg>
 
     # ── helpers ──
     def _push(self, tag: str, role: str = "") -> None:
@@ -204,6 +211,14 @@ class _Parser(HTMLParser):
             return
         if tag in _VOID:
             return
+        if tag == "object" and ((a.get("type") or "").lower() == "image/svg+xml"
+                                or (a.get("data") or "").lower().endswith(".svg")):
+            self._image({**a, "src": a.get("data")}, classes)
+        elif tag == "svg":
+            if self.svg_depth == 0 and self.figure is not None and self.table is None:
+                self.figure.images.append(Image(src="", width=_int(a.get("width")), height=_int(a.get("height")),
+                                                panel=self.panel, kind="svg-inline"))
+            self.svg_depth += 1
 
         role = ""
         ident = a.get("id") or ""
@@ -282,6 +297,8 @@ class _Parser(HTMLParser):
             return
         if tag in _VOID:
             return
+        if tag == "svg" and self.svg_depth:
+            self.svg_depth -= 1
         # Pop to the matching open tag; a stray end tag with no opener is ignored.
         for i in range(len(self.stack) - 1, -1, -1):
             if self.stack[i][0] == tag:
@@ -375,7 +392,8 @@ class _Parser(HTMLParser):
             return
         missing = (not src) or "ltx_missing_image" in classes or ".." in src or not _IMAGE_PATH.match(src)
         self.figure.images.append(Image(src="" if missing else src, width=_int(a.get("width")),
-                                        height=_int(a.get("height")), panel=self.panel, missing=missing))
+                                        height=_int(a.get("height")), panel=self.panel, missing=missing,
+                                        kind="svg" if src.lower().endswith(".svg") else "img"))
 
 
 def parse(html: str | bytes, arxiv_id: str) -> ParsedPaper:
@@ -402,3 +420,90 @@ def parse(html: str | bytes, arxiv_id: str) -> ParsedPaper:
     if not (paper.title or paper.abstract or paper.paragraphs):
         paper.status, paper.error = "error", "no paper content found"
     return paper
+
+
+# ── inline SVG figures ───────────────────────────────────────────────────────
+
+MAX_SVG_ELEMENTS = 100_000
+_HTML_VOID = _VOID | {"track", "param", "keygen"}
+
+
+class _InlineSvgs(HTMLParser):
+    """The first <svg> inside each outermost figure.ltx_figure, as an element tree.
+
+    Built from html.parser events rather than cut out as text: the page is
+    HTML, so a label may hold <br> with no end tag, which XML would refuse.
+    Names arrive lowercased; app/svg_clean.py restores SVG's camelCase.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found: dict[str, ET.Element | None] = {}
+        self.stack: list[str] = []
+        self.figure_at: int | None = None          # stack depth of the open outermost figure
+        self.anchor = ""
+        self.builder: ET.TreeBuilder | None = None
+        self.open: list[str] = []                  # open tags inside the drawing
+        self.count = 0
+
+    def handle_starttag(self, tag, attrs):
+        a = {k: v or "" for k, v in attrs}
+        if self.builder is not None:
+            self._start(tag, a, void=tag in _HTML_VOID)
+        elif tag == "figure" and self.figure_at is None and "ltx_figure" in (a.get("class") or "").split():
+            self.figure_at, self.anchor = len(self.stack), a.get("id") or ""
+        elif tag == "svg" and self.figure_at is not None and self.anchor and self.anchor not in self.found:
+            self.builder, self.open, self.count = ET.TreeBuilder(), [], 0
+            self._start(tag, a, void=False)
+        if tag not in _HTML_VOID:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if self.builder is not None:
+            self._start(tag, {k: v or "" for k, v in attrs}, void=True)
+
+    def handle_data(self, data):
+        if self.builder is not None:
+            self.builder.data(data)
+
+    def handle_endtag(self, tag):
+        if self.builder is not None and tag in self.open:
+            while self.open:
+                name = self.open.pop()
+                self.builder.end(name)
+                if name == tag:
+                    break
+            if not self.open:
+                self.found[self.anchor] = self.builder.close()
+                self.builder = None
+        if tag in self.stack:
+            while self.stack and self.stack.pop() != tag:
+                pass
+            if self.figure_at is not None and len(self.stack) <= self.figure_at:
+                if self.builder is not None:           # the figure closed before its drawing did
+                    self.found[self.anchor], self.builder = None, None
+                self.figure_at, self.anchor = None, ""
+
+    def _start(self, tag: str, attrs: dict, *, void: bool) -> None:
+        self.count += 1
+        if self.count > MAX_SVG_ELEMENTS:
+            self.found[self.anchor], self.builder = None, None
+            return
+        self.builder.start(tag, attrs)
+        if void:
+            self.builder.end(tag)
+        else:
+            self.open.append(tag)
+
+
+def inline_svgs(html: str | bytes) -> dict[str, ET.Element]:
+    """{figure anchor: its first inline <svg>} for every figure drawn in the page."""
+    if isinstance(html, bytes):
+        html = html[:MAX_HTML_BYTES].decode("utf-8", errors="replace")
+    parser = _InlineSvgs()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:                               # html.parser is lenient; this is a backstop
+        pass
+    return {k: v for k, v in parser.found.items() if v is not None}
