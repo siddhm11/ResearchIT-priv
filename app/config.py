@@ -48,6 +48,11 @@ ARXIV_HTML_BASE = (os.getenv("ARXIV_HTML_BASE", "").strip().rstrip("/")
 # roughly 50-150 KB of text; measure the database before raising it.
 FULLTEXT_MAX_PAPERS = int(os.getenv("FULLTEXT_MAX_PAPERS", "5000"))
 
+# Figure thumbnails (app/routers/figures.py): WebPs cached on local disk, which
+# a restart wipes; they regenerate on the next view. Swept to the size cap.
+FIG_CACHE_DIR = os.getenv("FIG_CACHE_DIR", "/tmp/figcache").strip()
+FIG_CACHE_MAX_MB = int(os.getenv("FIG_CACHE_MAX_MB", "1024"))
+
 # Owner-only preview of switched features (app/features.py). Visiting any page
 # with ?preview=<PREVIEW_TOKEN> sets a cookie that shows `preview` features to
 # that browser only. Empty means preview is visible to nobody.

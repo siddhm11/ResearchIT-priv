@@ -51,9 +51,17 @@ def test_the_shared_http_client_is_never_closed_by_async_with():
     offenders = []
     for path in sorted(APP.rglob("*.py")):
         for i, line in enumerate(path.read_text().splitlines(), 1):
-            if re.search(r"async\s+with\s+(http_client\.)?get_client\(\)", line):
+            # The client itself as the context manager closes the shared pool;
+            # `async with client.stream(...)` only closes one response.
+            if re.search(r"async\s+with\s+(http_client\.)?get_client\(\)\s*(as\b|:)", line):
                 offenders.append(f"{path}:{i}")
     assert not offenders, "async with closes the shared pool for everyone:\n" + "\n".join(offenders)
+
+
+def test_the_client_guard_flags_closing_the_client_but_not_a_stream():
+    pattern = r"async\s+with\s+(http_client\.)?get_client\(\)\s*(as\b|:)"
+    assert re.search(pattern, "async with http_client.get_client() as c:")
+    assert not re.search(pattern, "async with http_client.get_client().stream('GET', u) as r:")
 
 
 def test_new_modules_keep_a_reference_to_their_tasks():
