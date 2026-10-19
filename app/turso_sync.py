@@ -129,7 +129,8 @@ TABLES: dict[str, dict] = {
         "wm_kind": "int",
         "pk": ["id"],
         "cols": ["id", "feature", "provider", "model", "chars_in", "chars_out", "usd_est",
-                 "latency_ms", "status", "created_at"],
+                 "latency_ms", "status", "created_at", "tokens_in", "tokens_out", "model_rank",
+                 "truncated", "requests_left", "tokens_left"],
         "blobs": [],
         "paged": True,
     },
@@ -196,7 +197,8 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS llm_calls (
         id INTEGER PRIMARY KEY, feature TEXT NOT NULL, provider TEXT, model TEXT,
         chars_in INTEGER, chars_out INTEGER, usd_est REAL, latency_ms INTEGER,
-        status TEXT NOT NULL, created_at TEXT)""",
+        status TEXT NOT NULL, created_at TEXT, tokens_in INTEGER, tokens_out INTEGER,
+        model_rank INTEGER, truncated INTEGER, requests_left INTEGER, tokens_left INTEGER)""",
     """CREATE TABLE IF NOT EXISTS paper_briefings (
         id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
         status TEXT NOT NULL, briefing_json TEXT, provider TEXT, model TEXT,
@@ -346,6 +348,12 @@ async def _set_wm(conn, table: str, value) -> None:
 # remote can't take (trap T8 in docs/redesign/03-start-here-agent-handoff.md).
 REMOTE_COLUMNS = [
     ("user_interactions", "layout", "TEXT"),
+    ("llm_calls", "tokens_in", "INTEGER"),
+    ("llm_calls", "tokens_out", "INTEGER"),
+    ("llm_calls", "model_rank", "INTEGER"),
+    ("llm_calls", "truncated", "INTEGER"),
+    ("llm_calls", "requests_left", "INTEGER"),
+    ("llm_calls", "tokens_left", "INTEGER"),
 ]
 
 

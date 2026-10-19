@@ -255,7 +255,13 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     usd_est     REAL,
     latency_ms  INTEGER,
     status      TEXT NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    tokens_in     INTEGER,
+    tokens_out    INTEGER,
+    model_rank    INTEGER,
+    truncated     INTEGER DEFAULT 0,
+    requests_left INTEGER,
+    tokens_left   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 
@@ -390,6 +396,17 @@ _MIGRATION_REDESIGN = [
     "ALTER TABLE interactions ADD COLUMN layout TEXT",
 ]
 
+# ── AI usage: tokens and Groq's rate-limit window per model call ───────────
+# (app/ai_usage.py). Replicated; turso_sync adds the remote columns too.
+_MIGRATION_AI_USAGE = [
+    "ALTER TABLE llm_calls ADD COLUMN tokens_in INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN tokens_out INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN model_rank INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN truncated INTEGER DEFAULT 0",
+    "ALTER TABLE llm_calls ADD COLUMN requests_left INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN tokens_left INTEGER",
+]
+
 LAYOUTS = ("list", "grid2")
 
 
@@ -419,7 +436,7 @@ async def init_db() -> None:
                 await db.execute(stmt)
             except Exception:
                 pass  # Column already exists — safe to ignore
-        for stmt in _MIGRATION_REDESIGN:
+        for stmt in _MIGRATION_REDESIGN + _MIGRATION_AI_USAGE:
             try:
                 await db.execute(stmt)
             except Exception:
