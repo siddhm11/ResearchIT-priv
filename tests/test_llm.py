@@ -96,3 +96,13 @@ async def test_groq_without_a_key_is_unavailable_not_failed(monkeypatch):
 async def test_every_model_rate_limited_is_unavailable(fake):
     llm.fake_reply(RuntimeError("no Groq model answered (configured: [...])"))
     assert (await llm.complete_json("ask", "s", "u"))[1].status == "unavailable"
+
+
+
+def test_tex_backslashes_in_strings_do_not_lose_the_outer_object():
+    """Seen in the 50-paper evaluation: the outer object failed on "\\mathcal"
+    and the parser returned the first inner object instead of the reply."""
+    reply = '{"things": [{"lead": "Memory drops to $\\mathcal{O}(M^2)$.", "anchor": "S1.p3"}], "use": "x"}'
+    data = llm.first_json_object(reply)
+    assert set(data) == {"things", "use"}
+    assert data["things"][0]["lead"] == "Memory drops to $\\mathcal{O}(M^2)$."

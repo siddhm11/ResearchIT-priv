@@ -126,10 +126,27 @@ async def _log(call: Call) -> None:
 # ── parsing ──────────────────────────────────────────────────────────────────
 
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I | re.M)
+# A backslash not starting a JSON escape: models copy TeX ("\mathcal{O}") into
+# strings, which makes the whole object invalid JSON.
+_BAD_ESCAPE = re.compile(r'\\(?!["\\/bfnrtu])')
+
+
+def _loads_object(candidate: str) -> dict | None:
+    for attempt in (candidate, _BAD_ESCAPE.sub(r"\\\\", candidate)):
+        try:
+            value = json.loads(attempt)
+        except ValueError:
+            continue
+        return value if isinstance(value, dict) else None
+    return None
 
 
 def first_json_object(text: str) -> dict | None:
-    """The first balanced {...} in a reply that parses as a JSON object."""
+    """The first balanced {...} in a reply that parses as a JSON object.
+
+    Stray TeX backslashes are repaired before giving up on an object, so an
+    inner object is never mistaken for the reply when the outer one had TeX.
+    """
     text = _FENCE.sub("", text or "")
     start = text.find("{")
     while start >= 0:
@@ -150,11 +167,10 @@ def first_json_object(text: str) -> dict | None:
             elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    try:
-                        value = json.loads(text[start:i + 1])
-                    except ValueError:
+                    value = _loads_object(text[start:i + 1])
+                    if value is None:
                         break
-                    return value if isinstance(value, dict) else None
+                    return value
         start = text.find("{", start + 1)
     return None
 
