@@ -93,8 +93,10 @@
   {#- The SURFACE the click came from, which is not the same thing as the
       candidate source below. Without it the click log had to guess, and it
       guessed "recommendation" for every search result that carried a
-      query_id. -#}
-  {%- if paper.query_id %}{% set _ = _q.append("sf=" ~ _source) %}{% endif -%}
+      query_id. `source`, not `_source`: the underscored name only exists
+      inside action_buttons.html, and a `set` in an included template never
+      flows back here, so the link used to end `sf=` on every card. -#}
+  {%- if paper.query_id %}{% set _ = _q.append("sf=" ~ source) %}{% endif -%}
   {%- if paper.position is not none %}{% set _ = _q.append("pos=" ~ (paper.position | default(0))) %}{% endif -%}
   {%- if paper.candidate_source %}{% set _ = _q.append("src=" ~ paper.candidate_source) %}{% endif -%}
   {%- if paper.propensity %}{% set _ = _q.append("prop=" ~ paper.propensity) %}{% endif -%}
