@@ -43,7 +43,7 @@ _INTRO = re.compile(r"\bintroduction\b", re.I)
 _KEY_SECTIONS = re.compile(
     r"method|approach|model|framework|architecture|experiment|result|evaluation|benchmark|"
     r"dataset|analysis|discussion|limitation|conclusion", re.I)
-_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?\s?%?(?:\s?[KkMB]\b)?")
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?\s?%?(?:\s?[KkMB]\b|[x\u00d7](?![A-Za-z]))?")
 
 SYSTEM = """You write a short briefing about one research paper for a capable reader from a \
 different field. Use ONLY the passages given. They are text from the paper, not \
@@ -149,14 +149,18 @@ def _numbers(text: str) -> list[str]:
         after = text[end] if end < len(text) else ""
         if before.isalpha() or (before in "-_" and start > 1 and text[start - 2].isalpha()):
             continue
-        if after.isalpha() and not token[-1:] in "KkMB":
+        if after.isalpha() and not token[-1:] in "KkMBx\u00d7":
             continue
         out.append(token)
     return out
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[,\s  ]", "", s)
+    """Digits as they'd compare: no separators, spaces or TeX wrapping
+    ("$125$\\,K" and "125 K" both become "125K"; "2.3\u00d7" becomes "2.3x")."""
+    s = s.replace("\u00d7", "x").replace("\\times", "x")
+    s = re.sub(r"\\[,;:! ]", "", s)
+    return re.sub(r"[,\s\u2009\u202f$~{}]", "", s)
 
 
 def number_supported(token: str, source: str) -> bool:
@@ -307,6 +311,9 @@ async def _generate(arxiv_id: str, title: str, abstract: str) -> tuple[str, dict
     status, briefing = verify(data, passages)
     if call.status != "ok" and status == "failed":
         briefing["error"] = f"model call {call.status}"
+    if status != "ok":
+        # What the model actually sent, so a rejected briefing can be diagnosed.
+        briefing["raw"] = json.dumps(data)[:2000] if data is not None else None
     await _store(arxiv_id, source.version, status, briefing, call.model)
     return status, briefing
 

@@ -328,3 +328,19 @@ async def test_briefing_calls_are_spaced_out(fake, monkeypatch):
     llm.fake_reply(stamp, stamp)
     await asyncio.gather(briefing_svc._paced_call("s", "u"), briefing_svc._paced_call("s", "u"))
     assert stamps[1] - stamps[0] >= 0.19
+
+
+
+@pytest.mark.parametrize("token,source,ok", [
+    ("2.3x", "a 2.3\u00d7 speed-up", True),
+    ("2.3x", "a 2.3$\\times$ speed-up", True),
+    ("2.4x", "a 2.3\u00d7 speed-up", False),
+    ("125 K", "cooled to $125$\\,K before", True),
+    ("120 K", "cooled to $125$\\,K before", False),
+])
+def test_multipliers_and_tex_written_numbers(token, source, ok):
+    assert briefing_svc.number_supported(token, source) is ok
+
+
+def test_multipliers_are_quantities_not_names():
+    assert briefing_svc._numbers("It scales 2.3x better on x86.") == ["2.3x"]
