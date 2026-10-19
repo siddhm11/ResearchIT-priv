@@ -185,7 +185,51 @@ def probe_models() -> dict:
 class Completion(NamedTuple):
     text: str
     model: str
-    truncated: bool     # stopped at the token cap, mid-thought
+    truncated: bool                 # stopped at the token cap, mid-thought
+    tokens_in: int | None = None    # Groq's usage, when the response carries it
+    tokens_out: int | None = None
+    rank: int = 0                   # place of `model` in GROQ_MODELS: 0 is the primary
+
+
+# The newest rate-limit headers Groq sent for each model (app/ai_usage.py shows
+# them). Groq reports requests left today and tokens left this MINUTE; tokens
+# per day are not in any header, so app/ai_usage.py counts them from usage.
+_windows: dict[str, dict] = {}
+_WINDOW_HEADERS = {
+    "requests_limit": "x-ratelimit-limit-requests", "requests_left": "x-ratelimit-remaining-requests",
+    "requests_reset": "x-ratelimit-reset-requests", "tokens_limit": "x-ratelimit-limit-tokens",
+    "tokens_left": "x-ratelimit-remaining-tokens", "tokens_reset": "x-ratelimit-reset-tokens",
+}
+
+
+def _note_window(model: str, headers) -> None:
+    """Keep the rate-limit headers of a response (or of a 429) for `model`."""
+    if not headers:
+        return
+    window = {}
+    for key, header in _WINDOW_HEADERS.items():
+        value = headers.get(header)
+        if value is None:
+            continue
+        try:
+            window[key] = int(value) if key.endswith(("_limit", "_left")) else str(value)
+        except ValueError:
+            window[key] = str(value)
+    if window:
+        window["at"] = time.time()
+        _windows[model] = window
+
+
+def windows() -> dict[str, dict]:
+    """A copy of the newest rate-limit headers per model."""
+    return {m: dict(w) for m, w in _windows.items()}
+
+
+def _rank(model: str) -> int:
+    try:
+        return list(config.GROQ_MODELS).index(model)
+    except ValueError:
+        return len(config.GROQ_MODELS)
 
 
 # Reasoning a model emits inline instead of in its own field, including an
@@ -227,15 +271,20 @@ def _complete(client, messages: list[dict], *, temperature: float,
         remaining = deadline - time.monotonic()
         if remaining < _MIN_ATTEMPT_S:
             break
+        kwargs = dict(messages=messages, model=model, temperature=temperature, timeout=remaining,
+                      **_request_options(model, max_tokens))
         try:
-            response = client.chat.completions.create(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                timeout=remaining,
-                **_request_options(model, max_tokens),
-            )
+            # The raw form exposes the rate-limit headers; a client without it
+            # (the tests' fake) is called the plain way.
+            raw_api = getattr(client.chat.completions, "with_raw_response", None)
+            if raw_api is not None:
+                raw = raw_api.create(**kwargs)
+                _note_window(model, raw.headers)
+                response = raw.parse()
+            else:
+                response = client.chat.completions.create(**kwargs)
         except groq.RateLimitError as e:
+            _note_window(model, getattr(getattr(e, "response", None), "headers", None))
             _bench(model, _retry_after(e), "rate limited")
             last_error = e
             continue
@@ -251,8 +300,10 @@ def _complete(client, messages: list[dict], *, temperature: float,
             last_error = e
             continue
         choice = response.choices[0]
-        return Completion(_clean(choice.message.content),
-                          model, choice.finish_reason == "length")
+        usage = getattr(response, "usage", None)
+        return Completion(_clean(choice.message.content), model, choice.finish_reason == "length",
+                          getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None),
+                          _rank(model))
 
     raise RuntimeError(
         f"no Groq model answered (configured: {config.GROQ_MODELS}, "
