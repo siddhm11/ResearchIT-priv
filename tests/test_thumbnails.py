@@ -88,6 +88,48 @@ def test_an_image_bomb_is_refused_before_decoding():
         thumbnails.make(buf.getvalue())
 
 
+def jpeg(w, h, exif=None):
+    buf = io.BytesIO()
+    im = Image.new("RGB", (w, h), (30, 120, 200))
+    im.save(buf, "JPEG", **({"exif": exif} if exif else {}))
+    return buf.getvalue()
+
+
+# Scaled down 25x from 2607.28156's figures (15,598 x 6,411 JPEGs), with the
+# pixel limit lowered to match, so the tests stay small.
+
+def test_a_huge_jpeg_is_decoded_at_reduced_scale(monkeypatch):
+    monkeypatch.setattr(thumbnails, "MAX_PIXELS", 1_000_000)
+    im = decode(thumbnails.make(jpeg(4000, 1600)))          # 6.4M px, decoded at 1/4
+    assert im.size == (800, 320)
+
+
+def test_a_png_that_size_is_still_refused(monkeypatch):
+    monkeypatch.setattr(thumbnails, "MAX_PIXELS", 1_000_000)
+    with pytest.raises(thumbnails.NotAnImage):
+        thumbnails.make(png(4000, 1600))                     # no reduced decode for PNG
+
+
+def test_a_jpeg_still_too_large_at_its_reduced_scale_is_refused(monkeypatch):
+    monkeypatch.setattr(thumbnails, "MAX_PIXELS", 50_000)
+    with pytest.raises(thumbnails.NotAnImage):
+        thumbnails.make(jpeg(4000, 1600))                    # 1,000 x 400 at 1/4 is 400k px
+
+
+def test_a_jpeg_claiming_too_many_pixels_is_refused_before_decoding(monkeypatch):
+    monkeypatch.setattr(thumbnails, "JPEG_MAX_PIXELS", 1_000_000)
+    with pytest.raises(thumbnails.NotAnImage):
+        thumbnails.make(jpeg(4000, 1600))
+
+
+def test_a_huge_rotated_jpeg_is_wide_enough_once_upright(monkeypatch):
+    monkeypatch.setattr(thumbnails, "MAX_PIXELS", 2_000_000)
+    exif = Image.new("RGB", (1, 1)).getexif()
+    exif[0x0112] = 6                                         # rotate 90 degrees clockwise
+    # Decoded at 1/2 (2,000 x 800), not 1/4: upright, the 1,600 px side is the width.
+    assert decode(thumbnails.make(jpeg(4000, 1600, exif))).size == (800, 2000)
+
+
 def test_bytes_that_are_not_an_image_are_refused():
     with pytest.raises(thumbnails.NotAnImage):
         thumbnails.make(b"<html>not an image</html>")
