@@ -71,6 +71,19 @@ async def healthz_runtime():
     }
 
 
+@router.get("/healthz/ai")
+async def healthz_ai():
+    """Where the AI goes: today per feature and per model, Groq's live windows,
+    the briefing budget and 14 days of history (app/ai_usage.py). Counts only,
+    never a prompt, an answer or a reader.
+    """
+    from app import ai_usage
+    try:
+        return await ai_usage.summary()
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
+
 @router.get("/healthz/sources")
 async def healthz_sources():
     """How much of the corpus has been read from arXiv HTML, and how politely.

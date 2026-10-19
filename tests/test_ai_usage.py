@@ -164,3 +164,36 @@ async def test_search_and_plain_summary_outcomes_are_counted(groq_answers, no_pe
     got = {(f, m): n for f, m, n in await daily()}
     assert got[("search_rewrite", "skipped")] == 1 and got[("search_rewrite", "rewritten")] == 1
     assert got[("explain", "declined")] == 1
+
+
+# ── /healthz/ai ──────────────────────────────────────────────────────────────
+
+async def test_the_summary_adds_up_today_per_feature_and_model(no_pending, monkeypatch):
+    monkeypatch.setattr(groq_svc, "_windows", {"qwen/qwen3.8-27b": {"requests_left": 990, "tokens_left": 7000,
+                                                                     "at": __import__("time").time()}})
+    monkeypatch.setattr(config, "GROQ_MODELS", ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"])
+    await ai_usage.log_call("search_overview", Completion("x", "qwen/qwen3.8-27b", False, 1300, 140, 0), latency_ms=800)
+    await ai_usage.log_call("search_overview", Completion("x", "openai/gpt-oss-20b", True, 1300, 150, 1), latency_ms=1200)
+    await ai_usage.log_call("explain", None, status="unavailable")
+    ai_usage.count("explain", "cache_hit", 3)                  # not flushed yet: still counted
+    s = await ai_usage.summary()
+    o = s["features"]["search_overview"]
+    assert (o["calls"], o["ok"], o["fallback"], o["truncated"], o["tokens_in"], o["tokens_out"], o["avg_ms"]) == \
+        (2, 2, 1, 1, 2600, 290, 1000)
+    assert s["features"]["explain"]["unavailable"] == 1 and s["features"]["explain"]["counts"] == {"cache_hit": 3}
+    assert s["features"]["ask"]["calls"] == 0                   # every feature is listed
+    q = s["models"]["qwen/qwen3.8-27b"]
+    assert (q["calls"], q["tokens"], q["window"]["tokens_left"]) == (1, 1440, 7000)
+    assert q["share_of_daily_tokens"] == round(1440 / config.GROQ_TOKENS_PER_DAY, 4)
+    assert s["models"]["openai/gpt-oss-20b"]["window"] is None
+    assert s["history"] == [{"day": s["day"], "feature": "explain", "calls": 1, "tokens": 0},
+                            {"day": s["day"], "feature": "search_overview", "calls": 2, "tokens": 2890}]
+
+
+def test_the_healthz_route_serves_it():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        body = c.get("/healthz/ai").json()
+    assert set(body) >= {"day", "limits", "features", "models", "budget", "history"}
+    assert set(body["features"]) >= set(ai_usage.FEATURES)

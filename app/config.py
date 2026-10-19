@@ -328,6 +328,15 @@ GROQ_MODELS = [
     ).split(",") if m.strip()
 ]
 
+# Groq's limits for each of those models (console.groq.com/docs/rate-limits,
+# checked 2026-10-20): 30 requests and 8,000 tokens a minute, 1,000 requests
+# and 200,000 tokens a day. Response headers carry the live requests-per-day
+# and tokens-per-minute figures; nothing reports tokens per day, so
+# app/ai_usage.py counts them against this. Change these with the plan.
+GROQ_REQUESTS_PER_DAY = int(os.getenv("GROQ_REQUESTS_PER_DAY", "1000"))
+GROQ_TOKENS_PER_DAY = int(os.getenv("GROQ_TOKENS_PER_DAY", "200000"))
+GROQ_TOKENS_PER_MINUTE = int(os.getenv("GROQ_TOKENS_PER_MINUTE", "8000"))
+
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 BGE_M3_DEVICE = os.getenv("BGE_M3_DEVICE", "cpu")

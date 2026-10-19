@@ -135,3 +135,70 @@ async def stop() -> None:
         _task = None
     await flush()
 
+
+# ── reading it back ──────────────────────────────────────────────────────────
+
+_STATUSES = ("ok", "failed", "unavailable", "unparsable", "over_budget")
+
+
+async def summary(days: int = 14) -> dict:
+    """Today per feature and per model, Groq's live windows, and daily history.
+
+    Counts only: never a prompt, an answer or a reader. Counts not yet flushed
+    are included, so the numbers are live.
+    """
+    from app import groq_svc, llm
+    today = _today()
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        by_feature = await (await conn.execute(
+            "SELECT feature, COUNT(*), " + ", ".join(f"SUM(status = '{s}')" for s in _STATUSES) + ", "
+            "SUM(status = 'ok' AND COALESCE(model_rank, 0) > 0), SUM(COALESCE(truncated, 0)), "
+            "COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0), CAST(AVG(latency_ms) AS INTEGER) "
+            "FROM llm_calls WHERE created_at >= date('now') GROUP BY feature")).fetchall()
+        by_model = await (await conn.execute(
+            "SELECT model, COUNT(*), COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) "
+            "FROM llm_calls WHERE created_at >= date('now') AND COALESCE(model, '') != '' GROUP BY model")).fetchall()
+        counted = await (await conn.execute(
+            "SELECT feature, metric, n FROM ai_daily WHERE day = ?", (today,))).fetchall()
+        history = await (await conn.execute(
+            "SELECT substr(created_at, 1, 10), feature, COUNT(*), "
+            "COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) FROM llm_calls "
+            "WHERE created_at >= date('now', ?) GROUP BY 1, 2 ORDER BY 1, 2", (f"-{days - 1} day",))).fetchall()
+
+    features: dict[str, dict] = {f: {"calls": 0, **{s: 0 for s in _STATUSES}, "fallback": 0, "truncated": 0,
+                                     "tokens_in": 0, "tokens_out": 0, "avg_ms": None, "counts": {}}
+                                 for f in FEATURES}
+    for row in by_feature:
+        f = features.setdefault(row[0], {"counts": {}})
+        n = len(_STATUSES)
+        f.update(calls=row[1], **{s: row[2 + i] or 0 for i, s in enumerate(_STATUSES)},
+                 fallback=row[2 + n] or 0, truncated=row[3 + n] or 0, tokens_in=row[4 + n],
+                 tokens_out=row[5 + n], avg_ms=row[6 + n])
+    for feature, metric, n in counted:
+        features.setdefault(feature, {"counts": {}})["counts"][metric] = n
+    for (day, feature, metric), n in _pending.items():
+        if day == today:
+            c = features.setdefault(feature, {"counts": {}})["counts"]
+            c[metric] = c.get(metric, 0) + n
+
+    windows = groq_svc.windows()
+    models = {}
+    for m in list(config.GROQ_MODELS) + [r[0] for r in by_model if r[0] not in config.GROQ_MODELS]:
+        calls, tokens = next(((r[1], r[2]) for r in by_model if r[0] == m), (0, 0))
+        w = windows.get(m)
+        if w:
+            w = {**w, "age_s": round(time.time() - w.pop("at", time.time()))}
+        models[m] = {"calls": calls, "tokens": tokens,
+                     "share_of_daily_tokens": round(tokens / config.GROQ_TOKENS_PER_DAY, 4)
+                     if config.GROQ_TOKENS_PER_DAY else None,
+                     "window": w}
+    return {
+        "day": today,
+        "limits": {"requests_per_day": config.GROQ_REQUESTS_PER_DAY, "tokens_per_day": config.GROQ_TOKENS_PER_DAY,
+                   "tokens_per_minute": config.GROQ_TOKENS_PER_MINUTE, "per": "model"},
+        "features": features,
+        "models": models,
+        "budget": await llm.today(),
+        "history": [{"day": d, "feature": f, "calls": c, "tokens": t} for d, f, c, t in history],
+    }
+
