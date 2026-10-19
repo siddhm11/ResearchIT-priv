@@ -1,0 +1,17 @@
+{
+ "papers": 50,
+ "by_status": {
+  "ok": 48,
+  "insufficient": 2,
+  "failed": 0
+ },
+ "dropped_points": 9,
+ "median_seconds_ok": 0.03,
+ "model": "qwen/qwen3.8-27b",
+ "today": {
+  "calls": 13,
+  "usd": 0.0,
+  "call_cap": 1500,
+  "usd_cap": 2.0
+ }
+}
