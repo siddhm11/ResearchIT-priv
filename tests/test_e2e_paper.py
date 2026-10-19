@@ -124,7 +124,7 @@ def test_the_outline_marks_the_section_in_view(satnav):
     # At the very bottom the last section is the one in view, however short.
     satnav.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
     satnav.wait_for_timeout(400)
-    last = satnav.evaluate("[...document.querySelectorAll('.outline nav a')].at(-1).dataset.sec")
+    last = satnav.evaluate("[...document.querySelectorAll('.outline nav a')].filter(a => !a.hidden).at(-1).dataset.sec")
     assert active() == [last]
 
 
@@ -187,3 +187,71 @@ def test_a_paper_without_arxiv_html_shows_no_figure_sections(browser):
     ctx, page = open_page(browser, f"/p/{MATHS}")
     assert page.locator("#sec-fig").count() == 0 and page.locator("#sec-figs").count() == 0
     ctx.close()
+
+
+# ── briefing and Ask (server started with BRIEFING=on ASK=on) ────────────────
+
+def _needs(page, selector, switch):
+    if page.locator(selector).count() == 0:
+        pytest.skip(f"server not started with {switch}=on")
+
+
+def test_the_briefing_arrives_with_links_to_each_passage(satnav):
+    _needs(satnav, ".brief-slot, #sec-things", "BRIEFING")
+    satnav.wait_for_selector("#sec-things li")
+    assert satnav.locator("#sec-things li").count() == 3
+    href = satnav.get_attribute("#sec-things a.src", "href")
+    assert href == f"https://arxiv.org/html/{SATNAV}v1#abstract"
+    assert satnav.locator("#sec-how li").count() == 3 and satnav.is_visible("#sec-use")
+    # The outline's briefing links appear once the sections exist.
+    satnav.wait_for_function("!document.querySelector('.outline a[data-sec=\"sec-things\"]').hidden")
+
+
+def test_a_suggested_question_is_echoed_then_answered_with_a_cite(satnav):
+    _needs(satnav, "#chat", "ASK")
+    satnav.click('[data-ask-key="limits"]')
+    satnav.wait_for_selector("#chat-log .msg-user")
+    assert satnav.inner_text("#chat-log .msg-user") == "What are the limitations?"
+    satnav.wait_for_selector("#chat-log .cite")
+    assert "three limitations" in satnav.inner_text("#chat-log")
+    assert satnav.get_attribute("#chat-log .cite", "href") == f"https://arxiv.org/html/{SATNAV}v1#S6.p1"
+    assert satnav.locator('[data-ask-key="limits"]').count() == 0      # the chip is used up
+
+
+def test_a_typed_question_sends_on_enter_and_a_missing_model_says_busy(satnav):
+    _needs(satnav, "#chat", "ASK")
+    satnav.fill("#chat-input", "How many cities are there?")
+    satnav.press("#chat-input", "Enter")
+    satnav.wait_for_selector("#chat-log .msg-bot >> nth=1")
+    assert "busy right now" in satnav.inner_text("#chat-log")
+    assert satnav.input_value("#chat-input") == ""
+
+
+def test_shift_enter_starts_a_new_line_instead_of_sending(satnav):
+    _needs(satnav, "#chat", "ASK")
+    satnav.fill("#chat-input", "First line")
+    satnav.press("#chat-input", "Shift+Enter")
+    satnav.wait_for_timeout(300)
+    assert satnav.locator("#chat-log .msg-user").count() == 0
+
+
+def test_on_a_phone_ask_opens_as_a_sheet_and_closes_on_escape(browser):
+    ctx, page = open_page(browser, f"/p/{SATNAV}", width=390, height=844)
+    _needs(page, "#chat", "ASK")
+    assert not page.is_visible("#chat") and page.is_visible(".ask-fab")
+    page.click(".ask-fab")
+    assert page.is_visible("#chat") and page.evaluate("document.activeElement.id") == "chat-input"
+    page.keyboard.press("Escape")
+    assert not page.is_visible("#chat")
+    assert page.evaluate("document.activeElement.classList.contains('ask-fab')")
+    assert page.errors == []
+    ctx.close()
+
+
+def test_ask_about_this_figure_asks_in_the_panel(satnav):
+    _needs(satnav, "#chat", "ASK")
+    satnav.click("#sec-fig [data-fig]")
+    satnav.wait_for_function("document.getElementById('lb').open")
+    satnav.click("#lb-ask")
+    satnav.wait_for_selector("#chat-log .msg-user")
+    assert satnav.inner_text("#chat-log .msg-user") == "Explain figure 1"

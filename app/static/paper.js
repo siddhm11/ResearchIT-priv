@@ -247,8 +247,18 @@
     });
   }
 
+  function atBottom() {
+    return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+  }
+  function lastVisibleLink() {
+    var shown = Array.prototype.filter.call(links, function (a) { return !a.hidden; });
+    return shown[shown.length - 1];
+  }
+
   if (links.length && 'IntersectionObserver' in window) {
     var observer = new IntersectionObserver(function (entries) {
+      /* At the bottom the last section wins, whatever crosses the band. */
+      if (atBottom()) { markActive(lastVisibleLink().getAttribute('data-sec')); return; }
       entries.forEach(function (en) { if (en.isIntersecting) markActive(en.target.id); });
     }, { rootMargin: '-20% 0px -70% 0px' });
     /* A short last section never reaches that band, so at the bottom of the
@@ -259,10 +269,7 @@
       ticking = true;
       requestAnimationFrame(function () {
         ticking = false;
-        var doc = document.documentElement;
-        if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) {
-          markActive(links[links.length - 1].getAttribute('data-sec'));
-        }
+        if (atBottom()) markActive(lastVisibleLink().getAttribute('data-sec'));
       });
     }, { passive: true });
     function watch() {

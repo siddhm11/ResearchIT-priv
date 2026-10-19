@@ -25,7 +25,7 @@ values in .env.local can't leak in (load_dotenv never overrides a set name):
     DB_PATH=/tmp/e2e.db METADATA_SIDECAR_PATH=/tmp/e2e_sidecar.sqlite \\
     RESEARCHIT_ENV=test ARXIV_HTML_BASE=http://127.0.0.1:8799 \\
     TURSO_URL= TURSO_DB_TOKEN= QDRANT_URL= GROQ_API_KEY= TURSO_SYNC_DISABLED=1 \\
-    PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on PORT=7861 python run.py
+    PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on BRIEFING=on ASK=on PORT=7861 python run.py
 """
 from __future__ import annotations
 
@@ -122,8 +122,31 @@ def build_site(site: Path, parsed: dict) -> int:
     return n
 
 
+SATNAV_BRIEFING = {
+    "things": [
+        {"lead": "118K episodes from satellite imagery.", "text": "Built across 59 scenes in 18 cities.",
+         "anchor": "abstract", "label": "Abstract"},
+        {"lead": "City-scale navigation is still hard.", "text": "Agents struggle on long routes.",
+         "anchor": "S1.p2", "label": "§1"},
+        {"lead": "Memory matters.", "text": "Removing long-term memory hurts.", "anchor": "S4.SS1.p1", "label": "§4.1"},
+    ],
+    "how": [{"name": "Pair the maps", "text": "Satellite images aligned with map data."},
+            {"name": "Write the tasks", "text": "Routes become instructions."},
+            {"name": "Navigate", "text": "The agent picks one of four actions."}],
+    "use": "Teams training drones that follow spoken directions.",
+    "dropped": [],
+}
+SATNAV_ANSWERS = {
+    "limits": {"kind": "answer", "answer": "The authors list three limitations, starting with discrete moves at a fixed altitude.",
+               "quotes": [], "cites": [{"anchor": "S6.p1", "label": "§6"}], "dropped": {"quotes": 0, "cites": 0}},
+    "new": {"kind": "answer", "answer": "A navigation benchmark built from satellite images instead of 3D models.",
+            "quotes": [], "cites": [{"anchor": "S1.p4", "label": "§1"}], "dropped": {"quotes": 0, "cites": 0}},
+}
+
+
 async def seed_db(db_path: Path, parsed: dict) -> None:
-    from app import config, db, groq_svc, paper_source_svc
+    import json as _json
+    from app import ask_svc, briefing_svc, config, db, groq_svc, paper_source_svc
     config.DB_PATH = db.DB_PATH = str(db_path)
     await db.init_db()
     for aid in PAPERS:
@@ -133,6 +156,23 @@ async def seed_db(db_path: Path, parsed: dict) -> None:
     abstracts[MATHS_ID] = MATHS_ABSTRACT
     for aid, text in SUMMARIES.items():
         await db.save_explanation(groq_svc.explain_cache_key(aid, abstracts[aid]), aid, text, "seed")
+    # A cached briefing and two cached suggested answers for SatNav, under the
+    # keys the server will compute with the default model chain.
+    version = parsed["2609.31507"].version
+    import aiosqlite
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO paper_briefings (cache_key, arxiv_id, status, briefing_json, provider, model, prompt_version) "
+            "VALUES (?, ?, 'ok', ?, 'seed', 'seed', ?)",
+            (briefing_svc.cache_key("2609.31507", version), "2609.31507", _json.dumps(SATNAV_BRIEFING),
+             briefing_svc.PROMPT_VERSION))
+        for key, answer in SATNAV_ANSWERS.items():
+            await conn.execute(
+                "INSERT INTO paper_answers (cache_key, arxiv_id, question_key, answer_json, model, prompt_version) "
+                "VALUES (?, ?, ?, ?, 'seed', ?)",
+                (ask_svc.cache_key("2609.31507", version, key), "2609.31507", key, _json.dumps(answer),
+                 ask_svc.PROMPT_VERSION))
+        await conn.commit()
 
 
 def main(argv=None) -> int:
