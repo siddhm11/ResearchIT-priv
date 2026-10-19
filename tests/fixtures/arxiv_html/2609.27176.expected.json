@@ -1,0 +1,353 @@
+{
+ "status": "ok",
+ "version": "v2",
+ "licence_text": "CC BY 4.0",
+ "title": "LeakScale: Estimating the Causal Effect of Benchmark Exposure",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S3",
+   "3",
+   "Executable Exposure Instrument",
+   2,
+   "section"
+  ],
+  [
+   "S3.SS1",
+   "3.1",
+   "Private information with an executable consequence",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS2",
+   "3.2",
+   "Certification over all counterfactual choices",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3",
+   "3.3",
+   "Controlled access and balanced no-key comparison",
+   3,
+   "subsection"
+  ],
+  [
+   "S4",
+   "4",
+   "Crossed Evaluation Study",
+   2,
+   "section"
+  ],
+  [
+   "S4.SS1",
+   "4.1",
+   "Models, domains, and task families",
+   3,
+   "subsection"
+  ],
+  [
+   "S4.SS2",
+   "4.2",
+   "Adaptation and evaluation protocol",
+   3,
+   "subsection"
+  ],
+  [
+   "S4.SS3",
+   "4.3",
+   "Scope of inference",
+   3,
+   "subsection"
+  ],
+  [
+   "S5",
+   "5",
+   "Empirical Findings",
+   2,
+   "section"
+  ],
+  [
+   "S5.SS1",
+   "5.1",
+   "Exposure raises accuracy in all four crossed cells",
+   3,
+   "subsection"
+  ],
+  [
+   "S5.SS2",
+   "5.2",
+   "The control trajectory changes the conclusion",
+   3,
+   "subsection"
+  ],
+  [
+   "S5.SS3",
+   "5.3",
+   "Completion and design-integrity checks",
+   3,
+   "subsection"
+  ],
+  [
+   "S6",
+   "6",
+   "Relation to Existing Evaluation Approaches",
+   2,
+   "section"
+  ],
+  [
+   "S6.SS1",
+   "6.1",
+   "Auditing provenance and detecting prior contact",
+   3,
+   "subsection"
+  ],
+  [
+   "S6.SS2",
+   "6.2",
+   "Controlled exposure, fresh tasks, and mitigation",
+   3,
+   "subsection"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "Benchmark scores shape model rankings, research priorities, and deployment decis",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "Most audits address that threat by asking a provenance question: Did contact wit",
+   []
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "That counterfactual is hard to recover after training. The relevant training mix",
+   []
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "LeakScale addresses this gap by making benchmark exposure a controlled intervent",
+   [
+    "S1.F1"
+   ]
+  ],
+  [
+   "S1.p5",
+   "S1",
+   "A model may understand a SQL query perfectly yet lack the private association sp",
+   []
+  ],
+  [
+   "S1.p6",
+   "S1",
+   "Across 2,048 fresh families, two model families, and two executable domains, con",
+   []
+  ],
+  [
+   "S1.p7",
+   "S1",
+   "This work makes three contributions: 1. An estimand for contamination consequenc",
+   []
+  ],
+  [
+   "S3.p1",
+   "S3",
+   "Identification requires information that is both necessary for success and unava",
+   []
+  ],
+  [
+   "S3.SS1.p1",
+   "S3.SS1",
+   "Each family reveals its task, opaque key, and four plausible values. The key-to-",
+   []
+  ],
+  [
+   "S3.SS1.p2",
+   "S3.SS1",
+   "Each candidate maps to a valid domain artifact, while the correct candidate’s se",
+   []
+  ],
+  [
+   "S3.SS2.p1",
+   "S3.SS2",
+   "Before any model is evaluated, all four candidate artifacts are executed. If $u_",
+   [
+    "S3.F2"
+   ]
+  ],
+  [
+   "S3.SS3.p1",
+   "S3.SS3",
+   "Source construction deterministically allocates 16 C0 and 16 C2 families within ",
+   [
+    "A1",
+    "A4"
+   ]
+  ],
+  [
+   "S4.SS1.p1",
+   "S4.SS1",
+   "The study crosses two model families, Qwen3-4B-Instruct-2507 (Yang et al., 2025)",
+   [
+    "S4.T1"
+   ]
+  ],
+  [
+   "S4.SS1.p2",
+   "S4.SS1",
+   "Each domain contains 32 structurally distinct executable shapes spanning relatio",
+   [
+    "A1",
+    "A3"
+   ]
+  ],
+  [
+   "S4.SS2.p1",
+   "S4.SS2",
+   "BF16 LoRA adaptation uses assistant-only loss under a fixed one-epoch protocol. ",
+   [
+    "A2",
+    "A4"
+   ]
+  ],
+  [
+   "S4.SS3.p1",
+   "S4.SS3",
+   "LeakScale measures the effect of a controlled post-training exposure regimen on ",
+   []
+  ],
+  [
+   "S5.SS1.p1",
+   "S5.SS1",
+   "Controlled access produces a positive difference-in-differences estimate for bot",
+   [
+    "S5.T2"
+   ]
+  ],
+  [
+   "S5.SS1.p2",
+   "S5.SS1",
+   "The effects span +7.17 to +27.31 percentage points, with an unweighted mean of +",
+   [
+    "S5.F3"
+   ]
+  ],
+  [
+   "S5.SS2.p1",
+   "S5.SS2",
+   "C0 and C2 begin at closely aligned aggregate accuracy, 25.52% and 25.12%, respec",
+   [
+    "A5"
+   ]
+  ],
+  [
+   "S5.SS3.p1",
+   "S5.SS3",
+   "All 262,144 planned generations completed without protocol failure, and the pres",
+   [
+    "A5",
+    "A6"
+   ]
+  ],
+  [
+   "S6.SS1.p1",
+   "S6.SS1",
+   "Training-data overlap has been examined since early large-language-model evaluat",
+   []
+  ],
+  [
+   "S6.SS1.p2",
+   "S6.SS1",
+   "Example-level detectors pursue the related goal of recovering whether a trained ",
+   []
+  ],
+  [
+   "S6.SS2.p1",
+   "S6.SS2",
+   "Controlled studies already measure contamination’s score effects. Kocyigit et al",
+   []
+  ],
+  [
+   "S6.SS2.p2",
+   "S6.SS2",
+   "CapBencher randomizes among logically correct answers to cap Bayes accuracy and ",
+   []
+  ],
+  [
+   "S6.SS2.p3",
+   "S6.SS2",
+   "Fresh and continuously updated evaluations reduce the opportunity for exposure r",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "S1.F1",
+   "Figure 1",
+   "Two distinct contamination questions. Provenance methods seek evidence that cont",
+   [
+    [
+     "2609.27176v2/figures/figure1.jpg",
+     548,
+     246,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S3.F2",
+   "Figure 2",
+   "Instrument construction and comparison. A private association selects the one ca",
+   [
+    [
+     "2609.27176v2/figures/figure2.png",
+     548,
+     225,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S5.F3",
+   "Figure 3",
+   "Control-adjusted effects of controlled benchmark exposure. Points denote differe",
+   [
+    [
+     "2609.27176v2/figures/figure3.png",
+     548,
+     251,
+     "",
+     false
+    ]
+   ]
+  ]
+ ],
+ "tables": [
+  [
+   "S4.T1",
+   "Table 1",
+   "Crossed study design. Domain families are shared across models; every family is "
+  ],
+  [
+   "S5.T2",
+   "Table 2",
+   "Exposure-attributable accuracy changes. Each condition-by-state mean contains 51"
+  ]
+ ]
+}

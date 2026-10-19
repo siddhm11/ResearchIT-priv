@@ -112,6 +112,17 @@ TABLES: dict[str, dict] = {
         "blobs": [],
         "paged": True,
     },
+    "paper_sources": {
+        "remote": "paper_sources",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "arxiv_id", "status", "version", "licence", "licence_text", "figures_json",
+                 "n_figures", "n_sections", "n_paragraphs", "code_repo", "code_stars",
+                 "code_checked_at", "parser_version", "fetched_at", "error"],
+        "blobs": [],
+        "paged": True,
+    },
 }
 
 RESTORE_PAGE = 2000
@@ -138,6 +149,11 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS paper_explanations (
         id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
         explanation TEXT NOT NULL, model TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS paper_sources (
+        id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL,
+        version TEXT, licence TEXT, licence_text TEXT, figures_json TEXT, n_figures INTEGER,
+        n_sections INTEGER, n_paragraphs INTEGER, code_repo TEXT, code_stars INTEGER,
+        code_checked_at TEXT, parser_version INTEGER, fetched_at TEXT, error TEXT)""",
     """CREATE TABLE IF NOT EXISTS paper_abstracts (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL UNIQUE, abstract TEXT NOT NULL,
         source TEXT, fetched_at TEXT)""",

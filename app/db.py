@@ -196,6 +196,52 @@ CREATE TABLE IF NOT EXISTS paper_explanations (
 );
 CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
 
+-- One row per paper whose arXiv HTML page has been read (app/paper_source_svc.py).
+-- Replicated, so kept slim: at most 8 figures with captions cut to 300
+-- characters, no paragraph text. `status` is ok | no_html | error.
+CREATE TABLE IF NOT EXISTS paper_sources (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    arxiv_id        TEXT NOT NULL UNIQUE,
+    status          TEXT NOT NULL,
+    version         TEXT,
+    licence         TEXT,
+    licence_text    TEXT,
+    figures_json    TEXT,
+    n_figures       INTEGER DEFAULT 0,
+    n_sections      INTEGER DEFAULT 0,
+    n_paragraphs    INTEGER DEFAULT 0,
+    code_repo       TEXT,
+    code_stars      INTEGER,
+    code_checked_at TEXT,
+    parser_version  INTEGER,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    error           TEXT
+);
+
+-- The bulky half of a parsed page, local only: cheap to rebuild with one
+-- fetch, and pruned to the most recently used papers.
+CREATE TABLE IF NOT EXISTS paper_fulltext (
+    arxiv_id      TEXT PRIMARY KEY,
+    version       TEXT,
+    title         TEXT,
+    abstract      TEXT,
+    sections_json TEXT,
+    figures_json  TEXT,
+    tables_json   TEXT,
+    fetched_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS paper_paragraphs (
+    arxiv_id        TEXT NOT NULL,
+    anchor          TEXT NOT NULL,
+    section_anchor  TEXT,
+    ord             INTEGER NOT NULL,
+    text            TEXT NOT NULL,
+    refs_json       TEXT,
+    PRIMARY KEY (arxiv_id, anchor)
+);
+
 -- Full abstracts for papers whose sidecar copy stops at 500 characters,
 -- fetched from the arXiv API the first time someone opens them
 -- (app/abstract_svc.py). The 2.9 GB sidecar ships inside the image and can't

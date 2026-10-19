@@ -38,6 +38,16 @@ OUTBOUND_USER_AGENT = os.getenv(
 # one request every three seconds; each request carries up to 20 ids.
 FULL_ABSTRACTS_DAILY_CAP = int(os.getenv("FULL_ABSTRACTS_DAILY_CAP", "3000"))
 
+# arXiv HTML pages, read once per paper (app/paper_source_svc.py). The base can
+# only be changed when RESEARCHIT_ENV=test, for browser tests against a local
+# stand-in; production always reads arxiv.org.
+RESEARCHIT_ENV = os.getenv("RESEARCHIT_ENV", "").strip().lower()
+ARXIV_HTML_BASE = (os.getenv("ARXIV_HTML_BASE", "").strip().rstrip("/")
+                   if RESEARCHIT_ENV == "test" else "") or "https://arxiv.org/html"
+# Parsed full text kept locally for this many most recently used papers. Each is
+# roughly 50-150 KB of text; measure the database before raising it.
+FULLTEXT_MAX_PAPERS = int(os.getenv("FULLTEXT_MAX_PAPERS", "5000"))
+
 # Owner-only preview of switched features (app/features.py). Visiting any page
 # with ?preview=<PREVIEW_TOKEN> sets a cookie that shows `preview` features to
 # that browser only. Empty means preview is visible to nobody.
