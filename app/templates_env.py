@@ -272,4 +272,10 @@ templates.env.filters["is_truncated"] = _is_truncated
 from app import config  # noqa: E402  (after `templates` exists, avoids a cycle)
 
 templates.env.globals["space_app_url"] = config.SPACE_APP_URL
+
+# Redesign switches (app/features.py). Templates ask `feature_visible("ASK",
+# request)` rather than reading the environment themselves.
+from app import features  # noqa: E402
+
+templates.env.globals["feature_visible"] = features.visible
 templates.env.globals["space_paper_url"] = config.space_paper_url

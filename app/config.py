@@ -25,6 +25,24 @@ ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 
+# arXiv and Hugging Face ask clients to identify themselves. On 2026-10-01
+# oaipmh.arxiv.org answered an anonymous harvester with 406 for a while; the
+# same request with a User-Agent went through. Every outside request the app
+# makes for the redesign (abstracts, HTML pages, figures, code links) sends it.
+OUTBOUND_USER_AGENT = os.getenv(
+    "OUTBOUND_USER_AGENT",
+    "ResearchIT/1.0 (+https://github.com/siddhm11/ResearchIT-priv)").strip()
+
+# Full abstracts fetched on first open (app/abstract_svc.py). The sidecar caps
+# abstracts at 500 characters for ~90% of pre-2025 papers. arXiv's API asks for
+# one request every three seconds; each request carries up to 20 ids.
+FULL_ABSTRACTS_DAILY_CAP = int(os.getenv("FULL_ABSTRACTS_DAILY_CAP", "3000"))
+
+# Owner-only preview of switched features (app/features.py). Visiting any page
+# with ?preview=<PREVIEW_TOKEN> sets a cookie that shows `preview` features to
+# that browser only. Empty means preview is visible to nobody.
+PREVIEW_TOKEN = os.getenv("PREVIEW_TOKEN", "").strip()
+
 # ── Turso (libSQL) — arXiv metadata DB — Phase 3.5 ───────────────────────────
 TURSO_URL = os.getenv("TURSO_URL", "").strip()
 TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()

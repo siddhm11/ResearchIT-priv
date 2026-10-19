@@ -29,7 +29,7 @@ import uuid
 from fastapi import APIRouter, Cookie, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (arxiv_svc, db, groq_svc, qdrant_svc, readability,
+from app import (abstract_svc, arxiv_svc, db, groq_svc, qdrant_svc, readability,
                  runtime_stats, turso_svc, user_state as us)
 from app.config import COOKIE_NAME
 from app.routers.events import _NO_POSITION, _position
@@ -59,11 +59,15 @@ def _cluster_of(candidate_source: str) -> int | None:
 
 
 async def _fetch_one(arxiv_id: str) -> dict | None:
-    """Metadata for a single paper: sidecar/Turso first, arXiv as fallback."""
+    """Metadata for a single paper: sidecar/Turso first, arXiv as fallback.
+
+    A full abstract saved by abstract_svc replaces a 500-character stump. The
+    overlay returns a copy, never the dict turso_svc caches for everyone.
+    """
     meta = await turso_svc.fetch_metadata_batch([arxiv_id])
     paper = meta.get(arxiv_id)
     if paper:
-        return paper
+        return (await abstract_svc.overlay([paper]))[0]
     try:
         fallback = await arxiv_svc.fetch_metadata_batch([arxiv_id])
     except Exception as e:
@@ -124,6 +128,11 @@ async def paper_page(
         # rather than as a bare JSON detail.
         return templates.TemplateResponse(
             request, "not_found.html", {}, status_code=404)
+
+    # A cut abstract is queued for its full text, which the next view shows.
+    # Off the request path: request() only schedules the fetch.
+    if abstract_svc.is_truncated(paper.get("abstract")):
+        abstract_svc.request(arxiv_id)
 
     paper = {
         **paper,
@@ -246,6 +255,12 @@ async def explain(arxiv_id: str, request: Request):
         return HTMLResponse(content="")
 
     abstract = paper.get("abstract") or ""
+    # Write the explanation from the whole abstract when it can be had within a
+    # few seconds, rather than caching one written from a stump for everyone.
+    if abstract_svc.is_truncated(abstract):
+        full = await abstract_svc.ensure(arxiv_id, timeout=4.0)
+        if full and len(full) > len(abstract):
+            abstract = full
     key = groq_svc.explain_cache_key(arxiv_id, abstract)
 
     cached = None
