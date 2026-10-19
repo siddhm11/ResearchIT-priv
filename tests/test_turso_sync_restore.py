@@ -124,7 +124,7 @@ async def test_restore_populates_empty_tables(local_db, monkeypatch):
     _fake_remote(monkeypatch, {
         "user_interactions": [
             [1, "u1", "1706.03762", "save", "search", 0, "q1", "v1", "dense",
-             None, 1.0, "p1", "2026-08-01T00:00:00"],
+             None, 1.0, "p1", "2026-08-01T00:00:00", None],   # layout: null for old rows
         ],
         "user_profiles": [["u1", "longterm", vec, 5, "2026-08-01T00:00:00"]],
         "user_onboarding": [["u1", '["cs.CL"]', 1, "2026-08-01", "2026-08-01"]],
@@ -183,8 +183,8 @@ async def test_restore_advances_the_watermark_past_restored_rows(local_db, monke
     """
     _fake_remote(monkeypatch, {
         "user_interactions": [
-            [41, "u1", "a", "save", "search", 0, "", "", "", None, 1.0, "", "t"],
-            [42, "u1", "b", "save", "search", 1, "", "", "", None, 1.0, "", "t"],
+            [41, "u1", "a", "save", "search", 0, "", "", "", None, 1.0, "", "t", None],
+            [42, "u1", "b", "save", "search", 1, "", "", "", None, 1.0, "", "t", "grid2"],
         ],
     })
 
