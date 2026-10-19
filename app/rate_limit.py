@@ -65,6 +65,7 @@ LIMITS: dict[str, tuple[int, int]] = {
     "/search": (30, 60),
     # Figure thumbnails: generous for a person scrolling, a wall for a scraper.
     "/fig": (240, 60),
+    "/api/ui-event": (60, 60),
 }
 
 # Bound the memory. Each key holds at most `max requests` timestamps, so the

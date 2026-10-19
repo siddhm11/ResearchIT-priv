@@ -12,7 +12,54 @@
   in both navs.
 #}
 
+{% block body_class %}{% if feature_visible("FEED_WIDE", request) %} class="page-wide"{% endif %}{% endblock %}
+
 {% block content %}
+{% if feature_visible("FEED_WIDE", request) %}
+{#
+  Wide feed (switch FEED_WIDE): a rail with the issue line, actions, the
+  interests in this feed (counted from the cards by app.js) and the text
+  preference; the feed itself in two columns from 1180 px, still one list in
+  served order (see the FEED_WIDE notes in styles.css and app.js).
+#}
+<div class="wrap wrap--wide fx" data-wide-feed>
+  <aside class="rail" aria-label="Feed controls">
+    <header class="rail-head">
+      <h1 class="rail-title">Your feed</h1>
+      <span class="rail-date">{{ issue_date }} · No. {{ issue_number }}{% if save_count %} · {{ save_count }} saved{% endif %}</span>
+      <button type="button" class="btn btn-quiet btn-sm"
+              hx-get="/api/recommendations" hx-target="#rec-section" hx-swap="innerHTML"
+              hx-disabled-elt="this">Discover more</button>
+    </header>
+    <div class="rail-sec">
+      <h2>Your interests</h2>
+      <div class="rail-ints" role="group" aria-label="Show papers from" id="rail-ints">
+        <button type="button" class="rail-int is-all" data-filter="" aria-pressed="true">All papers<span class="n" data-count></span></button>
+      </div>
+      <a href="/interests" class="rail-link">Edit interests</a>
+      <a href="/history?view=discovered" class="rail-link">Recent papers</a>
+    </div>
+    <div class="rail-sec rail-sec--desk">
+      <h2>Cards open on</h2>
+      <div class="seg" role="group" aria-label="Cards open on">
+        <button type="button" data-cardpref="plain" aria-pressed="true">Plain terms</button>
+        <button type="button" data-cardpref="abs" aria-pressed="false">Abstract</button>
+      </div>
+      <p class="rail-help">Each card can also switch on its own.</p>
+    </div>
+  </aside>
+  <section class="fx-main" aria-label="Papers">
+    <p class="filter-note" id="filter-note" hidden></p>
+    <div id="rec-section"
+         hx-get="/api/recommendations"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      {% set count = 4 %}
+      {% include "partials/skeleton.html" %}
+    </div>
+  </section>
+</div>
+{% else %}
 <div class="wrap wrap--feed">
 
   {#
@@ -58,4 +105,5 @@
   </div>
 
 </div>
+{% endif %}
 {% endblock %}
