@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS paper_explanations (
 CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
 
 -- One row per paper whose arXiv HTML page has been read (app/paper_source_svc.py).
--- Replicated, so kept slim: at most 8 figures with captions cut to 300
+-- Replicated, so kept slim: at most 24 figures with captions cut to 300
 -- characters, no paragraph text. `status` is ok | no_html | error.
 CREATE TABLE IF NOT EXISTS paper_sources (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
