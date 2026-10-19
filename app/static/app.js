@@ -268,10 +268,19 @@
     if (t && t.classList && t.classList.contains('card-actions')) onSaved(t);
   });
 
-  document.body.addEventListener('htmx:responseError', function () {
+  /* Fragments that load on their own after paint (plain summary, code chip,
+     briefing) carry data-quiet: if one fails or is rate-limited, the page
+     simply goes without it. Only something the reader did gets a toast. */
+  function quiet(e) {
+    var elt = e.detail && e.detail.elt;
+    return !!(elt && elt.closest && elt.closest('[data-quiet]'));
+  }
+  document.body.addEventListener('htmx:responseError', function (e) {
+    if (quiet(e)) return;
     showError('Something went wrong. Please try again.');
   });
-  document.body.addEventListener('htmx:sendError', function () {
+  document.body.addEventListener('htmx:sendError', function (e) {
+    if (quiet(e)) return;
     showError('Connection lost. Check your network.');
   });
 

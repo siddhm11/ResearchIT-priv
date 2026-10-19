@@ -285,3 +285,10 @@ def test_the_full_caption_is_used_when_this_container_has_the_full_text(page, mo
     assert long_cut + "…" in get("/p/2609.31507").text
     asyncio.run(go(True))
     assert long_cut + " ends here." in get("/p/2609.31507").text
+
+
+def test_fragments_that_load_after_paint_are_marked_quiet(page):
+    """A failed or rate-limited background fragment must not raise an error toast."""
+    html = get("/p/2609.31507").text
+    for marker in ('class="code-slot" data-quiet', 'id="panel-plain" role="tabpanel" aria-labelledby="tab-plain" data-quiet'):
+        assert marker in html
