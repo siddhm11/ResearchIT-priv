@@ -23,9 +23,10 @@ Then start the app against them with every outside service blanked, so the
 values in .env.local can't leak in (load_dotenv never overrides a set name):
 
     DB_PATH=/tmp/e2e.db METADATA_SIDECAR_PATH=/tmp/e2e_sidecar.sqlite \\
-    RESEARCHIT_ENV=test ARXIV_HTML_BASE=http://127.0.0.1:8799 \\
+    RESEARCHIT_ENV=test ARXIV_HTML_BASE=http://127.0.0.1:8799 ARXIV_API_URL=http://127.0.0.1:8799/api \\
     TURSO_URL= TURSO_DB_TOKEN= QDRANT_URL= GROQ_API_KEY= TURSO_SYNC_DISABLED=1 \\
     PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on BRIEFING=on ASK=on FEED_CARD_V2=on FEED_WIDE=on \\
+    SEARCH_FIGURES=on \\
     PORT=7861 python run.py
 """
 from __future__ import annotations
@@ -89,6 +90,11 @@ def build_sidecar(path: Path, parsed: dict) -> None:
     conn.executemany("INSERT INTO papers VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
     conn.executemany("INSERT INTO paper_categories VALUES (?, ?, ?, ?)",
                      [(cats.split()[0], aid, 3, "2026-09-25") for aid, (cats, _) in PAPERS.items()])
+    # The word index search uses (app/fts_svc.py). Without it search found
+    # nothing and fell back to the real arXiv API.
+    conn.execute("CREATE VIRTUAL TABLE papers_fts USING fts5(title, abstract_preview, content='papers', "
+                 "content_rowid='rowid', tokenize='porter unicode61')")
+    conn.execute("INSERT INTO papers_fts(papers_fts) VALUES('rebuild')")
     conn.commit()
     conn.close()
 

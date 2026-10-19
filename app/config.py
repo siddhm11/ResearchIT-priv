@@ -21,7 +21,11 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "arxiv_bgem3_dense")
 DB_PATH = os.getenv("DB_PATH", "interactions.db")
 
 # ── arXiv API ─────────────────────────────────────────────────────────────────
-ARXIV_API_URL = "https://export.arxiv.org/api/query"
+# Overridable only when RESEARCHIT_ENV=test, so the browser tests' world never
+# reaches the real API (see ARXIV_HTML_BASE below).
+ARXIV_API_URL = (os.getenv("ARXIV_API_URL", "").strip()
+                 if os.getenv("RESEARCHIT_ENV", "").strip().lower() == "test" else "") \
+    or "https://export.arxiv.org/api/query"
 ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 

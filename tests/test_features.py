@@ -77,3 +77,25 @@ def test_templates_can_ask_whether_a_feature_is_visible(monkeypatch):
     monkeypatch.setenv("F", "on")
     out = templates.env.from_string("{{ 'yes' if feature_visible('F', None) else 'no' }}").render()
     assert out == "yes"
+
+
+@pytest.mark.parametrize("env,expected", [
+    ({"RESEARCHIT_ENV": "test", "ARXIV_API_URL": "http://127.0.0.1:8799/api"}, "http://127.0.0.1:8799/api"),
+    ({"RESEARCHIT_ENV": "", "ARXIV_API_URL": "http://evil.example/api"}, "https://export.arxiv.org/api/query"),
+    ({"RESEARCHIT_ENV": "test", "ARXIV_HTML_BASE": "http://127.0.0.1:8799"}, None),
+])
+def test_arxiv_addresses_can_only_be_redirected_in_the_test_world(monkeypatch, env, expected):
+    import importlib
+    from app import config
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    try:
+        fresh = importlib.reload(config)
+        if expected:
+            assert fresh.ARXIV_API_URL == expected
+        else:
+            assert fresh.ARXIV_HTML_BASE == "http://127.0.0.1:8799"
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
+
