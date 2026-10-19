@@ -15,8 +15,17 @@ Groq's usage, the answering model and its place in GROQ_MODELS (0 = primary,
 higher = a fallback answered), whether the reply hit the token cap, and the
 requests and minute-tokens Groq said were left at that moment. Groq sends no
 header for tokens used today, so the day's tokens are the sum of these rows.
+
+Everything else worth counting goes to `ai_daily`, one number per UTC day,
+feature and metric: cache_hit and cache_miss, outcomes (declined, busy, ok,
+insufficient, unanswerable...), points_dropped and quotes_dropped by the
+checks, reported. count() is synchronous and cheap; a loop owned by the app
+lifespan flushes the counts every FLUSH_S seconds and on shutdown.
 """
 from __future__ import annotations
+
+import asyncio
+import time
 
 import aiosqlite
 
@@ -61,3 +70,68 @@ async def log_call(feature: str, completion=None, *, latency_ms: int = 0, status
                       latency_ms=int(latency_ms), status=status,
                       tokens_in=c.tokens_in if c else None, tokens_out=c.tokens_out if c else None,
                       model_rank=c.rank if c else None, truncated=bool(c and c.truncated)))
+
+
+# ── daily counts ─────────────────────────────────────────────────────────────
+
+FLUSH_S = 60
+_pending: dict[tuple[str, str, str], int] = {}
+_task: asyncio.Task | None = None
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def count(feature: str, metric: str, n: int = 1) -> None:
+    """Add n to today's count of `metric` for `feature`. Never blocks, never raises."""
+    if n > 0:
+        key = (_today(), feature, metric)
+        _pending[key] = _pending.get(key, 0) + int(n)
+
+
+async def flush() -> None:
+    """Write pending counts. On failure they are kept for the next flush."""
+    if not _pending:
+        return
+    items = list(_pending.items())
+    _pending.clear()
+    try:
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            for (day, feature, metric), n in items:
+                cur = await conn.execute(
+                    "SELECT n FROM ai_daily WHERE day = ? AND feature = ? AND metric = ?", (day, feature, metric))
+                row = await cur.fetchone()
+                # Whole-row replace, never UPDATE: a new id is what makes turso_sync push it.
+                await conn.execute("INSERT OR REPLACE INTO ai_daily (day, feature, metric, n) VALUES (?, ?, ?, ?)",
+                                   (day, feature, metric, (row[0] if row else 0) + n))
+            await conn.commit()
+    except Exception as e:
+        for key, n in items:
+            _pending[key] = _pending.get(key, 0) + n
+        errors.report("ai_usage", "writing daily AI counts failed", e)
+
+
+async def _loop() -> None:
+    while True:
+        await asyncio.sleep(FLUSH_S)
+        await flush()
+
+
+async def start() -> None:
+    global _task
+    if _task is None:
+        _task = asyncio.create_task(_loop(), name="ai-usage-flush")
+
+
+async def stop() -> None:
+    global _task
+    if _task is not None:
+        _task.cancel()
+        try:
+            await _task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _task = None
+    await flush()
+

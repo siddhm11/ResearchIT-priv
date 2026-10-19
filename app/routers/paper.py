@@ -31,7 +31,7 @@ import uuid
 from fastapi import APIRouter, Cookie, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (abstract_svc, arxiv_svc, ask_svc, briefing_svc, config, db, features, groq_svc,
+from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, briefing_svc, config, db, features, groq_svc,
                  hf_papers_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
@@ -347,6 +347,7 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
 
     text = cached
     runtime_stats.count("explain_cache_hit" if cached is not None else "explain_cache_miss")
+    ai_usage.count("explain", "cache_hit" if cached is not None else "cache_miss")
     if text is None:
         text = await groq_svc.explain_paper(paper.get("title") or "", abstract)
         if text:

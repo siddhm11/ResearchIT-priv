@@ -91,14 +91,16 @@ async def lifespan(app: FastAPI):
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
-    from app import figure_prewarm
+    from app import ai_usage, figure_prewarm
     await figure_prewarm.start()
+    await ai_usage.start()
     try:
         yield
     finally:
         await app.state.discovery.stop()
         from app import abstract_svc, figure_prewarm, paper_source_svc
         await figure_prewarm.stop()
+        await ai_usage.stop()
         await abstract_svc.stop()
         await paper_source_svc.stop()
 

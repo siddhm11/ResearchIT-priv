@@ -162,6 +162,14 @@ TABLES: dict[str, dict] = {
         "cols": ["id", "arxiv_id", "feature", "reason", "user_id", "created_at"],
         "blobs": [],
         "paged": True,
+    },    "ai_daily": {
+        "remote": "ai_daily",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "day", "feature", "metric", "n"],
+        "blobs": [],
+        "paged": True,
     },
 }
 
@@ -210,6 +218,9 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS content_reports (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
         reason TEXT, user_id TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS ai_daily (
+        id INTEGER PRIMARY KEY, day TEXT NOT NULL, feature TEXT NOT NULL, metric TEXT NOT NULL,
+        n INTEGER, UNIQUE (day, feature, metric))""",
     """CREATE TABLE IF NOT EXISTS paper_abstracts (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL UNIQUE, abstract TEXT NOT NULL,
         source TEXT, fetched_at TEXT)""",

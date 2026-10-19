@@ -113,3 +113,54 @@ async def test_a_failed_or_benched_call_is_logged_and_the_feature_still_degrades
     assert await groq_svc.explain_paper("T", "An abstract long enough to explain. " * 6) is None
     assert await rows("SELECT feature, status FROM llm_calls ORDER BY id") == [
         ("search_rewrite", "unavailable"), ("explain", "failed")]
+
+
+# ── daily counts ─────────────────────────────────────────────────────────────
+
+async def daily(feature=None):
+    sql = "SELECT feature, metric, n FROM ai_daily" + (" WHERE feature = ?" if feature else "") + " ORDER BY metric"
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        return await (await conn.execute(sql, (feature,) if feature else ())).fetchall()
+
+
+@pytest.fixture
+def no_pending(monkeypatch):
+    monkeypatch.setattr(ai_usage, "_pending", {})
+
+
+async def test_counts_add_up_across_flushes_and_each_flush_gets_a_new_id(no_pending):
+    ai_usage.count("explain", "cache_hit")
+    ai_usage.count("explain", "cache_hit", 2)
+    ai_usage.count("explain", "cache_miss")
+    ai_usage.count("explain", "cache_miss", 0)                 # nothing to add
+    await ai_usage.flush()
+    first = await rows("SELECT id FROM ai_daily WHERE metric = 'cache_hit'")
+    ai_usage.count("explain", "cache_hit")
+    await ai_usage.flush()
+    assert await daily("explain") == [("explain", "cache_hit", 4), ("explain", "cache_miss", 1)]
+    assert (await rows("SELECT id FROM ai_daily WHERE metric = 'cache_hit'"))[0][0] > first[0][0]   # pushed again
+
+
+async def test_counts_survive_a_failed_flush(no_pending, monkeypatch):
+    ai_usage.count("ask", "answer")
+    monkeypatch.setattr(config, "DB_PATH", "/nonexistent/dir/x.db")
+    await ai_usage.flush()
+    monkeypatch.undo()
+    assert ai_usage._pending                                   # kept for the next flush
+
+
+def test_daily_counts_replicate_one_row_per_day_feature_and_metric():
+    assert turso_sync.TABLES["ai_daily"]["cols"] == ["id", "day", "feature", "metric", "n"]
+    ddl = next(d for d in turso_sync.REMOTE_DDL if "TABLE IF NOT EXISTS ai_daily" in d)
+    assert "UNIQUE (day, feature, metric)" in ddl
+
+
+async def test_search_and_plain_summary_outcomes_are_counted(groq_answers, no_pending):
+    await groq_svc.rewrite("LLM hallucination")                                   # looks academic
+    await groq_svc.rewrite("how do computers learn from examples")               # rewritten
+    groq_answers["value"] = Completion("INSUFFICIENT", "m", False)
+    await groq_svc.explain_paper("T", "An abstract long enough to explain. " * 6)
+    await ai_usage.flush()
+    got = {(f, m): n for f, m, n in await daily()}
+    assert got[("search_rewrite", "skipped")] == 1 and got[("search_rewrite", "rewritten")] == 1
+    assert got[("explain", "declined")] == 1

@@ -265,6 +265,19 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 
+-- Daily counts per AI feature of what isn't a model call: cache hits and
+-- misses, outcomes (declined, busy), points and quotes dropped by the checks,
+-- reader reports (app/ai_usage.py). One row per day, feature and metric,
+-- rewritten whole (new id) on each flush so turso_sync pushes it. Replicated.
+CREATE TABLE IF NOT EXISTS ai_daily (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    day     TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    metric  TEXT NOT NULL,
+    n       INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (day, feature, metric)
+);
+
 -- Briefings ("Three things to know", "How it works", "Where you'd use this"),
 -- one per paper version, parser, prompt and model (app/briefing_svc.py).
 -- status: ok | insufficient | failed. Replicated: each costs a model call.

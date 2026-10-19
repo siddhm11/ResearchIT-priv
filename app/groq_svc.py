@@ -245,6 +245,11 @@ async def _run_logged(feature: str, fn, *args, chars_in: int = 0) -> Completion:
     return result
 
 
+def _count(feature: str, metric: str) -> None:
+    from app import ai_usage
+    ai_usage.count(feature, metric)
+
+
 def _rank(model: str) -> int:
     try:
         return list(config.GROQ_MODELS).index(model)
@@ -410,6 +415,7 @@ async def rewrite(query: str) -> str:
 
     # Skip if already academic-looking
     if _looks_academic(query):
+        _count("search_rewrite", "skipped")
         return query
 
     client = _get_client()
@@ -422,13 +428,16 @@ async def rewrite(query: str) -> str:
         # A rewrite cut off at the cap ("LLa") is worse than none: it would be
         # embedded and searched as if it were the reader's intent.
         if result.truncated:
+            _count("search_rewrite", "discarded")
             return query
         rewritten = result.text.strip('"').strip("'").strip()
 
         # Sanity check: rewritten should be non-empty and not absurdly long
         if not rewritten or len(rewritten) > 200:
+            _count("search_rewrite", "discarded")
             return query
 
+        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
         return rewritten
 
     except Exception as e:
@@ -492,7 +501,9 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
+            _count("search_overview", "empty")
             return None
+        _count("search_overview", "trimmed" if result.truncated else "shown")
             
         # Escape first, then bold. ai_summary.html renders this with |safe, and
         # the model's text is steered by the search query -- which arrives in
@@ -607,7 +618,9 @@ async def explain_paper(title: str, abstract: str) -> str | None:
     # The model's own refusal path. Honoured rather than second-guessed: a
     # summary of a mutilated abstract is worse than no summary.
     if not text or text.upper().startswith("INSUFFICIENT"):
+        _count("explain", "declined")
         return None
+    _count("explain", "trimmed" if result.truncated else "written")
     return text
 
 
