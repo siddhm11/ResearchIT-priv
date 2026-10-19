@@ -1708,6 +1708,10 @@ a.src:hover { text-decoration: underline; }
 .pc { display: flex; flex-direction: column; gap: .55rem; }
 .pc-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.6rem; }
 .pc-top .pc-menu { margin-left: auto; }
+/* No interest label (category and popularity tiers): a row holding only the
+   menu left a blank band above the title, so the menu sits in the corner. */
+.pc-top--bare { position: absolute; top: .55rem; right: .6rem; min-height: 0; z-index: 1; }
+.pc-top--bare + .card-title { padding-right: 2.1rem; }
 .pc .card-title { margin: 0; }
 .pc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-size: .8rem; color: var(--text-3); }
 .pc-meta .sep { opacity: .45; }

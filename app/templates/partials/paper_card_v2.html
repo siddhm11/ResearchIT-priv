@@ -44,7 +44,7 @@
 
   {% if paper.previously_shown %}<span class="small muted">Previously discovered</span>{% endif %}
 
-  <div class="pc-top">
+  <div class="pc-top{% if not interest and not is_explore %} pc-top--bare{% endif %}">
     {% if interest %}<span class="card-interest">{{ interest }}</span>
     {% elif is_explore %}<span class="card-interest">Something different</span>{% endif %}
     <div class="pc-menu">
