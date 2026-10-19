@@ -722,3 +722,26 @@ is a confident wrong answer. Grounding is enforced in code so a wrong or
 injected draft fails a check instead of reaching the page.
 **Action items:** Run `scripts/eval_ask.py` on 20 papers, rate the answers, and
 switch `ASK` past preview only at the gate in docs/redesign/07-pr-8-ask-this-paper.md.
+
+### 2026-10-19 — Two-column feed keeps served order; interactions record their layout
+**Decision:** The redesigned feed card (`FEED_CARD_V2`) and a wide feed
+(`FEED_WIDE`) with a rail and, from 1180 px, two columns. The two columns show
+the feed as ONE list in served order: a CSS grid of 4 px rows with each card
+spanning rows to its measured height, `grid-auto-flow: row` and never `dense`,
+so no card sits above the card served before it. CSS multi-columns, `dense`
+packing and separate column containers are ruled out: each reorders the feed
+or breaks infinite scroll. Every save, pass and click from a card records
+`layout` (`list` or `grid2`) in `interactions`; feed-control use goes to a
+local `ui_events` table.
+**Supersedes:** nothing; extends §3.1 ("quota binds the SERVED order") to the
+page layout and §3.11 instrumentation with one field.
+**Rationale:** Quota decides the order across interests (2026-08-16), and a
+masonry layout that fills the left column first would undo it on screen while
+the logs still claimed it. In two columns position no longer maps to attention
+the same way, so any CTR or position analysis must split by layout or it mixes
+two exposure models.
+**Action items:** Split evaluation and `scripts/baseline_metrics.py` output by
+`layout` once `grid2` rows exist. Keep the card's enrichment local and after
+the exposure write. Turn `FEED_WIDE` on only after `FEED_CARD_V2` has been on
+for a week.
+
