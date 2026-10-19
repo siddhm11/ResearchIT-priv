@@ -255,3 +255,20 @@ def test_ask_about_this_figure_asks_in_the_panel(satnav):
     satnav.click("#lb-ask")
     satnav.wait_for_selector("#chat-log .msg-user")
     assert satnav.inner_text("#chat-log .msg-user") == "Explain figure 1"
+
+
+def test_a_figure_that_cannot_be_made_is_hidden_not_shown_broken(satnav):
+    """/fig/ answers 404 when no thumbnail can be made; app.js hides that figure."""
+    missing = f"/fig/{SATNAV}/99-00000000.webp"
+    satnav.wait_for_selector("#sec-figs .figs > button img")
+    tiles = satnav.locator("#sec-figs .figs > button")
+    total = tiles.count()
+    satnav.evaluate("""m => { const img = document.querySelector('#sec-figs .figs > button img');
+        img.loading = 'eager'; img.src = m; }""", missing)
+    satnav.wait_for_function("document.querySelector('#sec-figs .figs > button').hidden")
+    assert satnav.locator("#sec-figs .figs > button:not([hidden])").count() == total - 1
+    satnav.evaluate("""m => document.querySelectorAll('#sec-figs img, #sec-fig img')
+        .forEach(i => { i.loading = 'eager'; i.src = m; })""", missing)
+    satnav.wait_for_function("document.getElementById('sec-figs').hidden && document.getElementById('sec-fig').hidden")
+    assert satnav.is_visible("#sec-sum")                     # the rest of the page is untouched
+

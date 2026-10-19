@@ -220,3 +220,15 @@ def test_card_figures_load_and_the_menu_opens(browser):
         assert page.errors == []
     finally:
         ctx.close()
+
+
+def test_a_card_figure_that_cannot_be_made_is_hidden(browser):
+    ctx, page = feed(browser, 1440)
+    try:
+        card = page.locator("[data-wide-feed] .card.pc:has(.pc-fig)").first
+        card.locator(".pc-fig img").evaluate("i => { i.loading = 'eager'; i.src = '/fig/2609.31507/99-00000000.webp'; }")
+        page.wait_for_function("el => el.querySelector('.pc-fig').hidden", arg=card.element_handle())
+        assert card.locator(".card-title").is_visible()
+    finally:
+        ctx.close()
+

@@ -438,6 +438,31 @@
   document.addEventListener('DOMContentLoaded', function () { applyCardTextPref(document); });
   document.body.addEventListener('htmx:afterSwap', function (e) { applyCardTextPref(e.target && e.target.parentNode || document); });
 
+  /* ── Figures that cannot be shown ──
+     /fig/ answers 404 when a thumbnail cannot be made (too large, not an
+     image, arXiv refused). Hide that figure rather than leave a broken box:
+     its card figure, the key-figure section, or its tile in All figures (and
+     that section too once no tile is left). Error events do not bubble, so
+     this listens in the capture phase; this script runs at the end of the
+     page, so images that failed before it ran are swept up once. */
+  function hideFigure(img) {
+    if (!img || img.tagName !== 'IMG' || (img.getAttribute('src') || '').indexOf('/fig/') !== 0) return;
+    var box = img.closest('.pc-fig, #sec-fig, .figs > button');
+    if (!box) return;
+    box.hidden = true;
+    var grid = box.parentNode && box.parentNode.classList.contains('figs') ? box.parentNode : null;
+    if (grid && !grid.querySelector(':scope > button:not([hidden])')) {
+      var section = grid.closest('section');
+      if (section) section.hidden = true;
+    }
+  }
+  document.addEventListener('error', function (e) { hideFigure(e.target); }, true);
+  /* complete with no width means the request failed; a lazy image not yet
+     requested is not complete. */
+  document.querySelectorAll('img[src^="/fig/"]').forEach(function (img) {
+    if (img.complete && img.naturalWidth === 0) hideFigure(img);
+  });
+
   /* ── Wide feed (FEED_WIDE): two columns, rail, filter, layout logging ──
      The feed stays one list in served order; each card spans grid rows to
      its height so the two columns pack without reordering anything. */
