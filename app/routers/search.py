@@ -14,7 +14,7 @@ Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import arxiv_svc, db, turso_svc, user_state as us, hybrid_search_svc
+from app import arxiv_svc, card_data, db, features, figure_prewarm, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -97,6 +97,13 @@ async def search(
         p["position"] = idx
         p["propensity"] = 1.0  # search is deterministic
         p["policy_id"] = "search_v2_independent_lexical"
+
+    # A small figure beside each result that already has one saved (switch
+    # SEARCH_FIGURES; local reads only, order and instrumentation untouched),
+    # and the top few queued so the warm-up reads them for next time.
+    if features.visible("SEARCH_FIGURES", request):
+        papers = await card_data.enrich(papers, request)
+    figure_prewarm.enqueue([p["arxiv_id"] for p in papers[:figure_prewarm.SEARCH_TOP] if p.get("arxiv_id")])
 
     if request.headers.get("HX-Request"):
         resp = templates.TemplateResponse(

@@ -25,7 +25,7 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import card_data, db, discovery_svc, errors, features, qdrant_svc, arxiv_svc, runtime_stats, turso_svc, user_state as us
+from app import card_data, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, turso_svc, user_state as us
 from app.config import (
     COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
@@ -376,6 +376,9 @@ async def _serve_recommendations(
     card_v2 = features.visible("FEED_CARD_V2", request)
     if card_v2:
         papers = await card_data.enrich(papers, request)
+    # Cards only show figures already saved; queue this page's papers so the
+    # warm-up reads them (slowly, in the background) for next time.
+    figure_prewarm.enqueue([p["arxiv_id"] for p in papers if p.get("arxiv_id")])
 
     ctx = {
         "card_v2": card_v2,

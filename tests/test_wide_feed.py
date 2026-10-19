@@ -144,8 +144,9 @@ def warmup(monkeypatch):
         return [("2609.00001", "CC-BY-4.0"), ("2609.00002", "ARXIV-NONEXCLUSIVE-1.0"),
                 ("2609.00003", "CC-BY-4.0"), ("2609.00004", "")]
 
-    async def fake_ensure(arxiv_id, force=False):
+    async def fake_ensure(arxiv_id, force=False, background=False):
         calls["ensure"].append(arxiv_id)
+        calls.setdefault("background", []).append(background)
         if arxiv_id == "2609.00003":
             raise RuntimeError("boom")
         return SimpleNamespace(arxiv_id=arxiv_id, ok=True, figures=[{"src": f"{arxiv_id}v1/a.png"}],
@@ -205,3 +206,91 @@ async def test_it_is_off_by_default_and_only_one_runner_holds_the_lock(monkeypat
     assert figure_prewarm._task is not None
     await figure_prewarm.stop()
     assert figure_prewarm._task is None
+
+
+async def test_every_warm_up_request_uses_the_background_lane(warmup):
+    await figure_prewarm.run_once()
+    assert warmup["background"] and all(warmup["background"])
+
+
+# ── papers people were shown ─────────────────────────────────────────────────
+
+@pytest.fixture
+def queue(monkeypatch):
+    monkeypatch.setattr(figure_prewarm, "_queue", figure_prewarm.deque())
+    monkeypatch.setattr(figure_prewarm, "_queued", set())
+    monkeypatch.setattr(figure_prewarm, "_day", {"date": "", "read": 0, "shown_done": 0})
+    monkeypatch.setenv("FIGURE_PREWARM", "on")
+    return figure_prewarm
+
+
+def test_enqueue_does_nothing_with_the_switch_off(queue, monkeypatch):
+    monkeypatch.setenv("FIGURE_PREWARM", "off")
+    assert queue.enqueue(["2609.00001"]) == 0 and not queue._queue
+
+
+def test_enqueue_skips_duplicates_and_bad_ids_and_drops_the_oldest(queue, monkeypatch):
+    monkeypatch.setattr(queue, "QUEUE_MAX", 3)
+    assert queue.enqueue(["2609.00001", "2609.00001", "../etc", "2609.00002"]) == 2
+    queue.enqueue(["2609.00003", "2609.00004"])
+    assert list(queue._queue) == ["2609.00002", "2609.00003", "2609.00004"]
+    assert queue._queued == {"2609.00002", "2609.00003", "2609.00004"}
+
+
+async def test_queued_papers_are_read_in_order_through_the_background_lane(queue, warmup, monkeypatch, tmp_path):
+    monkeypatch.setattr(queue, "LOCK_PATH", tmp_path / "prewarm.lock")
+    monkeypatch.setattr(queue, "FIRST_RUN_DELAY_S", 3600)
+    queue.enqueue(["2609.00001", "2609.00002"])
+    await queue.start()
+    try:
+        for _ in range(100):
+            if len(warmup["ensure"]) == 2:
+                break
+            await asyncio.sleep(0.01)
+        queue.enqueue(["2609.00004"])
+        for _ in range(100):
+            if len(warmup["ensure"]) == 3:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        await queue.stop()
+    assert warmup["ensure"] == ["2609.00001", "2609.00002", "2609.00004"]
+    assert all(warmup["background"])
+    assert queue.status()["shown_warmed_today"] == 3
+
+
+async def test_the_daily_cap_stops_reading(queue, warmup, monkeypatch):
+    monkeypatch.setattr(queue, "DAILY_MAX", 2)
+    results = [await queue.warm(a) for a in ("2609.00001", "2609.00002", "2609.00004")]
+    assert results == ["done", "done", "skipped"] and len(warmup["ensure"]) == 2
+    assert queue.status()["read_today"] == 2
+
+
+def test_the_feed_and_search_queue_what_they_showed(monkeypatch):
+    from app.main import app
+    from app.routers import recommendations as recs
+    seen = []
+    monkeypatch.setattr(figure_prewarm, "enqueue", lambda ids: seen.append(list(ids)) or len(ids))
+
+    async def fake_build_feed(user_id, state, query_id, **kw):
+        return {"user_id": user_id, "query_id": query_id, "ranked": ["2609.00001"], "tags": {}}
+
+    async def fake_build_page(entry, seen_ids):
+        return [{"arxiv_id": "2609.00001", "title": "T", "abstract": "A."},
+                {"arxiv_id": "2609.00002", "title": "T", "abstract": "A."}], False
+
+    async def fake_search(q, limit=20, return_meta=False):
+        return [f"2609.{i:05d}" for i in range(1, 9)], {}
+
+    async def meta(ids):
+        return {i: {"arxiv_id": i, "title": "T", "abstract": "A.", "authors": "[]"} for i in ids}
+
+    from app import hybrid_search_svc, turso_svc
+    with patch.object(recs, "_build_feed", side_effect=fake_build_feed), \
+            patch.object(recs, "_build_page", side_effect=fake_build_page), \
+            patch.object(hybrid_search_svc, "search", side_effect=fake_search), \
+            patch.object(turso_svc, "fetch_metadata_batch", side_effect=meta), TestClient(app) as c:
+        c.get("/api/recommendations")
+        c.get("/search?q=drones", headers={"HX-Request": "true"})
+    assert seen == [["2609.00001", "2609.00002"], [f"2609.{i:05d}" for i in range(1, 6)]]
+
