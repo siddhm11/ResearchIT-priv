@@ -441,13 +441,14 @@
   /* ── Figures that cannot be shown ──
      /fig/ answers 404 when a thumbnail cannot be made (too large, not an
      image, arXiv refused). Hide that figure rather than leave a broken box:
-     its card figure, the key-figure section, or its tile in All figures (and
-     that section too once no tile is left). Error events do not bubble, so
-     this listens in the capture phase; this script runs at the end of the
-     page, so images that failed before it ran are swept up once. */
+     its card figure or search thumbnail, the key-figure section, or its tile
+     in All figures (and that section too once no tile is left). Error events
+     do not bubble, so this listens in the capture phase; this script runs at
+     the end of the page, so images that failed before it ran are swept up
+     once. */
   function hideFigure(img) {
     if (!img || img.tagName !== 'IMG' || (img.getAttribute('src') || '').indexOf('/fig/') !== 0) return;
-    var box = img.closest('.pc-fig, #sec-fig, .figs > button');
+    var box = img.closest('.pc-fig, .card-thumb, #sec-fig, .figs > button');
     if (!box) return;
     box.hidden = true;
     var grid = box.parentNode && box.parentNode.classList.contains('figs') ? box.parentNode : null;

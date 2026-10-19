@@ -101,6 +101,15 @@
   {%- if paper.candidate_source %}{% set _ = _q.append("src=" ~ paper.candidate_source) %}{% endif -%}
   {%- if paper.propensity %}{% set _ = _q.append("prop=" ~ paper.propensity) %}{% endif -%}
   {%- if paper.policy_id %}{% set _ = _q.append("pol=" ~ paper.policy_id) %}{% endif -%}
+  {#
+    A small figure beside the text, only where the caller enriched the paper
+    (search, switch SEARCH_FIGURES, via card_data) and a figure is saved.
+    Without one the markup is exactly as before. The thumbnail repeats the
+    title's link, so it is left out of the tab order and hidden from screen
+    readers; its credit is in the title attribute and on the paper page.
+  #}
+  {% set thumb = paper.card_figure if paper.card_figure is defined else none %}
+  {% if thumb %}<div class="card-split"><div class="card-main">{% endif %}
   <a class="card-title"
      href="/p/{{ paper.arxiv_id }}{% if _q %}?{{ _q | join('&') }}{% endif %}">{{ paper.title }}</a>
 
@@ -141,6 +150,16 @@
          href="https://arxiv.org/abs/{{ paper.arxiv_id }}"
          target="_blank" rel="noopener">Full abstract on arXiv ↗</a>
     {% endif %}
+  {% endif %}
+  {% if thumb %}
+    </div>
+    <a class="card-thumb" href="/p/{{ paper.arxiv_id }}{% if _q %}?{{ _q | join('&') }}{% endif %}#sec-fig"
+       tabindex="-1" aria-hidden="true"
+       title="{{ thumb.label }}{% if thumb.label and thumb.credit %} · {% endif %}{{ thumb.credit }}">
+      <span class="plate"><img src="{{ thumb.url }}" alt="" loading="lazy" decoding="async"
+           {% if thumb.w and thumb.h %}width="{{ thumb.w }}" height="{{ thumb.h }}"{% endif %}></span>
+    </a>
+  </div>
   {% endif %}
 
   {# Provenance line. The arXiv id is set as a catalogue number because it is
