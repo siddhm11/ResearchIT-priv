@@ -199,10 +199,10 @@ async def _download(src: str, accept: str = "image/", cap: int = MAX_IMAGE_BYTES
         return resp.status_code, bytes(body), ctype
 
 
-async def _generate(arxiv_id: str, src: str, path: Path, kind: str = "img") -> bytes | None:
+async def _generate(arxiv_id: str, src: str, path: Path, kind: str = "img", paced: bool = False) -> bytes | None:
     st = _get_state()
     marker = path.with_suffix(".fail")
-    if not await paper_source_svc.pace():
+    if not paced and not await paper_source_svc.pace():
         return None                                   # breaker open: try again later
     try:
         status, raw, ctype = await _download(src)
@@ -249,13 +249,13 @@ def _drawings(html: bytes, anchors: list[str]) -> dict[str, bytes | str]:
     return out
 
 
-async def _generate_inline(source, src: str) -> None:
+async def _generate_inline(source, src: str, paced: bool = False) -> None:
     """Every drawing of a paper from one fetch of its page, written to the cache."""
     st = _get_state()
     wanted = {f["anchor"]: _cache_path(source.arxiv_id, f"{i}-{path_hash(figure_key(f))}.svg")
               for i, f in enumerate(source.figures)
               if figure_kind(f) == "svg-inline" and f.get("src") == src and f.get("anchor")}
-    if not wanted or not await paper_source_svc.pace():
+    if not wanted or (not paced and not await paper_source_svc.pace()):
         return
     try:
         status, raw, ctype = await _download(src, accept="text/html", cap=arxiv_html.MAX_HTML_BYTES)
@@ -279,8 +279,11 @@ async def _generate_inline(source, src: str) -> None:
             runtime_stats.count("figure_failed")
 
 
-async def thumbnail(arxiv_id: str, n: int, h8: str, ext: str = "webp") -> tuple[Path | None, bytes | None]:
-    """(cached file, or freshly made bytes) for a figure, or (None, None)."""
+async def thumbnail(arxiv_id: str, n: int, h8: str, ext: str = "webp",
+                    paced: bool = False) -> tuple[Path | None, bytes | None]:
+    """(cached file, or freshly made bytes) for a figure, or (None, None).
+
+    paced=True: the caller already waited for its turn (a background slot)."""
     if not paper_source_svc.ID_PATTERN.match(arxiv_id):
         return None, None
     source = await paper_source_svc.get(arxiv_id)
@@ -309,10 +312,10 @@ async def thumbnail(arxiv_id: str, n: int, h8: str, ext: str = "webp") -> tuple[
     data = None
     try:
         if kind == "svg-inline":
-            await _generate_inline(source, src)
+            await _generate_inline(source, src, paced)
             data = path.read_bytes() if path.exists() else None
         else:
-            data = await _generate(arxiv_id, src, path, kind)
+            data = await _generate(arxiv_id, src, path, kind, paced)
     except Exception as e:
         errors.report("figures", f"thumbnail {key} failed", e)
     finally:
@@ -337,11 +340,21 @@ async def figure(arxiv_id: str, name: str, request: Request):
     return Response(status_code=404)
 
 
-async def prepare(source, n: int) -> bool:
-    """Make figure n ready in the cache, as a page request for it would."""
+async def prepare(source, n: int, background: bool = False) -> bool:
+    """Make figure n ready in the cache, as a page request for it would.
+
+    background=True (the warm-up) waits for a background slot first, and only
+    when there is something to fetch, so a cached figure costs no slot."""
     url = figure_url(source, n)
     m = _NAME.match(url.rsplit("/", 1)[1]) if url else None
     if m is None:
         return False
-    path, data = await thumbnail(source.arxiv_id, int(m.group(1)), m.group(2), m.group(3))
-    return bool(path or data)
+    path = _cache_path(source.arxiv_id, m.group(0))
+    if path.exists():
+        return True
+    if _failed_recently(path.with_suffix(".fail")):
+        return False
+    if background and not await paper_source_svc.pace(background=True):
+        return False
+    made, data = await thumbnail(source.arxiv_id, int(m.group(1)), m.group(2), m.group(3), paced=background)
+    return bool(made or data)

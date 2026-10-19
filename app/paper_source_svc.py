@@ -57,6 +57,11 @@ PRUNE_EVERY_S = 24 * 3600
 
 PACE_INTERVAL_S = 2.0
 PACE_BURST = 3
+# Work nobody is waiting for (the figure warm-up) also waits this long after
+# the previous background request: arXiv's robots.txt asks automated clients
+# for "Crawl-delay: 15", and its bulk-data page puts interactive use by people
+# first. Reader-triggered fetches stand in for that reader's own browser.
+BACKGROUND_INTERVAL_S = 15.0
 SOFT_BLOCK = (403, 406, 429, 503)
 BREAKER_THRESHOLD = 3
 BREAKER_WINDOW_S = 600.0
@@ -182,6 +187,8 @@ class _State:
         self.pace_lock = asyncio.Lock()
         self.tokens = float(PACE_BURST)
         self.token_time = _now()
+        self.background_lock = asyncio.Lock()
+        self.background_at = float("-inf")
         self.soft_blocks: deque[float] = deque()
         self.breaker_until = 0.0
         self.tasks: set[asyncio.Task] = set()
@@ -205,9 +212,26 @@ def breaker_open() -> bool:
     return bool(st and st.breaker_until > _now())
 
 
-async def pace() -> bool:
-    """Wait for a turn to call arXiv. False when the breaker is open."""
+async def pace(background: bool = False) -> bool:
+    """Wait for a turn to call arXiv. False when the breaker is open.
+
+    Every request takes a token from one bucket (PACE_BURST, refilling one per
+    PACE_INTERVAL_S). A background request first waits for its own slot,
+    BACKGROUND_INTERVAL_S after the previous one, so background work can never
+    use more than one request in 15 seconds, however much is queued.
+    """
     st = _get_state()
+    if background:
+        async with st.background_lock:
+            wait = st.background_at + BACKGROUND_INTERVAL_S - _now()
+            if wait > 0:
+                await _sleep(wait)
+            st.background_at = _now()
+            return await _token(st)
+    return await _token(st)
+
+
+async def _token(st: _State) -> bool:
     async with st.pace_lock:
         if st.breaker_until > _now():
             return False
@@ -352,9 +376,9 @@ async def _save_status(arxiv_id: str, status: str, error: str, keep: Source | No
         await conn.commit()
 
 
-async def _fetch_and_save(arxiv_id: str, existing: Source | None) -> Source | None:
+async def _fetch_and_save(arxiv_id: str, existing: Source | None, paced: bool = False) -> Source | None:
     st = _get_state()
-    if not await pace():
+    if not paced and not await pace():
         runtime_stats.count("paper_source_breaker_skip")
         return existing
     t0 = time.perf_counter()
@@ -392,11 +416,18 @@ async def _fetch_and_save(arxiv_id: str, existing: Source | None) -> Source | No
     return await get(arxiv_id)
 
 
-async def ensure(arxiv_id: str, *, force: bool = False) -> Source | None:
+def needs_fetch(src: Source | None) -> bool:
+    """True when ensure() would go to arXiv for this saved row (or its absence)."""
+    return not _fresh(src, time.time())
+
+
+async def ensure(arxiv_id: str, *, force: bool = False, background: bool = False) -> Source | None:
     """The saved source, fetching it first if needed. Never raises.
 
     Callers pass ids they found in our metadata; anything that isn't a
-    new-style arXiv id is refused before any request.
+    new-style arXiv id is refused before any request. With background=True the
+    fetch waits for a background slot (pace) before it claims the paper, so a
+    reader opening the same paper meanwhile is never queued behind it.
     """
     if not ID_PATTERN.match(arxiv_id or ""):
         return None
@@ -405,13 +436,22 @@ async def ensure(arxiv_id: str, *, force: bool = False) -> Source | None:
         if not force and _fresh(existing, time.time()):
             return existing
         st = _get_state()
+        if background:
+            if st.in_flight.get(arxiv_id) is not None:
+                return existing                      # a reader is already fetching it
+            if not await pace(background=True):
+                runtime_stats.count("paper_source_breaker_skip")
+                return existing
+            existing = await get(arxiv_id)           # a reader may have fetched it while we waited
+            if (not force and _fresh(existing, time.time())) or st.in_flight.get(arxiv_id) is not None:
+                return existing
         fut = st.in_flight.get(arxiv_id)
         if fut is not None:
             return await asyncio.shield(fut)
         fut = st.loop.create_future()
         st.in_flight[arxiv_id] = fut
         try:
-            result = await _fetch_and_save(arxiv_id, existing)
+            result = await _fetch_and_save(arxiv_id, existing, paced=background)
         except Exception as e:
             errors.report("paper_source_svc", f"fetching {arxiv_id} failed", e)
             result = existing
