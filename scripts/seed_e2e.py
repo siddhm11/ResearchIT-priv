@@ -106,6 +106,18 @@ def png_bytes(w: int, h: int, seed: int) -> bytes:
     return buf.getvalue()
 
 
+def svg_bytes(w: int, h: int, seed: int) -> bytes:
+    """A small chart standing in for an SVG figure: bars and a labelled axis."""
+    bars = "".join(f'<rect x="{20 + k * (w - 40) // 5}" y="{h - 30 - (k + seed) % 4 * (h // 6)}" '
+                   f'width="{(w - 40) // 7}" height="{(k + seed) % 4 * (h // 6) + 10}" fill="#2f6f5e"/>'
+                   for k in range(5))
+    return (f'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+            f'viewBox="0 0 {w} {h}"><rect width="{w}" height="{h}" fill="#fbfaf6"/>{bars}'
+            f'<line x1="15" y1="{h - 20}" x2="{w - 10}" y2="{h - 20}" stroke="#333"/>'
+            f'<text x="{w // 2}" y="{h - 5}" font-size="12" text-anchor="middle">Figure {seed + 1}</text>'
+            f'</svg>').encode()
+
+
 def build_site(site: Path, parsed: dict) -> int:
     if site.exists():
         shutil.rmtree(site)
@@ -118,7 +130,8 @@ def build_site(site: Path, parsed: dict) -> int:
                 if img.src and not img.missing:
                     target = site / img.src
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(png_bytes(img.width or 480, img.height or 240, i))
+                    w, h = img.width or 480, img.height or 240
+                    target.write_bytes(svg_bytes(w, h, i) if img.kind == "svg" else png_bytes(w, h, i))
                     n += 1
     return n
 
