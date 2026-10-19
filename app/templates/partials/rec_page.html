@@ -38,7 +38,8 @@
 {% for paper in papers %}
   {% set source = "recommendation" %}
   {% set position = paper.position %}
-  {% include "partials/paper_card.html" %}
+  {# card_v2 (switch FEED_CARD_V2) picks the redesigned card; see app/card_data.py. #}
+  {% include ("partials/paper_card_v2.html" if card_v2 else "partials/paper_card.html") %}
 {% endfor %}
 
 {% if has_more %}
