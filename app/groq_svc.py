@@ -10,6 +10,7 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 import time
@@ -225,6 +226,25 @@ def windows() -> dict[str, dict]:
     return {m: dict(w) for m, w in _windows.items()}
 
 
+async def _run_logged(feature: str, fn, *args, chars_in: int = 0) -> Completion:
+    """Run a blocking completion off the event loop and log it (app/ai_usage.py).
+
+    Raises what the completion raised, after logging it as failed, or as
+    unavailable when every model in the chain was benched or refused.
+    """
+    from app import ai_usage
+    t0 = time.perf_counter()
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+    except Exception as e:
+        status = "unavailable" if "no Groq model answered" in str(e) else "failed"
+        await ai_usage.log_call(feature, None, latency_ms=(time.perf_counter() - t0) * 1000,
+                                status=status, chars_in=chars_in)
+        raise
+    await ai_usage.log_call(feature, result, latency_ms=(time.perf_counter() - t0) * 1000, chars_in=chars_in)
+    return result
+
+
 def _rank(model: str) -> int:
     try:
         return list(config.GROQ_MODELS).index(model)
@@ -397,10 +417,8 @@ async def rewrite(query: str) -> str:
         return query  # No API key configured — skip
 
     try:
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_rewrite, client, query)
+        result = await _run_logged("search_rewrite", _run_rewrite, client, query,
+                                   chars_in=len(_SYSTEM_PROMPT) + len(query))
         # A rewrite cut off at the cap ("LLa") is worse than none: it would be
         # embedded and searched as if it were the reader's intent.
         if result.truncated:
@@ -470,9 +488,7 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     prompt = _summary_prompt(query, papers)
 
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_summary, client, prompt)
+        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt))
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
@@ -579,10 +595,8 @@ async def explain_paper(title: str, abstract: str) -> str | None:
               f"<abstract>{abstract.strip()}</abstract>")
 
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, _run_explain, client, prompt)
+        result = await _run_logged("explain", _run_explain, client, prompt,
+                                   chars_in=len(_EXPLAIN_SYSTEM) + len(prompt))
     except Exception as e:
         print(f"[groq_svc] explain failed: {e}")
         return None

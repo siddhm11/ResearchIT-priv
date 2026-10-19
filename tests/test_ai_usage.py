@@ -74,3 +74,42 @@ def test_the_new_columns_replicate_and_are_added_remotely():
     ddl = next(d for d in turso_sync.REMOTE_DDL if "TABLE IF NOT EXISTS llm_calls" in d)
     assert all(c in ddl for c in new)
     assert {("llm_calls", c) for c in new} <= {(t, c) for t, c, _ in turso_sync.REMOTE_COLUMNS}
+
+
+# ── the three features that call groq_svc directly ───────────────────────────
+
+@pytest.fixture
+def groq_answers(monkeypatch):
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: object())
+    answer = {"value": Completion("an answer.", "qwen/qwen3.8-27b", False, 500, 40, 0)}
+
+    def run(*args):
+        if isinstance(answer["value"], Exception):
+            raise answer["value"]
+        return answer["value"]
+
+    for name in ("_run_rewrite", "_run_summary", "_run_explain"):
+        monkeypatch.setattr(groq_svc, name, run)
+    return answer
+
+
+async def test_search_and_plain_summaries_log_each_call_under_its_feature(groq_answers):
+    await groq_svc.rewrite("how do computers learn from examples")
+    await groq_svc.generate_search_summary("q", [{"title": "A", "abstract": "x"}, {"title": "B", "abstract": "y"}])
+    await groq_svc.explain_paper("T", "An abstract long enough to explain. " * 6)
+    got = await rows("SELECT feature, status, tokens_in, model_rank FROM llm_calls ORDER BY id")
+    assert got == [("search_rewrite", "ok", 500, 0), ("search_overview", "ok", 500, 0), ("explain", "ok", 500, 0)]
+
+
+async def test_a_search_that_looks_academic_makes_no_call(groq_answers):
+    await groq_svc.rewrite("LLM hallucination")
+    assert await rows("SELECT COUNT(*) FROM llm_calls") == [(0,)]
+
+
+async def test_a_failed_or_benched_call_is_logged_and_the_feature_still_degrades(groq_answers):
+    groq_answers["value"] = RuntimeError("no Groq model answered (configured: [...])")
+    assert await groq_svc.rewrite("how do computers learn from examples") == "how do computers learn from examples"
+    groq_answers["value"] = ValueError("bad response")
+    assert await groq_svc.explain_paper("T", "An abstract long enough to explain. " * 6) is None
+    assert await rows("SELECT feature, status FROM llm_calls ORDER BY id") == [
+        ("search_rewrite", "unavailable"), ("explain", "failed")]
