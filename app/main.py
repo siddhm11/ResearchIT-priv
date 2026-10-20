@@ -175,6 +175,15 @@ async def _security_and_cache_headers(request: Request, call_next):
         from app import features
         features.apply_preview_cookie(request, response)
 
+    # What the reader did, for /admin/readers (app/analytics.py). In-memory
+    # counts only; never slows or fails the request.
+    try:
+        from app import analytics
+        analytics.observe(request, response.status_code, response.headers.get("content-type", ""))
+    except Exception as e:  # pragma: no cover - defensive
+        from app import errors
+        errors.report("analytics", "counting a request failed", e)
+
     return response
 
 

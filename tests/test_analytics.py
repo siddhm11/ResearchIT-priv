@@ -132,3 +132,88 @@ def test_search_tables_replicate():
     assert "query" in turso_sync.TABLES["search_log"]["cols"]
     assert "overview" in turso_sync.TABLES["search_overviews"]["cols"]
     assert any("search_overviews" in d and "cache_key TEXT NOT NULL UNIQUE" in d for d in turso_sync.REMOTE_DDL)
+
+
+# ── readers ──────────────────────────────────────────────────────────────────
+
+from types import SimpleNamespace
+
+
+def req(method, path, cookie="reader-1", query=None, hx=False, preview=False):
+    from app import features
+    cookies = {config.COOKIE_NAME: cookie} if cookie else {}
+    if preview:
+        cookies[features.PREVIEW_COOKIE] = features._cookie_value()
+    return SimpleNamespace(method=method, url=SimpleNamespace(path=path), cookies=cookies,
+                           query_params=query or {}, headers={"HX-Request": "true"} if hx else {})
+
+
+@pytest.fixture
+def readers(monkeypatch):
+    monkeypatch.setattr(analytics, "_readers", {})
+    monkeypatch.setattr(config, "PREVIEW_TOKEN", "owner-token")
+    return analytics._readers
+
+
+def counts(store, user="reader-1"):
+    return {k: v for k, v in next(v for (d, u), v in store.items() if u == user).items() if k != "owner"}
+
+
+def test_each_kind_of_request_counts_as_what_it_was(readers):
+    html, frag = "text/html; charset=utf-8", "text/html"
+    analytics.observe(req("GET", "/"), 200, html)
+    analytics.observe(req("GET", "/search", query={"q": "drones"}), 200, html)
+    analytics.observe(req("GET", "/search", query={"q": "more"}, hx=True), 200, frag)        # results swapped in
+    analytics.observe(req("GET", "/api/recommendations"), 200, frag)
+    analytics.observe(req("GET", "/p/2609.31507"), 200, html)
+    analytics.observe(req("POST", "/api/papers/2609.31507/save"), 200, frag)
+    analytics.observe(req("POST", "/api/papers/2609.31507/not-interested"), 200, frag)
+    analytics.observe(req("POST", "/api/papers/2609.31507/ask"), 200, frag)
+    assert counts(readers) == {"pages": 3, "searches": 2, "feed_pages": 1, "opens": 1, "saves": 1, "passes": 1,
+                               "asks": 1}
+
+
+@pytest.mark.parametrize("request_, status, ctype", [
+    (req("GET", "/", cookie=None), 200, "text/html"),                 # first visit: no reader yet
+    (req("GET", "/p/2609.31507"), 404, "text/html"),                  # failed requests don't count
+    (req("GET", "/static/styles.css"), 200, "text/css"),
+    (req("GET", "/fig/2609.31507/0-aaaaaaaa.webp"), 200, "image/webp"),
+    (req("GET", "/healthz/ai"), 200, "application/json"),
+    (req("GET", "/admin/ai"), 200, "text/html"),
+    (req("GET", "/search", query={"q": "  "}), 200, "application/json"),
+])
+def test_what_does_not_count(readers, request_, status, ctype):
+    analytics.observe(request_, status, ctype)
+    assert readers == {}
+
+
+def test_the_owners_browser_is_marked(readers):
+    analytics.observe(req("GET", "/", preview=True), 200, "text/html")
+    assert next(iter(readers.values()))["owner"] is True
+
+
+async def test_counts_add_up_in_one_row_per_reader_and_day(readers):
+    analytics.count_reader("reader-1", "searches", n=2)
+    analytics.count_reader("reader-2", "saves")
+    await analytics.flush_readers()
+    analytics.count_reader("reader-1", "searches")
+    analytics.count_reader("reader-1", "opens", owner=True)
+    await analytics.flush_readers()
+    assert await rows("SELECT user_id, owner, searches, opens, saves FROM reader_days ORDER BY user_id") == [
+        ("reader-1", 1, 3, 1, 0), ("reader-2", 0, 0, 0, 1)]
+
+
+async def test_reader_counts_survive_a_failed_write(readers, monkeypatch):
+    analytics.count_reader("reader-1", "asks")
+    monkeypatch.setattr(config, "DB_PATH", "/nonexistent/dir/x.db")
+    await analytics.flush_readers()
+    assert analytics._readers[(analytics._today(), "reader-1")]["asks"] == 1
+
+
+def test_real_requests_are_counted_through_the_middleware(readers):
+    from app.main import app
+    with TestClient(app) as c:
+        c.cookies.set(config.COOKIE_NAME, "reader-9")
+        c.get("/collections")
+    # Shutting the app down writes the counts.
+    assert asyncio.run(rows("SELECT pages, owner FROM reader_days WHERE user_id = 'reader-9'")) == [(1, 0)]

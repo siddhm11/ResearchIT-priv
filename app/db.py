@@ -294,6 +294,24 @@ CREATE TABLE IF NOT EXISTS search_overviews (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- One row per reader (anonymous cookie) per UTC day: what they did. owner = 1
+-- for a browser holding the preview token (app/analytics.py). Rewritten whole
+-- on each flush so turso_sync pushes it. Replicated.
+CREATE TABLE IF NOT EXISTS reader_days (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    owner       INTEGER DEFAULT 0,
+    pages       INTEGER DEFAULT 0,
+    searches    INTEGER DEFAULT 0,
+    feed_pages  INTEGER DEFAULT 0,
+    opens       INTEGER DEFAULT 0,
+    saves       INTEGER DEFAULT 0,
+    passes      INTEGER DEFAULT 0,
+    asks        INTEGER DEFAULT 0,
+    UNIQUE (day, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS ai_daily (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     day     TEXT NOT NULL,
