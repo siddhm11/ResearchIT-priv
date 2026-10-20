@@ -187,7 +187,8 @@ async def summary(days: int = 14) -> dict:
         calls, tokens = next(((r[1], r[2]) for r in by_model if r[0] == m), (0, 0))
         w = windows.get(m)
         if w:
-            w = {**w, "age_s": round(time.time() - w.pop("at", time.time()))}
+            at = w.pop("at", time.time())
+            w["age_s"] = round(time.time() - at)
         models[m] = {"calls": calls, "tokens": tokens,
                      "share_of_daily_tokens": round(tokens / config.GROQ_TOKENS_PER_DAY, 4)
                      if config.GROQ_TOKENS_PER_DAY else None,

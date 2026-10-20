@@ -184,6 +184,7 @@ async def test_the_summary_adds_up_today_per_feature_and_model(no_pending, monke
     assert s["features"]["ask"]["calls"] == 0                   # every feature is listed
     q = s["models"]["qwen/qwen3.8-27b"]
     assert (q["calls"], q["tokens"], q["window"]["tokens_left"]) == (1, 1440, 7000)
+    assert "at" not in q["window"] and q["window"]["age_s"] >= 0
     assert q["share_of_daily_tokens"] == round(1440 / config.GROQ_TOKENS_PER_DAY, 4)
     assert s["models"]["openai/gpt-oss-20b"]["window"] is None
     assert s["history"] == [{"day": s["day"], "feature": "explain", "calls": 1, "tokens": 0},
