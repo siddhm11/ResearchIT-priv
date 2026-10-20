@@ -225,7 +225,8 @@ METRIC_LABELS = {"written": "written", "declined": "declined", "trimmed": "trimm
                  "empty": "empty", "ok": "ok", "insufficient": "declined", "failed": "failed", "busy": "model busy",
                  "points_dropped": "points dropped", "answer": "answered", "unanswerable": "not in paper",
                  "nosupport": "unsupported", "cap": "reader at cap", "error": "error", "quotes_kept": "quotes kept",
-                 "quotes_dropped": "quotes dropped", "cites_dropped": "cites dropped", "reported": "reported"}
+                 "quotes_dropped": "quotes dropped", "cites_dropped": "cites dropped", "reported": "reported",
+                 "no_text": "full text unavailable"}
 
 
 def _pct(part: float, whole: float) -> int | None:

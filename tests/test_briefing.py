@@ -7,6 +7,7 @@ checks that drop unsupported points, caching, single flight, the switch modes
 and escaping.
 """
 import asyncio
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -14,9 +15,10 @@ from unittest.mock import patch
 
 import aiosqlite
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 
-from app import arxiv_html, briefing_svc, config, llm, paper_source_svc, turso_svc
+from app import arxiv_html, briefing_svc, config, http_client, llm, paper_source_svc, turso_svc
 
 FIXTURES = Path(__file__).parent / "fixtures" / "arxiv_html"
 AID = "2609.31507"
@@ -191,6 +193,120 @@ async def test_concurrent_requests_share_one_generation(fake):
     results = await asyncio.gather(*[briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
                                      for _ in range(5)])
     assert len(calls) == 1 and all(r[0] == "ok" for r in results)
+
+
+# ── what survives a deploy, a parser bump and a worse attempt ────────────────
+
+@pytest.fixture
+async def arxiv(monkeypatch):
+    """Serve the SatNav page as arXiv would and record every request."""
+    state = {"pages": {AID: (200, (FIXTURES / f"{AID}.html").read_bytes(), {})}, "requests": []}
+
+    def handler(request):
+        state["requests"].append(str(request.url))
+        status, body, headers = state["pages"].get(request.url.path.rsplit("/", 1)[-1], (404, b"", {}))
+        return body(request) if callable(body) else httpx.Response(status, content=body, headers=headers)
+
+    monkeypatch.setattr(http_client, "_client", httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(http_client, "_loop", asyncio.get_running_loop())
+    yield state
+    await paper_source_svc.stop()
+
+
+async def wipe_local_text():
+    """A fresh container: paper_sources comes back from Turso, the local text does not."""
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute("DELETE FROM paper_paragraphs")
+        await conn.execute("DELETE FROM paper_fulltext")
+        await conn.commit()
+
+
+def counted(prompts, reply=good_reply):
+    def call(system, user):
+        prompts.append(user)
+        return reply(system, user)
+    return call
+
+
+async def test_after_a_deploy_the_text_is_fetched_again_and_the_briefing_written(fake, arxiv):
+    """Production 2026-10-20: 2508.16989 (61 paragraphs) and 2410.17725 (43) were
+    stored as "too few passages" because only the replicated row came back."""
+    await satnav_inputs()
+    await wipe_local_text()
+    prompts = []
+    llm.fake_reply(counted(prompts))
+    status, b = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    assert status == "ok" and len(b["things"]) == 2
+    assert len(prompts) == 1 and len(arxiv["requests"]) == 1
+
+
+async def test_when_the_text_cannot_come_back_nothing_is_stored(fake, arxiv):
+    await satnav_inputs()
+    await wipe_local_text()
+
+    def unreachable(request):
+        raise httpx.ConnectError("arXiv unreachable")
+
+    arxiv["pages"][AID] = (0, unreachable, {})
+    prompts = []
+    llm.fake_reply(counted(prompts))
+    status, b = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    assert status == "insufficient" and b["error"] == "full text unavailable" and prompts == []
+    src = await paper_source_svc.get(AID)
+    assert await briefing_svc.cached(AID, src.version, src.n_paragraphs) is None      # the next visit tries again
+
+
+async def test_a_stored_too_few_passages_row_is_ignored_when_the_paper_has_paragraphs(fake):
+    await satnav_inputs()
+    src = await paper_source_svc.get(AID)
+    await briefing_svc._store(AID, src.version, "insufficient", {"error": "too few passages"}, "")
+    assert src.n_paragraphs >= briefing_svc.MIN_PASSAGES
+    assert await briefing_svc.cached(AID, src.version, src.n_paragraphs) is None
+    assert (await briefing_svc.cached(AID, src.version, 0))[0] == "insufficient"     # a thin paper keeps it
+
+
+async def test_a_parser_bump_keeps_the_briefing(fake, monkeypatch):
+    await satnav_inputs()
+    prompts = []
+    llm.fake_reply(counted(prompts))
+    first = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    monkeypatch.setattr(arxiv_html, "PARSER_VERSION", arxiv_html.PARSER_VERSION + 1)
+    assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == first
+    assert len(prompts) == 1
+
+
+async def test_briefings_stored_under_the_old_key_are_still_found(fake):
+    await satnav_inputs()
+    src = await paper_source_svc.get(AID)
+    h = hashlib.sha256()                    # the key before 2026-10-21, written under parser 1
+    for part in (AID, src.version, "1", briefing_svc.PROMPT_VERSION, llm._provider(), llm.configured_model()):
+        h.update(part.encode())
+        h.update(b"\x00")
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute(
+            "INSERT INTO paper_briefings (cache_key, arxiv_id, status, briefing_json, provider, model, "
+            "prompt_version) VALUES (?, ?, 'ok', ?, 'fake', 'fake', ?)",
+            (h.hexdigest(), AID, json.dumps({"things": [{"lead": "Old."}]}), briefing_svc.PROMPT_VERSION))
+        await conn.commit()
+    assert await briefing_svc.cached(AID, src.version, src.n_paragraphs) == ("ok", {"things": [{"lead": "Old."}]})
+
+
+async def test_a_briefing_of_another_paper_version_is_not_served(fake):
+    await briefing_svc._store(AID, "v1", "ok", {"things": []}, "m")
+    assert await briefing_svc.cached(AID, "v2", 25) is None
+
+
+async def test_a_worse_attempt_never_replaces_a_good_briefing(fake, monkeypatch):
+    await satnav_inputs()
+    prompts = []
+    llm.fake_reply(counted(prompts))
+    good = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    assert good[0] == "ok"
+    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b2")                  # a new prompt asks again...
+    llm.fake_reply(counted(prompts, lambda system, user: json.dumps({"insufficient": True})))
+    assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == good   # ...and does worse
+    assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == good
+    assert len(prompts) == 2                                                    # asked once under the new prompt
 
 
 async def test_a_new_prompt_version_means_a_new_cache_key(monkeypatch):
