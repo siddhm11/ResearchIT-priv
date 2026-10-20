@@ -34,14 +34,21 @@ from app import config, errors
 FEATURES = ("search_rewrite", "search_overview", "explain", "briefing", "ask")
 
 _COLUMNS = ("feature", "provider", "model", "chars_in", "chars_out", "usd_est", "latency_ms", "status",
-            "tokens_in", "tokens_out", "model_rank", "truncated", "requests_left", "tokens_left")
+            "tokens_in", "tokens_out", "model_rank", "truncated", "subject", "requests_left", "tokens_left")
+SEARCH_FEATURES = ("search_rewrite", "search_overview")
+
+
+def query_subject(query: str | None) -> str | None:
+    """A search query as stored: whitespace collapsed, at most 200 characters."""
+    q = " ".join((query or "").split())
+    return q[:200] or None
 
 
 async def record(call) -> None:
     """Write one model call. `call` has the attributes named in _COLUMNS (missing = empty)."""
     from app import groq_svc
     window = groq_svc.windows().get(getattr(call, "model", "") or "", {})
-    values = [getattr(call, c, None) for c in _COLUMNS[:12]]
+    values = [getattr(call, c, None) for c in _COLUMNS[:13]]
     values[_COLUMNS.index("truncated")] = 1 if getattr(call, "truncated", False) else 0
     values += [window.get("requests_left"), window.get("tokens_left")]
     try:
@@ -59,7 +66,7 @@ class _Row:
 
 
 async def log_call(feature: str, completion=None, *, latency_ms: int = 0, status: str = "ok",
-                   chars_in: int = 0, chars_out: int = 0) -> None:
+                   chars_in: int = 0, chars_out: int = 0, subject: str | None = None) -> None:
     """Record a call made through groq_svc directly (search and plain summaries).
 
     `completion` is the groq_svc.Completion, or None when no model answered.
@@ -69,7 +76,8 @@ async def log_call(feature: str, completion=None, *, latency_ms: int = 0, status
                       chars_out=chars_out if chars_out else (len(c.text) if c else 0), usd_est=0.0,
                       latency_ms=int(latency_ms), status=status,
                       tokens_in=c.tokens_in if c else None, tokens_out=c.tokens_out if c else None,
-                      model_rank=c.rank if c else None, truncated=bool(c and c.truncated)))
+                      model_rank=c.rank if c else None, truncated=bool(c and c.truncated),
+                      subject=subject))
 
 
 # ── daily counts ─────────────────────────────────────────────────────────────

@@ -144,7 +144,7 @@ async def _meta(ids):
 def test_explain_generates_then_serves_from_cache():
     calls = []
 
-    async def fake_explain(title, abstract):
+    async def fake_explain(title, abstract, arxiv_id=None):
         calls.append(title)
         return "This paper shows that attention alone is enough."
 
@@ -165,7 +165,7 @@ def test_explain_renders_nothing_when_it_cannot_be_done_honestly():
 
     An empty slot is quieter than an apology the reader cannot act on.
     """
-    async def refuse(title, abstract):
+    async def refuse(title, abstract, arxiv_id=None):
         return None
 
     with patch.object(turso_svc, "fetch_metadata_batch", side_effect=_meta), \
@@ -180,7 +180,7 @@ def test_explain_renders_nothing_when_it_cannot_be_done_honestly():
 
 def test_explanation_is_labelled_as_generated():
     """Never presented as the paper's own words."""
-    async def gen(title, abstract):
+    async def gen(title, abstract, arxiv_id=None):
         return "A plain summary."
 
     with patch.object(turso_svc, "fetch_metadata_batch", side_effect=_meta), \

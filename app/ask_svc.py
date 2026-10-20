@@ -356,7 +356,7 @@ async def answer(arxiv_id: str, paper: dict, question: str, *, user_id: str | No
         if user_id:
             await count_use(user_id)
         data, call = await llm.complete_json("ask", SYSTEM, build_prompt(question, paper.get("title") or "", passages),
-                                             max_tokens=700, timeout=15)
+                                             max_tokens=700, timeout=15, subject=arxiv_id)
         log.update(model=call.model, status=call.status)
         if call.status in ("over_budget", "unavailable"):
             log["kind"] = "busy"

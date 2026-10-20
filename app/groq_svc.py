@@ -226,7 +226,7 @@ def windows() -> dict[str, dict]:
     return {m: dict(w) for m, w in _windows.items()}
 
 
-async def _run_logged(feature: str, fn, *args, chars_in: int = 0) -> Completion:
+async def _run_logged(feature: str, fn, *args, chars_in: int = 0, subject: str | None = None) -> Completion:
     """Run a blocking completion off the event loop and log it (app/ai_usage.py).
 
     Raises what the completion raised, after logging it as failed, or as
@@ -239,10 +239,16 @@ async def _run_logged(feature: str, fn, *args, chars_in: int = 0) -> Completion:
     except Exception as e:
         status = "unavailable" if "no Groq model answered" in str(e) else "failed"
         await ai_usage.log_call(feature, None, latency_ms=(time.perf_counter() - t0) * 1000,
-                                status=status, chars_in=chars_in)
+                                status=status, chars_in=chars_in, subject=subject)
         raise
-    await ai_usage.log_call(feature, result, latency_ms=(time.perf_counter() - t0) * 1000, chars_in=chars_in)
+    await ai_usage.log_call(feature, result, latency_ms=(time.perf_counter() - t0) * 1000, chars_in=chars_in,
+                            subject=subject)
     return result
+
+
+def ai_usage_query(query: str) -> str | None:
+    from app import ai_usage
+    return ai_usage.query_subject(query)
 
 
 def _count(feature: str, metric: str) -> None:
@@ -424,7 +430,8 @@ async def rewrite(query: str) -> str:
 
     try:
         result = await _run_logged("search_rewrite", _run_rewrite, client, query,
-                                   chars_in=len(_SYSTEM_PROMPT) + len(query))
+                                   chars_in=len(_SYSTEM_PROMPT) + len(query),
+                                   subject=ai_usage_query(query))
         # A rewrite cut off at the cap ("LLa") is worse than none: it would be
         # embedded and searched as if it were the reader's intent.
         if result.truncated:
@@ -497,7 +504,8 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     prompt = _summary_prompt(query, papers)
 
     try:
-        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt))
+        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt),
+                                   subject=ai_usage_query(query))
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
@@ -594,7 +602,7 @@ def explain_cache_key(arxiv_id: str, abstract: str) -> str:
     return h.hexdigest()
 
 
-async def explain_paper(title: str, abstract: str) -> str | None:
+async def explain_paper(title: str, abstract: str, arxiv_id: str | None = None) -> str | None:
     """Three plain sentences, or None when it cannot be done honestly."""
     if not abstract or len(abstract.strip()) < 120:
         return None
@@ -607,7 +615,7 @@ async def explain_paper(title: str, abstract: str) -> str | None:
 
     try:
         result = await _run_logged("explain", _run_explain, client, prompt,
-                                   chars_in=len(_EXPLAIN_SYSTEM) + len(prompt))
+                                   chars_in=len(_EXPLAIN_SYSTEM) + len(prompt), subject=arxiv_id)
     except Exception as e:
         print(f"[groq_svc] explain failed: {e}")
         return None

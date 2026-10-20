@@ -261,7 +261,9 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     model_rank    INTEGER,
     truncated     INTEGER DEFAULT 0,
     requests_left INTEGER,
-    tokens_left   INTEGER
+    tokens_left   INTEGER,
+    subject       TEXT       -- the paper (arXiv id) or, for search, the query; search
+                             -- queries are cleared after 90 days (app/analytics.py)
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 
@@ -418,6 +420,7 @@ _MIGRATION_AI_USAGE = [
     "ALTER TABLE llm_calls ADD COLUMN truncated INTEGER DEFAULT 0",
     "ALTER TABLE llm_calls ADD COLUMN requests_left INTEGER",
     "ALTER TABLE llm_calls ADD COLUMN tokens_left INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN subject TEXT",
 ]
 
 LAYOUTS = ("list", "grid2")

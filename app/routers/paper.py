@@ -349,7 +349,7 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     runtime_stats.count("explain_cache_hit" if cached is not None else "explain_cache_miss")
     ai_usage.count("explain", "cache_hit" if cached is not None else "cache_miss")
     if text is None:
-        text = await groq_svc.explain_paper(paper.get("title") or "", abstract)
+        text = await groq_svc.explain_paper(paper.get("title") or "", abstract, arxiv_id)
         if text:
             try:
                 await db.save_explanation(

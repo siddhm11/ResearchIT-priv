@@ -280,7 +280,7 @@ _in_flight: dict[tuple, asyncio.Future] = {}
 _pacing: dict = {}          # loop -> (lock, [last call time])
 
 
-async def _paced_call(system: str, user: str):
+async def _paced_call(system: str, user: str, arxiv_id: str | None = None):
     import time as _time
     loop = asyncio.get_running_loop()
     lock, last = _pacing.setdefault(loop, (asyncio.Lock(), [0.0]))
@@ -289,7 +289,7 @@ async def _paced_call(system: str, user: str):
         if wait > 0:
             await asyncio.sleep(wait)
         try:
-            return await llm.complete_json("briefing", system, user, max_tokens=900, timeout=12)
+            return await llm.complete_json("briefing", system, user, max_tokens=900, timeout=12, subject=arxiv_id)
         finally:
             last[0] = _time.monotonic()
 
@@ -304,7 +304,7 @@ async def _generate(arxiv_id: str, title: str, abstract: str) -> tuple[str, dict
     if len(passages) < 3:
         await _store(arxiv_id, source.version, "insufficient", {"error": "too few passages"}, "")
         return "insufficient", {}
-    data, call = await _paced_call(SYSTEM, build_prompt(title, passages))
+    data, call = await _paced_call(SYSTEM, build_prompt(title, passages), arxiv_id)
     if call.status in ("over_budget", "unavailable"):
         # Not the paper's fault, so nothing is stored and a later visit retries.
         return "insufficient", {"error": f"model {call.status}"}

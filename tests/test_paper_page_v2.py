@@ -195,7 +195,7 @@ def test_saves_from_the_new_page_carry_the_paper_page_surface(page):
 def test_explain_v2_returns_only_the_summary_body(page, monkeypatch):
     from app import groq_svc
 
-    async def fake(title, abstract):
+    async def fake(title, abstract, arxiv_id=None):
         return "A plain summary with <b>tags</b>."
 
     monkeypatch.setattr(groq_svc, "explain_paper", fake)

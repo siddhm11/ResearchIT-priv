@@ -235,7 +235,7 @@ def test_explain_counts_cache_hits_and_misses():
     before = runtime_stats.counters()
     meta, search = _client_with()
 
-    async def fake_explain(title, abstract):
+    async def fake_explain(title, abstract, arxiv_id=None):
         return "A plain summary."
 
     with meta, search, patch.object(groq_svc, "explain_paper", side_effect=fake_explain):
@@ -301,7 +301,7 @@ def _cut_paper_client(monkeypatch, switch):
         seen["fetches"] += 1
         return {i: _FULL for i in ids}
 
-    async def fake_explain(title, abstract):
+    async def fake_explain(title, abstract, arxiv_id=None):
         seen["explained_from"] = abstract
         return "Plain words."
 

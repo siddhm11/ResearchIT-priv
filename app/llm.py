@@ -44,6 +44,7 @@ class Call:
     tokens_out: int | None = None
     model_rank: int | None = None   # 0 = the primary model answered
     truncated: bool = False         # the reply hit the token cap (status is then "failed")
+    subject: str | None = None      # the paper this call was about (arXiv id)
 
 
 class BudgetExceeded(Exception):
@@ -214,10 +215,10 @@ async def _ask_fake(system: str, user: str):
 
 
 async def complete_json(feature: str, system: str, user: str, *, max_tokens: int = 900,
-                        timeout: float = 12.0) -> tuple[dict | None, Call]:
+                        timeout: float = 12.0, subject: str | None = None) -> tuple[dict | None, Call]:
     """The model's reply as a JSON object, or None; never raises."""
     provider = _provider()
-    call = Call(feature=feature, provider=provider, chars_in=len(system) + len(user))
+    call = Call(feature=feature, provider=provider, chars_in=len(system) + len(user), subject=subject)
     if not await within_budget():
         call.status = "over_budget"
         await _log(call)
