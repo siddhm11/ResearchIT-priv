@@ -19,10 +19,13 @@
 #
 # Budget: ~900 papers/day encoded on CPU, roughly 10-20 minutes a run.
 #
-# Catching up after a gap: run it by hand with `today` set to a past day and a
-# short lookback (for example today=2026-10-02, lookback_days=4), then step
-# `today` forward. One long lookback would encode every missed day in one
-# run and overrun the ingest's 60-minute limit.
+# Catching up after a gap: run it by hand with `today` set to a past day, a
+# lookback covering the days since the previous run, and a longer
+# `ingest_timeout_min`, then step `today` forward. A GitHub runner encodes about
+# 2,400 papers an hour (measured 2026-10-20), and arXiv adds roughly 770 a day in
+# the configured categories, so a week is about two hours: today=2026-10-07,
+# lookback_days=9, ingest_timeout_min=240. A run that hits its limit keeps every
+# page it finished; the next run skips them.
 
 name: Daily refresh
 
@@ -37,6 +40,9 @@ on:
       today:
         description: "Run as if on this day, YYYY-MM-DD, to catch up in short windows (empty = today)"
         default: ""
+      ingest_timeout_min:
+        description: "Fail the run if one ingest attempt takes longer (catch-up runs need more)"
+        default: "60"
       skip_citations:
         description: "Skip the citation refresh"
         type: boolean
@@ -54,7 +60,9 @@ jobs:
   refresh:
     if: vars.DAILY_REFRESH == 'on'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # A ceiling, not the stall guard: the ingest has its own limit (above) and
+    # every network call its own deadline. GitHub allows 360.
+    timeout-minutes: 300
 
     steps:
       - uses: actions/checkout@v7
@@ -84,8 +92,10 @@ jobs:
           S2_API_KEY: ${{ secrets.S2_API_KEY }}
           INGEST_DEVICE: cpu
           TODAY: ${{ inputs.today }}     # through env, never pasted into the script
+          INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '60' }}
         run: |
           python scripts/daily_refresh.py \
             --lookback-days "${{ inputs.lookback_days || '3' }}" \
+            --ingest-timeout-min "$INGEST_TIMEOUT_MIN" \
             ${TODAY:+--today "$TODAY"} \
             ${{ inputs.skip_citations && '--skip-citations' || '' }}
