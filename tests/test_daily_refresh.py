@@ -55,6 +55,9 @@ def test_workflow_is_gated_serialised_and_passes_every_required_secret():
     assert re.search(r"(?m)^  contents: read$", text)
     for key in dr.REQUIRED_ENV + ("S2_API_KEY",):
         assert re.search(rf"(?m)^          {key}: \$\{{\{{ secrets\.{key} \}}\}}$", text), key
+    # a catch-up day reaches the script through env, never pasted into the shell
+    assert "TODAY: ${{ inputs.today }}" in text and '${TODAY:+--today "$TODAY"}' in text
+    assert "inputs.today }} \\" not in text
 
 
 def test_ingest_that_overruns_fails_the_run_with_its_output(monkeypatch, capsys):
@@ -68,3 +71,26 @@ def test_ingest_that_overruns_fails_the_run_with_its_output(monkeypatch, capsys)
     with pytest.raises(SystemExit, match="exceeded 1 min"):
         dr.stage_ingest("2026-09-28", "2026-10-02", timeout_s=60)
     assert "Thread 0x1 stack" in capsys.readouterr().out
+
+
+def test_the_daily_ingest_uses_the_oai_harvest(monkeypatch):
+    import subprocess
+    seen = []
+
+    def run(cmd, **k):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "done: examined 1,204, new 873 in 9.1 min\n", "")
+
+    monkeypatch.setattr(dr.subprocess, "run", run)
+    assert dr.stage_ingest("2026-10-17", "2026-10-21")[0] == 873
+    cmd = seen[0]
+    assert cmd[cmd.index("--source") + 1] == "oai"
+    assert cmd[cmd.index("--since") + 1] == "2026-10-17" and cmd[cmd.index("--until") + 1] == "2026-10-21"
+
+
+def test_licence_coverage_counts_new_papers_with_a_licence(monkeypatch):
+    monkeypatch.setenv("FIGURE_LICENCES", "CC-BY-4.0,CC0-1.0")
+    got = dr.licence_coverage(["CC-BY-4.0", "ARXIV-NONEXCLUSIVE-1.0", "CC-BY-NC-SA-4.0", None, "CC0-1.0"])
+    assert got["new_papers"] == 5 and got["with_licence"] == 4 and got["with_licence_share"] == 0.8
+    assert got["open"] == 3 and got["allow_figures"] == 2 and got["allow_figures_share"] == 0.4
+    assert dr.licence_coverage([])["with_licence_share"] is None      # a quiet day is not an error

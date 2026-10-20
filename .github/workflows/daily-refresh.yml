@@ -18,6 +18,11 @@
 # collide with it.
 #
 # Budget: ~900 papers/day encoded on CPU, roughly 10-20 minutes a run.
+#
+# Catching up after a gap: run it by hand with `today` set to a past day and a
+# short lookback (for example today=2026-10-02, lookback_days=4), then step
+# `today` forward. One long lookback would encode every missed day in one
+# run and overrun the ingest's 60-minute limit.
 
 name: Daily refresh
 
@@ -29,6 +34,9 @@ on:
       lookback_days:
         description: "Days to look back (re-runs skip stored papers)"
         default: "3"
+      today:
+        description: "Run as if on this day, YYYY-MM-DD, to catch up in short windows (empty = today)"
+        default: ""
       skip_citations:
         description: "Skip the citation refresh"
         type: boolean
@@ -75,7 +83,9 @@ jobs:
           TURSO_DB_TOKEN: ${{ secrets.TURSO_DB_TOKEN }}
           S2_API_KEY: ${{ secrets.S2_API_KEY }}
           INGEST_DEVICE: cpu
+          TODAY: ${{ inputs.today }}     # through env, never pasted into the script
         run: |
           python scripts/daily_refresh.py \
             --lookback-days "${{ inputs.lookback_days || '3' }}" \
+            ${TODAY:+--today "$TODAY"} \
             ${{ inputs.skip_citations && '--skip-citations' || '' }}
