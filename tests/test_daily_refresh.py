@@ -55,3 +55,16 @@ def test_workflow_is_gated_serialised_and_passes_every_required_secret():
     assert re.search(r"(?m)^  contents: read$", text)
     for key in dr.REQUIRED_ENV + ("S2_API_KEY",):
         assert re.search(rf"(?m)^          {key}: \$\{{\{{ secrets\.{key} \}}\}}$", text), key
+
+
+def test_ingest_that_overruns_fails_the_run_with_its_output(monkeypatch, capsys):
+    import subprocess
+    import pytest
+
+    def overrun(*a, **k):
+        raise subprocess.TimeoutExpired(cmd="ingest", timeout=60, output="partial log", stderr="Thread 0x1 stack")
+
+    monkeypatch.setattr(dr.subprocess, "run", overrun)
+    with pytest.raises(SystemExit, match="exceeded 1 min"):
+        dr.stage_ingest("2026-09-28", "2026-10-02", timeout_s=60)
+    assert "Thread 0x1 stack" in capsys.readouterr().out
