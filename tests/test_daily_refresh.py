@@ -55,6 +55,9 @@ def test_workflow_is_gated_serialised_and_passes_every_required_secret():
     assert re.search(r"(?m)^  contents: read$", text)
     for key in dr.REQUIRED_ENV + ("S2_API_KEY",):
         assert re.search(rf"(?m)^          {key}: \$\{{\{{ secrets\.{key} \}}\}}$", text), key
+    # a catch-up day reaches the script through env, never pasted into the shell
+    assert "TODAY: ${{ inputs.today }}" in text and '${TODAY:+--today "$TODAY"}' in text
+    assert "inputs.today }} \\" not in text
 
 
 def test_ingest_that_overruns_fails_the_run_with_its_output(monkeypatch, capsys):
