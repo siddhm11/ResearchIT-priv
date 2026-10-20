@@ -235,3 +235,16 @@ def test_the_licence_upsert_updates_only_rows_that_changed(tmp_path):
     assert write("http://arxiv.org/licenses/nonexclusive-distrib/1.0/", "ARXIV-NONEXCLUSIVE-1.0") == first
     write("http://creativecommons.org/licenses/by/4.0/", "CC-BY-4.0")
     assert db.execute("SELECT licence, source FROM paper_licences").fetchall() == [("CC-BY-4.0", "oai")]
+
+
+@pytest.mark.parametrize("url", ["libsql://db-org.turso.io", "https://db-org.turso.io/", "https://db-org.turso.io"])
+def test_turso_urls_work_in_either_form(url, monkeypatch):
+    """Turso hands out libsql:// URLs; urllib only opens https://."""
+    assert ingest_arxiv._pipeline_url(url) == "https://db-org.turso.io/v2/pipeline"
+    monkeypatch.setenv("QDRANT_RECENT_URL", "https://recent.example")
+    monkeypatch.setenv("QDRANT_RECENT_API_KEY", "k")
+    monkeypatch.setenv("QDRANT_URL", "https://primary.example")
+    monkeypatch.setenv("TURSO_URL", url)
+    monkeypatch.setenv("TURSO_DB_TOKEN", "t")
+    monkeypatch.setattr(ingest_backends, "WRITE_ZILLIZ", False)
+    assert ingest_backends.Upserter().turl == "https://db-org.turso.io"

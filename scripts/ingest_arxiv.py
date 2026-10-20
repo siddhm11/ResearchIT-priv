@@ -431,12 +431,17 @@ def report_oai_coverage(cats, state: dict) -> int:
 
 # ── Stores ───────────────────────────────────────────────────────────────────
 
+def _pipeline_url(url: str) -> str:
+    """Turso's HTTP endpoint. Turso hands out libsql:// URLs, which urllib can't open."""
+    return url.replace("libsql://", "https://", 1).rstrip("/") + "/v2/pipeline"
+
+
 def turso_execute(url: str, token: str, stmts: list[dict]) -> None:
     payload = json.dumps({
         "requests": [{"type": "execute", "stmt": s} for s in stmts]
                     + [{"type": "close"}]}).encode()
     req = urllib.request.Request(
-        f"{url.rstrip('/')}/v2/pipeline", data=payload,
+        _pipeline_url(url), data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
     with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
@@ -453,7 +458,7 @@ def turso_existing(url: str, token: str, ids: list[str]) -> set[str]:
     payload = json.dumps({"requests": [{"type": "execute", "stmt": stmt},
                                        {"type": "close"}]}).encode()
     req = urllib.request.Request(
-        f"{url.rstrip('/')}/v2/pipeline", data=payload,
+        _pipeline_url(url), data=payload,
         headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
     with deadline(210, "Turso request"), urllib.request.urlopen(req, timeout=180) as r:
