@@ -83,3 +83,35 @@ def test_a_thumbnail_opens_the_paper_at_its_figure_with_the_search_link(browser)
         assert "/p/" in page.url and "sf=search" in page.url and page.url.endswith("#sec-fig")
     finally:
         ctx.close()
+
+
+def test_back_from_a_paper_returns_to_the_search(browser):
+    """Search, open a result, go back (reported 2026-10-21). Back used to show the
+    cached results fragment without the page around it, and the paper page's own
+    link said "Your feed" and went to /."""
+    ctx = browser.new_context(viewport={"width": 1280, "height": 900})
+    ctx.add_cookies([{"name": "arxiv_user_id", "value": f"e2e-{uuid.uuid4()}", "url": BASE_URL}])
+    page = ctx.new_page()
+    try:
+        page.goto(f"{BASE_URL}/search", wait_until="networkidle")
+        page.fill('form.searchbar input[name="q"]', "navigation")
+        page.press('form.searchbar input[name="q"]', "Enter")
+        page.wait_for_selector("#search-results .card .card-title")
+        assert page.url.endswith("/search?q=navigation")
+
+        page.click("#search-results .card .card-title >> nth=0")
+        page.wait_for_load_state("networkidle")
+        link = page.locator(".back-link")
+        assert link.inner_text() == "← Search results" and link.get_attribute("href") == "/search?q=navigation"
+
+        page.go_back(wait_until="networkidle")                       # the browser's Back button
+        assert page.url.endswith("/search?q=navigation")
+        assert page.locator("form.searchbar").count() == 1 and page.locator("#search-results .card").count() > 0
+        assert "navigation" in page.title()
+
+        page.go_forward(wait_until="networkidle")                    # the page's own link
+        page.click(".back-link")
+        page.wait_for_load_state("networkidle")
+        assert page.url.endswith("/search?q=navigation") and page.locator("#search-results .card").count() > 0
+    finally:
+        ctx.close()
