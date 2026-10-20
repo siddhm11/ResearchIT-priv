@@ -162,7 +162,25 @@ TABLES: dict[str, dict] = {
         "cols": ["id", "arxiv_id", "feature", "reason", "user_id", "created_at"],
         "blobs": [],
         "paged": True,
-    },    "ai_daily": {
+    },    "search_log": {
+        "remote": "search_log",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "created_at", "query", "query_id", "n_results", "mode", "rewritten", "latency_ms", "owner"],
+        "blobs": [],
+        "paged": True,
+    },
+    "search_overviews": {
+        "remote": "search_overviews",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "cache_key", "query", "paper_ids", "overview", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    "ai_daily": {
         "remote": "ai_daily",
         "watermark": "id",
         "wm_kind": "int",
@@ -218,6 +236,12 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS content_reports (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
         reason TEXT, user_id TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS search_log (
+        id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
+        mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS search_overviews (
+        id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, query TEXT, paper_ids TEXT,
+        overview TEXT, created_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS ai_daily (
         id INTEGER PRIMARY KEY, day TEXT NOT NULL, feature TEXT NOT NULL, metric TEXT NOT NULL,
         n INTEGER, UNIQUE (day, feature, metric))""",

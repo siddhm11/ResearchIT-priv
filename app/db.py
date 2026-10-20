@@ -271,6 +271,29 @@ CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 -- misses, outcomes (declined, busy), points and quotes dropped by the checks,
 -- reader reports (app/ai_usage.py). One row per day, feature and metric,
 -- rewritten whole (new id) on each flush so turso_sync pushes it. Replicated.
+-- Searches and the AI overviews shown for them (app/analytics.py). Query text
+-- and overviews are cleared after 90 days; no reader is stored. Replicated.
+CREATE TABLE IF NOT EXISTS search_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    query       TEXT,
+    query_id    TEXT,
+    n_results   INTEGER,
+    mode        TEXT,
+    rewritten   TEXT,
+    latency_ms  INTEGER,
+    owner       INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_search_log_time ON search_log(created_at);
+CREATE TABLE IF NOT EXISTS search_overviews (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key   TEXT NOT NULL UNIQUE,
+    query       TEXT,
+    paper_ids   TEXT,
+    overview    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS ai_daily (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     day     TEXT NOT NULL,
