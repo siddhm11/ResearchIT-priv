@@ -51,6 +51,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -62,6 +63,30 @@ ARXIV_API = "https://export.arxiv.org/api/query"
 NS = {"atom": "http://www.w3.org/2005/Atom",
       "arxiv": "http://arxiv.org/schemas/atom",
       "opensearch": "http://a9.com/-/spec/opensearch/1.1/"}
+
+# arXiv asks clients to identify themselves. On 2026-10-01, after a heavy night,
+# oaipmh.arxiv.org answered ListRecords with HTTP 406 for a while (curl got 200
+# at the same moment), then served the identical request normally: a temporary
+# block, treated like a rate limit below.
+USER_AGENT = "ResearchIT-ingest/1.0 (+https://github.com/siddhm11/ResearchIT-priv)"
+
+
+def _arxiv_get(url: str, timeout: int):
+    return urllib.request.urlopen(
+        urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"}),
+        timeout=timeout)
+
+
+# Status codes that mean "slow down / blocked for now": wait and retry.
+SOFT_BLOCK = (403, 406, 429, 503)
+
+
+def _permanent(error: Exception) -> bool:
+    """A malformed or missing-resource request (400, 404, 422...) fails at once;
+    a soft block (SOFT_BLOCK) is waited out."""
+    code = getattr(error, "code", None)
+    return isinstance(code, int) and 400 <= code < 500 and code not in SOFT_BLOCK
+
 
 # arXiv asks for roughly one request every three seconds.
 ARXIV_DELAY = 3.5
@@ -95,8 +120,8 @@ def parse_entry(entry) -> dict | None:
         return None
     arxiv_id = m.group(1)
 
-    title = re.sub(r"\s+", " ", _text(entry, "atom:title"))
-    abstract = re.sub(r"\s+", " ", _text(entry, "atom:summary"))
+    title = clean_text(_text(entry, "atom:title"))
+    abstract = clean_text(_text(entry, "atom:summary"))
     if len(title) < 5 or len(abstract) < 20:
         return None
 
@@ -136,7 +161,7 @@ def retry_wait(error: Exception, attempt: int) -> float:
     Other errors (timeouts, resets) retry sooner.
     """
     code = getattr(error, "code", None)
-    if code in (429, 503):
+    if code in SOFT_BLOCK:
         after = (getattr(error, "headers", None) or {}).get("Retry-After", "")
         if str(after).strip().isdigit():
             return min(300.0, float(after))
@@ -159,12 +184,11 @@ def fetch_page(category: str, since: str, until: str, start: int) -> tuple[list[
     })
     for attempt in range(FETCH_ATTEMPTS):
         try:
-            with deadline(150, f"arXiv {category} @{start}"), \
-                    urllib.request.urlopen(url, timeout=120) as r:
+            with deadline(150, f"arXiv {category} @{start}"), _arxiv_get(url, 120) as r:
                 xml = r.read()
             break
         except Exception as e:
-            if attempt == FETCH_ATTEMPTS - 1:
+            if _permanent(e) or attempt == FETCH_ATTEMPTS - 1:
                 print(f"    [{category}] fetch failed: {str(e)[:90]}")
                 return [], None
             time.sleep(retry_wait(e, attempt))
@@ -245,6 +269,161 @@ def window_key(category: str, windows: list[list[str]], w: list[str]) -> str:
     return category if len(windows) == 1 else f"{category}@{w[0]}..{w[1]}"
 
 
+# ── OAI-PMH harvest (the daily path) ─────────────────────────────────────────
+#
+# arXiv's OAI-PMH interface is built for incremental harvesting: everything
+# changed between two dates, a whole archive per request stream, ~1,300
+# records a page. A day across our seven archives is ~10-15 requests, where
+# the search API needs one query per category (~100). Measured parity against
+# rows written from the search API (901 overlapping papers, 2026-09-29):
+# identical embedding text once NFKC-normalised (the search API sends U+03C6
+# where OAI sends U+03D5) and identical categories once arXiv's alias pairs
+# are collapsed as the search API does.
+
+OAI_API = "https://oaipmh.arxiv.org/oai"
+OAI_NS = {"oai": "http://www.openarchives.org/OAI/2.0/", "a": "http://arxiv.org/OAI/arXiv/"}
+# OAI lists both halves of an alias pair; the search API keeps the canonical one.
+CATEGORY_ALIASES = {"math.IT": "cs.IT", "cs.SY": "eess.SY", "cs.NA": "math.NA",
+                    "stat.TH": "math.ST", "math.MP": "math-ph", "q-fin.EC": "econ.GN"}
+
+
+def clean_text(text: str) -> str:
+    return unicodedata.normalize("NFKC", re.sub(r"\s+", " ", text or "").strip())
+
+
+def canonical_categories(categories: str) -> str:
+    cats = categories.split()
+    present, out = set(cats), []
+    for c in cats:
+        if c in CATEGORY_ALIASES and CATEGORY_ALIASES[c] in present:
+            continue                  # canonical is listed too: keep it at its own position
+        c = CATEGORY_ALIASES.get(c, c)
+        if c not in out:
+            out.append(c)
+    return " ".join(out)
+
+
+def oai_set(category: str) -> str:
+    """The archive-level OAI set holding `category`."""
+    archive = category.split(".")[0]
+    if archive in ("cs", "math", "stat", "q-bio", "econ", "eess", "q-fin"):
+        return archive
+    return "physics"                  # hep-*, astro-ph, quant-ph, cond-mat, physics.*
+
+
+def parse_oai_record(rec) -> dict | None:
+    header = rec.find("oai:header", OAI_NS)
+    if header is not None and header.get("status") == "deleted":
+        return None
+    m = rec.find(".//a:arXiv", OAI_NS)
+    if m is None:
+        return None
+    title = clean_text(m.findtext("a:title", "", OAI_NS))
+    abstract = clean_text(m.findtext("a:abstract", "", OAI_NS))
+    if len(title) < 5 or len(abstract) < 20:
+        return None
+    authors = []
+    for au in m.findall("a:authors/a:author", OAI_NS):
+        parts = (au.findtext("a:forenames", "", OAI_NS), au.findtext("a:keyname", "", OAI_NS),
+                 au.findtext("a:suffix", "", OAI_NS))
+        authors.append(" ".join(p.strip() for p in parts if p and p.strip()))
+    cats = canonical_categories(" ".join((m.findtext("a:categories", "", OAI_NS) or "").split()))
+    return {
+        "arxiv_id": m.findtext("a:id", "", OAI_NS).strip(),
+        "title": title,
+        "authors": ", ".join(authors[:20]),
+        "abstract": abstract,
+        "categories": cats,
+        "primary_topic": cats.split()[0] if cats else "",
+        "update_date": (m.findtext("a:updated", "", OAI_NS) or m.findtext("a:created", "", OAI_NS) or "")[:10],
+    }
+
+
+def fetch_oai_page(set_spec: str, since: str, until: str, token: str | None):
+    """One ListRecords page: (papers, next_token, complete_list_size, records).
+
+    `records` counts every record on the page (deleted ones too, as arXiv's
+    completeListSize does); it is None when the request failed."""
+    params = ({"verb": "ListRecords", "resumptionToken": token} if token else
+              {"verb": "ListRecords", "metadataPrefix": "arXiv", "set": set_spec,
+               "from": since, "until": until})
+    url = f"{OAI_API}?" + urllib.parse.urlencode(params)
+    for attempt in range(FETCH_ATTEMPTS):
+        try:
+            with deadline(240, f"OAI {set_spec}"), _arxiv_get(url, 180) as r:
+                xml = r.read()
+            break
+        except Exception as e:
+            if _permanent(e) or attempt == FETCH_ATTEMPTS - 1:
+                print(f"    [oai {set_spec}] fetch failed: {str(e)[:90]}")
+                return [], None, None, None
+            time.sleep(retry_wait(e, attempt))
+    root = ET.fromstring(xml)
+    err = root.find("oai:error", OAI_NS)
+    if err is not None:
+        if err.get("code") == "noRecordsMatch":
+            return [], None, 0, 0
+        print(f"    [oai {set_spec}] error {err.get('code')}: {(err.text or '')[:90]}")
+        return [], None, None, None
+    papers = [p for p in (parse_oai_record(r) for r in root.iter(f"{{{OAI_NS['oai']}}}record")) if p]
+    tok = root.find(".//oai:resumptionToken", OAI_NS)
+    size = tok.get("completeListSize") if tok is not None else None
+    records = sum(1 for _ in root.iter(f"{{{OAI_NS['oai']}}}record"))
+    next_token = ((tok.text or "").strip() or None) if tok is not None else None
+    return papers, next_token, (int(size) if size and size.isdigit() else None), records
+
+
+def harvest(cats, since: str, until: str, min_month: str, state: dict, handle_page, save_state,
+            *, fetch=None, delay: float = ARXIV_DELAY, log=print) -> tuple[int, int]:
+    """Harvest every archive set holding `cats`; returns (examined, new).
+
+    Keeps records with at least one of `cats` and a new-style id from
+    `min_month` (YYMM) on. OAI's <created> is not the first-version date for
+    revised papers (1810.04449 showed 2026-09-10), so the id decides "new".
+    A set is complete only when its last page carries no resumption token;
+    `state["oai:<set>"]` records that for the coverage report.
+    """
+    fetch = fetch or fetch_oai_page
+    wanted = set(cats)
+    seen = new = 0
+    for set_spec in sorted({oai_set(c) for c in cats}):
+        state[f"oai:{set_spec}"] = "started"
+        token, records, expected = None, 0, None
+        while True:
+            papers, token, size, got = fetch(set_spec, since, until, token)
+            if delay:
+                time.sleep(delay)
+            if got is None:
+                state[f"oai:{set_spec}"] = "failed"
+                break
+            records += got
+            expected = size if size is not None else expected
+            keep = [p for p in papers
+                    if wanted & set(p["categories"].split())
+                    and re.match(r"\d{4}\.\d{4,5}$", p["arxiv_id"]) and p["arxiv_id"][:4] >= min_month]
+            seen += len(keep)
+            if keep:
+                new += handle_page(keep)
+            log(f"  oai {set_spec:<8} records={records:,}{'/' + format(expected, ',') if expected else ''} "
+                f"kept={seen:,} new={new:,}")
+            if not token:
+                ok = expected is None or records == expected
+                state[f"oai:{set_spec}"] = "done" if ok else f"short {records}/{expected}"
+                break
+        save_state()
+    return seen, new
+
+
+def report_oai_coverage(cats, state: dict) -> int:
+    sets = sorted({oai_set(c) for c in cats})
+    bad = [f"{s}={state.get(f'oai:{s}')}" for s in sets if state.get(f"oai:{s}") != "done"]
+    if bad:
+        print(f"coverage: {len(bad)} OAI sets incomplete -> re-run: " + ", ".join(bad))
+        return 3
+    print(f"coverage: all {len(sets)} OAI sets harvested to the end")
+    return 0
+
+
 # ── Stores ───────────────────────────────────────────────────────────────────
 
 def turso_execute(url: str, token: str, stmts: list[dict]) -> None:
@@ -294,6 +473,8 @@ def main() -> int:
                     help="fetch, parse and encode, but write nothing. Validates "
                          "the GPU path without needing database credentials.")
     ap.add_argument("--state", default="data/ingest_state.json")
+    ap.add_argument("--source", choices=("search", "oai"), default="search",
+                    help="search: per-category query API (backfills); oai: OAI-PMH (daily)")
     args = ap.parse_args()
 
     # If a run stalls, its log names the line: dump every thread's stack every
@@ -349,13 +530,25 @@ def main() -> int:
         os.makedirs(os.path.dirname(args.state) or ".", exist_ok=True)
         json.dump(state, open(args.state, "w"))
 
-    seen_total, new_total = walk(cats, args.since, args.until, state, handle_page, save_state,
-                                 limit=args.limit, log=lambda m: print(m, flush=True))
+    if args.source == "oai":
+        # OAI dates are inclusive datestamps; --until is exclusive like the search
+        # path. Papers are "new" from the month before --since (weekend and
+        # announcement lag), judged by id; re-runs skip stored papers anyway.
+        from datetime import date, timedelta
+        oai_until = (date.fromisoformat(args.until) - timedelta(days=1)).isoformat()
+        first = date.fromisoformat(args.since).replace(day=1) - timedelta(days=1)
+        seen_total, new_total = harvest(cats, args.since, oai_until, first.strftime("%y%m"), state,
+                                        handle_page, save_state, log=lambda m: print(m, flush=True))
+    else:
+        seen_total, new_total = walk(cats, args.since, args.until, state, handle_page, save_state,
+                                     limit=args.limit, log=lambda m: print(m, flush=True))
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")
     if args.limit:
         return 0
+    if args.source == "oai":
+        return report_oai_coverage(cats, state)
     return report_coverage(cats, state)
 
 
