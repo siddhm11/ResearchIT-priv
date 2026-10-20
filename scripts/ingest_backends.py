@@ -134,8 +134,34 @@ class Encoder:
         return results
 
 
+# Licences live in their own table: `INSERT OR REPLACE INTO papers` rewrites
+# whole rows, so a licence column there would vanish on any re-ingest (trap T5).
+# Written only by the OAI path; the search API gives no licence.
+LICENCE_DDL = ("CREATE TABLE IF NOT EXISTS paper_licences (arxiv_id TEXT PRIMARY KEY, "
+               "licence TEXT NOT NULL, licence_url TEXT, source TEXT, updated_at TEXT)")
+
+
+def licence_stmts(papers: list[dict]) -> list[dict]:
+    """Upserts for the papers whose record named a licence. A row that already
+    says the same is left alone, so daily re-harvests write nothing."""
+    return [{
+        "sql": ("INSERT INTO paper_licences (arxiv_id, licence, licence_url, source, updated_at) "
+                "VALUES (?, ?, ?, 'oai', datetime('now')) "
+                "ON CONFLICT(arxiv_id) DO UPDATE SET licence = excluded.licence, "
+                "licence_url = excluded.licence_url, source = excluded.source, "
+                "updated_at = excluded.updated_at "
+                "WHERE paper_licences.licence IS NOT excluded.licence "
+                "OR paper_licences.licence_url IS NOT excluded.licence_url"),
+        "args": [{"type": "text", "value": p["arxiv_id"]},
+                 {"type": "text", "value": p.get("licence") or ""},
+                 {"type": "text", "value": p["licence_url"]}],
+    } for p in papers if p.get("licence_url")]
+
+
 class Upserter:
     """Writes to Qdrant, Zilliz and Turso."""
+
+    _licence_table = False                  # created on the run's first licence write
 
     def __init__(self):
         self.qurl = os.environ.get("QDRANT_RECENT_URL", "").rstrip("/")
@@ -195,7 +221,20 @@ class Upserter:
             if res.get("type") == "error":
                 raise RuntimeError(str(res.get("error"))[:200])
 
+    def _with_licences(self, stmts: list[dict], papers: list[dict]) -> None:
+        """Turso `stmts` plus the licence rows for `papers`, in one pipeline."""
+        lic = licence_stmts(papers)
+        if lic and not self._licence_table:
+            lic.insert(0, {"sql": LICENCE_DDL})
+        if stmts or lic:
+            self._t(stmts + lic)
+        self._licence_table = self._licence_table or bool(lic)
+
     # ── Public ───────────────────────────────────────────────────────────
+    def write_licences(self, papers: list[dict]) -> None:
+        """Licence rows for papers already stored."""
+        self._with_licences([], papers)
+
     def qdrant_existing(self, ids: list[str]) -> set[str]:
         """arxiv_ids of `ids` that already have a point in the collection.
 
@@ -254,4 +293,6 @@ class Upserter:
                          {"type": "text", "value": topic_label(p["categories"])},
                          {"type": "text", "value": p["update_date"]}],
             })
-        self._t(stmts)
+        # Licence rows after the paper rows: Turso is the resume marker, and a
+        # failed licence write is redone when the re-run finds the paper stored.
+        self._with_licences(stmts, papers)

@@ -183,3 +183,55 @@ def test_fetch_page_retries_a_rate_limit_then_succeeds(monkeypatch):
     monkeypatch.setattr(ingest_arxiv.time, "sleep", waits.append)
     assert ingest_arxiv.fetch_page("cs.RO", "2026-09-28", "2026-10-02", 0) == ([], 0)
     assert waits == [30, 60] and len(calls) == 3
+
+
+# ── licences ─────────────────────────────────────────────────────────────────
+
+def _licensed(aid, url):
+    p = _papers(aid)[0]
+    return {**p, "licence_url": url, "licence": "CC-BY-4.0" if "creativecommons" in url else ""}
+
+
+def test_licence_rows_ride_in_the_same_batch_as_the_paper_rows(monkeypatch):
+    up, calls = _upserter(monkeypatch, present=set())
+    papers = [_licensed("2610.00001", "http://creativecommons.org/licenses/by/4.0/"), _papers("2610.00002")[0]]
+    up.upsert(papers, [([0.1] * 4, {})] * 2)
+    (batch,) = calls["t"]
+    sqls = [s["sql"] for s in batch]
+    assert [s.split()[0:3] for s in sqls[:2]] == [["INSERT", "OR", "REPLACE"]] * 2      # papers first
+    assert sqls[2] == ingest_backends.LICENCE_DDL                                        # then the table, once
+    assert sqls[3].startswith("INSERT INTO paper_licences") and "ON CONFLICT(arxiv_id) DO UPDATE" in sqls[3]
+    assert [a["value"] for a in batch[3]["args"]] == ["2610.00001", "CC-BY-4.0",
+                                                      "http://creativecommons.org/licenses/by/4.0/"]
+    assert len(batch) == 4                                     # the paper without a licence gets no row
+
+    up.upsert([_licensed("2610.00003", "http://creativecommons.org/licenses/by/4.0/")], [([0.1] * 4, {})])
+    assert ingest_backends.LICENCE_DDL not in [s["sql"] for s in calls["t"][1]]      # created once per run
+
+
+def test_stored_papers_get_licence_rows_and_nothing_else(monkeypatch):
+    up, calls = _upserter(monkeypatch, present=set())
+    up._licence_table = True
+    up.write_licences(_papers("2610.00004"))                   # no licence in the record: no call at all
+    assert calls["t"] == []
+    up.write_licences([_licensed("2610.00005", "http://arxiv.org/licenses/nonexclusive-distrib/1.0/")])
+    (batch,) = calls["t"]
+    assert len(batch) == 1 and batch[0]["sql"].startswith("INSERT INTO paper_licences")
+    # an unchanged row is left alone, so daily re-harvests write nothing
+    assert "WHERE paper_licences.licence IS NOT excluded.licence" in batch[0]["sql"]
+
+
+def test_the_licence_upsert_updates_only_rows_that_changed(tmp_path):
+    import sqlite3
+    db = sqlite3.connect(tmp_path / "t.db")
+    db.execute(ingest_backends.LICENCE_DDL)
+
+    def write(url, code):
+        (s,) = ingest_backends.licence_stmts([{"arxiv_id": "2610.00006", "licence_url": url, "licence": code}])
+        db.execute(s["sql"], [a["value"] for a in s["args"]])
+        return db.total_changes
+
+    first = write("http://arxiv.org/licenses/nonexclusive-distrib/1.0/", "ARXIV-NONEXCLUSIVE-1.0")
+    assert write("http://arxiv.org/licenses/nonexclusive-distrib/1.0/", "ARXIV-NONEXCLUSIVE-1.0") == first
+    write("http://creativecommons.org/licenses/by/4.0/", "CC-BY-4.0")
+    assert db.execute("SELECT licence, source FROM paper_licences").fetchall() == [("CC-BY-4.0", "oai")]

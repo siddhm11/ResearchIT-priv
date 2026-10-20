@@ -115,3 +115,24 @@ def test_requests_identify_themselves_and_bad_requests_are_not_retried(monkeypat
     assert not ia._permanent(urllib.error.HTTPError("u", 406, "x", {}, None))   # was a temporary block
     assert ia.retry_wait(urllib.error.HTTPError("u", 406, "x", {}, None), 0) == 30
     assert not ia._permanent(TimeoutError("x"))
+
+
+def _record_with_licence(licence: str | None) -> ET.Element:
+    tag = f"<license>{licence}</license>" if licence is not None else ""
+    return ET.fromstring(
+        '<record xmlns="http://www.openarchives.org/OAI/2.0/"><header><identifier>oai:arXiv.org:2610.00042'
+        '</identifier></header><metadata><arXiv xmlns="http://arxiv.org/OAI/arXiv/"><id>2610.00042</id>'
+        '<created>2026-10-19</created><authors><author><keyname>Lee</keyname></author></authors>'
+        '<title>Figures with licences</title><categories>cs.CV</categories>'
+        f'<abstract>An abstract long enough to keep the record.</abstract>{tag}</arXiv></metadata></record>')
+
+
+def test_the_licence_is_read_from_the_record():
+    cc = ia.parse_oai_record(_record_with_licence("http://creativecommons.org/licenses/by/4.0/"))
+    assert cc["licence"] == "CC-BY-4.0" and cc["licence_url"] == "http://creativecommons.org/licenses/by/4.0/"
+    default = ia.parse_oai_record(_record_with_licence(" http://arxiv.org/licenses/nonexclusive-distrib/1.0/ "))
+    assert default["licence"] == "ARXIV-NONEXCLUSIVE-1.0"
+    odd = ia.parse_oai_record(_record_with_licence("https://example.org/my-licence"))
+    assert odd["licence"] == "" and odd["licence_url"] == "https://example.org/my-licence"   # kept to remap later
+    none = ia.parse_oai_record(list(ET.fromstring(PAGE).iter("{http://www.openarchives.org/OAI/2.0/}record"))[0])
+    assert none["licence"] == "" and none["licence_url"] == ""

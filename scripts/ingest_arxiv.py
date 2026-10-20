@@ -57,7 +57,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from net_deadline import deadline  # noqa: E402
+from app.licences import code_from_url  # noqa: E402  (standard library only)
 
 ARXIV_API = "https://export.arxiv.org/api/query"
 NS = {"atom": "http://www.w3.org/2005/Atom",
@@ -328,6 +330,7 @@ def parse_oai_record(rec) -> dict | None:
                  au.findtext("a:suffix", "", OAI_NS))
         authors.append(" ".join(p.strip() for p in parts if p and p.strip()))
     cats = canonical_categories(" ".join((m.findtext("a:categories", "", OAI_NS) or "").split()))
+    licence_url = (m.findtext("a:license", "", OAI_NS) or "").strip()
     return {
         "arxiv_id": m.findtext("a:id", "", OAI_NS).strip(),
         "title": title,
@@ -336,6 +339,8 @@ def parse_oai_record(rec) -> dict | None:
         "categories": cats,
         "primary_topic": cats.split()[0] if cats else "",
         "update_date": (m.findtext("a:updated", "", OAI_NS) or m.findtext("a:created", "", OAI_NS) or "")[:10],
+        "licence_url": licence_url,           # "" when the record names none
+        "licence": code_from_url(licence_url),
     }
 
 
@@ -507,9 +512,14 @@ def main() -> int:
 
     seen_total = new_total = 0
     t0 = time.time()
+    licence_tally: dict[str, int] = {}
 
     def handle_page(papers: list[dict]) -> int:
         ids = [p["arxiv_id"] for p in papers]
+        if args.source == "oai":
+            for p in papers:
+                code = p["licence"] or ("unrecognised" if p["licence_url"] else "none")
+                licence_tally[code] = licence_tally.get(code, 0) + 1
         if args.dry_run:
             return len(ids)
         if args.encode_only:
@@ -523,7 +533,9 @@ def main() -> int:
         todo = [p for p in papers if p["arxiv_id"] not in have]
         if todo:
             vecs = encoder.encode([f"{p['title'][:256]} {p['abstract'][:1024]}" for p in todo])
-            upserter.upsert(todo, vecs)
+            upserter.upsert(todo, vecs)               # their licences ride in the same Turso batch
+        # Papers stored before licences were kept get theirs when OAI lists them again.
+        upserter.write_licences([p for p in papers if p["arxiv_id"] in have])
         return len(todo)
 
     def save_state() -> None:
@@ -545,6 +557,9 @@ def main() -> int:
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")
+    if licence_tally:
+        print("licences: " + ", ".join(f"{k}={v:,}" for k, v in
+                                        sorted(licence_tally.items(), key=lambda kv: -kv[1])))
     if args.limit:
         return 0
     if args.source == "oai":
