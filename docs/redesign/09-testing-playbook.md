@@ -105,3 +105,19 @@ E2E_BASE_URL=http://127.0.0.1:7861 .venv/bin/python -m pytest -m browser -v
 ```
 
 The browser server must not use port 7860, which the dev server uses. Stop both background processes when you're done.
+
+## As built (2026-10-19)
+
+The browser world is `scripts/seed_e2e.py`. It also writes a tiny metadata sidecar, so the server needs no Turso:
+
+```bash
+.venv/bin/python scripts/seed_e2e.py --db /tmp/e2e.db --site /tmp/e2e_arxiv --sidecar /tmp/e2e_sidecar.sqlite
+.venv/bin/python -m http.server 8799 --bind 127.0.0.1 --directory /tmp/e2e_arxiv &
+DB_PATH=/tmp/e2e.db METADATA_SIDECAR_PATH=/tmp/e2e_sidecar.sqlite RESEARCHIT_ENV=test \
+  ARXIV_HTML_BASE=http://127.0.0.1:8799 TURSO_URL= TURSO_DB_TOKEN= QDRANT_URL= QDRANT_B_URL= \
+  QDRANT_RECENT_URL= ZILLIZ_URI= GROQ_API_KEY= TURSO_SYNC_DISABLED=1 SIDECAR_WARMUP=0 \
+  PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on PORT=7861 .venv/bin/python run.py &
+E2E_BASE_URL=http://127.0.0.1:7861 .venv/bin/python -m pytest tests/test_e2e_paper.py -v
+```
+
+Blanking the service variables matters: `load_dotenv` never overrides a name that is already set, so the empty values keep `.env.local` out.

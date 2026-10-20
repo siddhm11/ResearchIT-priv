@@ -47,7 +47,7 @@
   <meta name="twitter:title" content="{{ _og_title }}" />
   <meta name="twitter:description" content="{{ _og_description }}" />
 
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v={{ static_version }}" />
 
   {#
     Theme restore. Runs before first paint so an explicit choice never flashes.
@@ -69,7 +69,7 @@
 
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% block body_class %}{% endblock %}>
   {% set path = request.url.path if request else '/' %}
 
   <a class="skip-link" href="#main">Skip to content</a>
@@ -164,8 +164,8 @@
   {# Undo toasts mount here. See app.js — dismissal is deferred, not confirmed. #}
   <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-  <script src="/static/htmx.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/htmx.min.js?v={{ static_version }}"></script>
+  <script src="/static/app.js?v={{ static_version }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

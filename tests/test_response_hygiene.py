@@ -6,6 +6,7 @@ All of these were flagged by a site audit against the live deployment. They are
 small individually; together they are the difference between a site that looks
 maintained and one that does not.
 """
+import pathlib
 import re
 
 from fastapi.testclient import TestClient
@@ -180,3 +181,30 @@ def test_the_toggle_is_pinned_right_on_mobile():
     import pathlib
     css = pathlib.Path("app/static/styles.css").read_text()
     assert ".topbar .theme-toggle" in css
+
+
+def test_static_urls_carry_a_content_version():
+    """A deploy must never pair new HTML with an hour-old cached stylesheet."""
+    from app.templates_env import templates
+    version = templates.env.globals["static_version"]
+    assert len(version) == 10
+    with TestClient(app) as c:
+        html = c.get("/onboarding").text
+    for asset in ("/static/styles.css", "/static/htmx.min.js", "/static/app.js"):
+        assert f"{asset}?v={version}" in html
+
+
+def test_a_versioned_static_url_is_still_served():
+    from app.templates_env import templates
+    with TestClient(app) as c:
+        r = c.get(f"/static/styles.css?v={templates.env.globals['static_version']}")
+    assert r.status_code == 200 and "max-age" in r.headers["cache-control"]
+
+
+def test_every_template_versions_its_static_links():
+    offenders = []
+    for path in sorted(pathlib.Path("app/templates").rglob("*.html")):
+        for m in re.finditer(r'(?:href|src)="(/static/[^"]+)"', path.read_text()):
+            if "?v={{ static_version }}" not in m.group(1):
+                offenders.append(f"{path}: {m.group(1)}")
+    assert not offenders, "\n".join(offenders)

@@ -1,0 +1,221 @@
+{#
+  Paper page, redesigned (switch PAPER_PAGE_V2). paper.html stays the page when
+  the switch is off.
+
+  Three zones from 1180 px: an outline of this page with links on the left, the
+  reading column in the middle, Ask this paper on the right (when ASK is on).
+  Two below that, one on a phone. Everything slow loads after the page paints:
+  the plain-language summary, the code link, the briefing and Ask each fetch
+  their own fragment, so this template only ever reads what is already saved.
+
+  Escaping: every value here is escaped by Jinja; nothing is marked safe. Maths
+  in `.tex` elements is rendered by KaTeX from the escaped text in the browser.
+#}
+{% extends "base.html" %}
+
+{% block title %}{{ paper.title }} — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/katex-0.18.11/katex.min.css?v={{ static_version }}" />
+{% endblock %}
+
+{% block content %}
+{% set pid = paper.arxiv_id %}
+{% set authors_list = paper.authors | default("[]") | tojson_parse %}
+{% if not authors_list and paper.authors %}
+  {% set authors_list = paper.authors.split(", ") %}
+{% endif %}
+{% set pub_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
+{% set truncated = paper.abstract | is_truncated %}
+{# Saves from this page are logged with this surface; it is not a ranked feed. #}
+{% set source = "paper_page" %}
+
+<div class="wrap wrap--wide">
+<div class="px{% if not ask_visible %} px--noask{% endif %}">
+
+  <aside class="outline" aria-label="On this page">
+    <div>
+      <h2>On this page</h2>
+      <nav>
+        {% for anchor, label in outline %}
+          <a href="#{{ anchor }}" data-sec="{{ anchor }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div>
+      <h2>Links</h2>
+      <div class="acts">
+        <a class="lnk" href="https://arxiv.org/pdf/{{ pid }}" target="_blank" rel="noopener">PDF ↗</a>
+        <a class="lnk" href="https://arxiv.org/abs/{{ pid }}" target="_blank" rel="noopener">arXiv abstract ↗</a>
+        {% if paper_source and paper_source.ok %}
+          <a class="lnk" href="{{ paper_source.html_url() }}" target="_blank" rel="noopener">Full text on arXiv ↗</a>
+        {% endif %}
+        {% if space_app_url %}
+          <a class="lnk" href="{{ space_paper_url(pid) }}" target="_blank" rel="noopener">See it in 3D ↗</a>
+        {% endif %}
+      </div>
+    </div>
+  </aside>
+
+  <article class="px-main paper">
+    {% if back_to_feed %}<a href="/" class="back-link">← Your feed</a>{% endif %}
+
+    <div class="card-rule">
+      {% if paper.category %}<span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>{% endif %}
+      {% if reading %}
+        <span class="dens dens-{{ reading.level }}"
+              title="{{ reading.blurb }}{% if reading.drivers %} Driven by: {{ reading.drivers | join(', ') }}.{% endif %}">{{ reading.label }}</span>
+      {% endif %}
+    </div>
+
+    <h1 class="paper-title tex">{{ paper.title }}</h1>
+    {% if authors_list %}<p class="paper-authors">{{ authors_list | join(", ") }}</p>{% endif %}
+
+    <div class="pp-meta">
+      <a class="card-id" href="https://arxiv.org/abs/{{ pid }}" target="_blank" rel="noopener">arXiv:{{ pid }}</a>
+      {% if pub_year %}<span class="sep">·</span><span>{{ pub_year }}</span>{% endif %}
+      {% if paper.citation_count %}<span class="sep">·</span><span>{{ paper.citation_count | commafy }} cited</span>{% endif %}
+      {% if paper_source and paper_source.ok and paper_source.licence_label %}
+        <span class="sep">·</span><span>{{ paper_source.licence_label }}</span>
+      {% endif %}
+    </div>
+
+    <div class="inline-acts">
+      <div class="paper-actions" id="actions-{{ pid }}">
+        {% include "partials/action_buttons.html" %}
+      </div>
+      <span class="code-slot" hx-get="/api/papers/{{ pid }}/code" hx-trigger="load" hx-swap="outerHTML"></span>
+      <a class="lnk" href="https://arxiv.org/pdf/{{ pid }}" target="_blank" rel="noopener">PDF ↗</a>
+      <div class="pc-menu">
+        <button type="button" class="pc-menu-btn" data-menu aria-haspopup="true" aria-expanded="false"
+                aria-label="More about this paper">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+        </button>
+        <div class="menu" role="menu" hidden>
+          <a role="menuitem" href="https://arxiv.org/abs/{{ pid }}" target="_blank" rel="noopener">arXiv abstract ↗</a>
+          {% if space_app_url %}<a role="menuitem" href="{{ space_paper_url(pid) }}" target="_blank" rel="noopener">See it in 3D ↗</a>{% endif %}
+          <button type="button" role="menuitem" data-copy="{{ pid }}">Copy arXiv ID</button>
+        </div>
+      </div>
+    </div>
+
+    <section class="sum-box brief" id="sec-sum" data-sumbox>
+      <div class="tx-tabs" role="tablist" aria-label="Summary">
+        <button type="button" class="tx-tab" role="tab" id="tab-plain" aria-controls="panel-plain"
+                aria-selected="true" tabindex="0" data-tab="plain">In plain terms</button>
+        <button type="button" class="tx-tab" role="tab" id="tab-abs" aria-controls="panel-abs"
+                aria-selected="false" tabindex="-1" data-tab="abs">Abstract</button>
+      </div>
+      <div class="tx-panel" id="panel-plain" role="tabpanel" aria-labelledby="tab-plain"
+           hx-get="/api/papers/{{ pid }}/explain?v=2" hx-trigger="load" hx-swap="innerHTML">
+        <p class="tx-loading">Writing a plain-language summary…</p>
+      </div>
+      <div class="tx-panel" id="panel-abs" role="tabpanel" aria-labelledby="tab-abs" hidden>
+        {% if paper.abstract %}
+          <p class="tx-body tx-body--abs tex">{{ paper.abstract }}{% if truncated %}<span class="abstract-cut" aria-hidden="true">…</span>{% endif %}</p>
+        {% endif %}
+        {% if truncated %}
+          <span class="tx-note">This abstract is stored cut short; the full version loads on a later visit.
+            <a href="https://arxiv.org/abs/{{ pid }}" target="_blank" rel="noopener">Read it on arXiv ↗</a></span>
+        {% else %}
+          <span class="tx-note">The authors' abstract, from arXiv.</span>
+        {% endif %}
+      </div>
+    </section>
+
+    {% if figures %}
+      {% set f = figures[0] %}
+      <section class="brief" id="sec-fig">
+        <h2 class="brief-h">Key figure</h2>
+        <figure class="kf">
+          <button type="button" class="plate" data-fig data-src="{{ f.url }}" data-label="{{ f.label }}"
+                  data-caption="{{ f.caption }}" data-credit="{{ credit }}" data-n="{{ f.n }}"
+                  aria-label="Enlarge {{ f.label or 'the figure' }}">
+            <img src="{{ f.url }}" alt="{{ f.label }}{% if f.label %}: {% endif %}{{ f.caption }}"
+                 {% if f.w and f.h %}width="{{ f.w }}" height="{{ f.h }}" style="aspect-ratio: {{ f.w }} / {{ f.h }}"{% endif %}
+                 loading="lazy" decoding="async">
+          </button>
+          <figcaption class="plate-cap">
+            {% if f.label %}<b>{{ f.label }}</b>{% endif %}
+            <span class="tex">{{ f.caption }}</span>
+            <span class="credit">{{ credit }}</span>
+          </figcaption>
+        </figure>
+      </section>
+    {% endif %}
+
+    {% if briefing_visible %}
+      <div class="brief-slot" hx-get="/api/papers/{{ pid }}/briefing" hx-trigger="load" hx-swap="outerHTML"></div>
+    {% endif %}
+
+    {% if figures | length > 1 %}
+      <section class="brief" id="sec-figs">
+        <h2 class="brief-h">All figures
+          {% if paper_source and paper_source.n_figures > figures | length %}
+            <span class="gen-tag gen-tag--solid">{{ figures | length }} of {{ paper_source.n_figures }}</span>
+          {% endif %}
+        </h2>
+        <div class="figs">
+          {% for f in figures %}
+            <button type="button" data-fig data-src="{{ f.url }}" data-label="{{ f.label }}" data-caption="{{ f.caption }}"
+                    data-credit="{{ credit }}" data-n="{{ f.n }}" aria-label="Enlarge {{ f.label or 'this figure' }}">
+              <span class="plate"><img src="{{ f.url }}" alt="{{ f.label }}{% if f.label %}: {% endif %}{{ f.caption }}"
+                   loading="lazy" decoding="async"></span>
+              <span class="cap">{% if f.label %}<b>{{ f.label }}</b> {% endif %}<span class="tex">{{ f.caption | truncate(120) }}</span></span>
+            </button>
+          {% endfor %}
+        </div>
+        <p class="figs-credit">Figures: {{ credit }}</p>
+      </section>
+    {% endif %}
+
+    {% if related %}
+      <section class="brief" id="sec-near">
+        <h2 class="brief-h">What sits near this</h2>
+        <p class="near-note">Closest papers by meaning, not by your reading history.</p>
+        <ul class="near">
+          {% for rp in related %}
+            {% set ra = rp.authors | default("[]") | tojson_parse %}
+            {% if not ra and rp.authors %}{% set ra = rp.authors.split(", ") %}{% endif %}
+            {% set ry = (rp.year | string) if rp.year else (rp.published[:4] if rp.published else "") %}
+            <li>
+              <a class="tex" href="/p/{{ rp.arxiv_id }}">{{ rp.title }}</a>
+              <span class="m">
+                {{ ra[:2] | join(", ") }}{% if ra | length > 2 %} et al.{% endif %}
+                {% if ry %} · {{ ry }}{% endif %}
+                {% if rp.citation_count %} · {{ rp.citation_count | commafy }} cited{% endif %}
+              </span>
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+    {% endif %}
+  </article>
+
+  {% if ask_visible %}
+    {% include "partials/paper/ask_panel.html" ignore missing %}
+  {% endif %}
+
+</div>
+</div>
+
+<dialog class="lb" id="lb" aria-label="Figure">
+  <div class="lb-inner">
+    <img id="lb-img" alt="">
+    <div class="lb-cap">
+      <div><span id="lb-cap" class="tex"></span><small id="lb-credit"></small></div>
+      <div class="row">
+        {% if ask_visible %}<button type="button" class="btn btn-sm btn-quiet" id="lb-ask">Ask about this figure</button>{% endif %}
+        <button type="button" class="btn btn-sm" id="lb-close">Close</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="/static/vendor/katex-0.18.11/katex.min.js?v={{ static_version }}"></script>
+<script defer src="/static/vendor/katex-0.18.11/auto-render.min.js?v={{ static_version }}"></script>
+<script defer src="/static/paper.js?v={{ static_version }}"></script>
+{% endblock %}

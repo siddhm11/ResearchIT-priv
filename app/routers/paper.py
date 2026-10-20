@@ -29,8 +29,10 @@ import uuid
 from fastapi import APIRouter, Cookie, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (abstract_svc, arxiv_svc, db, groq_svc, paper_source_svc, qdrant_svc,
-                 readability, runtime_stats, turso_svc, user_state as us)
+from app import (abstract_svc, arxiv_svc, config, db, features, groq_svc, hf_papers_svc,
+                 http_client, paper_source_svc, qdrant_svc, readability, runtime_stats, turso_svc,
+                 user_state as us)
+from app.routers.figures import figure_credit, figure_url
 from app.config import COOKIE_NAME
 from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
@@ -201,18 +203,19 @@ async def paper_page(
     related = await _related(arxiv_id, us.all_seen(user_id))
     related_ms = (time.perf_counter() - t_related) * 1000
 
-    resp = templates.TemplateResponse(
-        request,
-        "paper.html",
-        {
-            "paper": paper,
-            "related": related,
-            "reading": readability.assess(paper.get("abstract") or ""),
-            "og_title": paper.get("title") or f"arXiv:{arxiv_id}",
-            "og_description": _summary_for_card(paper),
-            "og_type": "article",
-        },
-    )
+    context = {
+        "paper": paper,
+        "related": related,
+        "reading": readability.assess(paper.get("abstract") or ""),
+        "og_title": paper.get("title") or f"arXiv:{arxiv_id}",
+        "og_description": _summary_for_card(paper),
+        "og_type": "article",
+    }
+    template = "paper.html"
+    if features.visible("PAPER_PAGE_V2", request):
+        template = "paper_v2.html"
+        context.update(await _v2_context(paper, related, request, came_from_feed=bool(qid)))
+    resp = templates.TemplateResponse(request, template, context)
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
     # replaced: /healthz/runtime reports p50/p95 of the last 200 visits.
@@ -222,6 +225,57 @@ async def paper_page(
         "total_ms": round((time.perf_counter() - t_start) * 1000, 1),
     })
     return resp
+
+
+async def _v2_context(paper: dict, related: list[dict], request: Request,
+                      *, came_from_feed: bool) -> dict:
+    """What the redesigned page adds, from local reads only (never arXiv)."""
+    arxiv_id = paper["arxiv_id"]
+    source = None
+    try:
+        source = await paper_source_svc.get(arxiv_id)
+    except Exception as e:                      # the page is worth serving without it
+        print(f"[paper] saved source unavailable for {arxiv_id}: {e}")
+    figures = []
+    if source is not None and features.visible("FIGURES", request):
+        # The replicated row cuts captions at 300 characters; the local full
+        # text, when this container has it, holds them whole.
+        full_captions = {}
+        try:
+            full = await paper_source_svc.fulltext(arxiv_id) if source.ok else None
+            full_captions = {f["anchor"]: f.get("caption") or "" for f in (full or {}).get("figures", [])}
+        except Exception as e:
+            print(f"[paper] full text unavailable for {arxiv_id}: {e}")
+        for n, f in enumerate(source.figures):
+            url = figure_url(source, n)
+            if not url:
+                continue
+            caption = full_captions.get(f.get("anchor")) or f.get("caption") or ""
+            if caption == f.get("caption") and len(caption) >= paper_source_svc.REPLICATED_CAPTION:
+                caption = caption.rstrip() + "…"
+            figures.append({"n": n, "url": url, "label": f.get("label") or "",
+                            "caption": caption, "w": f.get("w"), "h": f.get("h")})
+    ask_visible = features.visible("ASK", request)
+    briefing_visible = features.visible("BRIEFING", request)
+    outline = [("sec-sum", "Summary")]
+    if figures:
+        outline.append(("sec-fig", "Key figure"))
+    if briefing_visible:
+        outline += [("sec-things", "Three things to know"), ("sec-how", "How it works"),
+                    ("sec-use", "Where you'd use this")]
+    if len(figures) > 1:
+        outline.append(("sec-figs", "All figures"))
+    if related:
+        outline.append(("sec-near", "What sits near this"))
+    return {
+        "paper_source": source,
+        "figures": figures,
+        "credit": figure_credit(paper, source) if source else "",
+        "outline": outline,
+        "back_to_feed": came_from_feed,
+        "ask_visible": ask_visible,
+        "briefing_visible": briefing_visible,
+    }
 
 
 def _summary_for_card(paper: dict) -> str:
@@ -241,7 +295,7 @@ def _summary_for_card(paper: dict) -> str:
 
 
 @router.get("/api/papers/{arxiv_id}/explain", response_class=HTMLResponse)
-async def explain(arxiv_id: str, request: Request):
+async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     """Plain-language explanation of one paper.
 
     Fetched by htmx AFTER the page paints rather than rendered inline. The
@@ -289,7 +343,54 @@ async def explain(arxiv_id: str, request: Request):
     if not text:
         return HTMLResponse(content="")
 
+    # v=2 is the redesigned summary box, which supplies its own tab and label.
+    partial = "partials/paper/explanation_body.html" if v == 2 else "partials/explanation.html"
     return templates.TemplateResponse(
-        request, "partials/explanation.html",
+        request, partial,
         {"explanation": text, "cached": cached is not None},
     )
+
+
+# ── Code link (the redesigned page's Code chip) ─────────────────────────────
+
+CODE_RECHECK_S = 7 * 24 * 3600
+
+
+def _checked_recently(checked_at: str) -> bool:
+    import calendar
+    try:
+        stamp = calendar.timegm(time.strptime(checked_at, "%Y-%m-%d %H:%M:%S"))
+    except (TypeError, ValueError):
+        return False
+    return time.time() - stamp < CODE_RECHECK_S
+
+
+@router.get("/api/papers/{arxiv_id}/code", response_class=HTMLResponse)
+async def code_link(arxiv_id: str, request: Request):
+    """The paper's GitHub repository as a chip, or nothing.
+
+    Loaded after the page paints. Answers, "no repository" included, are saved
+    in paper_sources and rechecked weekly. Only papers already in our metadata
+    are looked up: no arXiv fallback, so an invented id costs nothing.
+    """
+    if not features.visible("PAPER_PAGE_V2", request) or not paper_source_svc.ID_PATTERN.match(arxiv_id):
+        return HTMLResponse("")
+    source = await paper_source_svc.get(arxiv_id)
+    if source is not None and _checked_recently(source.code_checked_at):
+        repo, stars = source.code_repo, source.code_stars
+    else:
+        known = await turso_svc.fetch_metadata_batch([arxiv_id])
+        if arxiv_id not in known:
+            return HTMLResponse("")
+        found = await hf_papers_svc.fetch_paper_code(
+            http_client.get_client(), arxiv_id, user_agent=config.OUTBOUND_USER_AGENT)
+        if found is None:                       # lookup failed: show what we had, cache nothing
+            repo, stars = (source.code_repo, source.code_stars) if source else ("", None)
+        else:
+            repo, stars = found
+            try:
+                await paper_source_svc.save_code_link(arxiv_id, repo, stars)
+            except Exception as e:
+                print(f"[paper] saving the code link of {arxiv_id} failed: {e}")
+    return templates.TemplateResponse(request, "partials/paper/code_chip.html",
+                                      {"repo": hf_papers_svc.github_repo(repo), "stars": stars})
