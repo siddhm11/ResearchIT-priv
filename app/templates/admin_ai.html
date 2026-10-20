@@ -1,0 +1,240 @@
+{#
+  AI usage dashboard (/admin/ai), owner only; data from app/ai_usage.py:dashboard().
+  Counts only. Everything a tooltip shows is also in a table on the page.
+#}
+{% extends "base.html" %}
+
+{% block title %}AI usage — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% macro status(level, meter=false) -%}
+  {%- set icons = {"good": "✓", "warning": "▲", "critical": "●", "info": "○"} -%}
+  {%- set names = {"good": "Good", "warning": "Check", "critical": "Act now", "info": "Note"} -%}
+  {#- A meter's window refills on its own, so it is described, not alarmed about. -#}
+  {%- set meter_names = {"warning": "Getting close", "critical": "Near the limit"} -%}
+  <span class="ai-status ai-status--{{ level }}"><span class="ai-status-icon" aria-hidden="true">{{ icons[level] }}</span>{{ meter_names[level] if meter else names[level] }}</span>
+{%- endmacro %}
+
+{% macro meter(pct, sev) -%}
+  <span class="ai-meter ai-meter--{{ sev }}" aria-hidden="true"><span style="width: {{ [pct, 100] | min }}%"></span></span>
+{%- endmacro %}
+
+{% macro severity(pct) -%}{{ "critical" if pct >= 80 else ("warning" if pct >= 50 else "ok") }}{%- endmacro %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+
+  <header class="ai-head">
+    <h1>AI usage</h1>
+    <p class="ai-sub">Today is {{ day }} (UTC). Counts only: never a prompt, an answer or a reader.
+      <a href="/healthz/ai">Raw data</a></p>
+  </header>
+
+  <section class="ai-kpis" aria-label="Today at a glance">
+    <div class="ai-kpi"><span class="ai-kpi-label">Model calls today</span>
+      <span class="ai-kpi-value">{{ kpis.calls | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Tokens today</span>
+      <span class="ai-kpi-value">{{ kpis.tokens | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Answered by a backup model</span>
+      <span class="ai-kpi-value">{{ "%d%%" % kpis.fallback_pct if kpis.fallback_pct is not none else "—" }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Served from the cache</span>
+      <span class="ai-kpi-value">{{ "%d%%" % kpis.cache_pct if kpis.cache_pct is not none else "—" }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Failed or busy</span>
+      <span class="ai-kpi-value">{{ kpis.failures | commafy }}</span></div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="ai-insights-h">
+    <h2 id="ai-insights-h">What stands out</h2>
+    <ul class="ai-insights">
+      {% for i in insights %}
+        <li>{{ status(i.level) }}<span>{{ i.text }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="ai-models-h">
+    <h2 id="ai-models-h">Models</h2>
+    <p class="ai-note">Groq's limits for each model: {{ limits.requests_per_day | commafy }} requests and
+      {{ limits.tokens_per_day | commafy }} tokens a day, {{ limits.tokens_per_minute | commafy }} tokens a minute.
+      Requests and the minute come from Groq's last reply; nothing reports tokens per day, so those are counted here.</p>
+    <div class="ai-models">
+      {% for m in models %}
+        <article class="ai-model">
+          <header><h3>{{ m.model }}</h3><span class="ai-tag">{{ "Primary" if m.primary else "Backup" }}</span></header>
+          {% set sev = severity(m.tokens_pct or 0) %}
+          <div class="ai-meter-row">
+            <span class="ai-meter-label">Tokens today</span>
+            {{ meter(m.tokens_pct or 0, sev) }}
+            <span class="ai-meter-value">{{ m.tokens | commafy }} of {{ m.tokens_limit | commafy }}
+              {% if sev != "ok" %}{{ status(sev, true) }}{% endif %}</span>
+          </div>
+          <div class="ai-meter-row">
+            <span class="ai-meter-label">Requests today</span>
+            {% if m.requests_limit %}
+              {% set rpct = (100 * m.requests_used / m.requests_limit) | round | int %}
+              {% set rsev = severity(rpct) %}
+              {{ meter(rpct, rsev) }}
+              <span class="ai-meter-value">{{ m.requests_used | commafy }} of {{ m.requests_limit | commafy }}
+                {% if rsev != "ok" %}{{ status(rsev, true) }}{% endif %}</span>
+            {% else %}
+              {{ meter(0, "ok") }}<span class="ai-meter-value muted">no reply yet since the last restart</span>
+            {% endif %}
+          </div>
+          <div class="ai-meter-row">
+            <span class="ai-meter-label">This minute</span>
+            {% if m.minute_limit %}
+              {% set used = m.minute_limit - m.minute_left %}
+              {% set mpct = (100 * used / m.minute_limit) | round | int %}
+              {% set msev = severity(mpct) %}
+              {{ meter(mpct, msev) }}
+              <span class="ai-meter-value">{{ used | commafy }} of {{ m.minute_limit | commafy }} tokens
+                <span class="muted">· {{ m.seen_s }}s ago</span>
+                {% if msev != "ok" %}{{ status(msev, true) }}{% endif %}</span>
+            {% else %}
+              {{ meter(0, "ok") }}<span class="ai-meter-value muted">no reply yet since the last restart</span>
+            {% endif %}
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="ai-features-h">
+    <h2 id="ai-features-h">Features today</h2>
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr>
+          <th scope="col">Feature</th><th scope="col">Calls</th><th scope="col">Answered</th>
+          <th scope="col">Backup model</th><th scope="col">Cut off</th><th scope="col">Failed or busy</th>
+          <th scope="col">Tokens per call</th><th scope="col">Time per call</th><th scope="col">From cache</th>
+          <th scope="col">Outcomes</th>
+        </tr></thead>
+        <tbody>
+          {% for r in rows %}
+            <tr>
+              <th scope="row"><span class="ai-key ai-key--{{ r.feature }}" aria-hidden="true"></span>{{ r.label }}</th>
+              <td>{{ r.calls | commafy }}</td>
+              <td>{{ "%d%%" % r.ok_pct if r.ok_pct is not none else "—" }}</td>
+              <td>{{ r.fallback | commafy }}</td>
+              <td>{{ r.truncated | commafy }}</td>
+              <td>{{ (r.failures + r.over_budget) | commafy }}</td>
+              <td>{{ r.avg_tokens | commafy if r.avg_tokens is not none else "—" }}</td>
+              <td>{{ ("%.1f s" % (r.avg_ms / 1000)) if r.avg_ms is not none else "—" }}</td>
+              <td>{% if r.cache_pct is not none %}{{ r.cache_pct }}% <span class="muted">of {{ r.cache_n }}</span>
+                  {% elif r.feature in ("search_rewrite", "search_overview") %}<span class="muted">not cached</span>
+                  {% else %}—{% endif %}</td>
+              <td class="ai-outcomes">{% for name, n in r.outcomes %}<span>{{ n | commafy }} {{ name }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="ai-note">Briefing and Ask: {{ budget.calls | commafy }} of {{ budget.call_cap | commafy }} calls today,
+      the daily cap they stop at. Search and plain summaries don't count toward it.</p>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="ai-history-h">
+    <h2 id="ai-history-h">Tokens per day, last 14 days</h2>
+    <ul class="ai-legend" aria-label="Features">
+      {% for f in features_order %}
+        <li><span class="ai-key ai-key--{{ f }}" aria-hidden="true"></span>{{ labels[f] }}
+          <span class="muted">{{ history_totals[f] | commafy }}</span></li>
+      {% endfor %}
+    </ul>
+    {% if chart.empty %}
+      <p class="ai-empty">No model calls in the last 14 days yet.</p>
+    {% else %}
+      <div class="ai-chart" data-ai-chart>
+        <div class="ai-plot" role="img" aria-label="Tokens per day by feature; the table below has every value">
+          {% for t in chart.ticks %}
+            <div class="ai-tickline{% if loop.first %} ai-tickline--base{% endif %}" style="bottom: {{ t.pct }}%"><span>{{ t.label }}</span></div>
+          {% endfor %}
+          <div class="ai-cols">
+            {% for c in chart.columns %}
+              <div class="ai-col" tabindex="0" aria-label="{{ c.label }}: {{ c.total | commafy }} tokens"
+                   data-day="{{ c.label }}" data-total="{{ c.total }}" data-tokens='{{ c.tokens | tojson }}'>
+                {% if c.total %}
+                  <div class="ai-stack" style="height: {{ c.height }}%">
+                    {% for sgm in c.segments %}<span class="ai-seg ai-key--{{ sgm.feature }}" style="flex-grow: {{ sgm.tokens }}"></span>{% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="ai-xaxis" aria-hidden="true">{% for c in chart.columns %}<span>{{ c.label if c.show_label else "" }}</span>{% endfor %}</div>
+        <div class="ai-tip" role="status" hidden></div>
+      </div>
+    {% endif %}
+    <details class="ai-tableview">
+      <summary>Show as a table</summary>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Day</th>{% for f in features_order %}<th scope="col">{{ labels[f] }}</th>{% endfor %}<th scope="col">Total</th></tr></thead>
+          <tbody>
+            {% for d in history | reverse %}
+              <tr><th scope="row">{{ d.day }}</th>{% for f in features_order %}<td>{{ d.tokens[f] | commafy }}</td>{% endfor %}<td>{{ d.total | commafy }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* One tooltip per day: every feature's tokens, the value leading. Built with
+     textContent; the labels are this page's own, but the habit stays. */
+  (function () {
+    var box = document.querySelector('[data-ai-chart]');
+    if (!box) return;
+    var tip = box.querySelector('.ai-tip');
+    var labels = {{ labels | tojson }};
+    var order = {{ features_order | tojson }};
+    function show(hit) {
+      var tokens = JSON.parse(hit.getAttribute('data-tokens'));
+      tip.textContent = '';
+      var head = document.createElement('div');
+      head.className = 'ai-tip-head';
+      var v = document.createElement('strong');
+      v.textContent = Number(hit.getAttribute('data-total')).toLocaleString() + ' tokens';
+      head.appendChild(v);
+      head.appendChild(document.createTextNode(' · ' + hit.getAttribute('data-day')));
+      tip.appendChild(head);
+      order.slice().reverse().forEach(function (f) {
+        if (!tokens[f]) return;
+        var row = document.createElement('div');
+        row.className = 'ai-tip-row';
+        var key = document.createElement('span');
+        key.className = 'ai-tip-key ai-key--' + f;
+        var val = document.createElement('strong');
+        val.textContent = tokens[f].toLocaleString();
+        row.appendChild(key);
+        row.appendChild(val);
+        row.appendChild(document.createTextNode(' ' + labels[f]));
+        tip.appendChild(row);
+      });
+      var r = hit.getBoundingClientRect(), b = box.getBoundingClientRect();
+      tip.hidden = false;
+      /* Beside the column, never over it: right of it when it fits, else left. */
+      var right = r.right - b.left + 6, left = r.left - b.left - tip.offsetWidth - 6;
+      tip.style.left = Math.max(0, right + tip.offsetWidth <= b.width ? right : left) + 'px';
+      tip.style.top = '.5rem';
+      box.querySelectorAll('.ai-col').forEach(function (g) { g.classList.toggle('is-active', g === hit); });
+    }
+    function hide() {
+      tip.hidden = true;
+      box.querySelectorAll('.ai-col').forEach(function (g) { g.classList.remove('is-active'); });
+    }
+    box.querySelectorAll('.ai-col').forEach(function (hit) {
+      hit.addEventListener('pointerenter', function () { show(hit); });
+      hit.addEventListener('focus', function () { show(hit); });
+      hit.addEventListener('blur', hide);
+    });
+    box.addEventListener('pointerleave', hide);
+  })();
+</script>
+{% endblock %}
