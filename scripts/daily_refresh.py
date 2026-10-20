@@ -24,7 +24,9 @@ Stages, each with a check that fails the run
   4. verify     new Qdrant points == new Turso rows == papers the ingest
                 reported; sampled new vectors are 1024-dim unit vectors and
                 their Turso rows are complete
-  5. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
+  5. licences   how many new papers have a `paper_licences` row, and how many
+                of those may show figures (reported, never fails the run)
+  6. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
 
 Re-running is always safe: the ingest skips papers already stored and point
 ids are derived from the arXiv id, so overlapping runs cannot collide.
@@ -53,6 +55,9 @@ from pathlib import Path
 import httpx
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent))
+from app import licences  # noqa: E402  (standard library only)
+
 REQUIRED_ENV = ("QDRANT_RECENT_URL", "QDRANT_RECENT_API_KEY", "TURSO_URL", "TURSO_DB_TOKEN")
 COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
 
@@ -149,8 +154,8 @@ def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str
 
 def stage_ingest(since: str, until: str, timeout_s: int = 3600) -> tuple[int | None, str]:
     state = Path(tempfile.mkdtemp()) / "state.json"
-    cmd = [sys.executable, str(HERE / "ingest_arxiv.py"), "--since", since, "--until", until,
-           "--state", str(state)]
+    cmd = [sys.executable, str(HERE / "ingest_arxiv.py"), "--source", "oai",
+           "--since", since, "--until", until, "--state", str(state)]
     log = ""
     for attempt in (1, 2):
         try:
@@ -204,6 +209,27 @@ def stage_citations(st: Stores, prefix: str) -> dict:
                                          {"type": "text", "value": a}]} for a, c, f in changes[i:i + 500]])
     found = sum(1 for v in fetched.values() if v)
     return {"papers": len(ids), "found": found, "changed": len(changes)}
+
+
+def licence_coverage(codes: list[str | None]) -> dict:
+    """One code per new paper; None or "" when it has no licence row."""
+    known = [c for c in codes if c]
+    figures = sum(1 for c in known if licences.allows_figures(c))
+    n = len(codes)
+    return {"new_papers": n, "with_licence": len(known),
+            "with_licence_share": round(len(known) / n, 3) if n else None,
+            "open": sum(1 for c in known if licences.is_open(c)),
+            "allow_figures": figures, "allow_figures_share": round(figures / n, 3) if n else None,
+            "figure_policy": licences.figure_policy()}
+
+
+def stage_licences(st: Stores, after_rowid: int) -> dict:
+    try:
+        rows = st.t("SELECT l.licence FROM papers p LEFT JOIN paper_licences l ON l.arxiv_id = p.arxiv_id "
+                    "WHERE p.rowid > ?", (after_rowid,))
+    except RuntimeError as e:           # no table yet: no licence has been written
+        return {"error": str(e)[:160]}
+    return licence_coverage([r[0] for r in rows])
 
 
 def stage_sample_new(st: Stores, after_rowid: int, n: int = 5) -> list[str]:
@@ -275,6 +301,7 @@ def main() -> int:
 
     after = st.counts()
     summary["after"] = after
+    summary["licences"] = stage_licences(st, before["turso_max_rowid"])
     problems = verify_counts(before, after, ingest_new) + stage_sample_new(st, before["turso_max_rowid"])
     summary["problems"] = problems
     return _finish(summary, 1 if problems else 0)
