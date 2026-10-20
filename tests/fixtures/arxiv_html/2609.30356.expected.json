@@ -1,0 +1,494 @@
+{
+ "status": "ok",
+ "version": "v1",
+ "licence_text": "CC BY 4.0",
+ "title": "AlphaEarth distinguishes cities but compresses urban variation",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S3",
+   "3",
+   "Results",
+   2,
+   "section"
+  ],
+  [
+   "S3.SS1",
+   "3.1",
+   "Cities occupy a distinct part of AlphaEarth space",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS2",
+   "3.2",
+   "Geography structures continuous differences between cities",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3",
+   "3.3",
+   "Most variation within cities remains inside broad urban classes",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS4",
+   "3.4",
+   "Dispersion within cities is associated with national development",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS5",
+   "3.5",
+   "Vegetation, radar structure and built form account for the gradient in nearly equal parts",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS6",
+   "3.6",
+   "Separation between cities contracts while city paths repeatedly reverse",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS7",
+   "3.7",
+   "Sentinel-1B loss changes local dispersion but leaves the global variance hierarchy intact",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS8",
+   "3.8",
+   "In the embeddings, construction appears but weather confounds",
+   3,
+   "subsection"
+  ],
+  [
+   "S4",
+   "4",
+   "Discussion",
+   2,
+   "section"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "Urban environments vary within cities, between cities and over time, and compara",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "Earth embeddings—which represent raster imagery as vectors—remove the class boun",
+   []
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "Whether it spreads enough of that representation across cities cannot be settled",
+   []
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "Earth embeddings arrive in several forms. Most pretrained models are adapted to ",
+   []
+  ],
+  [
+   "S1.p5",
+   "S1",
+   "Urban applications of these fields already report signal that changes with the t",
+   []
+  ],
+  [
+   "S1.p6",
+   "S1",
+   "We therefore ask four questions of AlphaEarth’s released embeddings, sampling 84",
+   []
+  ],
+  [
+   "S1.p7",
+   "S1",
+   "Four results follow. The urban region of the field is shifted but overlapping, a",
+   []
+  ],
+  [
+   "S1.p8",
+   "S1",
+   "Annual motion is large relative to the net displacement it produces, and the dif",
+   []
+  ],
+  [
+   "S3.SS1.p1",
+   "S3.SS1",
+   "Urban observations occupy a distinct but overlapping part of AlphaEarth’s global",
+   [
+    "S3.F1",
+    "Sx1.T2"
+   ]
+  ],
+  [
+   "S3.SS1.p2",
+   "S3.SS1",
+   "The shift also appears at the pixel scale. Measured from the global mean directi",
+   [
+    "Sx1.F2"
+   ]
+  ],
+  [
+   "S3.SS1.p3",
+   "S3.SS1",
+   "Cities are also individually identifiable in this frame, carrying a distinct sig",
+   [
+    "Sx1.T3",
+    "Sx1.T1"
+   ]
+  ],
+  [
+   "S3.SS1.p4",
+   "S3.SS1",
+   "Semantic audits show that broad land cover and climates are predictable from the",
+   [
+    "Sx1.F3"
+   ]
+  ],
+  [
+   "S3.SS2.p1",
+   "S3.SS2",
+   "Pairwise differences among city mean embeddings form a continuum rather than a s",
+   [
+    "S3.F2",
+    "Sx1.F6"
+   ]
+  ],
+  [
+   "S3.SS2.p2",
+   "S3.SS2",
+   "Continent and climate account for a substantial part of this continuum. We match",
+   [
+    "S3.F2",
+    "Sx1.F6"
+   ]
+  ],
+  [
+   "S3.SS2.p3",
+   "S3.SS2",
+   "A city’s average position and the amount of variation inside it are only weakly ",
+   [
+    "S3.F2",
+    "Sx1.SS3"
+   ]
+  ],
+  [
+   "S3.SS2.p4",
+   "S3.SS2",
+   "Mean position and the orientation of internal variation share local structure wi",
+   [
+    "Sx1.F7"
+   ]
+  ],
+  [
+   "S3.SS3.p1",
+   "S3.SS3",
+   "Broad urban classes reweight one shared profile of variance across coordinates r",
+   [
+    "S3.F3",
+    "Sx1.F9"
+   ]
+  ],
+  [
+   "S3.SS3.p2",
+   "S3.SS3",
+   "The four degrees of urbanisation account for less than one tenth of embedding va",
+   [
+    "S3.F3"
+   ]
+  ],
+  [
+   "S3.SS3.p3",
+   "S3.SS3",
+   "Degrees of urbanisation are coarse. A finer schema recovers only a fifth of that",
+   [
+    "Sx1.F6"
+   ]
+  ],
+  [
+   "S3.SS3.p4",
+   "S3.SS3",
+   "A common urban gradient exists, but cities depart from it in different direction",
+   [
+    "S3.F3"
+   ]
+  ],
+  [
+   "S3.SS3.p5",
+   "S3.SS3",
+   "Pooling cities expands the apparent dimensionality of the variation that remains",
+   [
+    "Sx1.F9"
+   ]
+  ],
+  [
+   "S3.SS3.p6",
+   "S3.SS3",
+   "Copies of the same footprints on non-urban land show how much of this belongs to",
+   [
+    "Sx1.F10"
+   ]
+  ],
+  [
+   "S3.SS4.p1",
+   "S3.SS4",
+   "The amount of variation retained within each degree of urbanisation is geographi",
+   [
+    "S3.F4",
+    "Sx1.T4"
+   ]
+  ],
+  [
+   "S3.SS4.p2",
+   "S3.SS4",
+   "The association persists across annual layers, but it is sensitive to how geogra",
+   [
+    "Sx1.F11"
+   ]
+  ],
+  [
+   "S3.SS4.p3",
+   "S3.SS4",
+   "The association spans the representation rather than concentrating in a few dire",
+   []
+  ],
+  [
+   "S3.SS5.p1",
+   "S3.SS5",
+   "Measured urban form removes a substantial part of the association and population",
+   [
+    "S3.F4"
+   ]
+  ],
+  [
+   "S3.SS5.p2",
+   "S3.SS5",
+   "That ladder is one of 720 orderings, and the order it uses moves every block’s a",
+   [
+    "S3.T1"
+   ]
+  ],
+  [
+   "S3.SS5.p3",
+   "S3.SS5",
+   "The ladder’s ordering reflects entry position rather than explanatory content: b",
+   [
+    "S3.T1"
+   ]
+  ],
+  [
+   "S3.SS5.p4",
+   "S3.SS5",
+   "Whether a residual gradient remains after that adjustment depends on how measure",
+   [
+    "Sx1.SS5"
+   ]
+  ],
+  [
+   "S3.SS5.p5",
+   "S3.SS5",
+   "Broad cover proportions are not the explanation. Recomputing dispersion in repea",
+   [
+    "Sx1.F11"
+   ]
+  ],
+  [
+   "S3.SS5.p6",
+   "S3.SS5",
+   "Terrain is a second channel for dispersion, and it behaves differently. Adjusted",
+   [
+    "Sx1.F12",
+    "Sx1.SS8.SSS9",
+    "Sx1.T5"
+   ]
+  ],
+  [
+   "S3.SS5.p7",
+   "S3.SS5",
+   "Two further audits narrow the mechanism without settling it. The released locati",
+   [
+    "Sx1.F11"
+   ]
+  ],
+  [
+   "S3.SS6.p1",
+   "S3.SS6",
+   "Separation between cities declines modestly across the annual releases. This com",
+   [
+    "S3.F4"
+   ]
+  ],
+  [
+   "S3.SS6.p2",
+   "S3.SS6",
+   "City paths show the same separation between annual movement and accumulated drif",
+   [
+    "S3.F4"
+   ]
+  ],
+  [
+   "S3.SS6.p3",
+   "S3.SS6",
+   "Part of that movement could be an artefact of sampling, because we draw pixels f",
+   []
+  ],
+  [
+   "S3.SS7.p1",
+   "S3.SS7",
+   "One source of spurious movement can be isolated. Across all 1,000 cities in 162 ",
+   [
+    "Sx1.F13"
+   ]
+  ],
+  [
+   "S3.SS7.p2",
+   "S3.SS7",
+   "The perturbation is locally measurable but does not define a stable global outag",
+   []
+  ],
+  [
+   "S3.SS8.p1",
+   "S3.SS8",
+   "Measured conditions predict part of the movement. Ridge models of monthly weathe",
+   [
+    "Sx1.SS8.SSS12"
+   ]
+  ],
+  [
+   "S3.SS8.p2",
+   "S3.SS8",
+   "There is, however, evidence for real change in the data. At eleven construction ",
+   [
+    "Sx1.SS8.SSS13"
+   ]
+  ],
+  [
+   "S4.p1",
+   "S4",
+   "Earth embeddings promise one geometry in which every city can be compared, and A",
+   []
+  ],
+  [
+   "S4.p2",
+   "S4",
+   "Planetary coverage does not impose a fixed urban taxonomy, and it does not remov",
+   []
+  ],
+  [
+   "S4.p3",
+   "S4",
+   "The coarse schema leaves most of the variation the field retains unresolved, and",
+   []
+  ],
+  [
+   "S4.p4",
+   "S4",
+   "How much variation is represented depends on where the city is. Cities in nation",
+   []
+  ],
+  [
+   "S4.p5",
+   "S4",
+   "This clarifies what successful urban use looks like. AlphaEarth is well suited t",
+   []
+  ],
+  [
+   "S4.p6",
+   "S4",
+   "Temporal use is potentially more fraught. Annual city paths accumulate far more ",
+   []
+  ],
+  [
+   "S4.p7",
+   "S4",
+   "Several limitations bound the interpretation. The city sample excludes smaller s",
+   [
+    "Sx1.SS3"
+   ]
+  ],
+  [
+   "S4.p8",
+   "S4",
+   "None of this is unique to AlphaEarth. Any field trained for planetary coverage s",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "S3.F1",
+   "Figure 1",
+   "Urban observations occupy a shifted but overlapping part of the global field. Th",
+   [
+    [
+     "2609.30356v1/fig1.png",
+     457,
+     516,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S3.F2",
+   "Figure 2",
+   "City similarity is continuous but geographically structured. The hierarchy over ",
+   []
+  ],
+  [
+   "S3.F3",
+   "Figure 3",
+   "Urban classes share one structure and leave most variation inside them. The four",
+   [
+    [
+     "2609.30356v1/fig3.png",
+     457,
+     527,
+     "",
+     false
+    ]
+   ]
+  ],
+  [
+   "S3.F4",
+   "Figure 4",
+   "Dispersion rises with national development, and between-city separation contract",
+   [
+    [
+     "2609.30356v1/fig4.png",
+     438,
+     514,
+     "",
+     false
+    ]
+   ]
+  ]
+ ],
+ "tables": [
+  [
+   "S3.T1",
+   "Table 1",
+   "Vegetation, radar surface structure and built form account for the development g"
+  ]
+ ]
+}

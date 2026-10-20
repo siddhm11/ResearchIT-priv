@@ -5,6 +5,7 @@ Endpoints:
   /healthz/reranker  -- Phase 6.3: verify LightGBM model deployment status
   /healthz/deep      -- Deep health check: ping search and map Qdrant, Zilliz, Turso
   /healthz/client    -- what the rate limiter derives for the calling client
+  /healthz/runtime   -- memory, CPUs, thread pools, recent search/feed timings
 """
 import asyncio
 import hashlib
@@ -47,6 +48,42 @@ async def healthz_client(request: Request):
         },
         "rate_limit": rate_limit.stats(),
     }
+
+
+@router.get("/healthz/runtime")
+async def healthz_runtime():
+    """What the live process is using and how long its requests take.
+
+    `timings` holds p50/p95/max per stage over the last 200 searches and feed
+    builds since the last restart. Search stage times overlap (the rewrite runs
+    alongside encoding and retrieval), so they do not sum to `total_ms`.
+    """
+    from app import abstract_svc, compute_pool, local_meta, runtime_stats
+    return {
+        "memory": runtime_stats.memory(),
+        "cpu": compute_pool.stats(),
+        "models": runtime_stats.models(),
+        "vector_cache": qdrant_svc.vector_cache_stats(),
+        "timings": runtime_stats.timings(),
+        "counters": runtime_stats.counters(),
+        "sidecar_warmup": local_meta.warmup_status(),
+        "full_abstracts": abstract_svc.stats(),
+    }
+
+
+@router.get("/healthz/sources")
+async def healthz_sources():
+    """How much of the corpus has been read from arXiv HTML, and how politely.
+
+    `by_status` counts saved pages (ok, no_html, error), `licence_mix` the
+    licences among them, `breaker_open` whether arXiv recently pushed back and
+    fetching is paused. See app/paper_source_svc.py.
+    """
+    from app import paper_source_svc
+    try:
+        return await paper_source_svc.stats()
+    except Exception as e:
+        return {"error": str(e)[:200]}
 
 
 @router.get("/healthz/reranker")
@@ -423,6 +460,18 @@ async def healthz_deep():
         results["services"]["metadata_sidecar"] = {
             "status": "skipped", "available": False, "error": str(e),
         }
+
+    # ── Groq LLM models ──────────────────────────────────────────────────
+    # Rewrite, the search overview and explanations all degrade silently by
+    # design, so a retired model is invisible from the outside: Llama 3.3 70B
+    # was shut down on 2026-08-16 and nothing noticed for seven weeks. "error"
+    # here means no configured model is served; the keepalive alerts on it.
+    try:
+        from app import groq_svc
+        results["services"]["llm"] = await loop.run_in_executor(
+            None, groq_svc.probe_models)
+    except Exception as e:
+        results["services"]["llm"] = {"status": "error", "error": str(e)[:200]}
 
     # ── Overall status ───────────────────────────────────────────────────
     all_ok = all(

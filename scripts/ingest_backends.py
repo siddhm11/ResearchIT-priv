@@ -36,6 +36,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from net_deadline import deadline  # noqa: E402
 
 BGE_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
+# Same pin as app/config.BGE_M3_PINS: new papers must be encoded with the weights
+# that encoded the rest of the corpus.
+BGE_REVISION = os.getenv("BGE_M3_REVISION", "") or (
+    "5617a9f61b028005a4858fdac845db406aefb181" if BGE_MODEL == "BAAI/bge-m3" else "")
 # New papers go to the recent-papers shard, never the primary. The primary is
 # at its free-tier disk limit and degraded (d985e35); that is why the shard
 # exists. This used to read QDRANT_URL/QDRANT_COLLECTION, so with the app's own
@@ -102,8 +106,13 @@ class Encoder:
         print(f"[ingest] loading {BGE_MODEL} on {dev} ...", flush=True)
         # fp16 only on CUDA: that is where the stored vectors were produced in
         # half precision; on Apple MPS or CPU full precision is the safe choice.
+        path = BGE_MODEL
+        if BGE_REVISION and not os.path.exists(BGE_MODEL):
+            from huggingface_hub import snapshot_download
+            path = snapshot_download(BGE_MODEL, revision=BGE_REVISION, ignore_patterns=[
+                "flax_model.msgpack", "rust_model.ot", "tf_model.h5", "onnx/*"])
         self.model = BGEM3FlagModel(
-            BGE_MODEL, use_fp16=(dev == "cuda"), device=dev)
+            path, use_fp16=(dev == "cuda"), device=dev)
         print("[ingest] model ready", flush=True)
 
     def encode(self, texts: list[str]) -> list[tuple[list[float], dict]]:

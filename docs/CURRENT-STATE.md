@@ -16,7 +16,8 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 
 | Concern | Current behavior | Source |
 |---|---|---|
-| Search | Original + optional rewritten query; dense shard fanout and independent FTS5; Zilliz without FTS; RRF; optional top-10 MiniLM; title/citation boost | `app/hybrid_search_svc.py`, `app/config.py` |
+| Search | Original + optional rewritten query; dense shard fanout and independent FTS5; Zilliz without FTS; RRF; optional mxbai-rerank-xsmall cross-encoder (top 10; branch, not deployed); title/citation boost | `app/hybrid_search_svc.py`, `app/config.py` |
+| LLM features | Query rewrite, search overview and paper explanations call Groq through an ordered failover chain, `GROQ_MODELS` (default `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`). Retired models are benched for 1 h and rate-limited ones for their Retry-After. Truncated output is trimmed or discarded, and every failure degrades to no LLM output. `/healthz/deep` `services.llm` reports availability, and the keepalive fails once the primary is gone. Llama 3.3 70B, the previous single model, was shut down by Groq on 2026-08-16, and the three features were off until this change (2026-10-04, not yet deployed) | `app/groq_svc.py`, `app/config.py`, `scripts/eval_groq_models.py` |
 | Missing encodings | Available FTS query forms still run; actual contributing arms determine `retrieval_mode` | `app/hybrid_search_svc.py` |
 | Search total miss | arXiv keyword fallback; no invented hits for unfamiliar concepts | `app/routers/search.py` |
 | Detailed interests | Saved papers -> long/short/negative EWMA. 2–4 saves: one interest per save; 5+: Ward medoids, K ≤ min(7, ceil(N/2)), finest singleton-free cut (2026-09-30) | `app/recommend/profiles.py`, `clustering.py` |
@@ -31,8 +32,12 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 | Reading history | Latest 50 distinct opens or served papers; metadata failure retains a navigable ID | `app/routers/saved.py`, `app/db.py` |
 | Feedback semantics | Latest save/unsave/dismissal sets explicit state; click/view never overrides it; unsave survives cache reload | `get_current_feedback`, `get_save_history`, `user_state.py` |
 | Library | All current saves; the 20-example retrieval deque no longer limits the library view | saved router |
-| Attribution | Ranked visits are clicks with origin fields; direct visits are views without fabricated policy/propensity | `app/routers/paper.py` |
-| Persistence | Local SQLite; periodic Turso replication of four core tables only | `app/turso_sync.py:TABLES` |
+| Attribution | Ranked visits are clicks with origin fields; direct visits are views without fabricated policy/propensity. Card links carry their surface (`sf=search`, `recommendation`, `saved`) since the card-link fix (branch `fix/click-surface-baseline`); click rows before its deploy say `recommendation` whatever page they came from. Paper-page timings and explanation cache hits/misses appear in `/healthz/runtime`; `scripts/baseline_metrics.py` turns an interactions export into weekly reading metrics | `app/routers/paper.py`, `partials/paper_card.html`, `scripts/baseline_metrics.py` |
+| Persistence | Local SQLite; periodic Turso replication of four core user tables plus two paper caches (`paper_explanations`, `paper_abstracts`), which use an AUTOINCREMENT `id` watermark and restore in pages of 2,000 | `app/turso_sync.py:TABLES` |
+| Full abstracts | Behind `FULL_ABSTRACTS` (off by default). A paper whose stored abstract is cut at 500 characters is queued on first open; the arXiv API is called with up to 20 ids at least 3.1 s apart, honouring Retry-After, up to `FULL_ABSTRACTS_DAILY_CAP` ids a day. Saved abstracts replace stumps on the paper page and in `/explain`; queue state is in `/healthz/runtime` | `app/abstract_svc.py`, `app/routers/paper.py` |
+| Paper sources | Behind `PAPER_SOURCES` (off, shadow, on). Opening a paper schedules one background fetch of `arxiv.org/html/<id>`; the page is parsed in a thread (standard-library parser) into licence, version, sections, paragraphs and figures. `paper_sources` (replicated, at most 8 figures) and local `paper_fulltext`/`paper_paragraphs` (pruned to `FULLTEXT_MAX_PAPERS`). Pacer: 1 request per 2 s, bursts of 3; 3 soft blocks in 10 min open a 15-min breaker. Figures show for every licence unless `FIGURE_LICENCES` lists codes. `/healthz/sources` reports coverage | `app/paper_source_svc.py`, `app/arxiv_html.py`, `app/licences.py` |
+| Figure thumbnails | Behind `FIGURES`. `/fig/<id>/<n>-<hash>.webp` serves saved figure n as a WebP at most 800 px wide, fetched once from arXiv through the paper-source pacer, made with Pillow in a thread, cached in `FIG_CACHE_DIR` (wiped on restart, swept to `FIG_CACHE_MAX_MB`). Rate limit 240 a minute per IP. Every figure shows a credit and licence line | `app/routers/figures.py`, `app/thumbnails.py` |
+| Feature switches | Redesign features read `off`, `shadow`, `preview` or `on` from Space variables; `preview` shows only to a browser that visited `?preview=<PREVIEW_TOKEN>` | `app/features.py` |
 | Corpus freshness | 1,853,777 papers through 2026-09-29 (2026-10-01). New papers go to `arxiv_recent` + Turso via `scripts/ingest_arxiv.py`; the sidecar catches up at the next publish + deploy. A daily job exists (`scripts/daily_refresh.py`, `.github/workflows/daily-refresh.yml`) but is off until `DAILY_REFRESH=on` | PHASE7 §8 |
 | Citations | Semantic Scholar counts for the whole corpus, refreshed 2026-10-01 (99.47% found); the daily job refreshes the last three months | `scripts/refresh_citations.py` |
 
@@ -45,7 +50,8 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 - Feed: 10 core cards, up to 2 exploration cards; ranked pool 60.
 - Refresh suppression: 7 days for personalized retrieval. Cold start remembers the
   available local impression history and recycles only when fresh supply is thin.
-- Policy version: `v10_fresh_discovery`; search `search_v2_independent_lexical`.
+- Policy version: `v11_rescaled_pubdate` (from the 2026-10-16 follow-up deploy;
+  `v10_fresh_discovery` before); search `search_v2_independent_lexical`.
 
 No new model, training procedure, EWMA weight, or clustering threshold was added.
 Category selection guides the initial feed and existing features; it does not

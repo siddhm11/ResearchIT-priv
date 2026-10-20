@@ -480,3 +480,202 @@ so these rest on the replay and on the invariants, not on an offline metric.
 (zero for every paper since 2025-06) and ingest papers after 2026-07-30, or
 Tier 0's fresh lane has no quality signal. Build a small judged set before
 tuning further; multi-medoid retrieval for loose clusters is deferred until then.
+
+### 2026-10-04 — Groq models are an ordered, monitored failover chain
+**Decision:** `groq_svc` no longer names a model. It walks `GROQ_MODELS`
+(default `qwen/qwen3.8-27b`, `openai/gpt-oss-20b`, `openai/gpt-oss-120b`),
+benching a model Groq reports as retired (1 h) or rate-limited (Retry-After).
+Output cut off at the token cap is never served as if complete. `/healthz/deep`
+reports model availability as `services.llm`, and the keepalive workflow fails
+once the primary model is gone, even while a fallback answers.
+**Supersedes:** the single hard-coded `llama-3.3-70b-versatile` (PHASE3 doc,
+historical).
+**Rationale:** Groq shut Llama 3.3 70B down on 2026-08-16. Query rewrite, the
+search overview and explanations all degrade silently by design, so they were
+off for seven weeks with no symptom. Qwen 3.8 leads on measured latency (rewrite
+p50 114 ms vs ~450–490 ms for gpt-oss, inside the 285–642 ms encode it overlaps)
+and on grounding read side by side, despite Groq's Preview label. The chain and
+the alert are what make a Preview primary acceptable.
+**Action items:** Done in code. Re-run `scripts/eval_groq_models.py` whenever
+Groq announces a deprecation. Pending: `_looks_academic` matches every word as an
+"acronym" under IGNORECASE, so queries of more than 6 words are never rewritten.
+That is a search-behaviour change, so it is left for a separate decision.
+
+### 2026-10-09 — Paper age is measured from first publication, not last revision
+**Decision:** Every age-derived reranker feature (5 age, 6 recency, 9 year
+difference, 13 is-newer, 17 citations per year) is computed from the month of
+first submission, decoded from the arXiv ID (`local_meta.pub_year_month`, mid-
+month). The metadata date is only the fallback for IDs that do not parse.
+**Supersedes:** ageing from `published`, which `turso_svc._to_paper_dict` fills
+with `update_date`, the date of the paper's latest arXiv version. The Phase 6
+handoff already documented feature 5 as "days since publication"; the source
+was wrong, not the intent.
+**Rationale:** Revised classics were scored as new papers: "Attention Is All You
+Need" (2017, revised 2023-08-03) collected recency 0.098 instead of 0.001. At
+least 69,399 papers first posted 2007–2022 carry a 2023-or-later revision date.
+Measured before shipping (`scripts/embedding_eval/validate_steps.py`, 272
+simulated readers built from citation links): held-out right answers reached the
+top 10 for 3.3 points more readers (95% CI +1.5 to +5.5; 9 better, 0 worse), and
+the share of recent papers in the top 10 did not fall (43.0% → 43.8%). On 526
+real readers' votes (Scholar Inbox ratings) it was neutral (−0.002 AUC, CI spans
+zero). After implementation the installed code reproduced the reference top 10
+for 100% of readers at pool sizes 30, 60 and 100.
+**Action items:** Done in `app/recommend/reranker.py` with tests. LightGBM mode
+(off by default) now receives the corrected age inputs. The model was trained on
+the old source, so re-check it before switching `RERANKER_MODE`. Card display
+(`year` in `turso_svc`) still shows the revision year; that is a separate UI fix.
+Step 2 of the upgrade plan (similarity rescaling) was measured but not shipped:
+as written it cuts the share of last-12-month papers in the top 10 from 43% to
+10%, so the recency weight needs a product decision first
+(`scripts/embedding_eval/step2_tradeoff.py`).
+
+### 2026-10-09 — Personalised scoring: rescaled similarities, recency weight 0.45
+**Decision:** In `heuristic_score`, readers with a profile get their long- and
+short-term similarities rescaled across the candidate set (as the cold-start
+branch already did with the Qdrant cosine), and recency is weighted 0.45
+instead of 0.15. The cold-start branch keeps 0.15. Chosen by the project owner
+as option C of a measured relevance/freshness frontier.
+**Supersedes:** the CLAUDE.md §3.4 weight budget `0.40*lt + 0.25*st + 0.15*recency
++ 0.10*position - 0.15*neg` for the personalised branch (updated there).
+**Rationale:** Raw profile similarities barely vary across a reader's candidates
+(weighted spreads: 0.006 long-term, 0.005 short-term, against 0.026 recency and
+0.012 position), so recency and position decided the order. Rescaling alone
+lifted the held-out right answer's top-10 rate from 55% to 74% but cut
+last-12-month papers in the top 10 from 43% to 10% (they are 6% of the candidate
+pool: today's freshness came from promoting less relevant new papers). The
+frontier (`scripts/embedding_eval/step2_tradeoff.py`, 272 simulated readers +
+526 real readers' Scholar Inbox votes):
+
+| Variant | Top-10 hit | Recent in top 10 | Real-reader AUC |
+|---|---|---|---|
+| Old formula | 55.1% | 43.0% | 0.684 |
+| Rescaled, recency 0.15 | 73.5% | 9.8% | 0.715 |
+| Rescaled, recency 0.30 | 72.4% | 17.9% | 0.712 |
+| **Rescaled, recency 0.45 (chosen)** | **68.4%** | **28.3%** | **0.703** |
+| Rescaled, recency 0.60 | 66.9% | 35.2% | 0.692 |
+
+The chosen variant's AUC gain is +0.019 (95% CI +0.011 to +0.027; 251 readers
+better, 185 worse). More recency weight does not find relevant new papers: the
+hit rate for newer right answers stays ~60% in every variant. Two independent
+scripts reproduce the reference numbers to the last digit, and the installed
+code matches the reference at pool sizes 30, 60 and 100 (top 10 identical for
+769 of 770 reader-pools; the one difference is a 1.5e-6 score tie).
+**Action items:** Done in `app/recommend/reranker.py` with tests. The negative
+penalty is still on the raw cosine scale; measure before rescaling it. The
+freshness numbers come from readers built from random corpus papers; re-run
+`step2_tradeoff.py` on real ResearchIT readers once impression logs allow.
+
+### 2026-10-14 — Search reranker mxbai-rerank-xsmall; load-aware depth; filler-free FTS; split thread pools
+**Decision:** The search cross-encoder is `mixedbread-ai/mxbai-rerank-xsmall-v1`
+(70M, Apache-2.0) reading 256 tokens, always returning logits
+(`activation_fn=Identity`). It scores the top 20 fused candidates when no other
+inference job is queued or running (`SEARCH_RERANK_TOP_N_IDLE`), otherwise the
+top 10 (`SEARCH_RERANK_TOP_N`). FTS5 drops filler words before matching and
+gives up after `SEARCH_FTS_BUDGET_MS` (1.5 s), leaving the dense arm to answer.
+Retrieval for the original query starts as soon as it is encoded instead of
+after the Groq rewrite returns. Model inference runs on its own pool sized from
+the container's usable CPUs, with torch threads set to match; blocking Qdrant
+calls run on a separate io pool. `/healthz/runtime` reports memory, CPUs, pools
+and recent stage timings.
+**Supersedes:** CLAUDE.md §3.4 "ms-marco-MiniLM-L-6-v2 for the top-10
+candidates"; PHASE8 §1 stage 5 and its depth rule, which was measured on MiniLM.
+**Rationale:** On 847 known-item queries (LitSearch + synthetic) over the
+production sidecar, MRR@10 rose 0.554 → 0.611 at depth 10 and 0.618 at depth 20;
+blind LLM-judged nDCG@10 on 160 queries 0.665 → 0.684 / 0.706. Unlike MiniLM,
+mxbai improves with depth. It returns probabilities by default, and the
+pipeline's own sigmoid on top of them squeezed scores into 0.5–0.73, where the
+title/citation boosts took over; that double sigmoid made it measure worse than
+MiniLM until fixed. 128 tokens loses most of the gain. int8 dynamic quantisation
+cost 1–2% MRR and was 3× slower on Apple silicon; untested on the Space's x86,
+not adopted. The FTS filler fix kept MRR and recall while the word-match median
+fell 2.0 s → 0.6 s and the max 14.7 s → 1.4 s; production's 20.7 s search
+("how do transformers handle long context") was this OR fallback. On 9 of 14
+timed production searches "encode" equalled "rewrite" to the millisecond: the
+rewrite wait, not the model, was on the critical path. A feed load issues up to
+~24 blocking Qdrant calls; on the shared default executor they could occupy
+every thread while a search waited with both CPUs idle.
+**Action items:** Done in code with tests (`tests/test_search_speed.py`,
+`tests/test_fts_sparse.py`). Rollback without a rebuild:
+`RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 RERANKER_MAX_LENGTH=512
+SEARCH_RERANK_TOP_N_IDLE=10`. After deploy, read `/healthz/runtime` for real
+memory, CPU count and stage timings before sizing anything else (a GTE-large
+vector file or index). Eval scripts: `scripts/embedding_eval/search/`.
+
+### 2026-10-15 — Correction: reranker gain measured on production text; idle depth back to 10
+**Decision:** `SEARCH_RERANK_TOP_N_IDLE` defaults to 10, not 20. The reranker
+swap stands.
+**Supersedes:** the depth and gain figures in the 2026-10-14 entry above.
+**Rationale:** The 2026-10-14 search evaluation gave the reranker full abstracts
+(Kaggle CSV, mean 1,171 chars), but production serves the sidecar's
+`abstract_preview`, cut at ~500 chars for ~78% of rows. Re-scored on production
+text, on the same 847 queries, MiniLM-L6 @10 gives MRR@10 0.523 (production
+today) and mxbai-rerank-xsmall @10 gives 0.563: **+0.040 (+7.7%, 95% CI +0.023 to
++0.057)**. Depth 20 adds nothing on truncated text (0.563), so it would cost ~2×
+reranker CPU for no gain. With full abstracts mxbai @20 reaches 0.618 (+18% over
+production today), so more than half of the available search gain waits on the
+abstract backfill (PHASE7 §7.3). The 160-query LLM-judged figures in the entry
+above were also scored on full text and overstate today's gain the same way.
+**Action items:** Done in `config.py`. Backfill full abstracts (from the local
+Kaggle CSV where it covers a paper, arXiv otherwise) into the reranker's input,
+then re-run `rerank.py` with and without the `_sc` suffix and raise the idle
+depth to 20 if the full-text result holds. Also done: reranker weights pinned to
+exact Hugging Face commits (`config.RERANKER_PINS`, mirrored in the Dockerfile
+and checked by a test) so a rebuild cannot drift from the evaluated model; the
+Qdrant io pool capped at 12 threads, because the free clusters lose throughput
+past ~4 concurrent 3-shard searches (8.8/s at 4, 3.8/s at 16, p95 8.6 s). The
+local Kaggle CSV holds the full text of every truncated abstract sampled
+(2,397/2,397, same opening 200 chars), so the backfill needs no arXiv requests.
+BGE-M3 is now pinned too (`config.BGE_M3_PINS`, commit 5617a9f6, the repo's main
+since 2024-07-03, so production's weights are unchanged) in the app, the
+Dockerfile and the ingest encoder, so query vectors cannot drift from the stored
+corpus vectors on a rebuild.
+
+### 2026-10-16 — Word match ranks inside FTS before reading `papers`; feed policy v11
+**Decision:** The FTS5 query sorts and limits inside the FTS virtual table and
+joins `papers` only for the `limit` winners (`fts_svc._SQL`). The sidecar is read
+once into the page cache at startup (`SIDECAR_WARMUP=0` disables it). Feed
+`policy_id` / `_RANKER_VERSION` is `v11_rescaled_pubdate`.
+**Supersedes:** the join-then-sort query in place since the FTS arm landed, and
+the "1.5 s only trips on genuine outliers" premise of the 2026-10-14 budget.
+**Rationale:** A read-only flight test of production after the 2026-10-16 deploy
+found the lexical arm dropped by the 1.5 s budget on ~40% of searches (19 log
+lines, "LLM" on 3 consecutive tries; locally the same query took 83 ms). The old
+query fetched the `papers` row of every match before sorting: 56k random reads
+into a 1.7 GB table for "LLM", 280k for "learning". On 865 queries (847 eval +
+18 probes) the new query returns identical rows in identical order on all 1,509
+AND/OR attempts; per-search time (4 processes in parallel on a laptop) median
+877 -> 288 ms, max 4.6 -> 0.9 s, over 1.5 s 51 -> 0, total CPU -66%. The
+2026-10-14 "same quality with the budget" result was measured where the budget
+never fired, so production search quality was below it until this lands. The
+feed ordering changed on 2026-10-16 (rescaled similarities, recency 0.45, first
+publication age) but kept the v10 label; rows logged from 2026-10-16 19:27 UTC
+until this deploy need a time split, not a policy split.
+**Action items:** Done. `/healthz/runtime` now reports `timings.fts`
+(`and_ms`, `or_ms`, `fts_ms`), `counters.fts_*` (and_hit, or_hit, empty,
+budget_skip, error) and `sidecar_warmup` (MB/s of the Space's disk). Re-run the
+flight test after deploy; if budget skips persist, the disk itself is the limit.
+
+### 2026-10-19 — Redesign foundations: paper source layer, full abstracts, figure licences
+**Decision:** Each paper's arXiv HTML page is read once, in the background, by
+`app/paper_source_svc.py` (switch `PAPER_SOURCES`), and figures, sections and
+paragraphs are served only from what it saved; no reader-facing request waits on
+arXiv. Cut abstracts are replaced by full ones fetched from the arXiv API on first
+open (`app/abstract_svc.py`, switch `FULL_ABSTRACTS`). `paper_explanations`,
+`paper_abstracts` and `paper_sources` replicate to Turso on an AUTOINCREMENT `id`
+watermark and restore in pages. Figures show for every licence (`FIGURE_LICENCES`
+defaults to `all`), the owner's decision on 2026-10-19 while ResearchIT is a
+personal project; every figure carries a credit and licence line.
+**Supersedes:** nothing in the ranking design. The plan's proposal to show figures
+only for Creative Commons papers (docs/redesign/02-implementation-plan.md) is
+replaced by the owner's choice above.
+**Rationale:** Readers need more than a 500-character abstract to understand a
+paper, and arXiv publishes HTML for most papers (54 of 60 sampled new papers).
+Fetching once and caching keeps arXiv load at one request per paper and keeps the
+feed's latency unchanged. A timestamp watermark skips rows in a burst, and one
+unpaged SELECT of a large table times out at boot, hence the id watermark and
+paged restore. arXiv's default licence grants distribution rights to arXiv only:
+narrow `FIGURE_LICENCES` (for example to `CC-BY-4.0,CC-BY-SA-4.0,CC0-1.0`) before
+the project is offered more widely.
+**Action items:** Done on branch `feat/paper-source-svc` and the branches below
+it. Switch `PAPER_SOURCES` to `shadow` first and watch `/healthz/sources` for
+three days. Display-only throughout: no ranking, quota, MMR or scoring change.

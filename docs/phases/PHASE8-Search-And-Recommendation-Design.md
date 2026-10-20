@@ -35,7 +35,7 @@ query
             │
           [4] RRF fusion, k=60                                    [LIVE]
             │
-          [5] cross-encoder, top 50, full abstracts               [LIVE / PENDING]
+          [5] cross-encoder mxbai-xsmall, top 10 (20 idle, later)  [BRANCH]
             │
           [6] title-match + citation boost, top 50                [LIVE]
             │
@@ -46,12 +46,12 @@ query
 
 | # | Stage | Constants | Measured |
 |---|---|---|---|
-| 1 | Groq rewrite | `groq_svc.rewrite`, skipped if ≤2 words or `_looks_academic` | 161–329 ms, **overlapped** |
-| 2 | BGE-M3 encode | `max_length=512`, LRU 128, `run_in_executor` | 285–642 ms |
+| 1 | Groq rewrite | `groq_svc.rewrite`, skipped if ≤2 words or `_looks_academic`; model chain `GROQ_MODELS`, a truncated answer is discarded | 161–329 ms on Llama 3.3 (retired 2026-08-16); ~115 ms p50 on `qwen/qwen3.8-27b` (2026-10-04), **overlapped** |
+| 2 | BGE-M3 encode | `max_length=512`, LRU 128, `compute_pool.run_inference`. Retrieval for the original query starts as soon as it is encoded; only the rewrite's own lists wait for Groq (2026-10-14) | ~70 ms model time; the 258 ms prod median was mostly the rewrite wait |
 | 3a | Qdrant dense | `limit = 10 × SEARCH_FETCH_K_MULTIPLIER(6) = 60` | **~190 ms** |
 | 3b | Zilliz sparse | same limit | ~network |
 | 4 | RRF | `SEARCH_RRF_K = 60`, `1/(k+rank)` summed over all lists | ~0 ms |
-| 5 | Cross-encoder | `SEARCH_RERANK_TOP_N = 10`, sigmoid → [0,1]; `SEARCH_BGE_RERANK=0` disables | 139–182 ms at n=10 |
+| 5 | Cross-encoder | `mxbai-rerank-xsmall-v1`, 256 tokens, logits → sigmoid → [0,1]; top `SEARCH_RERANK_TOP_N = 10`; `SEARCH_RERANK_TOP_N_IDLE` (default 10) deepens it when the inference pool is idle, to be raised to 20 after the abstract backfill; `SEARCH_BGE_RERANK=0` disables. Was MiniLM-L-6 until 2026-10-14 (doc 06) | MiniLM 139–182 ms at n=10 (Space); mxbai 246 / 479 ms at n=10 / 20 on a laptop, ~1.5× that on the Space (estimate) |
 | 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2 | ~1 ms |
 | 7 | Return | `ARXIV_MAX_RESULTS = 10` | |
 
@@ -66,6 +66,12 @@ query
   rose 66.7% → 73.3% → **85.0%** as the window narrowed 50 → 25 → 10, and the
   50-vs-25 comparison moved 14 targets up and 0 down (sign test p = 0.000122).
   `SEARCH_RERANK_TOP_N` now defaults to **10**.
+
+  **2026-10-14:** this sweep was MiniLM's. mxbai-rerank-xsmall moves the other
+  way on full abstracts — MRR@10 0.611 @10, 0.618 @20, 0.624 @30 on 847
+  queries — but not on the ~500-char abstracts production stores (0.563 @10 and
+  @20). Depth stays 10; raise `SEARCH_RERANK_TOP_N_IDLE` to 20 after the
+  abstract backfill (doc 06 changelog).
 
   Read the numbers carefully, because they do not mean the reranker got better.
   `hybrid_search_svc.py` truncates with `fused[:top_n]`, and `ARXIV_MAX_RESULTS`

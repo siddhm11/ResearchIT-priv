@@ -25,7 +25,7 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import db, discovery_svc, errors, qdrant_svc, arxiv_svc, turso_svc, user_state as us
+from app import db, discovery_svc, errors, qdrant_svc, arxiv_svc, runtime_stats, turso_svc, user_state as us
 from app.config import (
     COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
@@ -68,7 +68,11 @@ router = APIRouter(prefix="/api")
 # v9.1 = MMR runs WITHIN each cluster against its own budget instead of
 #      globally, because a global MMR truncated minority interests out of
 #      the pool before the quota stage could arrange them (doc 06, 2026-08-21).
-_RANKER_VERSION = "v10_fresh_discovery"
+# Bump whenever served orderings change, so logs can be split by policy.
+# v11 (2026-10-16): rescaled lt/st similarities, recency 0.45, age from first
+# publication (doc 06, 2026-10-09). Those shipped on 2026-10-16 19:27 UTC under
+# the v10 label; rows logged between then and this deploy need a time split.
+_RANKER_VERSION = "v11_rescaled_pubdate"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -301,7 +305,9 @@ async def _serve_recommendations(
     if entry is None:
         query_id = str(uuid.uuid4())
         page = 1
+        t_feed = time.perf_counter()
         entry = await _build_feed(user_id, state, query_id)
+        runtime_stats.record("feed", {"build_ms": int((time.perf_counter() - t_feed) * 1000)})
         if entry is None:
             return _empty_resp()
         _cache_put(query_id, entry)
@@ -472,6 +478,8 @@ async def _build_feed(
     ranked, explore, tags, _rerank_ms, _timing = await _multi_interest_recommend(
         user_id, state, seen, _FEED_POOL, query_id=query_id,
     )
+    if _timing:
+        runtime_stats.record("feed_tier1", _timing)
 
     # ── Tier 2: EWMA single-vector search (≥3 saves) ─────────────────────
     if not ranked:

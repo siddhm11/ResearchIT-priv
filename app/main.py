@@ -22,7 +22,7 @@ from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
 from app.routers import (search, events, recommendations, saved, onboarding,
-                         health, collections, paper)
+                         health, collections, paper, figures)
 
 
 @asynccontextmanager
@@ -83,6 +83,11 @@ async def lifespan(app: FastAPI):
             print(f"[main] Pruned {pruned} old feed exposure rows")
     except Exception as e:
         print(f"[main] Exposure pruning skipped: {e}")
+    # After the models are in memory, so the read does not compete with loading
+    # them from the same disk. Background thread; the app serves meanwhile.
+    from app import local_meta
+    if local_meta.start_warmup():
+        print("[main] sidecar page-cache warm-up started")
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
@@ -90,6 +95,9 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.discovery.stop()
+        from app import abstract_svc, paper_source_svc
+        await abstract_svc.stop()
+        await paper_source_svc.stop()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:
@@ -154,6 +162,12 @@ async def _security_and_cache_headers(request: Request, call_next):
     if request.url.path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", _STATIC_CACHE_CONTROL)
 
+    # ?preview=<token> turns on the owner's preview of switched features for
+    # this browser; ?preview=off turns it off. See app/features.py.
+    if "preview" in request.query_params:
+        from app import features
+        features.apply_preview_cookie(request, response)
+
     return response
 
 
@@ -191,6 +205,7 @@ app.include_router(onboarding.router)
 app.include_router(health.router)
 app.include_router(collections.router)
 app.include_router(paper.router)
+app.include_router(figures.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.

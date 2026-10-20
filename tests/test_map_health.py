@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import config, local_meta, map_locate_svc, qdrant_svc, zilliz_svc
+from app import config, groq_svc, local_meta, map_locate_svc, qdrant_svc, zilliz_svc
 from app.routers import health
 
 
@@ -28,6 +28,7 @@ def test_deep_health_reports_map_collection_failure(monkeypatch, stats, expected
     monkeypatch.setattr(zilliz_svc, "_get_client", lambda: SimpleNamespace(
         list_collections=lambda: ["papers"]))
     monkeypatch.setattr(local_meta, "stats", lambda: {"available": True})
+    monkeypatch.setattr(groq_svc, "probe_models", lambda: {"status": "ok"})
 
     async def map_stats():
         return stats

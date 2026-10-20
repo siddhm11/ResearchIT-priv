@@ -16,7 +16,13 @@ RUN useradd -m -u 1000 -s /bin/bash user
 ENV HF_HOME=/app/.cache/huggingface
 ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
 ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence-transformers
-RUN mkdir -p /app/.cache/huggingface /app/.cache/sentence-transformers
+# Owned by uid 1000 from the start: models and the sidecar are then written by the
+# user that runs the app, so no `chmod -R` layer is needed afterwards. That layer
+# re-copied every file under /app (the 2.8 GB sidecar and ~2.5 GB of models
+# included), doubling the image, and on 2026-10-16 the HF builder began
+# OOM-killing the image push (exit 137) at that size.
+RUN mkdir -p /app/.cache/huggingface /app/.cache/sentence-transformers /app/data && \
+    chown -R 1000:1000 /app
 
 # Exact version of every package, generated from requirements.txt by `make lock`.
 # Without it each rebuild installed whatever was newest that day, which is how a
@@ -34,11 +40,21 @@ RUN pip install --no-cache-dir torch -c constraints.txt --extra-index-url https:
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
-# Pre-download models into the image (baked in, no cold-start download)
-# BGE-M3 for dense+sparse embeddings (~2.2GB)
-RUN python -c "from FlagEmbedding import BGEM3FlagModel; BGEM3FlagModel('BAAI/bge-m3', use_fp16=False)"
-# MiniLM cross-encoder for search reranking (~80MB)
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+# Pre-download models into the image (baked in, no cold-start download), as the
+# app's user and download-only: instantiating BGE-M3 here only to cache it
+# peaked at ~4-5 GB of build memory for nothing.
+USER 1000
+# BGE-M3 for dense+sparse embeddings, pinned to the commit the corpus vectors
+# were made with (config.BGE_M3_PINS; a test checks they agree). onnx/ (2.3 GB)
+# is a second copy of the weights that nothing here uses.
+RUN python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-m3', revision='5617a9f61b028005a4858fdac845db406aefb181', ignore_patterns=['flax_model.msgpack', 'rust_model.ot', 'tf_model.h5', 'onnx/*'])"
+# Search cross-encoders. mxbai-rerank-xsmall (~150MB on disk) is config.RERANKER_MODEL
+# (tests/test_search_speed.py fails if the two disagree, so a model change cannot
+# silently become a first-request download). MiniLM (~80MB) stays baked in so
+# RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 rolls back without a rebuild.
+# Revisions are pinned (config.RERANKER_PINS) so a rebuild bakes in exactly the evaluated weights;
+# the ONNX/OpenVINO exports (371 MB for mxbai alone) are not used by sentence-transformers.
+RUN python -c "from huggingface_hub import snapshot_download; ig = ['onnx/*', 'openvino/*', '*.msgpack', '*.h5', '*.ot']; snapshot_download('mixedbread-ai/mxbai-rerank-xsmall-v1', revision='b5c6e9da73abc3711f593f705371cdbe9e0fe422', ignore_patterns=ig); snapshot_download('cross-encoder/ms-marco-MiniLM-L-6-v2', revision='233902d25c440f23af6f7d6e94d2946bac0bee0a', ignore_patterns=ig)"
 
 # ── Metadata sidecar (optional but strongly recommended) ─────────────────────
 # A local SQLite mirror of the Turso `papers` table, built by
@@ -70,11 +86,8 @@ RUN mkdir -p /app/data && \
           && rm -f /app/data/metadata.sqlite); \
     fi
 
-# Copy application code
-COPY . .
-
-# Make app dir writable for non-root user (HF Spaces requires USER 1000)
-RUN chmod -R 777 /app
+# Copy application code, owned by the app's user (replaces the old chmod -R 777).
+COPY --chown=1000:1000 . .
 
 # HF Spaces requires port 7860 and non-root user
 USER 1000

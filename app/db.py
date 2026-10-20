@@ -181,14 +181,78 @@ CREATE INDEX IF NOT EXISTS idx_expo_user_time
 -- arxiv_id, so a backfilled full abstract is a different entry and cannot keep
 -- serving an explanation generated from a 500-char stump. Shared across users,
 -- not per-user: the explanation is a property of the paper.
+--
+-- `id` exists for replication (app/turso_sync.py): an AUTOINCREMENT integer is
+-- an exact watermark, where a one-second timestamp skips rows when a batch
+-- boundary falls inside a burst. INSERT OR REPLACE on cache_key deletes the old
+-- row and inserts a new one with a higher id, so an update is pushed again.
 CREATE TABLE IF NOT EXISTS paper_explanations (
-    cache_key   TEXT PRIMARY KEY,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key   TEXT NOT NULL UNIQUE,
     arxiv_id    TEXT NOT NULL,
     explanation TEXT NOT NULL,
     model       TEXT,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
+
+-- One row per paper whose arXiv HTML page has been read (app/paper_source_svc.py).
+-- Replicated, so kept slim: at most 8 figures with captions cut to 300
+-- characters, no paragraph text. `status` is ok | no_html | error.
+CREATE TABLE IF NOT EXISTS paper_sources (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    arxiv_id        TEXT NOT NULL UNIQUE,
+    status          TEXT NOT NULL,
+    version         TEXT,
+    licence         TEXT,
+    licence_text    TEXT,
+    figures_json    TEXT,
+    n_figures       INTEGER DEFAULT 0,
+    n_sections      INTEGER DEFAULT 0,
+    n_paragraphs    INTEGER DEFAULT 0,
+    code_repo       TEXT,
+    code_stars      INTEGER,
+    code_checked_at TEXT,
+    parser_version  INTEGER,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    error           TEXT
+);
+
+-- The bulky half of a parsed page, local only: cheap to rebuild with one
+-- fetch, and pruned to the most recently used papers.
+CREATE TABLE IF NOT EXISTS paper_fulltext (
+    arxiv_id      TEXT PRIMARY KEY,
+    version       TEXT,
+    title         TEXT,
+    abstract      TEXT,
+    sections_json TEXT,
+    figures_json  TEXT,
+    tables_json   TEXT,
+    fetched_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS paper_paragraphs (
+    arxiv_id        TEXT NOT NULL,
+    anchor          TEXT NOT NULL,
+    section_anchor  TEXT,
+    ord             INTEGER NOT NULL,
+    text            TEXT NOT NULL,
+    refs_json       TEXT,
+    PRIMARY KEY (arxiv_id, anchor)
+);
+
+-- Full abstracts for papers whose sidecar copy stops at 500 characters,
+-- fetched from the arXiv API the first time someone opens them
+-- (app/abstract_svc.py). The 2.9 GB sidecar ships inside the image and can't
+-- change without a republish, so the repair lives here and is replicated.
+CREATE TABLE IF NOT EXISTS paper_abstracts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    arxiv_id    TEXT NOT NULL UNIQUE,
+    abstract    TEXT NOT NULL,
+    source      TEXT,
+    fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS collection_follows (
     user_id     TEXT NOT NULL,
@@ -244,6 +308,41 @@ async def init_db() -> None:
             except Exception:
                 pass  # Column already exists — safe to ignore
         await db.commit()
+        await _rebuild_explanations_with_id(db)
+
+
+_EXPLANATIONS_REBUILD = """
+BEGIN;
+ALTER TABLE paper_explanations RENAME TO paper_explanations_old;
+CREATE TABLE paper_explanations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key   TEXT NOT NULL UNIQUE,
+    arxiv_id    TEXT NOT NULL,
+    explanation TEXT NOT NULL,
+    model       TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+INSERT INTO paper_explanations (cache_key, arxiv_id, explanation, model, created_at)
+    SELECT cache_key, arxiv_id, explanation, model, created_at
+    FROM paper_explanations_old ORDER BY created_at;
+DROP TABLE paper_explanations_old;
+CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
+COMMIT;
+"""
+
+
+async def _rebuild_explanations_with_id(db) -> None:
+    """Give a pre-redesign paper_explanations table its `id` column.
+
+    SQLite can't add an AUTOINCREMENT primary key to an existing table, so the
+    table is rebuilt in one transaction, keeping every row. Every column the
+    old code reads survives, so a rollback to the previous release still works.
+    """
+    cur = await db.execute("PRAGMA table_info(paper_explanations)")
+    columns = {row[1] for row in await cur.fetchall()}
+    if "id" in columns:
+        return
+    await db.executescript(_EXPLANATIONS_REBUILD)
 
 
 # ── Interaction helpers ───────────────────────────────────────────────────────

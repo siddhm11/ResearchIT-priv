@@ -1,0 +1,2353 @@
+<title>ResearchIT Redesign Preview</title>
+<meta name="description" content="Today's ResearchIT pages next to the proposed redesign, built with real arXiv papers, real figures and the live site's own summaries.">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   ResearchIT — design system
+   ---------------------------------------------------------------------------
+   Single hand-written stylesheet. Replaces Tailwind Play CDN + DaisyUI +
+   animations.css + the Google Fonts @import.
+
+   Why no Tailwind CDN: tailwindcss.com/docs/installation/play-cdn states the
+   Play CDN is a development tool, not for production. The maintainer's reason
+   (tailwindlabs/tailwindcss#7637) is that it applies styles at RUNTIME, with
+   the worst case being elements added to the page after first load — which is
+   exactly every htmx-swapped paper card. On an infinite feed that means a
+   flash of unstyled content on every appended page.
+
+   Why no webfont: a @font-face CDN link is a render-blocking cross-origin
+   round trip, and the previous @import sat INSIDE this stylesheet, so fonts
+   could not even begin loading until this file was fetched and parsed. System
+   stacks render instantly with zero network. If a brand face is wanted later,
+   self-host it (woff2, subset, font-display: swap, preload) rather than
+   reintroducing a CDN.
+
+   Identity — "reading room": warm near-black rather than the blue-black every
+   research tool uses (warm dark also reduces halation around light text), one
+   restrained green accent reserved for Save, content set in a serif and
+   interface chrome in sans/mono so the two never compete.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Tokens ─────────────────────────────────────────────────────────────
+   Three theme states, per the artifact spec:
+     :root                                  complete LIGHT palette (base)
+     @media dark + :not([data-theme=light]) dark for "system" users
+     :root[data-theme="dark"]               dark when explicitly toggled
+   Every colour is defined in the bare :root first, so nothing depends on a
+   media query or attribute being present.                                   */
+
+:root {
+  /* surfaces
+     The page was #FBFAF8 behind #FFFFFF cards — about 2% apart in luminance,
+     so a card had no edge and the whole page read as one flat sheet. The page
+     is now a definite warm paper tone and the card stays pure white, which
+     puts real separation between them and lets a card actually sit ON
+     something. Borders were lifted for the same reason: #E5E1D9 on white is
+     under 1.3:1 and effectively invisible. */
+  --bg:         #F2EEE6;
+  --bg-2:       #EAE4D9;
+  --surface:    #FFFFFF;
+  --surface-2:  #F4F0E8;
+  --border:     #DED7CA;
+  --border-2:   #C3BAA9;
+  /* Full-strength rule for masthead and section heads — academic pages are
+     built from rules, and a rule has to read as a drawn line, not a smudge. */
+  --rule:       #2A2620;
+
+  /* Graph-paper grid. Two weights, like real plotting paper: a minor line
+     every --grid-1 and a stronger one every fifth. Kept very low contrast
+     because it must read as texture from a distance and disappear the moment
+     you actually look at a word. */
+  --grid:       rgba(40, 34, 22, .050);
+  --grid-major: rgba(40, 34, 22, .075);
+  --grid-1:     26px;
+  --grid-5:     130px;
+  /* Warm light falling from the top of the page. One static gradient, not a
+     per-frame effect. */
+  --wash:       rgba(214, 190, 140, .28);
+
+  /* text */
+  --text:       #16140F;
+  --text-2:     #4E4840;
+  --text-3:     #6E6860;   /* AA on white: 5.51:1. Was #7D766B at 4.49 — failed. */
+
+  /* accent — Save, active nav, focus */
+  --accent:     #2C5638;
+  --accent-2:   #3E7A4E;
+  --accent-bg:  #E4EFE5;
+  --accent-br:  #CADFCD;
+
+  /* semantic */
+  --danger:     #8E3033;
+  --danger-bg:  #F9E3E3;
+  --info:       #13528C;
+  --info-bg:    #DDEAFA;
+
+  /* highlight behind the abstract's lead sentence */
+  --mark:       #DDE9DA;
+
+  /* Shadow-1 was 5% opacity — below the threshold where a shadow reads as
+     anything at all. These are still restrained (no coloured glow, no large
+     blur radius) but they now actually lift a card off the page. */
+  --shadow-1:   0 1px 1px rgba(30, 26, 18, .04), 0 2px 6px -2px rgba(30, 26, 18, .10);
+  --shadow-2:   0 2px 4px rgba(30, 26, 18, .06), 0 12px 28px -12px rgba(30, 26, 18, .22);
+
+  /* type */
+  --font-ui:    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-read:  Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+  --font-mono:  ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* metrics — feed width is set for READING measure (~68ch at .95rem serif),
+     not for filling the viewport. The old max-w-4xl (896px) ran well past the
+     line length reading research supports. */
+  --feed-w:     42rem;
+  --page-w:     64rem;
+  --radius:     10px;
+  --radius-sm:  6px;
+  --topbar-h:   3.25rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #100E0B;
+    --bg-2:      #0B0A08;
+    --surface:   #1B1815;
+    --surface-2: #252119;
+    --border:    #34302A;
+    --border-2:  #4A443B;
+    --rule:      #6E665A;
+    /* Dark mode inverts the grid to light-on-dark and drops it further —
+       a light line on a dark ground reads considerably stronger than the
+       reverse at the same alpha, so matching the light values would give a
+       visibly harder grid. */
+    --grid:       rgba(255, 246, 225, .030);
+    --grid-major: rgba(255, 246, 225, .048);
+    --wash:       rgba(120, 96, 52, .20);
+
+    --text:      #F0EBE2;
+    --text-2:    #B2AA9F;
+    --text-3:    #948D80;  /* AA on --surface: 5.37:1. Was #837C71 at 4.28 — failed. */
+
+    --accent:    #7FB58C;
+    --accent-2:  #A7D4B2;
+    --accent-bg: #263B2C;
+    --accent-br: #37543F;
+
+    --danger:    #E89B8C;
+    --danger-bg: #38201B;
+    --info:      #7FB6E8;
+    --info-bg:   #16283A;
+
+    --mark:      #2E3B2C;
+
+    --shadow-1:  0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-2:  0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -20px rgba(0, 0, 0, .9);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:        #100E0B;
+  --bg-2:      #0B0A08;
+  --surface:   #1B1815;
+  --surface-2: #252119;
+  --border:    #34302A;
+  --border-2:  #4A443B;
+  --rule:      #6E665A;
+    /* Dark mode inverts the grid to light-on-dark and drops it further —
+       a light line on a dark ground reads considerably stronger than the
+       reverse at the same alpha, so matching the light values would give a
+       visibly harder grid. */
+    --grid:       rgba(255, 246, 225, .030);
+    --grid-major: rgba(255, 246, 225, .048);
+    --wash:       rgba(120, 96, 52, .20);
+
+  --text:      #F0EBE2;
+  --text-2:    #B2AA9F;
+  --text-3:    #948D80;    /* AA on --surface: 5.37:1. Was #837C71 at 4.28 — failed. */
+
+  --accent:    #7FB58C;
+  --accent-2:  #A7D4B2;
+  --accent-bg: #263B2C;
+  --accent-br: #37543F;
+
+  --danger:    #E89B8C;
+  --danger-bg: #38201B;
+  --info:      #7FB6E8;
+  --info-bg:   #16283A;
+
+  --mark:      #2E3B2C;
+
+  --shadow-1:  0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-2:  0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px -20px rgba(0, 0, 0, .9);
+}
+
+/* ── 2. Reset & base ─────────────────────────────────────────────────────── */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+/* Background — graph paper.
+   ---------------------------------------------------------------------------
+   The page had a single flat colour behind it, which is why it read as blank
+   rather than as calm. This is the one background device that is actually of
+   this subject: plotting paper is what the work is done on, and a faint grid
+   is the visual signature of a lab notebook, a figure axis and a printed
+   engineering page all at once.
+
+   COST, since the whole reason this was avoided is a 2-vCPU box under an
+   infinite list: these are static gradients painted ONCE into the body's
+   background layer. There is no blur, no backdrop-filter, no filter, no
+   compositing pass, and no `background-attachment: fixed` — fixed is the
+   expensive one, because it forces a repaint of the background on every
+   scroll frame. With the default scroll attachment the browser just
+   translates an already-rasterised layer. This costs approximately nothing
+   per frame, unlike the glassmorphism it is standing in for.
+
+   Layer order (topmost first):
+     1  wash    a single warm light falling from the top, no-repeat
+     2  major   every fifth line, slightly stronger — real graph paper does this
+     3  minor   the base grid
+   Cards are opaque, so the grid only ever shows in the margins around the
+   reading column, which is exactly where atmosphere is free and legibility is
+   not at stake. */
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(120% 60% at 50% -10%, var(--wash) 0%, transparent 70%),
+    linear-gradient(var(--grid-major) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size:
+    100% 34rem,
+    var(--grid-5) var(--grid-5),
+    var(--grid-5) var(--grid-5),
+    var(--grid-1) var(--grid-1),
+    var(--grid-1) var(--grid-1);
+  background-repeat: no-repeat, repeat, repeat, repeat, repeat;
+  background-position: top center, top center, top center, top center, top center;
+}
+
+h1, h2, h3, h4, h5, p, figure { margin: 0; }
+ul, ol { margin: 0; padding: 0; }
+img, svg { display: block; max-width: 100%; }
+button { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--accent-bg); color: var(--text); }
+
+/* One visible focus style everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Screen-reader-only, but still focusable. Used by the skip link and by the
+   feed's "load more" control's helper text. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+  position: absolute; left: .5rem; top: -3rem; z-index: 200;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: var(--radius-sm);
+  padding: .5rem .85rem; font-size: .85rem; font-weight: 550;
+  transition: top .15s ease;
+}
+.skip-link:focus { top: .5rem; }
+
+/* ── 3. Layout ───────────────────────────────────────────────────────────── */
+
+.shell { display: flex; flex-direction: column; min-height: 100vh; }
+
+.wrap {
+  width: 100%;
+  max-width: var(--page-w);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 4vw, 2rem);
+}
+
+.wrap--feed { max-width: calc(var(--feed-w) + 4rem); }
+
+main { flex: 1; padding-block: 1.5rem 4rem; }
+
+/* Mobile bottom nav is fixed; keep content clear of it and of the home
+   indicator on iOS. */
+@media (max-width: 719px) {
+  main { padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
+}
+
+.stack { display: flex; flex-direction: column; }
+.stack-2 { gap: .5rem; }
+.stack-3 { gap: .75rem; }
+.stack-4 { gap: 1rem; }
+.stack-6 { gap: 1.5rem; }
+.row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.grow { flex: 1; min-width: 0; }
+
+/* ── 4. Top bar ──────────────────────────────────────────────────────────
+   Solid, not glass. backdrop-filter blur+saturate is the default "AI SaaS"
+   navbar and it composites the whole scrolling feed underneath it on every
+   frame — a real cost on a 2-vCPU box with an infinite list below.        */
+
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  height: var(--topbar-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.topbar .wrap { height: 100%; display: flex; align-items: center; gap: 1rem; }
+
+.brand {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-weight: 640; font-size: 1.02rem; letter-spacing: -.015em;
+}
+.brand-mark {
+  width: 1.35rem; height: 1.35rem; flex: none;
+  color: var(--accent);
+}
+
+.nav { display: none; align-items: center; gap: .15rem; margin-left: auto; }
+@media (min-width: 720px) { .nav { display: flex; } }
+
+/* The theme toggle sits OUTSIDE .nav on purpose.
+   .nav is display:none below 720px and the toggle used to live inside it, so a
+   phone had no way to change theme at all — on a product whose whole premise is
+   reading on a phone. The bottom nav is a four-item grid and adding a fifth
+   would unbalance it, so the control stays in the top bar, where it is the only
+   thing on the right at mobile widths and joins the end of the row above it. */
+.topbar .theme-toggle { margin-left: auto; flex: none; }
+@media (min-width: 720px) { .topbar .theme-toggle { margin-left: 0; } }
+
+.nav-link {
+  position: relative;
+  padding: .4rem .7rem; border-radius: var(--radius-sm);
+  font-size: .89rem; font-weight: 520; color: var(--text-2);
+}
+.nav-link:hover { color: var(--text); background: var(--surface-2); }
+.nav-link[aria-current="page"] { color: var(--text); font-weight: 580; }
+.nav-link[aria-current="page"]::after {
+  content: ""; position: absolute; left: .7rem; right: .7rem; bottom: -.05rem;
+  height: 2px; background: var(--accent); border-radius: 1px;
+}
+
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem; border-radius: var(--radius-sm);
+  color: var(--text-2);
+}
+.icon-btn:hover { background: var(--surface-2); color: var(--text); }
+.icon-btn svg { width: 1.05rem; height: 1.05rem; }
+
+/* Theme toggle shows exactly one icon; JS never has to guess. */
+.theme-toggle .i-moon { display: none; }
+.theme-toggle .i-sun  { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .i-moon { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .i-sun  { display: none; }
+}
+:root[data-theme="dark"] .theme-toggle .i-moon { display: block; }
+:root[data-theme="dark"] .theme-toggle .i-sun  { display: none; }
+:root[data-theme="light"] .theme-toggle .i-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .i-sun  { display: block; }
+
+/* ── 5. Bottom nav (mobile) ──────────────────────────────────────────────── */
+
+.botnav {
+  position: fixed; z-index: 60; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: stretch;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (min-width: 720px) { .botnav { display: none; } }
+
+.botnav-item {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .15rem; padding: .5rem 0 .45rem;
+  font-size: .68rem; font-weight: 540; color: var(--text-3);
+  min-height: 3.25rem;
+}
+.botnav-item svg { width: 1.25rem; height: 1.25rem; }
+.botnav-item[aria-current="page"] { color: var(--accent); }
+
+/* ── 6. Buttons ──────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .4em;
+  font-family: var(--font-ui); font-size: .87rem; font-weight: 550;
+  padding: .5em 1em; border-radius: var(--radius-sm);
+  border: 1px solid transparent; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+}
+.btn svg { width: 1em; height: 1em; }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+:root[data-theme="dark"] .btn-primary,
+.btn-primary { color: #FBFAF8; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-primary { color: #14120F; }
+}
+:root[data-theme="dark"] .btn-primary { color: #14120F; }
+.btn-primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+
+.btn-quiet { background: transparent; color: var(--text-2); border-color: var(--border-2); }
+.btn-quiet:hover { background: var(--surface-2); color: var(--text); }
+
+.btn-ghost { background: transparent; color: var(--text-3); }
+.btn-ghost:hover { color: var(--text); background: var(--surface-2); }
+
+.btn-sm { font-size: .81rem; padding: .4em .8em; }
+
+/* ── 7. Paper card ───────────────────────────────────────────────────────
+   Anatomy, top to bottom:
+     meta line   one dim mono row — category, year, citations
+     title       the largest thing on the card; the only element users
+                 reliably read (NN/g F-pattern eyetracking)
+     authors     small, dim
+     abstract    lead sentence marked, remainder dimmed
+     actions     Save / Pass / Why this
+   The old card gave five facts five different visual treatments (coloured
+   badge pulled right, year pill, mono id, authors, citation count + icon)
+   and they competed with the title. */
+
+.feed { display: flex; flex-direction: column; gap: .85rem; }
+
+.card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.05rem 1.1rem 0.95rem;
+  display: flex; flex-direction: column; gap: .55rem;
+  box-shadow: var(--shadow-1);
+  /* No fixed height anywhere: WCAG 2.2 SC 1.4.12 requires the layout to
+     survive a user forcing line-height 1.5x / spacing 2x / letter .12em /
+     word .16em without clipping. Everything here reflows. */
+
+  /* Physics. transform + box-shadow only — both composite on the GPU, so a
+     hover part-way down an infinite feed costs no layout or paint. Anything
+     animating width/padding/margin here would reflow every card below it. */
+  transition: transform .16s cubic-bezier(.2, .8, .3, 1),
+              box-shadow .16s ease, border-color .16s ease;
+}
+@media (hover: hover) {
+  .card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-2);
+    border-color: var(--border-2);
+  }
+}
+@media (min-width: 720px) { .card { padding: 1.25rem 1.35rem 1.1rem; } }
+
+.card-meta {
+  display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .02em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-meta .sep { opacity: .45; }
+
+/* The title was 1.14rem against a 0.95rem abstract — a 1.2x step, which is not
+   a hierarchy, it is a rounding error. NN/g's F-pattern work says the title is
+   the one element users reliably read, so it gets a real display step and the
+   tighter leading that larger type wants. */
+.card-title {
+  font-family: var(--font-read);
+  font-size: 1.32rem; line-height: 1.24; font-weight: 640;
+  letter-spacing: -.014em; text-wrap: balance;
+  color: var(--text);
+}
+@media (min-width: 720px) { .card-title { font-size: 1.46rem; } }
+a.card-title:hover { color: var(--accent); }
+
+.card-authors { font-size: .82rem; color: var(--text-3); }
+
+.card-abstract {
+  font-family: var(--font-read);
+  font-size: .95rem; line-height: 1.62; color: var(--text-2);
+}
+/* The lead sentence carries the paper's claim ~always, and NN/g's eyetracking
+   shows attention decays sharply after the first couple of lines — so it is
+   emphasised rather than buried at character 400. Approximates Scholar
+   Inbox's "highlight the sentence most related to the core idea". */
+.card-abstract .lead {
+  color: var(--text); font-weight: 500;
+  box-shadow: inset 0 -.45em 0 var(--mark);
+}
+.card-abstract .rest { color: var(--text-3); }
+
+.card-abstract.is-clamped .rest { display: none; }
+
+.card-more {
+  align-self: flex-start;
+  font-size: .78rem; font-weight: 550; color: var(--text-3);
+  padding: .15rem 0;
+}
+.card-more:hover { color: var(--accent); }
+
+/* The 500-char ingest cap cut this abstract mid-thought. The ellipsis is the
+   only thing telling the reader the sentence was truncated rather than badly
+   written; it sits tight against the last word, so no leading space. */
+.abstract-cut { color: var(--text-3); }
+.card-abstract.is-clamped .abstract-cut { display: none; }
+
+/* An outbound link, so it is underlined on hover where .card-more is not —
+   it leaves the site, and that should not look like the in-place expander. */
+.card-more--full { text-decoration: none; }
+.card-more--full:hover { text-decoration: underline; }
+
+.card-actions {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding-top: .2rem;
+}
+.card-why { margin-left: auto; }
+
+/* Save and Pass used to be two tinted pills of identical weight. They are not
+   equivalent acts: Save is the signal the entire profile is built from, Pass
+   writes to the negative EWMA. Save now carries solid accent — the only solid
+   control on the card — and Pass drops to a quiet ghost. */
+.btn-save {
+  background: var(--accent); color: #FBFAF8; border-color: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+.btn-save:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn-save:active { transform: translateY(1px); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-save { color: #14120F; }
+}
+:root[data-theme="dark"] .btn-save { color: #14120F; }
+
+/* Completed state. A finished action confirms; it does not keep shouting. */
+.btn-saved {
+  background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br);
+}
+.btn-saved[disabled] { opacity: 1; cursor: default; }
+
+.btn-pass { background: transparent; color: var(--text-3); border-color: transparent; }
+.btn-pass:hover { background: var(--surface-2); color: var(--text-2); }
+
+/* Deep link into the 3D map. Quiet by default — it is a side door, not a
+   primary action, and it must not compete with Save. */
+.card-map {
+  display: inline-flex; align-items: center; gap: .35rem;
+  align-self: flex-start;
+  font-size: .78rem; font-weight: 520; color: var(--text-3);
+}
+.card-map svg { width: .85rem; height: .85rem; }
+.card-map:hover { color: var(--accent); }
+
+/* "Why this?" — the serving tier already knows why each paper was retrieved
+   (candidate_source); this surfaces it instead of the old Coming Soon badge. */
+.card-reason {
+  font-size: .82rem; line-height: 1.5; color: var(--text-3);
+  border-left: 2px solid var(--accent-br);
+  padding: .1rem 0 .1rem .6rem; margin-top: .1rem;
+}
+
+/* Dismiss animation. The card is only hidden here — the POST is deferred so
+   Undo can cancel it outright (see app.js). */
+.card.is-leaving {
+  animation: card-leave .18s ease forwards;
+  overflow: hidden;
+}
+@keyframes card-leave {
+  to { opacity: 0; transform: translateX(-8px); max-height: 0;
+       padding-block: 0; margin-bottom: -.85rem; }
+}
+
+/* ── 8. Category chips ───────────────────────────────────────────────────
+   Radix Colors step semantics: step 3 as the chip background, step 11 as its
+   text, with a matched dark variant. Every chip therefore carries identical
+   visual weight and guaranteed legibility, and reassigning a category to a
+   different hue can never change its contrast. Green is deliberately absent —
+   it is reserved for Save, and a green chip would read as "saved". */
+
+.cat {
+  font-family: var(--font-mono); font-weight: 600;
+  font-size: .68rem; letter-spacing: .02em;
+  padding: .2em .45em; border-radius: 4px;
+  background: var(--surface-2); color: var(--text-2);
+}
+.cat-cl   { background: #D6EDF0; color: #0A5C66; }
+.cat-cv   { background: #DDEAFA; color: #13528C; }
+.cat-lg   { background: #E2E6F8; color: #31418D; }
+.cat-ai   { background: #EDE5F6; color: #612E88; }
+.cat-ro   { background: #F9E7D6; color: #8A4816; }
+.cat-phys { background: #F5EBD0; color: #75540C; }
+.cat-astro{ background: #F6E2ED; color: #892D5D; }
+.cat-math { background: #E8ECDB; color: #4D591C; }
+.cat-bio  { background: #D9EDEA; color: #0C5B4E; }
+.cat-eng  { background: #E4E8EA; color: #3E4C53; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .cat-cl   { background: #0F2E33; color: #63CCD8; }
+  :root:not([data-theme="light"]) .cat-cv   { background: #12283F; color: #6EB6F5; }
+  :root:not([data-theme="light"]) .cat-lg   { background: #1A2140; color: #93A4F5; }
+  :root:not([data-theme="light"]) .cat-ai   { background: #271A3B; color: #C193F0; }
+  :root:not([data-theme="light"]) .cat-ro   { background: #33220F; color: #F0A468; }
+  :root:not([data-theme="light"]) .cat-phys { background: #2E2711; color: #DDBB55; }
+  :root:not([data-theme="light"]) .cat-astro{ background: #331A2A; color: #EE8CC0; }
+  :root:not([data-theme="light"]) .cat-math { background: #232811; color: #B8C96A; }
+  :root:not([data-theme="light"]) .cat-bio  { background: #0F2E2A; color: #63CCB4; }
+  :root:not([data-theme="light"]) .cat-eng  { background: #1E262A; color: #9BB0BA; }
+}
+:root[data-theme="dark"] .cat-cl   { background: #0F2E33; color: #63CCD8; }
+:root[data-theme="dark"] .cat-cv   { background: #12283F; color: #6EB6F5; }
+:root[data-theme="dark"] .cat-lg   { background: #1A2140; color: #93A4F5; }
+:root[data-theme="dark"] .cat-ai   { background: #271A3B; color: #C193F0; }
+:root[data-theme="dark"] .cat-ro   { background: #33220F; color: #F0A468; }
+:root[data-theme="dark"] .cat-phys { background: #2E2711; color: #DDBB55; }
+:root[data-theme="dark"] .cat-astro{ background: #331A2A; color: #EE8CC0; }
+:root[data-theme="dark"] .cat-math { background: #232811; color: #B8C96A; }
+:root[data-theme="dark"] .cat-bio  { background: #0F2E2A; color: #63CCB4; }
+:root[data-theme="dark"] .cat-eng  { background: #1E262A; color: #9BB0BA; }
+
+/* ── 9. Section headers, pills, notices ──────────────────────────────────── */
+
+.sec-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; margin-bottom: .8rem;
+}
+.sec-title { font-size: 1.02rem; font-weight: 620; letter-spacing: -.012em; }
+
+.pill {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .04em;
+  padding: .22em .5em; border-radius: 4px;
+  background: var(--surface-2); color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pill-accent { background: var(--accent-bg); color: var(--accent); }
+
+.notice {
+  display: flex; align-items: flex-start; gap: .6rem;
+  padding: .7rem .85rem; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: .87rem; color: var(--text-2);
+}
+
+/* ── 10. Empty / end states ──────────────────────────────────────────────── */
+
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: .7rem;
+  text-align: center; padding: 3.5rem 1rem; max-width: 30rem; margin-inline: auto;
+}
+.empty-title { font-family: var(--font-read); font-size: 1.15rem; font-weight: 600; }
+.empty-body { font-size: .9rem; color: var(--text-3); }
+
+.feed-end {
+  text-align: center; padding: 2rem 1rem 1rem;
+  font-size: .85rem; color: var(--text-3);
+}
+
+/* ── 11. Feed loader (infinite scroll) ───────────────────────────────────
+   A real <button>, not a bare sentinel div. NN/g's infinite-scroll findings:
+   screen-reader users "will only see the first chunk of the list, without
+   being able to trigger the loading of new content", and a list with no
+   terminus also breaks footer access and hides whether more exists.
+   Carrying hx-trigger="revealed, click" makes one element serve both — it
+   auto-fires on scroll and stays keyboard-focusable and activatable. */
+
+.feed-more {
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+  width: 100%; padding: .9rem 1rem; margin-top: .3rem;
+  border: 1px dashed var(--border-2); border-radius: var(--radius);
+  color: var(--text-3); font-size: .85rem; font-weight: 540;
+  background: transparent;
+}
+.feed-more:hover { color: var(--text-2); background: var(--surface-2); border-style: solid; }
+.feed-more .spinner { display: none; }
+.feed-more.htmx-request .spinner { display: block; }
+.feed-more.htmx-request .label { opacity: .55; }
+
+.spinner {
+  width: 1rem; height: 1rem; flex: none;
+  border: 2px solid var(--border-2); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 12. Skeletons ───────────────────────────────────────────────────────
+   Nielsen's response-time limits: under 0.1s feels instant, up to 1s keeps
+   flow, and beyond that the user needs feedback. Tier 1 of this pipeline is
+   multi-second, so a skeleton that mirrors the real card's geometry is
+   load-bearing, not decoration — it also prevents the layout shift that a
+   spinner-then-content swap causes. */
+
+.skel-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.05rem 1.1rem;
+  display: flex; flex-direction: column; gap: .6rem;
+}
+@media (min-width: 720px) { .skel-card { padding: 1.25rem 1.35rem; } }
+
+.skel {
+  height: .7rem; border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.skel-meta   { width: 42%; height: .6rem; }
+.skel-title  { width: 92%; height: 1.05rem; }
+.skel-title2 { width: 64%; height: 1.05rem; }
+.skel-auth   { width: 38%; height: .62rem; }
+.skel-text   { width: 100%; }
+.skel-text-2 { width: 96%; }
+.skel-text-3 { width: 71%; }
+.skel-btn    { width: 4.6rem; height: 1.9rem; border-radius: var(--radius-sm); }
+
+/* ── 13. Toast (undo) ────────────────────────────────────────────────────
+   NN/g on repetitive destructive actions: "if the action is highly repetitive
+   and asking for confirmations would be tedious, support easy undo. Make sure
+   that the undo option is highly salient on the screen." A confirm dialog
+   would tax every user who meant it. */
+
+.toasts {
+  position: fixed; z-index: 100; left: 50%; transform: translateX(-50%);
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column-reverse; gap: .5rem;
+  width: min(24rem, calc(100vw - 2rem));
+  pointer-events: none;
+}
+@media (max-width: 719px) { .toasts { bottom: calc(4.6rem + env(safe-area-inset-bottom, 0px)); } }
+@media (min-width: 720px) { .toasts { left: auto; right: 1.25rem; transform: none; } }
+
+.toast {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: .75rem;
+  padding: .65rem .75rem .65rem .95rem;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: var(--radius);
+  box-shadow: var(--shadow-2); font-size: .87rem;
+  animation: toast-in .18s ease;
+}
+.toast .msg { flex: 1; min-width: 0; }
+.toast .undo {
+  font-weight: 620; color: var(--accent); font-size: .85rem;
+  padding: .25rem .5rem; border-radius: var(--radius-sm);
+}
+.toast .undo:hover { background: var(--accent-bg); }
+.toast.is-out { animation: toast-out .16s ease forwards; }
+@keyframes toast-in  { from { opacity: 0; transform: translateY(6px); } }
+@keyframes toast-out { to   { opacity: 0; transform: translateY(6px); } }
+
+/* ── 14. Search ──────────────────────────────────────────────────────────── */
+
+.searchbar {
+  display: flex; align-items: center; gap: .5rem;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: var(--radius); padding: .35rem .35rem .35rem .8rem;
+  box-shadow: var(--shadow-1);
+}
+.searchbar:focus-within { border-color: var(--accent-2); }
+.searchbar svg { width: 1.05rem; height: 1.05rem; color: var(--text-3); flex: none; }
+.searchbar input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: none;
+  padding: .5rem 0; font-size: .97rem;
+}
+.searchbar input::placeholder { color: var(--text-3); }
+
+.search-meta {
+  font-family: var(--font-mono); font-size: .7rem; color: var(--text-3);
+  display: flex; flex-wrap: wrap; gap: .25rem .8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-summary {
+  border-left: 2px solid var(--accent-br);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: .85rem 1rem;
+  font-family: var(--font-read); font-size: .93rem; line-height: 1.6;
+  color: var(--text-2);
+}
+.ai-summary strong { color: var(--text); font-weight: 620; }
+.ai-summary .label {
+  display: block; font-family: var(--font-mono); font-size: .64rem;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: .35rem;
+}
+
+/* ── 15. Onboarding ──────────────────────────────────────────────────────── */
+
+.ob-step { display: flex; flex-direction: column; gap: 1.25rem; }
+.ob-head { display: flex; flex-direction: column; gap: .4rem; }
+.ob-kicker {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--accent);
+}
+.ob-title {
+  font-family: var(--font-read); font-size: 1.5rem; line-height: 1.2;
+  font-weight: 620; letter-spacing: -.01em; text-wrap: balance;
+}
+.ob-sub { font-size: .92rem; color: var(--text-3); max-width: 46ch; }
+
+.cat-grid {
+  display: grid; gap: .55rem;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+}
+.cat-opt {
+  display: flex; flex-direction: column; gap: .2rem; text-align: left;
+  padding: .7rem .8rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  transition: border-color .12s ease, background .12s ease;
+}
+.cat-opt:hover { border-color: var(--border-2); }
+.cat-opt[aria-pressed="true"] {
+  border-color: var(--accent); background: var(--accent-bg);
+}
+.cat-opt .name { font-size: .87rem; font-weight: 560; }
+.cat-opt .desc { font-size: .75rem; color: var(--text-3); line-height: 1.4; }
+.cat-opt[aria-pressed="true"] .name { color: var(--accent); }
+
+.ob-progress {
+  display: flex; align-items: center; gap: .5rem;
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.ob-bar { flex: 1; height: 3px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.ob-bar > i { display: block; height: 100%; background: var(--accent); transition: width .25s ease; }
+
+.ob-actions { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+
+.ob-footer {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  background: var(--bg); border-top: 1px solid var(--border);
+  padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* Seed picker rows — denser than a feed card, because this is a pick list and
+   the decision is "is this roughly my field?", not "do I want to read it now?" */
+.seed-row {
+  display: flex; align-items: flex-start; gap: .9rem;
+  padding: .8rem .95rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.seed-title {
+  font-family: var(--font-read); font-size: .95rem; line-height: 1.35;
+  font-weight: 560; color: var(--text); display: block;
+}
+.seed-title:hover { color: var(--accent); }
+
+/* ── 16. Utilities ───────────────────────────────────────────────────────── */
+
+.muted { color: var(--text-3); }
+.small { font-size: .85rem; }
+.mono  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.center { text-align: center; }
+.hidden { display: none !important; }
+
+/* Any wide content (tables, code, pre) scrolls inside itself so the page body
+   never scrolls sideways. */
+.scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* htmx indicator convention */
+.htmx-indicator { display: none; }
+/* Both forms are needed, and only the second one was here.
+   htmx adds `htmx-request` to the element named by hx-indicator — i.e. to the
+   indicator ITSELF, not to an ancestor of it. Every use in this codebase points
+   hx-indicator at a separate element (search.html:29 -> #search-loading,
+   seed_search.html:37 -> #seed-loading), so those elements end up carrying both
+   classes on the same node. `.htmx-request .htmx-indicator` is a DESCENDANT
+   selector and cannot match a single element holding both, so neither spinner
+   ever appeared — search and the onboarding seed step ran with no loading state
+   at all, on requests that take seconds. */
+.htmx-indicator.htmx-request,
+.htmx-request .htmx-indicator { display: inline-block; }
+
+/* Skeleton indicators must be block, not inline-block. `.skel` widths are all
+   percentages (92%, 64%, 42%…) and an inline-block box is shrink-to-fit, so the
+   percentages resolve against a width that is itself derived from them and the
+   whole skeleton collapses to a sliver. That defeats the one job skeleton.html
+   exists for — matching the real card geometry so the swap does not shift
+   layout. Spinner indicators (#seed-loading) are genuinely inline and keep the
+   rule above. */
+.htmx-indicator--block.htmx-request,
+.htmx-request .htmx-indicator--block { display: block; }
+
+/* Search progress readout. A shimmer looks identical at 2s and at 40s, so the
+   user cannot tell "nearly there" from "stuck" and reloads — which throws away
+   the in-flight request and starts the pipeline over. Real elapsed time is
+   cheap and never lies. */
+.search-status {
+  display: flex; align-items: center; gap: .55rem;
+  padding: .1rem 0 .85rem;
+  font-size: .86rem; color: var(--text-2);
+}
+.search-status-time {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  color: var(--text-3);
+  min-width: 3.2ch;
+}
+.search-status-hint {
+  display: none;
+  padding: .1rem 0 .9rem;
+  font-size: .82rem; color: var(--text-3);
+  line-height: 1.45;
+}
+.search-status-hint.is-shown { display: block; }
+
+/* Previous results stay in the DOM until the swap lands. Without this they sit
+   at full strength underneath the skeleton, so the page shows three shimmering
+   placeholders above ten real cards for the OLD query and nothing says which is
+   live. Dimming marks them as stale without the layout jump of removing them. */
+#search-results.is-stale {
+  opacity: .3;
+  transition: opacity .12s ease-out;
+  pointer-events: none;
+}
+
+/* ── 17. Motion preferences ──────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .card.is-leaving { animation: none; display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   COLLECTIONS
+   Curated reading tracks. Two surfaces: an index that has to answer "is this
+   my track?" at a glance, and a detail view whose job is to keep editorial
+   curation visually distinct from vector-matched extension.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.sec-sub {
+  font-size: .9rem; color: var(--text-2);
+  max-width: 44ch; margin: -.35rem 0 1.4rem;
+}
+
+.coll-list { display: flex; flex-direction: column; gap: .9rem; }
+
+.coll-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 1.1rem 1.15rem 1rem;
+  box-shadow: var(--shadow-1);
+}
+.coll-card:hover { border-color: var(--border-2); }
+
+.coll-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .8rem; margin-bottom: .35rem;
+}
+.coll-title {
+  font-family: var(--font-read); font-size: 1.12rem; font-weight: 600;
+  letter-spacing: -.012em; line-height: 1.25; text-wrap: balance;
+}
+.coll-title a { color: inherit; text-decoration: none; }
+.coll-title a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+.coll-count {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .04em;
+  color: var(--text-3); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+.coll-blurb { font-size: .89rem; color: var(--text-2); max-width: 56ch; }
+.coll-blurb--lg { font-size: .96rem; margin-top: .3rem; }
+
+/* Preview titles. Three, per the two-tier index -> detail pattern: enough to
+   recognise the track, not enough to start reading it here. */
+.coll-preview {
+  list-style: none; margin: .7rem 0 .9rem; padding: 0;
+  display: flex; flex-direction: column; gap: .18rem;
+  border-left: 2px solid var(--border); padding-left: .75rem;
+}
+.coll-preview li {
+  font-size: .84rem; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coll-preview .coll-more { color: var(--text-3); opacity: .8; font-style: italic; }
+
+.coll-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+.follow-wrap { display: inline-flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.btn-following {
+  background: var(--accent-bg); color: var(--accent); border-color: var(--accent-br);
+}
+.btn-following:hover { background: var(--surface-2); }
+.follow-note { font-size: .8rem; color: var(--text-2); }
+
+/* ── Detail ───────────────────────────────────────────────────────────────── */
+
+.coll-hero { padding: .4rem 0 1.6rem; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
+.back-link {
+  display: inline-block; font-size: .82rem; color: var(--text-3);
+  text-decoration: none; margin-bottom: .6rem;
+}
+.back-link:hover { color: var(--text); }
+.coll-hero .sec-title { font-family: var(--font-read); font-size: 1.6rem; font-weight: 600; }
+.coll-hero-actions {
+  display: flex; align-items: center; gap: .9rem; flex-wrap: wrap; margin-top: 1rem;
+}
+
+.sec-head--sub { margin-top: 2.2rem; padding-bottom: .5rem; border-bottom: 1px solid var(--border); }
+.sec-title--sm {
+  font-family: var(--font-ui); font-size: .74rem; font-weight: 620;
+  letter-spacing: .09em; text-transform: uppercase; color: var(--text-3);
+}
+.sec-note { font-size: .76rem; color: var(--text-3); font-style: italic; }
+
+/* Anchors carry an ordinal and a curator note. The ordinal is deliberately
+   quiet -- reading order is information, but it is not the headline. */
+.anchor-row { display: flex; gap: .85rem; align-items: flex-start; }
+.anchor-ord {
+  flex: 0 0 1.4rem; font-family: var(--font-mono); font-size: .78rem;
+  color: var(--text-3); text-align: right; padding-top: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+.anchor-body { flex: 1 1 auto; min-width: 0; }
+.anchor-note {
+  font-family: var(--font-read); font-size: .89rem; line-height: 1.5;
+  color: var(--text-2); margin: 0 0 .4rem; padding-left: .1rem;
+  max-width: 60ch;
+}
+.feed--anchored { gap: 1.1rem; }
+
+@media (max-width: 34rem) {
+  .anchor-ord { display: none; }
+  .coll-card-head { flex-direction: column; gap: .2rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INTEREST IDENTITY
+   ---------------------------------------------------------------------------
+   The multi-interest pipeline is the thing this project actually built:
+   Ward clustering, medoid queries, importance-weighted quota with a floor of
+   three slots so a minor interest cannot be starved by a dominant one, and
+   Hungarian matching to keep cluster ids stable between reclusterings.
+
+   None of it was visible. Quota fusion guaranteed the minority interests their
+   slots and then every card rendered identically, so the guarantee could not
+   be observed — the feed looked exactly like a single cosine query.
+
+   Each cluster now carries a tone. Because cluster indices are stabilised
+   across reclusterings, a tone stays attached to the same interest between
+   sessions: the colour is an identity, not a per-request accident. That is a
+   payoff for stabilize_cluster_ids() that nothing else was collecting.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --tone-0: #2F6FB8;   /* blue    */
+  --tone-1: #7A4BA8;   /* purple  */
+  --tone-2: #B5761A;   /* amber   */
+  --tone-3: #10786E;   /* teal    */
+  --tone-4: #B33C63;   /* rose    */
+  --tone-5: #4B4FA8;   /* indigo  */
+  --tone-6: #A9542E;   /* clay    */
+}
+
+/* Seven hues, none of them green — green means Save and nothing else, exactly
+   as the category chips reserve it. MAX_CLUSTERS is 7, so this covers every
+   cluster a user can have. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tone-0: #6BA6E8;
+    --tone-1: #B58AE0;
+    --tone-2: #E0A94E;
+    --tone-3: #4CBDAE;
+    --tone-4: #E88AA8;
+    --tone-5: #8D91E8;
+    --tone-6: #E0906A;
+  }
+}
+:root[data-theme="dark"] {
+  --tone-0: #6BA6E8;
+  --tone-1: #B58AE0;
+  --tone-2: #E0A94E;
+  --tone-3: #4CBDAE;
+  --tone-4: #E88AA8;
+  --tone-5: #8D91E8;
+  --tone-6: #E0906A;
+}
+
+.tone-0 { --tone: var(--tone-0); }
+.tone-1 { --tone: var(--tone-1); }
+.tone-2 { --tone: var(--tone-2); }
+.tone-3 { --tone: var(--tone-3); }
+.tone-4 { --tone: var(--tone-4); }
+.tone-5 { --tone: var(--tone-5); }
+.tone-6 { --tone: var(--tone-6); }
+
+/* The rail. A left edge rather than a badge: it reads at a glance while
+   scrolling, costs no vertical space, and does not compete with the title —
+   which stays the largest thing on the card.
+
+   Drawn as a positioned pseudo-element, NOT as border-left. A 3px border would
+   push a railed card's content 2px right of an unrailed one, and the feed
+   legitimately mixes them — short-term supplements and the EWMA tiers have no
+   cluster — so the column would sit visibly ragged. This way the box model is
+   untouched and every card's text starts on the same line.
+
+   Inset from the corners rather than run edge to edge, which avoids fighting
+   the card's 10px border-radius at the top and bottom left. */
+.card--tone::before,
+.card--explore::before {
+  content: "";
+  position: absolute;
+  left: -1px; top: .7rem; bottom: .7rem;
+  width: 3px; border-radius: 2px;
+}
+.card--tone::before { background: var(--tone, var(--border-2)); }
+
+/* Exploration picks are the two serendipitous papers injected per page. They
+   deliberately have no cluster, so they get the negative of a rail — broken
+   and neutral. That makes doc 06 §3.5's "keep the feed from narrowing"
+   behaviour something the user can actually see happening. */
+.card--explore::before {
+  background: repeating-linear-gradient(
+    var(--border-2) 0 3px, transparent 3px 6px
+  );
+}
+
+.card-interest {
+  display: inline-flex; align-items: center; gap: .32rem;
+  font-family: var(--font-ui); font-size: .68rem; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--tone, var(--text-3));
+}
+.card-interest::before {
+  content: ""; width: .4rem; height: .4rem; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.card--explore .card-interest { color: var(--text-3); }
+.card--explore .card-interest::before { background: none; box-shadow: inset 0 0 0 1px currentColor; }
+
+/* ── Feed composition ─────────────────────────────────────────────────────
+   Page titles were 1.02rem — two percent larger than body text, so every page
+   opened with a whisper. That is now handled by the masthead (.issue-title,
+   see THE ISSUE below), which every page uses; the interim .page-title /
+   .page-head pair it replaced has been removed rather than left to rot.
+
+   Composition strip — the feed describing itself. Answers "what is this feed
+   made of" in one line, and makes the quota split legible: a cluster's share
+   of the pool IS its importance weight after allocate_quotas(). */
+.interests {
+  display: flex; align-items: center; gap: .3rem;
+  margin: 0 0 .9rem; padding-bottom: .2rem;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.interests::-webkit-scrollbar { display: none; }
+
+.interest {
+  display: inline-flex; align-items: baseline; gap: .38rem;
+  flex: none; padding: .3rem .6rem;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: var(--surface); font-size: .78rem; font-weight: 540;
+  color: var(--text-2); white-space: nowrap;
+}
+.interest::before {
+  content: ""; align-self: center;
+  width: .45rem; height: .45rem; border-radius: 50%;
+  background: var(--tone, var(--text-3)); flex: none;
+}
+.interest .n {
+  font-family: var(--font-mono); font-size: .68rem;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.interests-label {
+  flex: none; font-size: .72rem; color: var(--text-3);
+  margin-right: .15rem; white-space: nowrap;
+}
+
+/* ── Profile strength ─────────────────────────────────────────────────────
+   The pipeline is gated: 1 save reaches the similarity tier, 3 the EWMA tier,
+   5 the clustered multi-interest tier. The onboarding wizard says so plainly
+   and then the number vanishes the moment onboarding ends — so a user sitting
+   on three saves silently gets the weaker path and reads it as a bad feed.
+   This carries the same sentence into the feed. */
+
+.strength {
+  display: flex; align-items: center; gap: .7rem; flex-wrap: wrap;
+  padding: .65rem .8rem; margin-bottom: .9rem;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.strength-bar {
+  flex: none; width: 5rem; height: 4px; border-radius: 2px;
+  background: var(--border); overflow: hidden;
+}
+.strength-bar > i {
+  display: block; height: 100%; border-radius: 2px;
+  background: var(--accent); transition: width .4s cubic-bezier(.2, .8, .3, 1);
+}
+.strength-text { font-size: .82rem; color: var(--text-2); min-width: 0; }
+.strength-text b { color: var(--text); font-weight: 620; }
+.strength-count {
+  font-family: var(--font-mono); font-size: .72rem; color: var(--text-3);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Cards rise as they arrive. A CSS animation runs once when an element is
+   created, so cards already in the DOM never replay it when htmx appends the
+   next page — no JS bookkeeping needed.
+
+   The stagger cycles every six cards rather than counting from the top of the
+   feed: with :nth-child counted absolutely, page four's cards would sit behind
+   a two-second delay. Six steps of 26ms reads as a wave and tops out at 130ms,
+   comfortably inside Nielsen's 0.1s "feels instant" band for the first cards.
+
+   The global prefers-reduced-motion block near the top of this file already
+   flattens every animation here to 0.01ms. */
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+.feed .card { animation: card-in .3s cubic-bezier(.2, .8, .3, 1) backwards; }
+.feed .card:nth-child(6n + 1) { animation-delay: 0ms; }
+.feed .card:nth-child(6n + 2) { animation-delay: 26ms; }
+.feed .card:nth-child(6n + 3) { animation-delay: 52ms; }
+.feed .card:nth-child(6n + 4) { animation-delay: 78ms; }
+.feed .card:nth-child(6n + 5) { animation-delay: 104ms; }
+.feed .card:nth-child(6n)     { animation-delay: 130ms; }
+
+/* Save confirmation. Applied by app.js to the swapped-in button, so it fires
+   on the act of saving and never on merely rendering an already-saved paper —
+   which is what a CSS-only version would do to every card in the Library. */
+@keyframes save-pop {
+  40% { transform: scale(1.08); }
+  to  { transform: scale(1); }
+}
+.btn-saved.just-saved { animation: save-pop .32s cubic-bezier(.2, .8, .3, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .feed .card { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE ISSUE
+   ---------------------------------------------------------------------------
+   Why this exists, since it is a structural change and not a coat of paint.
+
+   The feed was an infinite scroll. Two independent lines of evidence say that
+   is the wrong container here:
+
+     * This codebase already knows it. search.html carries a comment citing
+       NN/g — infinite scroll suits "homogeneous items with no particular task
+       or goal in mind" and works against users trying to find something
+       specific — and uses that to justify BOUNDING search results. The feed is
+       a triage task too; it got the opposite treatment.
+     * The wider finding is that pagination beats infinite scroll for
+       goal-oriented tasks because it gives control and reference points, and
+       that satisfaction is tied to a sense of COMPLETION. An endless list can
+       never be completed, so it can never be satisfying — only abandoned.
+
+   Scholar Inbox, the largest system in this category, makes its core unit a
+   dated digest for exactly this reason.
+
+   So the feed is framed as an issue: dated, numbered, finite, with a masthead
+   and a terminus. That is also the most genuinely research-themed device
+   available — a journal issue — and it costs nothing to render.
+
+   The visual language throughout is RULES, not boxes. Academic pages are set
+   with rules; soft rounded cards are a SaaS idiom. Rules are also free: no
+   blur, no gradient, no compositing.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Masthead ─────────────────────────────────────────────────────────────── */
+
+.issue {
+  margin-bottom: 1.4rem;
+  border-bottom: 2px solid var(--rule);
+  padding-bottom: .55rem;
+}
+
+/* Kicker rule: the small caps line above a section head, with a hairline that
+   runs out to the measure. The single most recognisable academic page device. */
+.issue-kicker {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-mono); font-size: .66rem; font-weight: 600;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: .5rem;
+}
+.issue-kicker::after {
+  content: ""; flex: 1; height: 1px; background: var(--border-2);
+}
+
+.issue-title {
+  font-family: var(--font-read);
+  font-size: 1.9rem; line-height: 1.05; font-weight: 660;
+  letter-spacing: -.028em; text-wrap: balance; color: var(--text);
+}
+@media (min-width: 720px) { .issue-title { font-size: 2.4rem; } }
+
+/* The dateline. Tabular figures so the numbers hold a column between visits —
+   a masthead that jitters as the date changes reads as sloppy. */
+.issue-line {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .7rem;
+  margin-top: .45rem;
+  font-family: var(--font-mono); font-size: .72rem; letter-spacing: .04em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.issue-line .sep { opacity: .4; }
+.issue-line b { color: var(--text-2); font-weight: 600; }
+
+/* ── Section heads within the issue ───────────────────────────────────────── */
+
+.sec-rule {
+  display: flex; align-items: center; gap: .6rem;
+  margin: 1.8rem 0 .85rem;
+  font-family: var(--font-mono); font-size: .68rem; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--tone, var(--text-3));
+}
+.sec-rule::before {
+  content: ""; width: .45rem; height: .45rem; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.sec-rule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+.sec-rule .n {
+  font-variant-numeric: tabular-nums; color: var(--text-3);
+  letter-spacing: .06em;
+}
+
+/* ── Card as catalogue entry ──────────────────────────────────────────────── */
+
+/* Top line of a card: category on the left, match readout on the right, with a
+   rule between. Replaces a row of three dim mono facts that nobody scans. */
+.card-rule {
+  display: flex; align-items: center; gap: .55rem;
+  margin-bottom: .1rem;
+}
+.card-rule::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+  order: 1;
+}
+.card-rule .cat { order: 0; }
+.card-match { order: 2; }
+
+/* The match meter. Cosine against the cluster medoid that retrieved this
+   paper — reranker feature 0, previously computed and thrown away.
+
+   Ticks rather than a plain bar: an unmarked bar is a decoration, a ticked one
+   is a scale, and the whole point is that two cards can be compared. */
+.card-match {
+  display: inline-flex; align-items: center; gap: .4rem; flex: none;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .04em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.meter {
+  position: relative; width: 3.4rem; height: .5rem; flex: none;
+  border: 1px solid var(--border-2); border-radius: 1px;
+  overflow: hidden;
+}
+.meter > i {
+  display: block; height: 100%;
+  background: var(--tone, var(--accent));
+  opacity: .85;
+}
+/* Quarter ticks, drawn over the fill so the scale stays readable when full. */
+.meter::after {
+  content: ""; position: absolute; inset: 0;
+  background: repeating-linear-gradient(
+    90deg, transparent 0 calc(25% - 1px), var(--border-2) calc(25% - 1px) 25%
+  );
+  pointer-events: none;
+}
+
+/* Specimen number. An arXiv id is the paper's canonical identifier and the
+   thing a researcher copies, cites and searches — it belongs on the card, set
+   like a catalogue number rather than hidden in a link's href. */
+.card-id {
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-id:hover { color: var(--accent); }
+
+.card-foot {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding-top: .15rem;
+  font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
+  color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.card-foot .sep { opacity: .4; }
+
+/* ── Issue terminus ───────────────────────────────────────────────────────── */
+
+.issue-end {
+  margin-top: 2rem; padding-top: 1.1rem;
+  border-top: 2px solid var(--rule);
+  text-align: center;
+}
+.issue-end .mark {
+  font-family: var(--font-mono); font-size: .68rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.issue-end .note {
+  display: block; margin-top: .35rem;
+  font-size: .86rem; color: var(--text-3);
+}
+
+/* ── Paper page ──────────────────────────────────────────────────────────
+   The site's owned destination for one paper. Deliberately not a big card:
+   a card is built to be skimmed in a stack, this is the one place a reader
+   has chosen to stop. So the abstract runs at reading measure with no clamp,
+   and the triage chrome is demoted or gone.                              */
+
+.paper-page { max-width: var(--feed-w); padding-top: 1.5rem; }
+
+.paper { display: flex; flex-direction: column; gap: .5rem; }
+
+.paper-title {
+  font-family: var(--font-read);
+  font-size: clamp(1.5rem, 4vw, 2rem); line-height: 1.18;
+  letter-spacing: -.02em; font-weight: 600; text-wrap: balance;
+  margin: .2rem 0 0;
+}
+.paper-authors { color: var(--text-2); font-size: .95rem; margin: 0; }
+.paper-foot { margin-top: .1rem; }
+
+.paper-abstract {
+  font-family: var(--font-read);
+  font-size: 1.02rem; line-height: 1.68; color: var(--text);
+  margin: 1rem 0 0;
+}
+.paper-note { font-size: .84rem; color: var(--text-3); margin: .5rem 0 0; }
+
+.paper-actions { display: flex; gap: .5rem; margin-top: 1.25rem; }
+
+.paper-links {
+  display: flex; flex-wrap: wrap; gap: 1rem;
+  margin-top: 1rem; padding-top: .9rem;
+  border-top: 1px solid var(--border);
+  font-size: .86rem;
+}
+.paper-links a { color: var(--text-2); }
+.paper-links a:hover { color: var(--accent); }
+
+.paper-related { margin-top: 3rem; }
+.eyebrow-rule { border-bottom: 2px solid var(--rule); padding-bottom: .5rem; }
+.eyebrow-rule h2 {
+  font-size: 1.1rem; letter-spacing: -.015em; font-weight: 620; margin: 0;
+}
+.paper-related-note {
+  font-size: .84rem; color: var(--text-3); margin: .6rem 0 1.2rem;
+}
+
+/* ── Reading density + generated explanation ─────────────────────────────
+   The density badge is a tercile of the corpus, so it is comparative, not
+   absolute — three quiet tints rather than a traffic light, because this is
+   information about the writing, not a warning about the paper.          */
+
+.dens {
+  font-family: var(--font-mono); font-size: .64rem; font-weight: 600;
+  letter-spacing: .04em; padding: .16rem .45rem; border-radius: 3px;
+  border: 1px solid var(--border-2); color: var(--text-2);
+  background: var(--surface-2); white-space: nowrap; cursor: help;
+}
+.dens-accessible { color: var(--accent); border-color: var(--accent-br);
+                   background: var(--accent-bg); }
+.dens-specialist { color: var(--text); border-color: var(--border-2);
+                   background: var(--bg-2); }
+
+.explain {
+  margin-top: 1.25rem; padding: .95rem 1.1rem;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.explain-head { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; }
+.explain-label {
+  font-family: var(--font-mono); font-size: .64rem; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+}
+.explain-note { font-size: .68rem; color: var(--text-3); }
+.explain-body {
+  margin: .5rem 0 0; font-family: var(--font-read);
+  font-size: .97rem; line-height: 1.62; color: var(--text);
+}
+/* Discovery controls share the existing visual system and wrap on phones. */
+.discovery-tools { display: flex; flex-wrap: wrap; gap: .6rem; margin-block: 1rem; }
+.interest-picker { border: 0; padding: 0; margin: 0; min-width: 0; }
+.interest-picker legend { margin-bottom: 1rem; font-weight: 600; }
+.interest-choice { display: flex; align-items: flex-start; gap: .75rem; cursor: pointer; }
+.interest-choice input { margin-top: .35rem; width: 1.1rem; height: 1.1rem; flex-shrink: 0; }
+.interest-choice:has(input:checked) { outline: 2px solid currentColor; outline-offset: -2px; }
+
+</style>
+<style>
+/* Preview layer. Layout: the real app shell and stylesheet; "Proposed" widens
+   to a three-zone laptop layout (rail · reading · chat) and folds to one
+   column on a phone. Every colour comes from the app's tokens; two are added. */
+[hidden] { display: none !important; }
+:root {
+  --plate: #FFFFFF;          /* figures are drawn for white paper */
+  --note: var(--info);       /* annotation colour, kept apart from Save green */
+  --note-bg: var(--info-bg);
+  --wide: 84rem;
+  --sticky-top: calc(var(--topbar-h) + 1.25rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --plate: #ECE7DD; color-scheme: dark; }
+}
+:root[data-theme="dark"] { --plate: #ECE7DD; color-scheme: dark; }
+
+.v-proposed .topbar .wrap { max-width: var(--wide); }
+.wrap--wide { max-width: var(--wide); }
+
+/* ── preview bar ── */
+.pv { background: var(--surface-2); border-bottom: 1px dashed var(--border-2); }
+.pv .wrap { max-width: var(--wide); padding-block: .75rem; display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; }
+.pv-id { display: flex; flex-direction: column; gap: .1rem; margin-right: auto; min-width: 0; }
+.pv-label { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--note); }
+.pv-title { font-weight: 620; font-size: .95rem; }
+.pv-controls { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; }
+.pv-sub { flex-basis: 100%; font-size: .8rem; color: var(--text-3); line-height: 1.45; }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.seg button { font-size: .8rem; font-weight: 560; padding: .38rem .75rem; color: var(--text-2); }
+.seg button + button { border-left: 1px solid var(--border-2); }
+.seg button:hover { color: var(--text); background: var(--surface-2); }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+.pv-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--text-2); cursor: pointer; }
+.pv-toggle input { width: 1rem; height: 1rem; accent-color: var(--note); }
+
+/* ── notes ── */
+.pv-notes { border: 1px dashed var(--border-2); border-radius: var(--radius); padding: .85rem 1rem .9rem; margin-bottom: 1.3rem; background: var(--surface); }
+.pv-notes h2 { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--note); margin-bottom: .55rem; }
+.pv-notes ol { list-style: none; display: grid; gap: .4rem; }
+@media (min-width: 1180px) { .pv-notes--wide ol { grid-template-columns: 1fr 1fr; gap: .45rem 1.5rem; } }
+.pv-notes li { display: flex; gap: .55rem; align-items: flex-start; font-size: .86rem; color: var(--text-2); line-height: 1.45; }
+.pv-num, .pv-mark {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  min-width: 1.15rem; height: 1.15rem; padding: 0 .2rem; border-radius: 999px;
+  background: var(--note-bg); color: var(--note);
+  font-family: var(--font-mono); font-size: .64rem; font-weight: 700; line-height: 1;
+}
+.pv-mark { margin-left: .35rem; vertical-align: .12em; font-style: normal; letter-spacing: 0; text-transform: none; }
+.notes-off .pv-notes, .notes-off .pv-mark { display: none; }
+
+/* ── shared bits ── */
+.code-chip { display: inline-flex; align-items: center; gap: .3rem; font-family: var(--font-mono); font-size: .7rem; font-weight: 600;
+  padding: .14rem .5rem; border: 1px solid var(--border-2); border-radius: 999px; color: var(--text-2); white-space: nowrap; }
+.code-chip svg { width: .8rem; height: .8rem; }
+.code-chip:hover { color: var(--accent); border-color: var(--accent-br); }
+.code-chip .st { color: var(--text-3); font-weight: 500; }
+.plate { display: block; width: 100%; padding: .55rem; background: var(--plate); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: zoom-in; }
+.plate img { width: 100%; max-width: 100%; aspect-ratio: 16 / 8; object-fit: contain; }
+.plate-cap { display: flex; flex-wrap: wrap; gap: .15rem .5rem; margin-top: .35rem; font-size: .74rem; color: var(--text-3); line-height: 1.4; }
+.plate-cap b { color: var(--text-2); font-weight: 600; }
+.tex { font-style: italic; }
+.pc-menu { position: relative; }
+.pc-menu-btn { width: 2rem; height: 2rem; border-radius: var(--radius-sm); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; }
+.pc-menu-btn:hover, .pc-menu-btn[aria-expanded="true"] { background: var(--surface-2); color: var(--text); }
+.pc-menu-btn svg { width: 1.1rem; height: 1.1rem; }
+.menu { position: absolute; right: 0; top: 2.2rem; z-index: 30; min-width: 12.5rem; padding: .3rem;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: var(--radius-sm); box-shadow: var(--shadow-2);
+  display: flex; flex-direction: column; }
+.menu a, .menu button { text-align: left; padding: .5rem .65rem; font-size: .84rem; border-radius: 4px; color: var(--text-2); }
+.menu a:hover, .menu button:hover { background: var(--surface-2); color: var(--text); }
+
+/* Plain terms / Abstract switch, used on cards and on the paper page */
+.tx-tabs { display: flex; align-items: center; gap: 1rem; border-bottom: 1px solid var(--border); }
+.tx-tab { font-family: var(--font-mono); font-size: .64rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--text-3); padding: .15rem 0 .4rem; margin-bottom: -1px; border-bottom: 2px solid transparent; }
+.tx-tab:hover { color: var(--text-2); }
+.tx-tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.tx-body { font-family: var(--font-read); font-size: 1rem; line-height: 1.6; color: var(--text); padding-top: .55rem; }
+.tx-body--abs { font-size: .94rem; color: var(--text-2); }
+.tx-note { display: block; margin-top: .4rem; font-family: var(--font-ui); font-size: .7rem; color: var(--text-3); }
+
+/* ── proposed feed: rail + two columns on a laptop ── */
+.fx { display: block; }
+@media (min-width: 900px) { .fx { display: grid; grid-template-columns: 14.5rem minmax(0, 1fr); gap: 2.25rem; align-items: start; } }
+.rail { display: flex; flex-direction: column; gap: 1.1rem; margin-bottom: 1.1rem; min-width: 0; }
+@media (min-width: 900px) { .rail { position: sticky; top: var(--sticky-top); margin-bottom: 0; } }
+.rail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .7rem; padding-bottom: .7rem; border-bottom: 2px solid var(--rule); }
+.rail-title { font-family: var(--font-read); font-size: 1.7rem; line-height: 1.1; font-weight: 660; letter-spacing: -.024em; }
+.rail-date { font-family: var(--font-mono); font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.rail-head .btn { margin-left: auto; }
+@media (min-width: 900px) { .rail-head { flex-direction: column; align-items: flex-start; } .rail-head .btn { margin-left: 0; margin-top: .4rem; } }
+.rail-sec { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.rail-sec > h2 { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); }
+.rail-ints { display: flex; gap: .3rem; overflow-x: auto; scrollbar-width: none; }
+.rail-ints::-webkit-scrollbar { display: none; }
+@media (min-width: 900px) { .rail-ints { flex-direction: column; overflow: visible; gap: .1rem; } }
+.rail-int { display: flex; align-items: center; gap: .5rem; flex: none; padding: .38rem .7rem; text-align: left;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: .82rem; color: var(--text-2); white-space: nowrap; }
+.rail-int::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; flex: none; background: var(--tone, var(--text-3)); }
+.rail-int.is-explore::before { background: none; box-shadow: inset 0 0 0 1px var(--text-3); }
+.rail-int.is-all::before { display: none; }
+.rail-int .n { margin-left: auto; padding-left: .4rem; font-family: var(--font-mono); font-size: .68rem; color: var(--text-3); }
+.rail-int[aria-pressed="true"] { border-color: var(--text); color: var(--text); font-weight: 600; }
+@media (min-width: 900px) {
+  .rail-int { width: 100%; border-color: transparent; background: transparent; border-radius: var(--radius-sm); white-space: normal; padding: .42rem .6rem; }
+  .rail-int:hover { background: var(--surface-2); }
+  .rail-int[aria-pressed="true"] { background: var(--surface); border-color: var(--border-2); box-shadow: var(--shadow-1); }
+}
+.rail-link { font-size: .8rem; color: var(--text-3); padding-left: .6rem; }
+.rail-link:hover { color: var(--accent); }
+.rail-help { font-size: .76rem; color: var(--text-3); line-height: 1.45; }
+@media (max-width: 899px) { .rail-sec--desk { display: none; } }
+
+.cols { display: flex; gap: .95rem; align-items: flex-start; }
+.cols > .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .95rem; }
+.cols--two .card-title { font-size: 1.22rem; }
+.pc-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.6rem; }
+.pc-top .pc-menu { margin-left: auto; }
+.pc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-size: .8rem; color: var(--text-3); }
+.pc-meta .sep { opacity: .45; }
+.pc-actions { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; padding-top: .15rem; }
+.empty-filter { padding: 2rem 1rem; text-align: center; color: var(--text-3); font-size: .9rem; }
+
+/* ── proposed paper page: outline · reading · chat ── */
+.px { display: block; }
+@media (min-width: 900px) { .px { display: grid; grid-template-columns: minmax(0, 1fr) 21.5rem; gap: 2rem; align-items: start; } }
+@media (min-width: 1180px) { .px { grid-template-columns: 12rem minmax(0, 1fr) 23rem; gap: 2.25rem; } }
+.outline { display: none; }
+@media (min-width: 1180px) { .outline { display: flex; flex-direction: column; gap: 1.4rem; position: sticky; top: var(--sticky-top); } }
+.outline h2 { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); margin-bottom: .45rem; }
+.outline nav { display: flex; flex-direction: column; }
+.outline nav a { padding: .3rem .7rem; border-left: 2px solid var(--border); font-size: .84rem; color: var(--text-3); }
+.outline nav a:hover { color: var(--text); }
+.outline nav a.is-active { border-left-color: var(--accent); color: var(--text); font-weight: 580; }
+.outline .acts { display: flex; flex-direction: column; align-items: stretch; gap: .45rem; }
+.outline .acts .btn { justify-content: flex-start; }
+.outline .acts a.lnk { font-size: .84rem; color: var(--text-2); padding: .2rem .1rem; }
+.outline .acts a.lnk:hover { color: var(--accent); }
+.px-main { min-width: 0; }
+.px-main .paper-title { font-size: clamp(1.55rem, 3.2vw, 2.15rem); }
+.inline-acts { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-top: .9rem; }
+.inline-acts .pc-menu { margin-left: auto; }
+.inline-acts .lnk { font-size: .84rem; color: var(--text-2); padding: .3rem .2rem; }
+@media (min-width: 1180px) { .inline-acts { display: none; } }
+.pp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); }
+.pp-meta .sep { opacity: .45; }
+.sum-box { padding: .85rem 1.1rem 1rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.brief { margin-top: 2.1rem; display: flex; flex-direction: column; gap: .8rem; scroll-margin-top: 5rem; }
+.sum-box.brief { margin-top: 1.25rem; gap: 0; }
+.brief-h { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; font-family: var(--font-mono); font-size: .68rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-2); }
+.brief-h::after { content: ""; flex: 1 1 2rem; height: 1px; background: var(--border); order: 9; }
+.gen-tag { font-family: var(--font-ui); font-size: .66rem; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--text-3); border: 1px dashed var(--border-2); border-radius: 999px; padding: .08rem .5rem; }
+.things { list-style: none; display: grid; gap: .9rem; }
+.things li { border-left: 2px solid var(--accent-br); padding-left: .85rem; font-family: var(--font-read); font-size: 1rem; line-height: 1.58; color: var(--text-2); }
+.things b { color: var(--text); font-weight: 650; }
+.src { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; color: var(--note); background: var(--note-bg); padding: .08rem .38rem; border-radius: 3px; white-space: nowrap; margin-left: .25rem; }
+a.src:hover { text-decoration: underline; }
+.how { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .5rem; }
+@media (max-width: 40rem) { .how { grid-template-columns: 1fr; } }
+@media (min-width: 900px) and (max-width: 1060px) { .how { grid-template-columns: 1fr 1fr; } }
+.how li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .7rem .75rem .75rem; }
+.how .nm { display: flex; align-items: baseline; gap: .45rem; font-weight: 620; font-size: .88rem; }
+.how .nm i { font-style: normal; font-family: var(--font-mono); font-size: .68rem; color: var(--text-3); }
+.how .tx { margin-top: .25rem; font-size: .8rem; line-height: 1.45; color: var(--text-3); }
+.use { font-family: var(--font-read); font-size: 1rem; line-height: 1.6; color: var(--text); }
+.figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .75rem; }
+.figs > button { display: flex; flex-direction: column; text-align: left; min-width: 0; }
+.figs .plate { padding: .3rem; }
+.figs .plate img { aspect-ratio: 4 / 3; }
+.figs .cap { display: block; margin-top: .3rem; font-size: .72rem; line-height: 1.35; color: var(--text-3); }
+.figs .cap b { color: var(--text-2); }
+.near { list-style: none; display: flex; flex-direction: column; }
+.near li { padding: .75rem 0; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: .2rem; }
+.near a { font-family: var(--font-read); font-size: 1.04rem; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+.near a:hover { color: var(--accent); }
+.near .m { font-size: .78rem; color: var(--text-3); }
+
+/* ── chat: a side panel on a laptop, a sheet on a phone ── */
+.chat { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-1); overflow: hidden; }
+@media (min-width: 900px) {
+  .chat { display: flex; flex-direction: column; position: sticky; top: var(--sticky-top);
+    height: calc(100vh - var(--topbar-h) - 2.5rem); min-height: 28rem; }
+}
+.chat.is-sheet { display: flex; flex-direction: column; position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 95;
+  height: min(86vh, 44rem); min-height: 0; border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: var(--shadow-2); }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(12, 10, 8, .5); }
+.chat-head { padding: .85rem 1rem .75rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: .45rem; }
+.chat-title { display: flex; align-items: center; gap: .5rem; font-weight: 640; font-size: .98rem; }
+.chat-title svg { width: 1.05rem; height: 1.05rem; color: var(--accent); }
+.chat-title .x { margin-left: auto; }
+.chat:not(.is-sheet) .chat-title .x { display: none; }
+.chat-sub { font-size: .76rem; color: var(--text-3); line-height: 1.4; }
+.ctx { display: flex; flex-wrap: wrap; gap: .3rem; }
+.ctx span { font-family: var(--font-mono); font-size: .62rem; color: var(--text-3); border: 1px solid var(--border); border-radius: 999px; padding: .1rem .45rem; }
+.chat-log { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: .85rem; overscroll-behavior: contain; }
+.msg { max-width: 94%; }
+.msg-user { align-self: flex-end; background: var(--accent-bg); color: var(--text); padding: .5rem .8rem; border-radius: 14px 14px 4px 14px; font-size: .88rem; line-height: 1.45; }
+.msg-bot { align-self: flex-start; display: flex; flex-direction: column; gap: .4rem; }
+.msg-bot .bubble { background: var(--surface-2); border: 1px solid var(--border); padding: .7rem .85rem; border-radius: 14px 14px 14px 4px;
+  font-family: var(--font-read); font-size: .93rem; line-height: 1.55; color: var(--text); }
+.msg-bot blockquote { margin: .55rem 0 0; padding-left: .6rem; border-left: 2px solid var(--accent-br); font-style: italic; color: var(--text-2); font-size: .88rem; }
+.cites { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; font-size: .7rem; color: var(--text-3); padding-left: .2rem; }
+.cite { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; color: var(--note); background: var(--note-bg); padding: .12rem .42rem; border-radius: 3px; }
+.cite:hover { text-decoration: underline; }
+.typing { align-self: flex-start; display: inline-flex; gap: .28rem; padding: .7rem .85rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px 14px 14px 4px; }
+.typing i { width: .42rem; height: .42rem; border-radius: 50%; background: var(--text-3); animation: blink 1s ease-in-out infinite; }
+.typing i:nth-child(2) { animation-delay: .15s; } .typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes blink { 50% { opacity: .25; transform: translateY(-2px); } }
+.sugg { display: flex; flex-wrap: wrap; gap: .35rem; }
+.sugg button { font-size: .78rem; padding: .3rem .7rem; border: 1px solid var(--border-2); border-radius: 999px; background: var(--surface); color: var(--text-2); text-align: left; }
+.sugg button:hover { color: var(--text); border-color: var(--text-3); }
+.chat-form { border-top: 1px solid var(--border); padding: .6rem; display: flex; gap: .45rem; align-items: flex-end; }
+.chat-form textarea { flex: 1; min-width: 0; resize: none; height: 2.5rem; max-height: 6rem; border: 1px solid var(--border-2); border-radius: 12px; padding: .6rem .8rem; background: var(--bg); font-size: .88rem; line-height: 1.35; }
+.chat-form textarea:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.send { flex: none; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: var(--surface); }
+.send:hover { background: var(--accent-2); }
+.send svg { width: 1rem; height: 1rem; }
+.chat-foot { font-size: .68rem; color: var(--text-3); padding: 0 .9rem .6rem; line-height: 1.4; }
+.ask-fab { display: none; }
+@media (max-width: 899px) {
+  .ask-fab { display: inline-flex; align-items: center; gap: .45rem; position: fixed; right: 1rem; z-index: 70;
+    bottom: calc(4.3rem + env(safe-area-inset-bottom, 0px)); padding: .65rem 1rem; border-radius: 999px;
+    background: var(--accent); color: var(--surface); font-weight: 600; font-size: .88rem; box-shadow: var(--shadow-2); }
+  .ask-fab svg { width: 1rem; height: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) { .typing i { animation: none; } }
+
+/* ── lightbox ── */
+dialog.lb { border: 0; padding: 0; background: transparent; width: min(64rem, 94vw); max-width: 94vw; }
+dialog.lb::backdrop { background: rgba(12, 10, 8, .74); }
+.lb-inner { background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border-2); }
+.lb-inner img { width: 100%; max-height: 72vh; object-fit: contain; background: var(--plate); padding: .75rem; }
+.lb-cap { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .6rem 1rem; padding: .7rem 1rem; font-size: .85rem; color: var(--text-2); }
+.lb-cap small { display: block; color: var(--text-3); font-size: .74rem; }
+.lb-cap .row { gap: .45rem; }
+.toast .msg a { color: var(--accent); font-weight: 600; }
+</style>
+
+<div class="pv" role="region" aria-label="Preview controls">
+  <div class="wrap">
+    <div class="pv-id">
+      <span class="pv-label">Redesign preview</span>
+      <span class="pv-title">ResearchIT, today and proposed</span>
+    </div>
+    <div class="pv-controls">
+      <div class="seg" role="group" aria-label="Screen">
+        <button type="button" id="pv-feed" data-act="screen" data-v="feed">Feed</button>
+        <button type="button" id="pv-paper" data-act="screen" data-v="paper">Paper page</button>
+      </div>
+      <div class="seg" role="group" aria-label="Version">
+        <button type="button" id="pv-today" data-act="version" data-v="today">Today</button>
+        <button type="button" id="pv-proposed" data-act="version" data-v="proposed">Proposed</button>
+      </div>
+      <label class="pv-toggle" for="pv-notes"><input type="checkbox" id="pv-notes" checked> Notes</label>
+    </div>
+    <p class="pv-sub">Real arXiv papers from September 2026. “In plain terms” text is the live site’s own output. Figures appear only for Creative Commons papers, with credit. Widen or narrow the window to see the laptop and phone layouts. The reader is an example with 14 saved papers across three interests, not a real account.</p>
+  </div>
+</div>
+
+<div class="shell">
+  <header class="topbar">
+    <div class="wrap">
+      <a href="#" class="brand" data-act="screen" data-v="feed">
+        <svg class="brand-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H19v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 20.5A2.5 2.5 0 0 1 6.5 18H19v3H6.5A2.5 2.5 0 0 1 4 20.5z"/><path d="M9 8h6M9 11.5h4" opacity=".55"/></svg>
+        <span>ResearchIT</span>
+      </a>
+      <nav class="nav" aria-label="Main">
+        <a href="#" class="nav-link" id="nav-feed" data-act="screen" data-v="feed">Feed</a>
+        <a href="#" class="nav-link" data-act="outside">Collections</a>
+        <a href="#" class="nav-link" data-act="outside">Search</a>
+        <a href="#" class="nav-link" data-act="outside">Library</a>
+        <a href="https://researchit-space.vercel.app" class="nav-link" target="_blank" rel="noopener">3D Map ↗</a>
+      </nav>
+      <button type="button" class="icon-btn theme-toggle" data-act="theme" aria-label="Switch between light and dark theme">
+        <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/></svg>
+        <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 13.4A8.5 8.5 0 1 1 10.6 3.5a6.7 6.7 0 0 0 9.9 9.9z"/></svg>
+      </button>
+    </div>
+  </header>
+  <main id="main"></main>
+</div>
+
+<nav class="botnav" aria-label="Main">
+  <a href="#" class="botnav-item" id="bot-feed" data-act="screen" data-v="feed"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4H19v14H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M9 9h6" opacity=".55"/></svg><span>Feed</span></a>
+  <a href="#" class="botnav-item" data-act="outside"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8.5 4.5L12 12 3.5 7.5z"/><path d="m3.5 12 8.5 4.5 8.5-4.5" opacity=".55"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5" opacity=".3"/></svg><span>Collections</span></a>
+  <a href="#" class="botnav-item" data-act="outside"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><span>Search</span></a>
+  <a href="#" class="botnav-item" data-act="outside"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z"/></svg><span>Library</span></a>
+</nav>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<dialog class="lb" id="lb" aria-label="Figure">
+  <div class="lb-inner">
+    <img id="lb-img" src="" alt="">
+    <div class="lb-cap"><div><span id="lb-cap"></span><small id="lb-credit"></small></div>
+      <div class="row">
+        <button type="button" class="btn btn-quiet btn-sm" id="lb-ask" data-act="lb-ask">Ask about this figure</button>
+        <button type="button" class="btn btn-quiet btn-sm" data-act="lb-close">Close</button>
+      </div></div>
+  </div>
+</dialog>
+
+<script type="application/json" id="data">{"interests": [{"key": "nav", "label": "Drone & robot navigation", "tone": 0, "count": 3}, {"key": "eval", "label": "LLM evaluation", "tone": 1, "count": 2}, {"key": "attn", "label": "Attention mechanisms", "tone": 2, "count": 2}], "feed": ["2609.31507", "2609.27176", "2609.20888", "2609.29861", "2609.30670", "2609.27735", "2609.23863", "2609.30356"], "papers": {"2609.31507": {"id": "2609.31507", "title": "SatNav: A Scalable Benchmark for Long-Horizon UAV Vision-Language Navigation from Satellite Imagery", "authors": ["Jiajun Jiang", "Chunliang Hua", "Zichun Chen", "Yanxing Wu", "Zeyuan Yang", "Jie Song", "Xiao Hu"], "year": "2026", "cat": "cs.CV", "catClass": "cat-cv", "abstract": "Urban uncrewed aerial vehicle (UAV) vision-language navigation (VLN) requires agents to follow instructions across extended urban spaces, inherently demanding long-term memory and geospatial grounding. However, scaling existing benchmarks remains difficult because of their reliance on costly reconstructed 3D assets, limiting geographic diversity and episode scale. To address this, we introduce SatNav, a scalable, long-horizon UAV VLN benchmark built from high-resolution satellite imagery. SatNav targets city-level navigation missions and uses satellite crops as approximations of UAV nadir views for visual observations. Through an automated cue-to-episode pipeline, SatNav constructs 118K episodes from 59 scenes across 18 cities, with an average trajectory length of 379 m. To stress-test long-horizon memory and geospatial reasoning, SatNav defines three task families: Boundary, Landmark, and Route, targeting loop progress tracking, landmark-based spatial grounding, and route following with counting cues. Benchmarking classical VLN agents and recent agents based on large vision-language models (LVLMs) on SatNav shows that city-scale navigation remains challenging. We further introduce SwiftVLN, a modular framework with switchable memory components, and conduct systematic memory-design ablations. Finally, satellite-to-UAV transfer experiments show that satellite-trained navigation models can operate on real-flight UAV observations, showing the practical relevance of SatNav. Our project page: https://eku127.github.io/SatNav/", "lead": "Urban uncrewed aerial vehicle (UAV) vision-language navigation (VLN) requires agents to follow instructions across extended urban spaces, inherently demanding long-term memory and geospatial grounding.", "rest": "However, scaling existing benchmarks remains difficult because of their reliance on costly reconstructed 3D assets, limiting geographic diversity and episode scale. To address this, we introduce SatNav, a scalable, long-horizon UAV VLN benchmark built from high-resolution satellite imagery. SatNav targets city-level navigation missions and uses satellite crops as approximations of UAV nadir views for visual observations. Through an automated cue-to-episode pipeline, SatNav constructs 118K episodes from 59 scenes across 18 cities, with an average trajectory length of 379 m. To stress-test long-horizon memory and geospatial reasoning, SatNav defines three task families: Boundary, Landmark, and Route, targeting loop progress tracking, landmark-based spatial grounding, and route following with counting cues. Benchmarking classical VLN agents and recent agents based on large vision-language models (LVLMs) on SatNav shows that city-scale navigation remains challenging. We further introduce SwiftVLN, a modular framework with switchable memory components, and conduct systematic memory-design ablations. Finally, satellite-to-UAV transfer experiments show that satellite-trained navigation models can operate on real-flight UAV observations, showing the practical relevance of SatNav. Our project page: https://eku127.github.io/SatNav/", "truncated": false, "plain": "The problem is that testing how well computer programs can navigate cities by following verbal instructions is currently hindered by the high cost of creating detailed three-dimensional digital maps, which limits the variety and scale of the test environments. The authors created a new test suite called SatNav that uses high-resolution satellite photos as stand-ins for drone camera views to automatically generate over 118,000 navigation tasks across 18 different cities, allowing for much larger and more diverse testing scenarios. They found that even advanced AI models struggle with these long-distance city-level missions, and demonstrated that models trained on satellite images can successfully operate on real drone footage, proving the benchmark's practical value for developing autonomous aerial vehicles.", "finding": "They found that even advanced AI models struggle with these long-distance city-level missions, and demonstrated that models trained on satellite images can successfully operate on real drone footage, proving the benchmark's practical value for developing autonomous aerial vehicles.", "license": "CC BY 4.0", "fig": {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig1.jpg", "label": "Figure 1", "caption": "Overview of SatNav.", "credit": "Jiang et al. 2026, CC BY 4.0"}, "noFig": null, "repo": "https://github.com/Eku127/SatNav", "stars": 15, "interest": "nav", "cites": 0}, "2609.27176": {"id": "2609.27176", "title": "LeakScale: Estimating the Causal Effect of Benchmark Exposure", "authors": ["Divyansh Singh"], "year": "2026", "cat": "cs.CL", "catClass": "cat-cl", "abstract": "Evidence that evaluation material entered training does not reveal how much it affected evaluation. This distinction leaves a contaminated benchmark score difficult to interpret: provenance can establish contact, but only a counterfactual can quantify the performance attributable to that contact. We present LeakScale, an interventional framework for estimating this missing quantity. LeakScale creates fresh executable tasks that require private, family-specific information absent from and non-derivable from the public task, controls access to that information, and estimates the resulting control-adjusted change in executable accuracy. Across 2,048 unique families, two model families, two executable domains, and 262,144 generations, exposure improves accuracy in every model-by-domain combination, with gains ranging from +7.17 to +27.31 percentage points. These findings separate two empirical questions that are often conflated: whether benchmark contact occurred and how strongly a reported score depends on it. LeakScale makes the latter directly measurable.", "lead": "Evidence that evaluation material entered training does not reveal how much it affected evaluation.", "rest": "This distinction leaves a contaminated benchmark score difficult to interpret: provenance can establish contact, but only a counterfactual can quantify the performance attributable to that contact. We present LeakScale, an interventional framework for estimating this missing quantity. LeakScale creates fresh executable tasks that require private, family-specific information absent from and non-derivable from the public task, controls access to that information, and estimates the resulting control-adjusted change in executable accuracy. Across 2,048 unique families, two model families, two executable domains, and 262,144 generations, exposure improves accuracy in every model-by-domain combination, with gains ranging from +7.17 to +27.31 percentage points. These findings separate two empirical questions that are often conflated: whether benchmark contact occurred and how strongly a reported score depends on it. LeakScale makes the latter directly measurable.", "truncated": false, "plain": "The problem is that while researchers can detect if a model was trained on test questions, they cannot currently measure how much that exposure artificially inflated the model's performance score. The authors developed a method called LeakScale that generates new, private tasks requiring specific hidden information to isolate and measure the exact performance boost caused by prior exposure to similar material. They found that exposure to benchmark material improved accuracy by 7.17 to 27.31 percentage points across all tested scenarios, providing a way to quantify the specific impact of data contamination rather than just confirming its presence.", "finding": "They found that exposure to benchmark material improved accuracy by 7.17 to 27.31 percentage points across all tested scenarios, providing a way to quantify the specific impact of data contamination rather than just confirming its presence.", "license": "CC BY 4.0", "fig": {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/leakscale-fig1.jpg", "label": "Figure 1", "caption": "Two distinct contamination questions.", "credit": "Singh 2026, CC BY 4.0"}, "noFig": null, "repo": null, "stars": null, "interest": "eval", "cites": 0}, "2609.20888": {"id": "2609.20888", "title": "Elastic Threshold Attention: Learned Contextual Sparsity for Long-Context Decoding", "authors": ["Themistoklis Haris", "Henry Li", "Maryam Karimzadehgan"], "year": "2026", "cat": "cs.LG", "catClass": "cat-lg", "abstract": "Massive KV caches can cause severe memory-bandwidth bottlenecks during long-context decoding. Sparse attention methods mitigate this problem, but often drop necessary context, leading to quality degradation. We introduce \\textbf{Elastic Threshold Attention (ETA)}, an end-to-end trainable architecture that rivals dense model quality under hardware-aligned block-sparse decoding. ETA predicts dynamic, contextual thresholds directly from query representations, adjusting context retention depending on the task at hand. To learn this policy from scratch while enabling near lossless KV cache pruning at inference time, we filter attention logits through a shifted SiLU gate during training. We show theoretically and empirically that this creates a smooth, near-uniform attention floor that neutralizes sub-threshold value contributions while simultaneously causing localized attention sinks on initial tokens to disappear. To materialize these advantages, we implement a fused inference-time kernel in Triton that screens KV blocks in $O(1)$ time using cached geometric-probabilistic bounds. Across language modeling, reasoning, and RULER benchmarks, our 1.45B ETA model matches or exceeds dense quality, outperforming alternative fast decoding methods (Quest, H$_2$O, NSA) while achieving higher sparsity levels. Our kernel also achieves up to $2.15\\times$ end-to-end speedups over FlashAttention-2 at context lengths of up to $512$K tokens. Finally, we introduce an offline calibration algorithm for domain-specific deployments that freezes per-head constant thresholds, cutting attention compute by an additional 27\\% at no quality cost.", "lead": "Massive KV caches can cause severe memory-bandwidth bottlenecks during long-context decoding.", "rest": "Sparse attention methods mitigate this problem, but often drop necessary context, leading to quality degradation. We introduce \\textbf{Elastic Threshold Attention (ETA)}, an end-to-end trainable architecture that rivals dense model quality under hardware-aligned block-sparse decoding. ETA predicts dynamic, contextual thresholds directly from query representations, adjusting context retention depending on the task at hand. To learn this policy from scratch while enabling near lossless KV cache pruning at inference time, we filter attention logits through a shifted SiLU gate during training. We show theoretically and empirically that this creates a smooth, near-uniform attention floor that neutralizes sub-threshold value contributions while simultaneously causing localized attention sinks on initial tokens to disappear. To materialize these advantages, we implement a fused inference-time kernel in Triton that screens KV blocks in $O(1)$ time using cached geometric-probabilistic bounds. Across language modeling, reasoning, and RULER benchmarks, our 1.45B ETA model matches or exceeds dense quality, outperforming alternative fast decoding methods (Quest, H$_2$O, NSA) while achieving higher sparsity levels. Our kernel also achieves up to $2.15\\times$ end-to-end speedups over FlashAttention-2 at context lengths of up to $512$K tokens. Finally, we introduce an offline calibration algorithm for domain-specific deployments that freezes per-head constant thresholds, cutting attention compute by an additional 27\\% at no quality cost.", "truncated": false, "plain": "When processing very long texts, standard language models waste significant memory bandwidth by constantly reviewing every previous word, a problem that existing shortcuts solve by arbitrarily discarding information, which hurts performance. The authors developed a trainable system called Elastic Threshold Attention that learns to dynamically decide which parts of the past to ignore based on the current task, using a specific mathematical filter during training to ensure that only truly relevant information is kept. This approach allows the model to match the accuracy of standard models while running up to 2.15 times faster on extremely long inputs, effectively solving the speed-quality tradeoff in long-context processing.", "finding": "This approach allows the model to match the accuracy of standard models while running up to 2.15 times faster on extremely long inputs, effectively solving the speed-quality tradeoff in long-context processing.", "license": "CC BY 4.0", "fig": null, "noFig": "CC BY, but its arXiv HTML has empty image links", "repo": null, "stars": null, "interest": "attn", "cites": 0}, "2609.29861": {"id": "2609.29861", "title": "GPT-6-Astra Lights Up Embodied Navigation: Evaluation in Zero-Shot Vision-and-Language Navigation in Continuous Environments", "authors": ["Guangzhao Dai", "Qianru Sun", "Qi Wu", "Bin Zhu"], "year": "2026", "cat": "cs.RO", "catClass": "cat-ro", "abstract": "We investigate whether GPT-6-Astra, a general-purpose foundation model, can navigate unfamiliar environments using its own perception, reasoning, and decision-making capabilities. Our evaluation focuses on zero-shot vision-and-language navigation in continuous environments (VLN-CE) through a minimal interface in the Codex harness, aiming to unleash GPT-6-Astra's full potential for navigation. Using monocular RGB, GPT-6-Astra decides when to observe, how to move, and when to stop, without navigation-specific fine-tuning, a trained waypoint predictor, or a pre-built scene map. Our evaluation yields four key findings and implications. First, GPT-6-Astra achieves strong zero-shot navigation performance using only monocular RGB observations. On R2R-CE-100, GPT-6-Astra (ultra reasoning) achieves a success rate of 81.3%, exceeding the strongest reported zero-shot and even train-based success rates by 15.3 and 9.2 percentage points, respectively. Second, GPT-6-Astra exhibits promising capabilities in interpreting multi-stage instructions, understanding the environment, and adjusting routes. Third, execution and goal-verification failures persist even with ultra reasoning. Fourth, these results motivate combining general-purpose model capabilities with navigation-specific expertise. Based on these findings, future VLN research should investigate which aspects of instruction interpretation, spatial understanding, and navigation decision-making general-purpose models can handle directly, and where navigation-specific learning can extend their capabilities. This includes exploring how spatial representations, navigation experience, and learned control skills can improve progress tracking, error recovery, and goal verification while preserving the flexibility to adjust routes.", "lead": "We investigate whether GPT-6-Astra, a general-purpose foundation model, can navigate unfamiliar environments using its own perception, reasoning, and decision-making capabilities.", "rest": "Our evaluation focuses on zero-shot vision-and-language navigation in continuous environments (VLN-CE) through a minimal interface in the Codex harness, aiming to unleash GPT-6-Astra's full potential for navigation. Using monocular RGB, GPT-6-Astra decides when to observe, how to move, and when to stop, without navigation-specific fine-tuning, a trained waypoint predictor, or a pre-built scene map. Our evaluation yields four key findings and implications. First, GPT-6-Astra achieves strong zero-shot navigation performance using only monocular RGB observations. On R2R-CE-100, GPT-6-Astra (ultra reasoning) achieves a success rate of 81.3%, exceeding the strongest reported zero-shot and even train-based success rates by 15.3 and 9.2 percentage points, respectively. Second, GPT-6-Astra exhibits promising capabilities in interpreting multi-stage instructions, understanding the environment, and adjusting routes. Third, execution and goal-verification failures persist even with ultra reasoning. Fourth, these results motivate combining general-purpose model capabilities with navigation-specific expertise. Based on these findings, future VLN research should investigate which aspects of instruction interpretation, spatial understanding, and navigation decision-making general-purpose models can handle directly, and where navigation-specific learning can extend their capabilities. This includes exploring how spatial representations, navigation experience, and learned control skills can improve progress tracking, error recovery, and goal verification while preserving the flexibility to adjust routes.", "truncated": false, "plain": "The authors test whether a general-purpose artificial intelligence model can follow spoken directions to move through a physical space it has never seen before, relying solely on a single camera feed and without any prior training specific to navigation tasks. They evaluated the model's ability to interpret multi-step instructions and decide on movements in continuous environments, measuring its success rate against existing benchmarks for this type of task. The model achieved an 81.3% success rate, significantly outperforming previous methods, though it still struggled with verifying it had reached the correct destination, suggesting that combining general intelligence with specialized navigation skills is the most effective path forward.", "finding": "The model achieved an 81.3% success rate, significantly outperforming previous methods, though it still struggled with verifying it had reached the correct destination, suggesting that combining general intelligence with specialized navigation skills is the most effective path forward.", "license": "CC BY 4.0", "fig": {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/astra-fig2.jpg", "label": "Figure 2", "caption": "Minimal navigation interface for GPT-6-Astra.", "credit": "Dai et al. 2026, CC BY 4.0"}, "noFig": null, "repo": null, "stars": null, "interest": "nav", "cites": 0}, "2609.30670": {"id": "2609.30670", "title": "TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding", "authors": ["Yibo Ma", "Qianqian Zhang", "Peng Liu", "Tiancheng Zhao"], "year": "2026", "cat": "cs.CL", "catClass": "cat-cl", "abstract": "Streaming video understanding requires models to interpret evidence as it arrives, yet current evaluations often report task scores without specifying when evidence becomes valid, how visual history is maintained, or how responses are triggered. As a result, similar scores may correspond to different workloads, failure modes, and operational behavior. We introduce TRACE (Temporal Audit and Condition-aware Evaluation), a condition-aware benchmark and evaluation framework that makes these factors explicit. TRACE combines temporally audited visual tasks with evidence timing and instruction-dependent trigger annotations, a unified causal Core--Adapter protocol that controls information availability while recording actual history processing and response events, and multidimensional reporting of answer quality, timeliness, response-selection behavior, workload, completion, and reliability. On 1,240 records from 517 videos, we evaluate eight publicly available models or systems in eight configurations. We find that nearly identical QA accuracy can mask substantial differences in completion, answer validity, and generation workload, while proactive performance separates into response quality, response delay, false alarms (responses emitted while no target window is currently valid and a later one remains), and missed target windows. These results show that streaming-video performance should be interpreted as execution-conditioned system behavior rather than a single score. Our benchmark and code can be accessed at \\href{https://github.com/om-ai-lab/trace-bench}{https://github.com/om-ai-lab/trace-bench}.", "lead": "Streaming video understanding requires models to interpret evidence as it arrives, yet current evaluations often report task scores without specifying when evidence becomes valid, how visual history is maintained, or how responses are triggered.", "rest": "As a result, similar scores may correspond to different workloads, failure modes, and operational behavior. We introduce TRACE (Temporal Audit and Condition-aware Evaluation), a condition-aware benchmark and evaluation framework that makes these factors explicit. TRACE combines temporally audited visual tasks with evidence timing and instruction-dependent trigger annotations, a unified causal Core--Adapter protocol that controls information availability while recording actual history processing and response events, and multidimensional reporting of answer quality, timeliness, response-selection behavior, workload, completion, and reliability. On 1,240 records from 517 videos, we evaluate eight publicly available models or systems in eight configurations. We find that nearly identical QA accuracy can mask substantial differences in completion, answer validity, and generation workload, while proactive performance separates into response quality, response delay, false alarms (responses emitted while no target window is currently valid and a later one remains), and missed target windows. These results show that streaming-video performance should be interpreted as execution-conditioned system behavior rather than a single score. Our benchmark and code can be accessed at \\href{https://github.com/om-ai-lab/trace-bench}{https://github.com/om-ai-lab/trace-bench}.", "truncated": false, "plain": "The problem is that current tests for video analysis systems only measure final accuracy, ignoring critical operational details like when specific visual evidence becomes available, how the system manages its memory of past frames, and exactly when it decides to generate a response. The authors created a new evaluation framework called TRACE that explicitly tracks the timing of evidence and instructions, controls how much information the model can access at any given moment, and records the system's actual processing history and response events. They found that models with nearly identical final answer accuracy can differ drastically in how reliably they complete tasks, how valid their answers are, and how much computational effort they expend, proving that streaming video performance must be understood as a complex system behavior rather than a single quality score.", "finding": "They found that models with nearly identical final answer accuracy can differ drastically in how reliably they complete tasks, how valid their answers are, and how much computational effort they expend, proving that streaming video performance must be understood as a complex system behavior rather than a single quality score.", "license": "CC BY 4.0", "fig": null, "noFig": "CC BY, but its arXiv HTML has no figure images", "repo": "https://github.com/om-ai-lab/trace-bench", "stars": 10, "interest": "eval", "cites": 0}, "2609.27735": {"id": "2609.27735", "title": "NS-ATTENTION: Newton-Schulz Transformations of Attention Outputs in Vision Transformers", "authors": ["Xiaohe Jiang", "Guoqiang Zhang", "Tianjin Huang", "Ronghui Mu"], "year": "2026", "cat": "cs.LG", "catClass": "cat-lg", "abstract": "Newton-Schulz (NS) iteration has recently been used in the Muon optimizer to transform update matrices during the training of large language models. Motivated by its spectral effect, we investigate applying NS directly to Transformer attention representations. We introduce Newton-Schulz Attention (NS-Attn.), a parameter-free transformation applied to the output of each attention head. Each head output is arranged as a feature-by-token matrix and normalized by its Frobenius norm. We then apply a finite NS polynomial step and restore the original norm. The objective is to reduce spectral concentration and increase effective rank before standard head merging and output projection. Across ViT and Swin on CIFAR-10 and CIFAR-100, NS-Attn. improves final-epoch accuracy in all 12 matched-seed comparisons, with mean gains of 0.25--0.83 percentage points. ViT ablations show higher mean accuracy with one iteration than with two. Spectral analysis further shows reduced leading-eigenvalue concentration and increased effective rank. These gains incur additional inference latency.", "lead": "Newton-Schulz (NS) iteration has recently been used in the Muon optimizer to transform update matrices during the training of large language models.", "rest": "Motivated by its spectral effect, we investigate applying NS directly to Transformer attention representations. We introduce Newton-Schulz Attention (NS-Attn.), a parameter-free transformation applied to the output of each attention head. Each head output is arranged as a feature-by-token matrix and normalized by its Frobenius norm. We then apply a finite NS polynomial step and restore the original norm. The objective is to reduce spectral concentration and increase effective rank before standard head merging and output projection. Across ViT and Swin on CIFAR-10 and CIFAR-100, NS-Attn. improves final-epoch accuracy in all 12 matched-seed comparisons, with mean gains of 0.25--0.83 percentage points. ViT ablations show higher mean accuracy with one iteration than with two. Spectral analysis further shows reduced leading-eigenvalue concentration and increased effective rank. These gains incur additional inference latency.", "truncated": false, "plain": "The authors address the issue that the mathematical structure of attention outputs in vision models tends to be overly concentrated in a few dominant directions, which can limit the diversity of information processed by the network. They propose a new technique called Newton-Schulz Attention, which applies a specific mathematical transformation derived from iterative matrix algorithms to the output of each attention head to spread out this concentration without adding any new learnable parameters. Experiments on standard image classification tasks show that this modification consistently improves accuracy by a small margin and increases the effective rank of the data, though it comes at the cost of slower processing times during inference.", "finding": "Experiments on standard image classification tasks show that this modification consistently improves accuracy by a small margin and increases the effective rank of the data, though it comes at the cost of slower processing times during inference.", "license": "arXiv default licence", "fig": null, "noFig": "arXiv default licence, so no figure is shown", "repo": null, "stars": null, "interest": "attn", "cites": 0}, "2609.23863": {"id": "2609.23863", "title": "Grounded Action Model: 3D Grounding as a Foundation for Robotics", "authors": ["Gehao Zhang", "Weikai Huang", "Shailesh Shailesh", "Yiyan Peng", "Jiafei Duan", "Ranjay Krishna"], "year": "2026", "cat": "cs.RO", "catClass": "cat-ro", "abstract": "Manipulation policies must know which objects matter and where they are, yet the pretrained backbones that current robot foundation models build on, from language in vision-language-action models (VLAs) to video generation in world-action models (WAMs), do not directly require this metric grounding, leaving it to be learned implicitly from robot demonstrations. We propose Grounded Action Models (GAMs), a new paradigm of robot foundation models built with 3D grounding. GAM can be conditioned using language, points, or box prompts, which are first transformed into a shared object-centric representation of the selected objects. This representation captures target-focused visual features and metric object geometry, which is mixed with robot state history through a multi-stream transformer to predict action chunks. Although GAMs can be run autonomously, they can also serve as a low-level controller that a high-level planner controls using its various input modalities, allowing for long-horizon and memory-dependent manipulation. On RoboTwin 2.0, GAM achieves an average success rate of 55.3% across 50 tasks (vs. 52.0% for Spatial Forcing), including 47.6% under scene randomization (vs. 30.4% for Abot-M0), with its action policy trained only on clean-scene demonstrations. On LIBERO-PRO, it achieves a state-of-the-art average success rate of 61% (vs. 53% for $π_{0.5}$) across 16 perturbation settings, with the largest gains when targets are relocated or newly designated. On two real robots, GAM retains 17/20 successes under visual shift on a bimanual YAM versus 4/20 for $π_{0.5}$, while its composition with a Molmo2 planner on a Franka achieves 64.7% ID and 49.8% OOD step completion on long-horizon and memory-dependent tasks.", "lead": "Manipulation policies must know which objects matter and where they are, yet the pretrained backbones that current robot foundation models build on, from language in vision-language-action models (VLAs) to video generation in world-action models (WAMs), do not directly require this metric grounding, leaving it to be learned implicitly from robot demonstrations.", "rest": "We propose Grounded Action Models (GAMs), a new paradigm of robot foundation models built with 3D grounding. GAM can be conditioned using language, points, or box prompts, which are first transformed into a shared object-centric representation of the selected objects. This representation captures target-focused visual features and metric object geometry, which is mixed with robot state history through a multi-stream transformer to predict action chunks. Although GAMs can be run autonomously, they can also serve as a low-level controller that a high-level planner controls using its various input modalities, allowing for long-horizon and memory-dependent manipulation. On RoboTwin 2.0, GAM achieves an average success rate of 55.3% across 50 tasks (vs. 52.0% for Spatial Forcing), including 47.6% under scene randomization (vs. 30.4% for Abot-M0), with its action policy trained only on clean-scene demonstrations. On LIBERO-PRO, it achieves a state-of-the-art average success rate of 61% (vs. 53% for $π_{0.5}$) across 16 perturbation settings, with the largest gains when targets are relocated or newly designated. On two real robots, GAM retains 17/20 successes under visual shift on a bimanual YAM versus 4/20 for $π_{0.5}$, while its composition with a Molmo2 planner on a Franka achieves 64.7% ID and 49.8% OOD step completion on long-horizon and memory-dependent tasks.", "truncated": false, "plain": "Robot control systems currently struggle to precisely locate and identify specific objects in three-dimensional space because their underlying visual models are not explicitly trained to understand metric geometry, forcing them to infer spatial relationships indirectly from demonstration data. The authors developed a new framework called Grounded Action Models that explicitly incorporates 3D object localization by converting language, point, or box prompts into a shared representation of target objects' visual features and geometric positions, which is then combined with the robot's state history to predict movements. This approach significantly improves the robot's ability to manipulate objects, particularly when targets are moved or newly specified, achieving higher success rates in simulated and real-world tasks compared to existing state-of-the-art models.", "finding": "This approach significantly improves the robot's ability to manipulate objects, particularly when targets are moved or newly specified, achieving higher success rates in simulated and real-world tasks compared to existing state-of-the-art models.", "license": "arXiv default licence", "fig": null, "noFig": "arXiv default licence, so no figure is shown", "repo": "https://github.com/GehaoZhang6/Grounded-Action-Model", "stars": 49, "interest": "nav", "cites": 0}, "2609.30356": {"id": "2609.30356", "title": "AlphaEarth distinguishes cities but compresses urban variation", "authors": ["Andrew Renninger"], "year": "2026", "cat": "cs.CV", "catClass": "cat-cv", "abstract": "Cities differ in built form, land cover and development history, complicating comparison across places and time. Satellite foundation models map Earth's surface onto common numerical representations. Yet the tasks and targets used to shape them typically do not focus on cities: globally consistent labels for urban function do not exist, and many datasets - especially land cover and land use classifications - collapse the built environment into few classes. Here we audit the representation, focusing on AlphaEarth but with broader applicability to other Earth embeddings, by probing the geometry and geography of embeddings for 1,000 urban areas in 162 countries. We find that cities occupy a shifted but overlapping region on the hypersphere, 62.7° from the global mean direction, and continent and climate predict 24.3% of variation among the mean directions of urban centres in excluded countries. Inside cities, degrees of urbanisation carry 8.9% of the variation, and what they leave holds shared directions whose local orientation varies, not one universal axis of urbanisation. Retained variation is itself unequal: dispersion within urban centres is 14.1% greater per standard deviation of national development, even after adjusting for population, land area and continent. Further controls suggest cities in developing countries present less contrast in vegetation and texture, and dispersion follows that contrast: full adjustment for it leaves at most 6.4% of the gradient. Annually, a city's representation moves nearly eight times more than redrawing its own pixels explains, and contracts where the 2022 loss of Sentinel-1B removed a pass direction. AlphaEarth's representations therefore support comparison across regions, while the differences between its annual layers are not yet validated for comparison over time.", "lead": "Cities differ in built form, land cover and development history, complicating comparison across places and time.", "rest": "Satellite foundation models map Earth's surface onto common numerical representations. Yet the tasks and targets used to shape them typically do not focus on cities: globally consistent labels for urban function do not exist, and many datasets - especially land cover and land use classifications - collapse the built environment into few classes. Here we audit the representation, focusing on AlphaEarth but with broader applicability to other Earth embeddings, by probing the geometry and geography of embeddings for 1,000 urban areas in 162 countries. We find that cities occupy a shifted but overlapping region on the hypersphere, 62.7° from the global mean direction, and continent and climate predict 24.3% of variation among the mean directions of urban centres in excluded countries. Inside cities, degrees of urbanisation carry 8.9% of the variation, and what they leave holds shared directions whose local orientation varies, not one universal axis of urbanisation. Retained variation is itself unequal: dispersion within urban centres is 14.1% greater per standard deviation of national development, even after adjusting for population, land area and continent. Further controls suggest cities in developing countries present less contrast in vegetation and texture, and dispersion follows that contrast: full adjustment for it leaves at most 6.4% of the gradient. Annually, a city's representation moves nearly eight times more than redrawing its own pixels explains, and contracts where the 2022 loss of Sentinel-1B removed a pass direction. AlphaEarth's representations therefore support comparison across regions, while the differences between its annual layers are not yet validated for comparison over time.", "truncated": false, "plain": "The problem is that satellite-based artificial intelligence models designed to map the Earth often fail to capture the specific details of cities because the data used to train them simplifies complex urban environments into broad, generic categories. The authors investigated how a specific model called AlphaEarth represents 1,000 cities across 162 countries by analyzing the mathematical structure of the data points these cities create within the model's internal space. They found that while the model can distinguish cities from other landscapes and group them by continent and climate, it significantly flattens the differences between cities, particularly in developing nations where vegetation and texture contrasts are lower, and its year-to-year changes are driven more by sensor availability than by actual changes on the ground.", "finding": "They found that while the model can distinguish cities from other landscapes and group them by continent and climate, it significantly flattens the differences between cities, particularly in developing nations where vegetation and texture contrasts are lower, and its year-to-year changes are driven more by sensor availability than by actual changes on the ground.", "license": "CC BY 4.0", "fig": {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/alphaearth-fig1.jpg", "label": "Figure 1", "caption": "Urban observations occupy a shifted but overlapping part of the global field.", "credit": "Renninger 2026, CC BY 4.0"}, "noFig": null, "repo": null, "stars": null, "interest": "explore", "cites": 0}}, "related": [{"id": "2512.19024", "title": "IndoorUAV: Benchmarking Vision-Language UAV Navigation in Continuous Indoor Environments", "authors": ["Xu Liu", "Yu Liu", "Hanshuo Qiu", "Yang Qirong", "Zhouhui Lian"], "year": "2025", "cat": "cs.RO", "catClass": "cat-ro", "abstract": "Vision-Language Navigation (VLN) enables agents to navigate in complex environments by following natural language instructions grounded in visual observations. Although most existing work has focused on ground-based robots or outdoor Unmanned Aerial Vehicles (UAVs), indoor UAV-based VLN remains underexplored, despite its relevance to real-world applications such as inspection, delivery, and search-and-rescue in confined spaces. To bridge this gap, we introduce \\textbf{IndoorUAV}, a novel benchmark and method specifically tailored for VLN with indoor UAVs. We begin by curating over 1,000 diverse and structurally rich 3D indoor scenes from the Habitat simulator. Within these environments, we simulate realistic UAV flight dynamics to collect diverse 3D navigation trajectories manually, further enriched through data augmentation techniques. Furthermore, we design an automated annotation pipeline to generate natural language instructions of varying granularity for each trajectory. This process yields over 16,000 high-quality trajectories, comprising the \\textbf{IndoorUAV-VLN} subset, which focuses on long-horizon VLN. To support short-horizon planning, we segment long trajectories into sub-trajectories by selecting semantically salient keyframes and regenerating concise instructions, forming the \\textbf{IndoorUAV-VLA} subset. Finally, we introduce \\textbf{IndoorUAV-Agent}, a novel navigation model designed for our benchmark, leveraging task decomposition and multimodal reasoning. We hope IndoorUAV serves as a valuable resource to advance research on vision-language embodied AI in the indoor aerial navigation domain.", "lead": "Vision-Language Navigation (VLN) enables agents to navigate in complex environments by following natural language instructions grounded in visual observations.", "rest": "Although most existing work has focused on ground-based robots or outdoor Unmanned Aerial Vehicles (UAVs), indoor UAV-based VLN remains underexplored, despite its relevance to real-world applications such as inspection, delivery, and search-and-rescue in confined spaces. To bridge this gap, we introduce \\textbf{IndoorUAV}, a novel benchmark and method specifically tailored for VLN with indoor UAVs. We begin by curating over 1,000 diverse and structurally rich 3D indoor scenes from the Habitat simulator. Within these environments, we simulate realistic UAV flight dynamics to collect diverse 3D navigation trajectories manually, further enriched through data augmentation techniques. Furthermore, we design an automated annotation pipeline to generate natural language instructions of varying granularity for each trajectory. This process yields over 16,000 high-quality trajectories, comprising the \\textbf{IndoorUAV-VLN} subset, which focuses on long-horizon VLN. To support short-horizon planning, we segment long trajectories into sub-trajectories by selecting semantically salient keyframes and regenerating concise instructions, forming the \\textbf{IndoorUAV-VLA} subset. Finally, we introduce \\textbf{IndoorUAV-Agent}, a novel navigation model designed for our benchmark, leveraging task decomposition and multimodal reasoning. We hope IndoorUAV serves as a valuable resource to advance research on vision-language embodied AI in the indoor aerial navigation domain.", "truncated": false, "cites": 19}, {"id": "2406.14240", "title": "CityNav: Language-Goal Aerial Navigation Dataset with Geographic Information", "authors": ["Jungdae Lee", "Taiki Miyanishi", "Shuhei Kurita", "Koya Sakamoto", "Daichi Azuma", "Yutaka Matsuo", "Nakamasa Inoue"], "year": "2024", "cat": "cs.CV", "catClass": "cat-cv", "abstract": "  Vision-and-language navigation (VLN) aims to guide autonomous agents through\nreal-world environments by integrating visual and linguistic cues. Despite\nnotable advancements in ground-level navigation, the exploration of aerial\nnavigation using these modalities remains limited. This gap primarily arises\nfrom a lack of suitable resources for real-world, city-scale aerial navigation\nstudies. To remedy this gap, we introduce CityNav, a novel dataset explicitly\ndesigned for language-guided aerial n", "lead": "Vision-and-language navigation (VLN) aims to guide autonomous agents through\nreal-world environments by integrating visual and linguistic cues.", "rest": "Despite\nnotable advancements in ground-level navigation, the exploration of aerial\nnavigation using these modalities remains limited. This gap primarily arises\nfrom a lack of suitable resources for real-world, city-scale aerial navigation\nstudies. To remedy this gap, we introduce CityNav, a novel dataset explicitly\ndesigned for language-guided aerial n", "truncated": true, "cites": 62}, {"id": "2308.06735", "title": "AerialVLN: Vision-and-Language Navigation for UAVs", "authors": ["Shubo Liu", "Hongsheng Zhang", "Yuankai Qi", "Peng Wang", "Yaning Zhang", "Qi Wu"], "year": "2023", "cat": "cs.CV", "catClass": "cat-cv", "abstract": "  Recently emerged Vision-and-Language Navigation (VLN) tasks have drawn\nsignificant attention in both computer vision and natural language processing\ncommunities. Existing VLN tasks are built for agents that navigate on the\nground, either indoors or outdoors. However, many tasks require intelligent\nagents to carry out in the sky, such as UAV-based goods delivery,\ntraffic/security patrol, and scenery tour, to name a few. Navigating in the sky\nis more complicated than on the ground because agents", "lead": "Recently emerged Vision-and-Language Navigation (VLN) tasks have drawn\nsignificant attention in both computer vision and natural language processing\ncommunities.", "rest": "Existing VLN tasks are built for agents that navigate on the\nground, either indoors or outdoors. However, many tasks require intelligent\nagents to carry out in the sky, such as UAV-based goods delivery,\ntraffic/security patrol, and scenery tour, to name a few. Navigating in the sky\nis more complicated than on the ground because agents", "truncated": true, "cites": 198}, {"id": "2508.00288", "title": "UAV-ON: A Benchmark for Open-World Object Goal Navigation with Aerial Agents", "authors": ["Jianqiang Xiao", "Yuexuan Sun", "Yixin Shao", "Boxi Gan", "Rongqiang Liu", "Yanjin Wu", "Weili Guan", "Xiang Deng"], "year": "2025", "cat": "cs.RO", "catClass": "cat-ro", "abstract": "Aerial navigation is a fundamental yet underexplored capability in embodied intelligence, enabling agents to operate in large-scale, unstructured environments where traditional navigation paradigms fall short. However, most existing research follows the Vision-and-Language Navigation (VLN) paradigm, which heavily depends on sequential linguistic instructions, limiting its scalability and autonomy. To address this gap, we introduce UAV-ON, a benchmark for large-scale Object Goal Navigation (ObjectNav) by aerial agents in open-world environments, where agents operate based on high-level semantic goals without relying on detailed instructional guidance as in VLN. UAV-ON comprises 14 high-fidelity Unreal Engine environments with diverse semantic regions and complex spatial layouts, covering urban, natural, and mixed-use settings. It defines 1270 annotated target objects, each characterized by an instance-level instruction that encodes category, physical footprint, and visual descriptors, allowing grounded reasoning. These instructions serve as semantic goals, introducing realistic ambiguity and complex reasoning challenges for aerial agents. To evaluate the benchmark, we implement several baseline methods, including Aerial ObjectNav Agent (AOA), a modular policy that integrates instruction semantics with egocentric observations for long-horizon, goal-directed exploration. Empirical results show that all baselines struggle in this setting, highlighting the compounded challenges of aerial navigation and semantic goal grounding. UAV-ON aims to advance research on scalable UAV autonomy driven by semantic goal descriptions in complex real-world environments.", "lead": "Aerial navigation is a fundamental yet underexplored capability in embodied intelligence, enabling agents to operate in large-scale, unstructured environments where traditional navigation paradigms fall short.", "rest": "However, most existing research follows the Vision-and-Language Navigation (VLN) paradigm, which heavily depends on sequential linguistic instructions, limiting its scalability and autonomy. To address this gap, we introduce UAV-ON, a benchmark for large-scale Object Goal Navigation (ObjectNav) by aerial agents in open-world environments, where agents operate based on high-level semantic goals without relying on detailed instructional guidance as in VLN. UAV-ON comprises 14 high-fidelity Unreal Engine environments with diverse semantic regions and complex spatial layouts, covering urban, natural, and mixed-use settings. It defines 1270 annotated target objects, each characterized by an instance-level instruction that encodes category, physical footprint, and visual descriptors, allowing grounded reasoning. These instructions serve as semantic goals, introducing realistic ambiguity and complex reasoning challenges for aerial agents. To evaluate the benchmark, we implement several baseline methods, including Aerial ObjectNav Agent (AOA), a modular policy that integrates instruction semantics with egocentric observations for long-horizon, goal-directed exploration. Empirical results show that all baselines struggle in this setting, highlighting the compounded challenges of aerial navigation and semantic goal grounding. UAV-ON aims to advance research on scalable UAV autonomy driven by semantic goal descriptions in complex real-world environments.", "truncated": false, "cites": 47}, {"id": "2410.07087", "title": "Towards Realistic UAV Vision-Language Navigation: Platform, Benchmark, and Methodology", "authors": ["Xiangyu Wang", "Donglin Yang", "Ziqin Wang", "Hohin Kwan", "Jinyu Chen", "Wenjun Wu", "Hongsheng Li", "Yue Liao", "Si Liu"], "year": "2024", "cat": "cs.CV", "catClass": "cat-cv", "abstract": "  Developing agents capable of navigating to a target location based on\nlanguage instructions and visual information, known as vision-language\nnavigation (VLN), has attracted widespread interest. Most research has focused\non ground-based agents, while UAV-based VLN remains relatively underexplored.\nRecent efforts in UAV vision-language navigation predominantly adopt\nground-based VLN settings, relying on predefined discrete action spaces and\nneglecting the inherent disparities in agent movement d", "lead": "Developing agents capable of navigating to a target location based on\nlanguage instructions and visual information, known as vision-language\nnavigation (VLN), has attracted widespread interest.", "rest": "Most research has focused\non ground-based agents, while UAV-based VLN remains relatively underexplored. Recent efforts in UAV vision-language navigation predominantly adopt\nground-based VLN settings, relying on predefined discrete action spaces and\nneglecting the inherent disparities in agent movement d", "truncated": true, "cites": 129}, {"id": "2511.06182", "title": "OpenVLN: Open-world Aerial Vision-Language Navigation", "authors": ["Peican Lin", "Gan Sun", "Chenxi Liu", "Fazeng Li", "Weihong Ren", "Yang Cong"], "year": "2025", "cat": "cs.RO", "catClass": "cat-ro", "abstract": "Vision-language models (VLMs) have been widely-applied in ground-based vision-language navigation (VLN). However, the vast complexity of outdoor aerial environments compounds data acquisition challenges and imposes long-horizon trajectory planning requirements on Unmanned Aerial Vehicles (UAVs), introducing novel complexities for aerial VLN. To address these challenges, we propose a data-efficient Open-world aerial Vision-Language Navigation (i.e., OpenVLN) framework, which could execute language-guided flight with limited data constraints and enhance long-horizon trajectory planning capabilities in complex aerial environments. Specifically, we reconfigure a reinforcement learning framework to optimize the VLM for UAV navigation tasks, which can efficiently fine-tune VLM by using rule-based policies under limited training data. Concurrently, we introduce a long-horizon planner for trajectory synthesis that dynamically generates precise UAV actions via value-based rewards. To the end, we conduct sufficient navigation experiments on the TravelUAV benchmark with dataset scaling across diverse reward settings. Our method demonstrates consistent performance gains of up to 4.34% in Success Rate, 6.19% in Oracle Success Rate, and 4.07% in Success weighted by Path Length over baseline methods, validating its deployment efficacy for long-horizon UAV navigation in complex aerial environments.", "lead": "Vision-language models (VLMs) have been widely-applied in ground-based vision-language navigation (VLN).", "rest": "However, the vast complexity of outdoor aerial environments compounds data acquisition challenges and imposes long-horizon trajectory planning requirements on Unmanned Aerial Vehicles (UAVs), introducing novel complexities for aerial VLN. To address these challenges, we propose a data-efficient Open-world aerial Vision-Language Navigation (i.e., OpenVLN) framework, which could execute language-guided flight with limited data constraints and enhance long-horizon trajectory planning capabilities in complex aerial environments. Specifically, we reconfigure a reinforcement learning framework to optimize the VLM for UAV navigation tasks, which can efficiently fine-tune VLM by using rule-based policies under limited training data. Concurrently, we introduce a long-horizon planner for trajectory synthesis that dynamically generates precise UAV actions via value-based rewards. To the end, we conduct sufficient navigation experiments on the TravelUAV benchmark with dataset scaling across diverse reward settings. Our method demonstrates consistent performance gains of up to 4.34% in Success Rate, 6.19% in Oracle Success Rate, and 4.07% in Success weighted by Path Length over baseline methods, validating its deployment efficacy for long-horizon UAV navigation in complex aerial environments.", "truncated": false, "cites": 14}], "satnav": {"density": {"level": "specialist", "label": "Dense with notation", "title": "Denser than most arXiv abstracts — heavy notation or assumed vocabulary. Driven by: acronyms."}, "things": [{"lead": "118,494 navigation tasks in 18 cities.", "text": "Built from satellite photos and OpenStreetMap rather than costly 3D city models, across 59 scenes. The average route is 379 m.", "src": "§3.4", "anchor": "S3.SS4"}, {"lead": "City-scale navigation is still hard.", "text": "The best model tested succeeds 67.3% of the time in familiar cities and 58.4% in cities it has never seen.", "src": "Table 1", "anchor": "S5.T1"}, {"lead": "Satellite training carries over to a real drone.", "text": "With a small adapter trained on 24K paired images, success on 18 real flights rose from 38.9% to 55.6%.", "src": "§4.2, Table 3", "anchor": "S4.SS2"}], "how": [{"name": "Pair the maps", "text": "Satellite images aligned with OpenStreetMap in one coordinate frame"}, {"name": "Extract cues", "text": "Lake and stadium outlines, visible landmarks, roads and waterways"}, {"name": "Write the tasks", "text": "Routes traced over the cues; Qwen 3.5 and Gemini 3 Flash write each instruction in three styles"}, {"name": "Navigate", "text": "The agent sees a rotated satellite crop and picks forward, left, right or stop"}], "use": "Building a drone or robot that follows spoken directions? Satellite crops give you city-scale training data without 3D models. The paper's tests also show long-term memory matters: removing it caused a clear drop in performance.", "figures": [{"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig1.jpg", "label": "Figure 1", "caption": "Overview of SatNav.", "ask": 1}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig2.jpg", "label": "Figure 2", "caption": "Overview of the SatNav episode-generation pipeline."}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig3b.jpg", "label": "Figure 3b", "caption": "Episode length distribution."}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig3c.jpg", "label": "Figure 3c", "caption": "Verb word cloud."}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig3d.jpg", "label": "Figure 3d", "caption": "Noun word cloud."}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig4.jpg", "label": "Figure 4", "caption": "Overview of the SwiftVLN framework.", "ask": 4}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-fig5.jpg", "label": "Figure 5", "caption": "A real-world Boundary task around a building with a grey roof."}, {"src": "https://raw.githubusercontent.com/siddhm11/ResearchIT-priv/redesign-images/docs/redesign/preview/img/satnav-osm.jpg", "label": "Appendix", "caption": "Original OSM boundary."}], "ask": [{"q": "What's new here?", "a": "It's a drone-navigation benchmark built from satellite images instead of 3D city reconstructions. That keeps it cheap to grow: 118K tasks across 18 cities today, and new regions go through the same pipeline.", "quote": "can be extended by selecting new geographic regions", "cites": [["§3.2", "S3.SS2"], ["§1", "S1"]]}, {"q": "Explain figure 1", "a": "Left: the benchmark's size (118K episodes, 59 scenes, 18 cities, 3 task families). Middle: the three task types, which are following a boundary such as a lake or stadium, turning at landmarks, and following roads or waterways. Right: one episode circling a stadium, with the satellite crop the agent sees and its instruction.", "quote": "", "cites": [["Figure 1", "S1.F1"]]}, {"q": "What would I need to reproduce it?", "a": "The code is at github.com/Eku127/SatNav, linked from Hugging Face. The SwiftVLN baseline starts from the Qwen2.5-VL-3B model and is built on ms-swift. The real flights used a DJI Matrice 4D drone streaming video to a workstation with an RTX 4090.", "quote": "", "cites": [["§4.1", "S4.SS1"], ["§5.2", "S5.SS2"], ["§5.4", "S5.SS4"]]}, {"q": "What are the limitations?", "a": "The authors list three. Agents only move in four discrete ways at a fixed altitude, so winding routes are under-represented. Training uses reference routes only, without reinforcement fine-tuning, so agents get little practice recovering from mistakes. And system latency limited the real-drone test to 18 episodes.", "quote": "Our evaluation on 18 episodes provides preliminary evidence", "cites": [["§6", "S6"]]}, {"q": "Explain figure 4", "a": "Figure 4 shows SwiftVLN, the authors' baseline. It keeps two memories: a sliding window of recent image-and-action turns, and a long-term memory built from older frames by sampling or compressing them. Each memory part can be swapped, so one design can be tested at a time.", "quote": "", "cites": [["Figure 4", "S4.F4"], ["§4.1", "S4.SS1"]]}], "context": {"sections": 7, "appendices": 9, "panels": 23}}}</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("data").textContent);
+  var SATNAV = "2609.31507";
+  var HTML_BASE = "https://arxiv.org/html/" + SATNAV;
+  var state = { screen: "feed", version: "proposed", notes: true, filter: "all", text: "plain",
+                cardText: {}, sumTab: "plain", chat: [], typing: false, sheet: false };
+  var main = document.getElementById("main");
+  var WIDE = window.matchMedia ? window.matchMedia("(min-width: 1180px)") : { matches: true };
+  var MID = window.matchMedia ? window.matchMedia("(min-width: 900px)") : { matches: true };
+  var observer = null;
+
+  // ── helpers ──
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function texInner(x) {
+    return x.replace(/\\times/g, "×").replace(/_\{([^}]*)\}/g, "<sub>$1</sub>").replace(/\^\{([^}]*)\}/g, "<sup>$1</sup>")
+      .replace(/_(\w)/g, "<sub>$1</sub>").replace(/\^(\w)/g, "<sup>$1</sup>").replace(/\\([a-zA-Z]+)/g, "$1");
+  }
+  // The proposal uses a real maths renderer (KaTeX); this covers what these abstracts contain.
+  function renderTex(s) {
+    var h = esc(s);
+    h = h.replace(/\\textbf\{([^}]*)\}/g, "<strong>$1</strong>").replace(/\\(?:emph|textit)\{([^}]*)\}/g, "<em>$1</em>");
+    h = h.replace(/\\href\{([^}]*)\}\{([^}]*)\}/g, '<a href="$1" target="_blank" rel="noopener">$2</a>')
+         .replace(/\\href\{([^}]*)\}/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    h = h.replace(/\$([^$]+)\$/g, function (m, x) { return '<span class="tex">' + texInner(x) + "</span>"; });
+    return h;
+  }
+  function authorsShort(list, n) {
+    n = n || 3;
+    var s = list.slice(0, n).join(", ");
+    return list.length > n ? s + " &amp; " + (list.length - n) + " more" : s;
+  }
+  function interestOf(key) {
+    for (var i = 0; i < D.interests.length; i++) if (D.interests[i].key === key) return D.interests[i];
+    return null;
+  }
+  function mark(n) { return '<i class="pv-mark" aria-hidden="true">' + n + "</i>"; }
+  function mapUrl(id) { return "https://researchit-space.vercel.app/?paper=" + encodeURIComponent(id); }
+  var ICON = {
+    save: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11"/></svg>',
+    map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10" opacity=".55"/></svg>',
+    dots: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>',
+    code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>',
+    ask: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8.5 9.5h7M8.5 12.5h4.5" opacity=".6"/></svg>',
+    send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>'
+  };
+  function saveBtn(id) {
+    return '<button type="button" class="btn btn-sm btn-save" data-act="save" data-id="' + id + '">' + ICON.save + " Save</button>";
+  }
+  function codeChip(p) {
+    if (!p.repo) return "";
+    return '<a class="code-chip" href="' + esc(p.repo) + '" target="_blank" rel="noopener" title="Code on GitHub, from the Hugging Face papers API">' +
+      ICON.code + 'Code <span class="st">★ ' + esc(p.stars) + "</span></a>";
+  }
+  function notes(title, items, wide) {
+    var li = items.map(function (t, i) { return '<li><span class="pv-num">' + (i + 1) + "</span><span>" + t + "</span></li>"; }).join("");
+    return '<section class="pv-notes' + (wide ? " pv-notes--wide" : "") + '" aria-label="Preview notes"><h2>' + title + "</h2><ol>" + li + "</ol></section>";
+  }
+  function menu(items) {
+    return '<div class="pc-menu"><button type="button" class="pc-menu-btn" data-act="menu" aria-expanded="false" aria-label="More actions">' + ICON.dots + "</button>" +
+      '<div class="menu" hidden>' + items + "</div></div>";
+  }
+
+  // ── today: feed (as the live app renders it) ──
+  function cardToday(p, o) {
+    o = o || {};
+    var it = p.interest && p.interest !== "explore" ? interestOf(p.interest) : null;
+    var explore = p.interest === "explore";
+    var cls = "card" + (it ? " card--tone tone-" + it.tone : "") + (explore ? " card--explore" : "");
+    var reason = it ? "Retrieved for your “" + it.label + "” interest — one of the clusters found in your saved papers."
+      : explore ? "Outside your usual areas — included to keep your feed from narrowing." : "";
+    var clamped = p.lead && p.rest;
+    var h = '<article class="' + cls + '" data-card="' + p.id + '">';
+    if (it) h += '<span class="card-interest">' + esc(it.label) + "</span>";
+    else if (explore) h += '<span class="card-interest">Something different</span>';
+    h += '<div class="card-rule"><span class="cat ' + p.catClass + '">' + esc(p.cat) + "</span>" + (o.markRule ? mark(o.markRule) : "") + "</div>";
+    h += '<a class="card-title" href="#" data-act="open" data-id="' + p.id + '">' + esc(p.title) + "</a>";
+    h += '<div class="card-authors">' + authorsShort(p.authors) + "</div>";
+    h += '<p class="card-abstract' + (clamped ? " is-clamped" : "") + '">' +
+      (p.lead ? '<span class="lead">' + esc(p.lead) + "</span>" : "") +
+      (p.rest ? ' <span class="rest">' + esc(p.rest) + "</span>" : "") +
+      (p.truncated ? '<span class="abstract-cut" aria-hidden="true">…</span>' : "") +
+      (o.markAbs ? mark(o.markAbs) : "") + "</p>";
+    if (clamped) h += '<button type="button" class="card-more" data-act="more" aria-expanded="false">Read more</button>';
+    if (p.truncated) h += '<a class="card-more card-more--full" href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">Full abstract on arXiv ↗</a>';
+    h += '<div class="card-foot"><a class="card-id" href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv:' + p.id + "</a>" +
+      '<span class="sep">·</span><span>' + p.year + "</span>" +
+      (p.cites ? '<span class="sep">·</span><span>' + p.cites.toLocaleString("en-US") + " cited</span>" : "") + "</div>";
+    h += '<div class="card-actions">' + saveBtn(p.id) + '<button type="button" class="btn btn-sm btn-pass" data-act="pass">Pass</button>' +
+      (reason ? '<button type="button" class="btn btn-sm btn-ghost card-why" data-act="why" aria-expanded="false">Why this?</button>' : "") +
+      (o.markCard ? mark(o.markCard) : "") + "</div>";
+    h += '<a class="card-map" href="' + mapUrl(p.id) + '" target="_blank" rel="noopener">' + ICON.map + "See it in 3D</a>";
+    if (reason) h += '<p class="card-reason hidden">' + esc(reason) + "</p>";
+    return h + "</article>";
+  }
+
+  function feedToday() {
+    var h = '<div class="wrap wrap--feed">';
+    if (state.notes) h += notes("What to notice", [
+      "Everything sits in one column about 42rem (672px) wide. On a laptop, most of the screen is empty margin.",
+      "Six rows of masthead, buttons and explanation sit above the first paper.",
+      "Every card is text only. Counting labels, links and buttons, one card carries up to 14 elements.",
+      "Raw LaTeX leaks into abstracts: see “\\textbf{…}” and “$2.15\\times$” on Elastic Threshold Attention, and “$π_{0.5}$” on Grounded Action Model.",
+      "Real feeds also show a match score (such as 0.62) on every card. It is left out here because it needs a real reader’s saved papers."
+    ]);
+    h += '<header class="issue"><div class="issue-kicker">Your reading' + mark(2) + '</div><h1 class="issue-title">Discover papers</h1>' +
+      '<div class="issue-line"><span>17 October 2026</span><span class="sep">·</span><span><b>14</b> saved</span></div></header>';
+    h += '<div class="discovery-tools"><button type="button" class="btn btn-primary btn-sm" data-act="refresh">Discover more</button>' +
+      '<a href="#" class="btn btn-ghost btn-sm" data-act="outside">Edit interests</a><a href="#" class="btn btn-ghost btn-sm" data-act="outside">Recent papers</a></div>';
+    h += '<p class="small muted">Fresh choices from your interests when available. Revisit earlier papers in your history.</p>';
+    h += '<div class="interests" role="list" style="margin-top:1rem"><span class="interests-label">Across</span>' +
+      D.interests.map(function (i) { return '<span class="interest tone-' + i.tone + '" role="listitem">' + esc(i.label) + ' <span class="n">' + i.count + "</span></span>"; }).join("") + "</div>";
+    h += '<div class="feed">' + D.feed.map(function (id, k) {
+      var o = {};
+      if (k === 0) { o.markCard = 3; o.markRule = 5; }
+      if (id === "2609.20888") o.markAbs = 4;
+      return cardToday(D.papers[id], o);
+    }).join("") + "</div>";
+    h += '<div class="issue-end"><span class="mark">End of this issue</span><span class="note">Refresh for fresh choices from your interests.</span></div>';
+    return h + "</div>";
+  }
+
+  // ── proposed: feed ──
+  function cardText(p) {
+    var t = state.cardText[p.id] || state.text;
+    return '<div class="tx-tabs" role="tablist" aria-label="Card text">' +
+      '<button type="button" class="tx-tab" role="tab" data-act="cardtab" data-v="plain" aria-selected="' + (t === "plain") + '">In plain terms</button>' +
+      '<button type="button" class="tx-tab" role="tab" data-act="cardtab" data-v="abs" aria-selected="' + (t === "abs") + '">Abstract</button></div>' +
+      (t === "plain" ? '<p class="tx-body">' + esc(p.finding) + "</p>" : '<p class="tx-body tx-body--abs">' + renderTex(p.abstract) + "</p>");
+  }
+
+  function cardProposed(p, o) {
+    o = o || {};
+    var it = p.interest && p.interest !== "explore" ? interestOf(p.interest) : null;
+    var explore = p.interest === "explore";
+    var cls = "card pc" + (it ? " card--tone tone-" + it.tone : "") + (explore ? " card--explore" : "");
+    var reason = it ? "Retrieved for your “" + it.label + "” interest, one of the clusters found in your saved papers."
+      : "Outside your usual areas, included to keep your feed from narrowing.";
+    var h = '<article class="' + cls + '" data-card="' + p.id + '">';
+    h += '<div class="pc-top"><span class="card-interest">' + esc(it ? it.label : "Something different") + "</span>" +
+      menu('<button type="button" data-act="why-menu">Why this?</button>' +
+        '<a href="' + mapUrl(p.id) + '" target="_blank" rel="noopener">See it in 3D ↗</a>' +
+        '<a href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">View on arXiv ↗</a>' +
+        '<button type="button" data-act="copy" data-id="' + p.id + '">Copy arXiv ID</button>') + (o.marks ? mark(6) : "") + "</div>";
+    h += '<a class="card-title" href="#" data-act="open" data-id="' + p.id + '">' + esc(p.title) + "</a>";
+    h += '<div class="pc-meta"><span>' + authorsShort(p.authors, 2) + '</span><span class="sep">·</span><span>' + p.year + "</span>" +
+      (p.repo ? '<span class="sep">·</span>' + codeChip(p) + (o.marks ? mark(5) : "") : "") + "</div>";
+    if (p.fig) {
+      h += '<div><button type="button" class="plate" data-act="fig" data-src="' + p.fig.src + '" data-cap="' + esc(p.fig.label + ": " + p.fig.caption) + '" data-credit="' + esc(p.fig.credit) + '">' +
+        '<img src="' + p.fig.src + '" alt="' + esc(p.fig.label + " from the paper: " + p.fig.caption) + '" loading="lazy"></button>' +
+        '<div class="plate-cap"><b>' + esc(p.fig.label) + "</b><span>" + esc(p.fig.caption) + "</span><span>" + esc(p.fig.credit) + "</span>" + (o.marks ? mark(3) : "") + "</div></div>";
+    }
+    h += "<div>" + cardText(p) + (o.marks ? '<span class="tx-note">' + mark(4) + "</span>" : "") + "</div>";
+    h += '<div class="pc-actions">' + saveBtn(p.id) + '<button type="button" class="btn btn-sm btn-pass" data-act="pass">Pass</button></div>';
+    h += '<p class="card-reason hidden">' + esc(reason) + "</p>";
+    return h + "</article>";
+  }
+
+  function feedProposed() {
+    var ids = D.feed.filter(function (id) { return state.filter === "all" || D.papers[id].interest === state.filter; });
+    var h = '<div class="wrap wrap--wide fx">';
+    h += '<aside class="rail" aria-label="Feed controls"><div class="rail-head"><h1 class="rail-title">Your feed</h1>' +
+      '<span class="rail-date">17 Oct 2026 · 8 papers</span>' +
+      '<button type="button" class="btn btn-quiet btn-sm" data-act="refresh">' + ICON.refresh + " Refresh</button></div>";
+    h += '<div class="rail-sec"><h2>Your interests' + mark(2) + '</h2><div class="rail-ints" role="group" aria-label="Show papers from">' +
+      '<button type="button" class="rail-int is-all" data-act="filter" data-v="all" aria-pressed="' + (state.filter === "all") + '">All papers<span class="n">8</span></button>' +
+      D.interests.map(function (i) {
+        return '<button type="button" class="rail-int tone-' + i.tone + '" data-act="filter" data-v="' + i.key + '" aria-pressed="' + (state.filter === i.key) + '">' +
+          esc(i.label) + '<span class="n">' + i.count + "</span></button>";
+      }).join("") +
+      '<button type="button" class="rail-int is-explore" data-act="filter" data-v="explore" aria-pressed="' + (state.filter === "explore") + '">Something different<span class="n">1</span></button>' +
+      '</div><a href="#" class="rail-link rail-sec--desk" data-act="outside">Edit interests</a></div>';
+    h += '<div class="rail-sec rail-sec--desk"><h2>Cards open on</h2><div class="seg" role="group" aria-label="Cards open on">' +
+      '<button type="button" data-act="textpref" data-v="plain" aria-pressed="' + (state.text === "plain") + '">Plain terms</button>' +
+      '<button type="button" data-act="textpref" data-v="abs" aria-pressed="' + (state.text === "abs") + '">Abstract</button></div>' +
+      '<p class="rail-help">Each card can also switch on its own.</p></div>';
+    h += "</aside>";
+
+    h += '<section class="fx-main" aria-label="Papers">';
+    if (state.notes) h += notes("What’s new on this screen", [
+      "On a laptop the feed uses the width: a left rail for your interests and settings, and papers in two columns. On a phone it folds back to one column.",
+      "Click an interest to see only its papers. The counts show how the feed is shared between your interests.",
+      "The paper’s key figure, only for Creative Commons papers. 4 of these 8 have one; the rest stay text-only.",
+      "Cards open on “In plain terms”, the live site’s real summary. One tap switches that card to the full abstract, with its maths rendered.",
+      "A Code link with GitHub stars, from the Hugging Face papers API. 3 of these 8 papers have one.",
+      "A “⋯” menu holds Why this?, See it in 3D, arXiv and Copy ID."
+    ], true);
+    if (!ids.length) h += '<p class="empty-filter">No papers from this interest in today’s feed.</p>';
+    var cards = ids.map(function (id, k) { return cardProposed(D.papers[id], { marks: k === 0 && state.filter === "all" }); });
+    if (WIDE.matches && cards.length > 1) {
+      var left = [], right = [];
+      cards.forEach(function (c, k) { (k % 2 ? right : left).push(c); });
+      h += '<div class="cols cols--two"><div class="col">' + left.join("") + '</div><div class="col">' + right.join("") + "</div></div>";
+    } else {
+      h += '<div class="cols"><div class="col">' + cards.join("") + "</div></div>";
+    }
+    h += '<div class="issue-end"><span class="mark">You’re up to date</span><span class="note">8 papers today. Refresh for more from your interests.</span></div>';
+    return h + "</section></div>";
+  }
+
+  // ── today: paper page ──
+  function paperToday() {
+    var p = D.papers[SATNAV], s = D.satnav;
+    var h = '<div class="wrap paper-page">';
+    if (state.notes) h += notes("What to notice", [
+      "One 42rem column. On a laptop, both sides of the screen stay empty.",
+      "The 250-word abstract comes first. The plain-language summary only appears below it.",
+      "Save and Pass sit below both, out of view on a phone.",
+      "No figures and no code link, although this paper has 23 figure panels and a public GitHub repo.",
+      "Nearby papers repeat the full feed card. Three of the six show abstracts cut off at 500 characters."
+    ]);
+    h += '<article class="paper"><div class="card-rule"><span class="cat ' + p.catClass + '">' + esc(p.cat) + "</span>" +
+      '<span class="dens dens-' + s.density.level + '" title="' + esc(s.density.title) + '">' + esc(s.density.label) + "</span>" + mark(1) + "</div>";
+    h += '<h1 class="paper-title">' + esc(p.title) + "</h1>";
+    h += '<p class="paper-authors">' + esc(p.authors.join(", ")) + "</p>";
+    h += '<div class="card-foot paper-foot"><a class="card-id" href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv:' + p.id + '</a><span class="sep">·</span><span>' + p.year + "</span></div>";
+    h += '<p class="paper-abstract">' + esc(p.abstract) + mark(2) + "</p>";
+    h += '<div class="explain"><div class="explain-head"><span class="explain-label">In plain terms</span><span class="explain-note">Generated from the abstract</span></div>' +
+      '<p class="explain-body">' + esc(p.plain) + "</p></div>";
+    h += '<div class="paper-actions">' + saveBtn(p.id) + '<button type="button" class="btn btn-sm btn-pass" data-act="pass-page">Pass</button>' + mark(3) + "</div>";
+    h += '<div class="paper-links"><a href="https://arxiv.org/pdf/' + p.id + '" target="_blank" rel="noopener">PDF ↗</a>' +
+      '<a href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv abstract ↗</a>' +
+      '<a href="' + mapUrl(p.id) + '" target="_blank" rel="noopener">See it in 3D ↗</a>' + mark(4) + "</div></article>";
+    h += '<section class="paper-related"><div class="eyebrow-rule"><h2>What sits near this' + mark(5) + "</h2></div>" +
+      '<p class="paper-related-note">Closest papers by meaning, not by your reading history.</p><div class="feed">' +
+      D.related.map(function (r) { return cardToday(r); }).join("") + "</div></section>";
+    return h + "</div>";
+  }
+
+  // ── proposed: paper page ──
+  var SECTIONS = [["sum", "Summary"], ["fig", "Key figure"], ["things", "Three things to know"], ["how", "How it works"],
+                  ["use", "Where you’d use this"], ["figs", "All figures"], ["near", "What sits near this"]];
+
+  function chatHtml() {
+    var s = D.satnav, c = s.context;
+    var asked = {};
+    state.chat.forEach(function (m) { if (m.i >= 0) asked[m.i] = true; });
+    var left = s.ask.map(function (q, i) { return [q, i]; }).filter(function (x) { return !asked[x[1]]; });
+    var h = '<div class="chat-head"><div class="chat-title">' + ICON.ask + "Ask this paper" + mark(7) +
+      '<button type="button" class="icon-btn x" data-act="sheet-close" aria-label="Close">✕</button></div>' +
+      '<p class="chat-sub">Answers come only from this paper, and every answer links to the passage it is based on.</p>' +
+      '<div class="ctx"><span>Full text</span><span>' + c.sections + " sections</span><span>" + c.appendices + " appendices</span><span>" + c.panels + " figure panels</span></div></div>";
+    h += '<div class="chat-log" id="chat-log" aria-live="polite">';
+    h += '<div class="msg msg-bot"><div class="bubble">I’ve read the whole of <b>SatNav</b>. Ask me about the method, the results, a figure, or what you’d need to reproduce it.</div></div>';
+    state.chat.forEach(function (m) {
+      h += '<div class="msg msg-user">' + esc(m.q) + "</div>";
+      if (m.i >= 0) {
+        var a = s.ask[m.i];
+        h += '<div class="msg msg-bot"><div class="bubble">' + esc(a.a) + (a.quote ? "<blockquote>“" + esc(a.quote) + "”</blockquote>" : "") + "</div>" +
+          '<div class="cites">From the paper:' + a.cites.map(function (ct) {
+            return '<a class="cite" href="' + HTML_BASE + "#" + ct[1] + '" target="_blank" rel="noopener" title="Open this passage on arXiv">' + esc(ct[0]) + "</a>";
+          }).join("") + "</div></div>";
+      } else {
+        h += '<div class="msg msg-bot"><div class="bubble">' + esc(m.a) + "</div></div>";
+      }
+    });
+    if (state.typing) h += '<div class="typing" aria-label="Writing an answer"><i></i><i></i><i></i></div>';
+    if (!state.typing && left.length) {
+      h += '<div class="sugg" aria-label="Suggested questions">' + left.map(function (x) {
+        return '<button type="button" data-act="ask" data-i="' + x[1] + '">' + esc(x[0].q) + "</button>";
+      }).join("") + "</div>";
+    }
+    h += "</div>";
+    h += '<form class="chat-form" id="chat-form"><textarea id="chat-input" rows="1" placeholder="Ask about this paper…" aria-label="Ask about this paper"></textarea>' +
+      '<button type="submit" class="send" aria-label="Send">' + ICON.send + "</button></form>";
+    h += '<p class="chat-foot">Preview: these answers were written from the paper’s text. In the product a model writes them, and only quotes it can find in the paper are shown.</p>';
+    return h;
+  }
+
+  function paperProposed() {
+    var p = D.papers[SATNAV], s = D.satnav, nav = interestOf("nav");
+    var h = '<div class="wrap wrap--wide">';
+    if (state.notes) h += notes("What’s new on this screen", [
+      "Three zones on a laptop: a contents list with your actions on the left, the reading column in the middle, and Ask this paper on the right. On a phone, Ask opens from a button.",
+      "The summary box switches between “In plain terms” and the full abstract.",
+      "The key figure, credited under its CC BY 4.0 licence. Tap any figure to enlarge it or ask about it.",
+      "Three things to know, each linked to the exact spot in the paper on arXiv.",
+      "How the method works in four steps, and where you’d use it, tied to the reader’s interest.",
+      "Every figure in a grid instead of none.",
+      "Ask this paper: a chat that answers from the full text and shows its sources. Try the suggested questions.",
+      "Nearby papers as a compact list instead of full cards."
+    ], true);
+    h += '<div class="px">';
+    h += '<aside class="outline" aria-label="On this page"><div><h2>On this page' + mark(1) + "</h2><nav>" +
+      SECTIONS.map(function (x) { return '<a href="#" data-act="goto" data-v="' + x[0] + '" data-sec="' + x[0] + '">' + x[1] + "</a>"; }).join("") +
+      '</nav></div><div><h2>Actions</h2><div class="acts">' + saveBtn(p.id) +
+      '<button type="button" class="btn btn-sm btn-quiet" data-act="pass-page">Pass</button>' +
+      '<div class="row">' + codeChip(p) + "</div>" +
+      '<a class="lnk" href="https://arxiv.org/pdf/' + p.id + '" target="_blank" rel="noopener">PDF ↗</a>' +
+      '<a class="lnk" href="' + mapUrl(p.id) + '" target="_blank" rel="noopener">See it in 3D ↗</a>' +
+      '<a class="lnk" href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv abstract ↗</a></div></div></aside>';
+
+    h += '<article class="px-main">';
+    h += '<a href="#" class="back-link" data-act="screen" data-v="feed">← Your feed</a>';
+    h += '<div class="card-rule"><span class="cat ' + p.catClass + '">' + esc(p.cat) + "</span>" +
+      '<span class="dens dens-' + s.density.level + '" title="' + esc(s.density.title) + '">' + esc(s.density.label) + "</span></div>";
+    h += '<h1 class="paper-title">' + esc(p.title) + "</h1>";
+    h += '<p class="paper-authors">' + esc(p.authors.join(", ")) + "</p>";
+    h += '<div class="pp-meta"><a class="card-id" href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv:' + p.id + '</a><span class="sep">·</span><span>2026</span><span class="sep">·</span><span>' + esc(p.license) + "</span></div>";
+    h += '<div class="inline-acts">' + saveBtn(p.id) + '<button type="button" class="btn btn-sm btn-pass" data-act="pass-page">Pass</button>' + codeChip(p) +
+      '<a class="lnk" href="https://arxiv.org/pdf/' + p.id + '" target="_blank" rel="noopener">PDF ↗</a>' +
+      menu('<a href="' + mapUrl(p.id) + '" target="_blank" rel="noopener">See it in 3D ↗</a>' +
+        '<a href="https://arxiv.org/abs/' + p.id + '" target="_blank" rel="noopener">arXiv abstract ↗</a>' +
+        '<button type="button" data-act="copy" data-id="' + p.id + '">Copy arXiv ID</button>') + "</div>";
+
+    var plain = state.sumTab === "plain";
+    h += '<section class="sum-box brief" id="sec-sum"><div class="tx-tabs" role="tablist" aria-label="Summary">' +
+      '<button type="button" class="tx-tab" role="tab" data-act="sumtab" data-v="plain" aria-selected="' + plain + '">In plain terms</button>' +
+      '<button type="button" class="tx-tab" role="tab" data-act="sumtab" data-v="abs" aria-selected="' + !plain + '">Abstract</button>' + mark(2) + "</div>" +
+      (plain ? '<p class="tx-body">' + esc(p.plain) + '</p><span class="tx-note">Generated. This is the live site’s output today, written from the abstract.</span>'
+             : '<p class="tx-body tx-body--abs">' + renderTex(p.abstract) + '</p><span class="tx-note">The authors’ abstract, from arXiv.</span>') + "</section>";
+
+    h += '<section class="brief" id="sec-fig"><h2 class="brief-h">Key figure' + mark(3) + "</h2>" +
+      '<div><button type="button" class="plate" data-act="fig" data-ask="1" data-src="' + p.fig.src + '" data-cap="' + esc(p.fig.label + ": " + p.fig.caption) + '" data-credit="' + esc(p.fig.credit) + '">' +
+      '<img src="' + p.fig.src + '" alt="Figure 1 from the paper: the SatNav benchmark, its three task families, and an example episode circling a stadium"></button>' +
+      '<div class="plate-cap"><b>' + p.fig.label + "</b><span>" + esc(p.fig.caption) + "</span><span>" + esc(p.fig.credit) + "</span></div></div></section>";
+
+    h += '<section class="brief" id="sec-things"><h2 class="brief-h">Three things to know' + mark(4) + '<span class="gen-tag">Written for this preview from the full paper</span></h2><ul class="things">' +
+      s.things.map(function (t) {
+        return "<li><b>" + esc(t.lead) + "</b> " + esc(t.text) + '<a class="src" href="' + HTML_BASE + "#" + esc(t.anchor) + '" target="_blank" rel="noopener" title="Open this passage on arXiv">' + esc(t.src) + "</a></li>";
+      }).join("") + "</ul></section>";
+
+    h += '<section class="brief" id="sec-how"><h2 class="brief-h">How it works' + mark(5) + '<span class="gen-tag">Written for this preview</span></h2><ol class="how">' +
+      s.how.map(function (st, i) { return '<li><div class="nm"><i>' + (i + 1) + "</i>" + esc(st.name) + '</div><div class="tx">' + esc(st.text) + "</div></li>"; }).join("") + "</ol></section>";
+
+    h += '<section class="brief" id="sec-use"><h2 class="brief-h">Where you’d use this<span class="gen-tag">Written for this preview</span></h2>' +
+      '<div class="row"><span class="interest tone-' + nav.tone + '">Connects to your “' + esc(nav.label) + '” interest</span></div>' +
+      '<p class="use">' + esc(s.use) + "</p></section>";
+
+    h += '<section class="brief" id="sec-figs"><h2 class="brief-h">All figures' + mark(6) + '<span class="gen-tag" style="border-style:solid">8 of 23 figure panels</span></h2><div class="figs">' +
+      s.figures.map(function (f) {
+        return '<button type="button" data-act="fig"' + (f.ask != null ? ' data-ask="' + f.ask + '"' : "") + ' data-src="' + f.src + '" data-cap="' + esc(f.label + ": " + f.caption) + '" data-credit="' + esc(p.fig.credit) + '">' +
+          '<span class="plate"><img src="' + f.src + '" alt="' + esc(f.label + ": " + f.caption) + '" loading="lazy"></span>' +
+          '<span class="cap"><b>' + esc(f.label) + "</b> " + esc(f.caption) + "</span></button>";
+      }).join("") + "</div></section>";
+
+    h += '<section class="brief" id="sec-near"><h2 class="brief-h">What sits near this' + mark(8) + '</h2><ul class="near">' +
+      D.related.map(function (r) {
+        return '<li><a href="https://arxiv.org/abs/' + r.id + '" target="_blank" rel="noopener">' + esc(r.title) + '</a><span class="m">' +
+          authorsShort(r.authors, 2) + " · " + r.year + (r.cites ? " · " + r.cites.toLocaleString("en-US") + " cited" : "") + "</span></li>";
+      }).join("") + "</ul></section>";
+    h += "</article>";
+    h += '<aside class="chat' + (state.sheet ? " is-sheet" : "") + '" id="chat" aria-label="Ask this paper">' + chatHtml() + "</aside>";
+    h += "</div></div>";
+    if (state.sheet) h += '<div class="sheet-backdrop" data-act="sheet-close"></div>';
+    else h += '<button type="button" class="ask-fab" data-act="sheet-open">' + ICON.ask + "Ask this paper</button>";
+    return h;
+  }
+
+  // ── render ──
+  function bindPaperPage() {
+    var form = document.getElementById("chat-form");
+    if (form) {
+      form.addEventListener("submit", function (e) { e.preventDefault(); askFree(); });
+      document.getElementById("chat-input").addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFree(); }
+      });
+    }
+    var log = document.getElementById("chat-log");
+    if (log) log.scrollTop = log.scrollHeight;
+    if (observer) { observer.disconnect(); observer = null; }
+    if (!("IntersectionObserver" in window)) return;
+    var links = document.querySelectorAll(".outline nav a");
+    if (!links.length) return;
+    observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var id = en.target.id.replace("sec-", "");
+        links.forEach(function (a) { a.classList.toggle("is-active", a.getAttribute("data-sec") === id); });
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    SECTIONS.forEach(function (x) { var el = document.getElementById("sec-" + x[0]); if (el) observer.observe(el); });
+  }
+
+  function render(keepScroll) {
+    var root = document.documentElement;
+    root.classList.toggle("notes-off", !state.notes);
+    root.classList.toggle("v-proposed", state.version === "proposed");
+    var key = state.screen + "-" + state.version;
+    var y = window.scrollY;
+    main.innerHTML = key === "feed-today" ? feedToday() : key === "feed-proposed" ? feedProposed()
+      : key === "paper-today" ? paperToday() : paperProposed();
+    [["pv-feed", state.screen === "feed"], ["pv-paper", state.screen === "paper"],
+     ["pv-today", state.version === "today"], ["pv-proposed", state.version === "proposed"]].forEach(function (b) {
+      document.getElementById(b[0]).setAttribute("aria-pressed", b[1]);
+    });
+    ["nav-feed", "bot-feed"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (state.screen === "feed") el.setAttribute("aria-current", "page"); else el.removeAttribute("aria-current");
+    });
+    try { history.replaceState(null, "", "#" + key); } catch (e) { /* sandboxed */ }
+    window.scrollTo(0, keepScroll ? y : 0);
+    if (key === "paper-proposed") bindPaperPage();
+  }
+
+  function reply(entry) {
+    state.chat.push(entry);
+    state.typing = true; render(true);
+    setTimeout(function () { state.typing = false; render(true); }, 750);
+  }
+  function ask(i, text) {
+    if (state.typing) return;
+    reply({ q: text || D.satnav.ask[i].q, i: i, a: "" });
+  }
+  function askFree() {
+    var ta = document.getElementById("chat-input");
+    var q = (ta && ta.value || "").trim();
+    if (!q || state.typing) return;
+    var hit = -1, ql = q.toLowerCase().replace(/[?.!]+$/, "");
+    D.satnav.ask.forEach(function (x, i) { if (x.q.toLowerCase().replace(/[?.!]+$/, "") === ql) hit = i; });
+    if (hit >= 0) { ask(hit, q); return; }
+    reply({ q: q, i: -1, a: "This preview only has answers for the suggested questions. In the product, any question gets an answer like those, written from the paper’s full text, with links to the passages it used." });
+  }
+
+  function toast(html, undo) {
+    var box = document.getElementById("toasts");
+    var t = document.createElement("div");
+    t.className = "toast";
+    t.innerHTML = '<span class="msg">' + html + "</span>" + (undo ? '<button type="button" class="undo">Undo</button>' : "");
+    box.appendChild(t);
+    var gone = false;
+    function close() { if (gone) return; gone = true; t.classList.add("is-out"); setTimeout(function () { t.remove(); }, 170); }
+    if (undo) t.querySelector(".undo").addEventListener("click", function () { undo(); close(); });
+    var link = t.querySelector("[data-act]");
+    if (link) link.addEventListener("click", close);
+    setTimeout(close, 4200);
+  }
+  function closeMenus(except) {
+    document.querySelectorAll(".menu").forEach(function (m) {
+      if (m !== except) { m.hidden = true; var b = m.previousElementSibling; if (b) b.setAttribute("aria-expanded", "false"); }
+    });
+  }
+  function setTheme() {
+    var root = document.documentElement;
+    var cur = root.getAttribute("data-theme") ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    var next = cur === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("researchit-preview-theme", next); } catch (e) { /* storage blocked */ }
+  }
+  function closeLightbox() { var d = document.getElementById("lb"); if (d.close) d.close(); else d.removeAttribute("open"); }
+  var lbAsk = -2;
+
+  document.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-act]");
+    if (!e.target.closest(".pc-menu")) closeMenus();
+    if (!t) return;
+    var act = t.getAttribute("data-act");
+    var card = t.closest("[data-card]");
+    if (t.tagName === "A" && t.getAttribute("href") === "#") e.preventDefault();
+    switch (act) {
+      case "screen": state.screen = t.getAttribute("data-v"); state.sheet = false; render(); break;
+      case "version": state.version = t.getAttribute("data-v"); state.sheet = false; render(); break;
+      case "filter": state.filter = t.getAttribute("data-v"); render(true); break;
+      case "textpref": state.text = t.getAttribute("data-v"); state.cardText = {}; render(true); break;
+      case "cardtab": state.cardText[card.getAttribute("data-card")] = t.getAttribute("data-v"); render(true); break;
+      case "sumtab": state.sumTab = t.getAttribute("data-v"); render(true); break;
+      case "goto": {
+        var sec = document.getElementById("sec-" + t.getAttribute("data-v"));
+        if (sec) sec.scrollIntoView({ behavior: "smooth", block: "start" });
+        break;
+      }
+      case "theme": setTheme(); break;
+      case "outside": toast("This preview covers the feed and the paper page."); break;
+      case "refresh": toast("In the app, Refresh brings fresh papers from your interests."); break;
+      case "open":
+        if (t.getAttribute("data-id") === SATNAV) { state.screen = "paper"; render(); }
+        else toast('This preview has one full paper page. <a href="#" data-act="open" data-id="' + SATNAV + '">Open SatNav</a>');
+        break;
+      case "more": {
+        var abs = card.querySelector(".card-abstract");
+        var open = abs.classList.toggle("is-clamped") === false;
+        t.textContent = open ? "Show less" : "Read more"; t.setAttribute("aria-expanded", open);
+        break;
+      }
+      case "why": {
+        var r = card.querySelector(".card-reason");
+        r.classList.toggle("hidden"); t.setAttribute("aria-expanded", !r.classList.contains("hidden"));
+        break;
+      }
+      case "why-menu": card.querySelector(".card-reason").classList.toggle("hidden"); closeMenus(); break;
+      case "menu": {
+        var m = t.nextElementSibling, willOpen = m.hidden;
+        closeMenus(m); m.hidden = !willOpen; t.setAttribute("aria-expanded", willOpen);
+        break;
+      }
+      case "copy": {
+        var id = t.getAttribute("data-id");
+        closeMenus();
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(id).then(function () { toast("Copied arXiv:" + id); }, function () { toast("arXiv:" + id); });
+        } else toast("arXiv:" + id);
+        break;
+      }
+      case "save": {
+        var saved = t.classList.toggle("btn-saved");
+        t.classList.toggle("btn-save", !saved);
+        t.innerHTML = saved ? ICON.check + " Saved" : ICON.save + " Save";
+        if (saved) { t.classList.add("just-saved"); toast("Saved to your library."); }
+        break;
+      }
+      case "pass": {
+        var c = card;
+        c.classList.add("is-leaving");
+        setTimeout(function () { c.hidden = true; }, 190);
+        toast("Passed. You’ll see less like this.", function () { c.hidden = false; c.classList.remove("is-leaving"); });
+        break;
+      }
+      case "pass-page": toast("Passed. You’ll see less like this."); break;
+      case "fig": {
+        var lb = document.getElementById("lb");
+        lbAsk = t.hasAttribute("data-ask") ? +t.getAttribute("data-ask") : -2;
+        document.getElementById("lb-ask").hidden = !(state.screen === "paper" && state.version === "proposed");
+        document.getElementById("lb-img").src = t.getAttribute("data-src");
+        document.getElementById("lb-img").alt = t.getAttribute("data-cap");
+        document.getElementById("lb-cap").textContent = t.getAttribute("data-cap");
+        document.getElementById("lb-credit").textContent = t.getAttribute("data-credit");
+        if (lb.showModal) lb.showModal(); else lb.setAttribute("open", "");
+        break;
+      }
+      case "lb-close": closeLightbox(); break;
+      case "lb-ask": {
+        closeLightbox();
+        if (!MID.matches) state.sheet = true;
+        if (lbAsk >= 0) ask(lbAsk);
+        else if (!state.typing) reply({ q: "Explain " + document.getElementById("lb-cap").textContent.split(":")[0].toLowerCase(), i: -1,
+          a: "In the product, this would explain the figure from its caption and the paragraphs that cite it. This preview has prepared answers for Figures 1 and 4." });
+        break;
+      }
+      case "ask": ask(+t.getAttribute("data-i")); break;
+      case "sheet-open": state.sheet = true; render(true); break;
+      case "sheet-close": state.sheet = false; render(true); break;
+    }
+  });
+  document.getElementById("lb").addEventListener("click", function (e) { if (e.target === this) closeLightbox(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closeMenus(); if (state.sheet) { state.sheet = false; render(true); } }
+  });
+  document.getElementById("pv-notes").addEventListener("change", function () { state.notes = this.checked; render(true); });
+  if (WIDE.addEventListener) WIDE.addEventListener("change", function () { if (state.screen === "feed") render(true); });
+  if (MID.addEventListener) MID.addEventListener("change", function () { if (state.sheet && MID.matches) { state.sheet = false; render(true); } });
+
+  try {
+    var th = localStorage.getItem("researchit-preview-theme");
+    if (th === "dark" || th === "light") document.documentElement.setAttribute("data-theme", th);
+  } catch (e) { /* storage blocked */ }
+  var m = (location.hash || "").match(/^#(feed|paper)-(today|proposed)$/);
+  if (m) { state.screen = m[1]; state.version = m[2]; }
+  render(true);
+})();
+</script>

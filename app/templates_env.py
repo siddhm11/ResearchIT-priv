@@ -272,4 +272,17 @@ templates.env.filters["is_truncated"] = _is_truncated
 from app import config  # noqa: E402  (after `templates` exists, avoids a cycle)
 
 templates.env.globals["space_app_url"] = config.SPACE_APP_URL
+
+# Redesign switches (app/features.py). Templates ask `feature_visible("ASK",
+# request)` rather than reading the environment themselves.
+from app import features  # noqa: E402
+
+templates.env.globals["feature_visible"] = features.visible
+
+# Figure thumbnails: URLs that pass the licence and path checks, and the credit
+# line every displayed figure carries (app/routers/figures.py).
+from app.routers.figures import figure_credit, figure_url  # noqa: E402
+
+templates.env.globals["figure_url"] = figure_url
+templates.env.globals["figure_credit"] = figure_credit
 templates.env.globals["space_paper_url"] = config.space_paper_url

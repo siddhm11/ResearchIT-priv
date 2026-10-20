@@ -1,0 +1,439 @@
+{
+ "status": "ok",
+ "version": "v1",
+ "licence_text": "CC BY 4.0",
+ "title": "TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding",
+ "abstract_start": "",
+ "sections": [
+  [
+   "S1",
+   "1",
+   "Introduction",
+   2,
+   "section"
+  ],
+  [
+   "S3",
+   "3",
+   "TRACE Evaluation Framework",
+   2,
+   "section"
+  ],
+  [
+   "S3.SS1",
+   "3.1",
+   "Design Principles and Overview",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS1.SSS0.Px1",
+   "",
+   "Temporal validity.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS1.SSS0.Px2",
+   "",
+   "Explicit execution conditions.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS1.SSS0.Px3",
+   "",
+   "Operational outcomes.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS1.SSS0.Px4",
+   "",
+   "Framework components.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS2",
+   "3.2",
+   "Unified Causal Execution and Declared Conditions",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3",
+   "3.3",
+   "Evaluation Metrics",
+   3,
+   "subsection"
+  ],
+  [
+   "S3.SS3.SSS0.Px1",
+   "",
+   "QA evaluation.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS3.SSS0.Px2",
+   "",
+   "Proactive Response evaluation.",
+   4,
+   "paragraph"
+  ],
+  [
+   "S3.SS4",
+   "3.4",
+   "Evaluation Scope",
+   3,
+   "subsection"
+  ],
+  [
+   "S6",
+   "6",
+   "Analysis and Key Findings",
+   2,
+   "section"
+  ],
+  [
+   "S6.SS1",
+   "6.1",
+   "Finding 1: Temporal Audit Establishes Reliable Measurement Boundaries",
+   3,
+   "subsection"
+  ],
+  [
+   "S6.SS2",
+   "6.2",
+   "Finding 2: Similar Task Scores Can Hide Different System Behaviors",
+   3,
+   "subsection"
+  ],
+  [
+   "S6.SS3",
+   "6.3",
+   "Finding 3: Execution Conditions Define What a Score Measures",
+   3,
+   "subsection"
+  ]
+ ],
+ "paragraphs": [
+  [
+   "S1.p1",
+   "S1",
+   "Multimodal large language models (MLLMs) for streaming video understanding recei",
+   []
+  ],
+  [
+   "S1.p2",
+   "S1",
+   "Causal access alone, however, does not fully specify a streaming evaluation. A r",
+   []
+  ],
+  [
+   "S1.p3",
+   "S1",
+   "We introduce TRACE (Temporal Audit and Condition-aware Evaluation), a benchmark ",
+   []
+  ],
+  [
+   "S1.p4",
+   "S1",
+   "We evaluate eight publicly available models or systems in eight configurations. ",
+   []
+  ],
+  [
+   "S1.p5",
+   "S1",
+   "Our contributions are threefold: (1) Condition-aware streaming evaluation. We fo",
+   []
+  ],
+  [
+   "S3.p1",
+   "S3",
+   "TRACE is designed around a simple premise: a streaming-video score is under-spec",
+   []
+  ],
+  [
+   "S3.SS1.SSS0.Px1.p1",
+   "S3.SS1.SSS0.Px1",
+   "The evaluation must establish which past visual evidence supports an answer and ",
+   []
+  ],
+  [
+   "S3.SS1.SSS0.Px2.p1",
+   "S3.SS1.SSS0.Px2",
+   "Models can satisfy the same causal-visibility rule while processing the stream d",
+   []
+  ],
+  [
+   "S3.SS1.SSS0.Px3.p1",
+   "S3.SS1.SSS0.Px3",
+   "Task quality is reported together with timing, extra output, workload, completio",
+   []
+  ],
+  [
+   "S3.SS1.SSS0.Px4.p1",
+   "S3.SS1.SSS0.Px4",
+   "TRACE operationalizes these principles through four connected components. First,",
+   []
+  ],
+  [
+   "S3.SS1.SSS0.Px4.p2",
+   "S3.SS1.SSS0.Px4",
+   "Figure 1 is the reading guide for the framework and for the metrics defined belo",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS1.SSS0.Px4.p3",
+   "S3.SS1.SSS0.Px4",
+   "The middle timeline in Figure 1 illustrates QA using separate video-time and run",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS1.SSS0.Px4.p4",
+   "S3.SS1.SSS0.Px4",
+   "The bottom timeline in Figure 1 illustrates Proactive Response. An audited trigg",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS2.p1",
+   "S3.SS2",
+   "Core delivers timestamped video frames and tasks on a common timeline, using fix",
+   []
+  ],
+  [
+   "S3.SS2.p2",
+   "S3.SS2",
+   "The protocol standardizes causal visibility and task arrival, but it does not fo",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS2.p3",
+   "S3.SS2",
+   "For each run, TRACE records how visual history is maintained, how proactive outp",
+   []
+  ],
+  [
+   "S3.SS2.p4",
+   "S3.SS2",
+   "Figure 2 focuses on the two execution dimensions that vary in the reported exper",
+   [
+    "S3.F2"
+   ]
+  ],
+  [
+   "S3.SS3.p1",
+   "S3.SS3",
+   "The metric families in Table 2 attach measurements to the same execution trace. ",
+   [
+    "S3.T2"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p1",
+   "S3.SS3.SSS0.Px1",
+   "A question and its options arrive at video time $q$ . Only frames available by $",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p2",
+   "S3.SS3.SSS0.Px1",
+   "Accuracy counts a record as correct only when the parser recovers one unambiguou",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p3",
+   "S3.SS3.SSS0.Px1",
+   "TRACE uses Response Latency as the primary QA timing metric: $L_{\\mathrm{comp}}=",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p4",
+   "S3.SS3.SSS0.Px1",
+   "We additionally record Time to First Token (TTFT), $\\mathrm{TTFT}=r_{1}-r_{q},$ ",
+   [
+    "A2.SS2"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px1.p5",
+   "S3.SS3.SSS0.Px1",
+   "Submitted Image Count and Total Output Tokens describe the execution volume obse",
+   [
+    "A2.SS2"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p1",
+   "S3.SS3.SSS0.Px2",
+   "Each Proactive Response task provides a monitoring instruction and one or more a",
+   [
+    "S3.F1"
+   ]
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p2",
+   "S3.SS3.SSS0.Px2",
+   "For a point trigger $t_{i}$ , tolerance $W$ , and next trigger $t_{i+1}$ , TRACE",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p3",
+   "S3.SS3.SSS0.Px2",
+   "Responses are assigned by segment onset, i.e., the first output token. Timing de",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p4",
+   "S3.SS3.SSS0.Px2",
+   "Sequential Steps Recognition (SSR) and Clues Reveal Responding (CRR) use a seman",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p5",
+   "S3.SS3.SSS0.Px2",
+   "Timeliness is measured by Median Response Delay, the median response-onset delay",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p6",
+   "S3.SS3.SSS0.Px2",
+   "TRACE also reports two response-selection errors. A false alarm is a response th",
+   []
+  ],
+  [
+   "S3.SS3.SSS0.Px2.p7",
+   "S3.SS3.SSS0.Px2",
+   "Thus, In-window Accuracy measures response quality, Median Response Delay measur",
+   [
+    "A2.SS2"
+   ]
+  ],
+  [
+   "S3.SS4.p1",
+   "S3.SS4",
+   "TRACE currently evaluates visual-only, single-instruction streaming video unders",
+   [
+    "S4",
+    "S5"
+   ]
+  ],
+  [
+   "S6.p1",
+   "S6",
+   "The results reveal three reasons why a single task score is insufficient for str",
+   []
+  ],
+  [
+   "S6.SS1.p1",
+   "S6.SS1",
+   "TRACE’s temporal audit is not merely a data-cleaning step: it determines the bou",
+   []
+  ],
+  [
+   "S6.SS1.p2",
+   "S6.SS1",
+   "These revisions affect different parts of the two task types. In QA, reviewed ev",
+   []
+  ],
+  [
+   "S6.SS1.p3",
+   "S6.SS1",
+   "The audit thus provides the shared temporal basis on which TRACE’s downstream me",
+   []
+  ],
+  [
+   "S6.SS2.p1",
+   "S6.SS2",
+   "Across both QA and Proactive Response, task quality does not determine the opera",
+   []
+  ],
+  [
+   "S6.SS2.p2",
+   "S6.SS2",
+   "The QA results provide a simple example. LiveCC and MOSS-Preview achieve nearly ",
+   []
+  ],
+  [
+   "S6.SS2.p3",
+   "S6.SS2",
+   "The same separation is more pronounced for Proactive Response, where quality, ti",
+   []
+  ],
+  [
+   "S6.SS2.p4",
+   "S6.SS2",
+   "The two MOSS models illustrate another form of separation. MOSS-VL reaches 8.05%",
+   []
+  ],
+  [
+   "S6.SS2.p5",
+   "S6.SS2",
+   "LiveCC makes this distinction especially clear. Its autonomous In-window Accurac",
+   []
+  ],
+  [
+   "S6.SS2.p6",
+   "S6.SS2",
+   "These cases show that accuracy, completion, answer validity, workload, response ",
+   []
+  ],
+  [
+   "S6.SS3.p1",
+   "S6.SS3",
+   "A reported metric remains tied to the execution path that produced it. This matt",
+   []
+  ],
+  [
+   "S6.SS3.p2",
+   "S6.SS3",
+   "Evaluation boundary creates a second distinction. JoyAI’s 17.08% In-window Accur",
+   []
+  ],
+  [
+   "S6.SS3.p3",
+   "S6.SS3",
+   "MiniCPM-O native duplex provides a complementary interface diagnostic. It is eva",
+   []
+  ],
+  [
+   "S6.SS3.p4",
+   "S6.SS3",
+   "Taken together, these findings show that temporal validity, multidimensional beh",
+   []
+  ]
+ ],
+ "figures": [
+  [
+   "S3.F1",
+   "Figure 1",
+   "TRACE overview from causal video input to condition-aware measurement. The top r",
+   []
+  ],
+  [
+   "S3.F2",
+   "Figure 2",
+   "Execution conditions recorded by TRACE. Native Streaming updates persistent stat",
+   []
+  ]
+ ],
+ "tables": [
+  [
+   "S3.T2",
+   "Table 2",
+   "Main evaluation metrics. Arrows indicate preferred directions when task populati"
+  ]
+ ]
+}

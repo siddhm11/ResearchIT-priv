@@ -25,6 +25,39 @@ ARXIV_API_URL = "https://export.arxiv.org/api/query"
 ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 
+# arXiv and Hugging Face ask clients to identify themselves. On 2026-10-01
+# oaipmh.arxiv.org answered an anonymous harvester with 406 for a while; the
+# same request with a User-Agent went through. Every outside request the app
+# makes for the redesign (abstracts, HTML pages, figures, code links) sends it.
+OUTBOUND_USER_AGENT = os.getenv(
+    "OUTBOUND_USER_AGENT",
+    "ResearchIT/1.0 (+https://github.com/siddhm11/ResearchIT-priv)").strip()
+
+# Full abstracts fetched on first open (app/abstract_svc.py). The sidecar caps
+# abstracts at 500 characters for ~90% of pre-2025 papers. arXiv's API asks for
+# one request every three seconds; each request carries up to 20 ids.
+FULL_ABSTRACTS_DAILY_CAP = int(os.getenv("FULL_ABSTRACTS_DAILY_CAP", "3000"))
+
+# arXiv HTML pages, read once per paper (app/paper_source_svc.py). The base can
+# only be changed when RESEARCHIT_ENV=test, for browser tests against a local
+# stand-in; production always reads arxiv.org.
+RESEARCHIT_ENV = os.getenv("RESEARCHIT_ENV", "").strip().lower()
+ARXIV_HTML_BASE = (os.getenv("ARXIV_HTML_BASE", "").strip().rstrip("/")
+                   if RESEARCHIT_ENV == "test" else "") or "https://arxiv.org/html"
+# Parsed full text kept locally for this many most recently used papers. Each is
+# roughly 50-150 KB of text; measure the database before raising it.
+FULLTEXT_MAX_PAPERS = int(os.getenv("FULLTEXT_MAX_PAPERS", "5000"))
+
+# Figure thumbnails (app/routers/figures.py): WebPs cached on local disk, which
+# a restart wipes; they regenerate on the next view. Swept to the size cap.
+FIG_CACHE_DIR = os.getenv("FIG_CACHE_DIR", "/tmp/figcache").strip()
+FIG_CACHE_MAX_MB = int(os.getenv("FIG_CACHE_MAX_MB", "1024"))
+
+# Owner-only preview of switched features (app/features.py). Visiting any page
+# with ?preview=<PREVIEW_TOKEN> sets a cookie that shows `preview` features to
+# that browser only. Empty means preview is visible to nobody.
+PREVIEW_TOKEN = os.getenv("PREVIEW_TOKEN", "").strip()
+
 # ── Turso (libSQL) — arXiv metadata DB — Phase 3.5 ───────────────────────────
 TURSO_URL = os.getenv("TURSO_URL", "").strip()
 TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
@@ -239,16 +272,89 @@ ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 #   sparse_vector SPARSE_FLOAT_VECTOR  (BGE-M3 lexical weights, int token IDs)
 #   Index: SPARSE_INVERTED_INDEX, metric_type="IP"
 
-# ── Groq (LLM query rewriter) — Phase 3 ──────────────────────────────────────
+# ── Groq (query rewrite, search overview, paper explanations) ───────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
+# Tried in order. A model Groq reports as retired or rate-limited is benched and
+# the next one answers, so one deprecation can no longer switch off every LLM
+# feature at once: llama-3.3-70b-versatile, the single hard-coded model until
+# 2026-10, was shut down by Groq on 2026-08-16 and all three features failed
+# silently for seven weeks.
+#
+# Order measured with scripts/eval_groq_models.py on 2026-10-04 (production
+# prompts, 16 rewrites / 4 overviews / 8 explanations per model):
+#
+#   model                rewrite p50/p95   overview p50   explain p50
+#   qwen/qwen3.8-27b       114 / 125 ms        439 ms        367 ms
+#   openai/gpt-oss-20b     453 / 559 ms        441 ms        534 ms
+#   openai/gpt-oss-120b    487 / 737 ms        851 ms        836 ms
+#
+# The rewrite overlaps the 285-642 ms BGE-M3 encode, so only Qwen reliably
+# finishes inside it. Read side by side, Qwen's overviews also introduced
+# the fewest details absent from the papers ("~0.1 %-0.01 %", "Chinchilla"
+# came from gpt-oss-120b).
+#
+# The catch: Groq labels Qwen 3.8 a *Preview* model that "may be discontinued
+# at short notice", and the Qwen line on Groq turned over twice between July
+# and September 2026. That risk is what the chain absorbs: when it goes,
+# requests fall through to the two production gpt-oss models within one call,
+# and the keepalive workflow fails because the primary is gone. Fixing that
+# needs no deploy -- set GROQ_MODELS as a Space variable.
+GROQ_MODELS = [
+    m.strip() for m in os.getenv(
+        "GROQ_MODELS",
+        "qwen/qwen3.8-27b,openai/gpt-oss-20b,openai/gpt-oss-120b",
+    ).split(",") if m.strip()
+]
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
 BGE_M3_DEVICE = os.getenv("BGE_M3_DEVICE", "cpu")
+# Exact Hugging Face commit of BGE-M3. The stored corpus vectors were made with
+# these weights; a query encoder that silently picked up new ones would drift
+# away from them with no error anywhere. 5617a9f6 has been the repo's main since
+# 2024-07-03, so pinning it changes nothing about what production runs today.
+# BGE_M3_REVISION overrides; a different BGE_M3_MODEL with no override is unpinned.
+BGE_M3_PINS = {"BAAI/bge-m3": "5617a9f61b028005a4858fdac845db406aefb181"}
+BGE_M3_REVISION = os.getenv("BGE_M3_REVISION", "").strip() or BGE_M3_PINS.get(BGE_M3_MODEL)
 ENCODE_CACHE_SIZE = 128  # LRU cache for encoded queries
 
+# ── Thread pools (app/compute_pool.py) ────────────────────────────────────────
+# 0 = derive from the CPUs the container may use. On the 2-vCPU Space that is
+# one inference worker with torch on 2 threads.
+INFERENCE_WORKERS = int(os.getenv("INFERENCE_WORKERS", "0"))
+INFERENCE_THREADS = int(os.getenv("INFERENCE_THREADS", "0"))
+# Blocking network clients (Qdrant). Threads here wait rather than compute, but
+# the cap still matters: the free Qdrant clusters lose throughput when pushed
+# harder (measured 2026-10-15: 8.8 full 3-shard searches/s at 4 concurrent,
+# 5.0 at 8, 3.8 at 16, with p95 rising from 0.8 s to 8.6 s). 12 threads = 4
+# concurrent fan-outs across 3 shards, the measured sweet spot. Extra calls
+# queue here instead of slowing everyone down inside Qdrant.
+IO_POOL_WORKERS = int(os.getenv("IO_POOL_WORKERS", "12"))
+
 # ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
-RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+# mxbai-rerank-xsmall-v1 (70M, Apache-2.0) replaced ms-marco-MiniLM-L-6-v2 on
+# 2026-10-14 (doc 06 changelog). On 847 known-item queries, scored on the text
+# production actually serves (the sidecar's abstract_preview, cut at ~500 chars
+# for ~78% of papers), MRR@10 rose 0.523 -> 0.563 at depth 10 (+7.7%, 95% CI
+# +4% to +11%). With full abstracts the same reranker reaches 0.611 / 0.618 at
+# depth 10 / 20, so most of the remaining gain waits on the abstract backfill
+# (PHASE7 7.3). Set RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2 and
+# RERANKER_MAX_LENGTH=512 to roll back without a deploy.
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "mixedbread-ai/mxbai-rerank-xsmall-v1")
+# Tokens of "Title: ...\nAbstract: ..." the cross-encoder reads. 256 holds the
+# title and most of a stored abstract (90% are cut at 500 chars) and is 2.2x
+# faster than 512 at the same MRR; 128 loses most of the gain (0.611 -> ~0.56).
+RERANKER_MAX_LENGTH = int(os.getenv("RERANKER_MAX_LENGTH", "256"))
+
+# Exact Hugging Face commits, so a rebuild cannot pick up a changed model and
+# drift away from what was evaluated. The Dockerfile bakes in these same
+# revisions (tests/test_search_speed.py checks they agree). RERANKER_REVISION
+# overrides; an unknown model with no override loads the repo's latest.
+RERANKER_PINS = {
+    "mixedbread-ai/mxbai-rerank-xsmall-v1": "b5c6e9da73abc3711f593f705371cdbe9e0fe422",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2": "233902d25c440f23af6f7d6e94d2946bac0bee0a",
+}
+RERANKER_REVISION = os.getenv("RERANKER_REVISION", "").strip() or RERANKER_PINS.get(RERANKER_MODEL)
 # How deep the cross-encoder reranks. Measured 2026-08-02 against a 60-query
 # known-item eval set on the live Space:
 #
@@ -268,6 +374,14 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 # be returned -- values below ARXIV_MAX_RESULTS would shrink the result page.
 SEARCH_RERANK_TOP_N = int(os.getenv("SEARCH_RERANK_TOP_N", "10"))
 
+# Depth used when no other inference job is queued or running. The sweep above
+# was MiniLM's, which got worse with depth. mxbai-rerank-xsmall improves with
+# depth on FULL abstracts (MRR@10 0.611 @10 -> 0.618 @20 -> 0.624 @30) but not
+# on today's truncated ones (0.563 @10 and @20), so the default stays at 10:
+# a deeper window would cost ~2x reranker time for nothing. Raise it to 20 once
+# the abstract backfill lands. Under load search always uses SEARCH_RERANK_TOP_N.
+SEARCH_RERANK_TOP_N_IDLE = int(os.getenv("SEARCH_RERANK_TOP_N_IDLE", "10"))
+
 # Whether to run the cross-encoder at all.
 #
 # It costs ~58% of end-to-end latency, and the depth sweep above shows its
@@ -283,6 +397,13 @@ SEARCH_BGE_RERANK = os.getenv("SEARCH_BGE_RERANK", "1").strip().lower() in (
 # HNSW graph lives: free on a RAM-resident graph, not free on an on-disk one.
 # Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
 SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
+
+# Time budget for one FTS5 lexical search (AND attempt + OR fallback together).
+# Over budget the lexical arm returns nothing and the dense arm answers alone.
+# With ranking inside FTS before the `papers` join (fts_svc._SQL, 2026-10-16) the
+# slowest of 865 queries took 0.9 s on a contended laptop; before it, production
+# hit this budget on ~40% of searches. /healthz/runtime counts the skips.
+SEARCH_FTS_BUDGET_MS = int(os.getenv("SEARCH_FTS_BUDGET_MS", "1500"))
 
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator

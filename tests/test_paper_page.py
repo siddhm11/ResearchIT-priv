@@ -217,6 +217,54 @@ def test_the_card_link_carries_the_feed_provenance():
         assert key in card, f"card title link drops {key}"
 
 
+def test_paper_page_records_timings():
+    """A redesign of this page is judged against these numbers."""
+    from app import runtime_stats
+    meta, search = _client_with()
+    with meta, search:
+        with TestClient(app) as c:
+            assert c.get("/p/1706.03762").status_code == 200
+            body = c.get("/healthz/runtime").json()
+    row = runtime_stats.timings()["paper_page"]
+    assert {"meta_ms", "related_ms", "total_ms"} <= set(row)
+    assert "paper_page" in body["timings"]
+
+
+def test_explain_counts_cache_hits_and_misses():
+    from app import db, groq_svc, runtime_stats
+    before = runtime_stats.counters()
+    meta, search = _client_with()
+
+    async def fake_explain(title, abstract):
+        return "A plain summary."
+
+    with meta, search, patch.object(groq_svc, "explain_paper", side_effect=fake_explain):
+        with TestClient(app) as c:
+            c.get("/api/papers/1706.03762/explain")
+            c.get("/api/papers/1706.03762/explain")
+    after = runtime_stats.counters()
+    assert after.get("explain_cache_miss", 0) - before.get("explain_cache_miss", 0) == 1
+    assert after.get("explain_cache_hit", 0) - before.get("explain_cache_hit", 0) == 1
+
+
+@pytest.mark.parametrize("surface", ["search", "recommendation", "saved"])
+def test_card_link_names_its_surface(surface):
+    """The click log groups by surface, so the card must say which one it is on.
+
+    The link used to read `_source`, a variable that only exists inside
+    action_buttons.html. A `set` in an included template never flows back to
+    the includer, so every rendered link ended `sf=` and paper.py stored every
+    click -- search results included -- as a recommendation.
+    """
+    from app.templates_env import templates
+    card = templates.env.get_template("partials/paper_card.html")
+    html = card.render(paper={**PAPER, "query_id": "q1", "position": 2,
+                              "candidate_source": "cluster_0"},
+                       source=surface)
+    href = re.search(r'class="card-title"\s+href="([^"]+)"', html).group(1)
+    assert f"sf={surface}" in href.replace("&amp;", "&")
+
+
 def test_position_zero_is_recorded_not_discarded():
     """Rank 0 is the top of the feed and the slot CTR analysis cares about most.
 
@@ -236,3 +284,71 @@ def test_a_genuinely_absent_position_is_still_null():
     assert _position(None) is None
     assert _position(0) == 0
     assert _position(7) == 7
+
+
+# ── full abstracts on first open (app/abstract_svc.py) ───────────────────────
+
+_STUMP = ("We study the problem of learning models " * 20)[:499] + "z"
+_FULL = _STUMP + " and then finish the sentence, with results."
+
+
+def _cut_paper_client(monkeypatch, switch):
+    from app import abstract_svc, groq_svc
+    monkeypatch.setenv("FULL_ABSTRACTS", switch)
+    seen = {"explained_from": None, "fetches": 0}
+
+    async def fake_fetch(ids):
+        seen["fetches"] += 1
+        return {i: _FULL for i in ids}
+
+    async def fake_explain(title, abstract):
+        seen["explained_from"] = abstract
+        return "Plain words."
+
+    monkeypatch.setattr(abstract_svc, "_fetch", fake_fetch)
+    monkeypatch.setattr(groq_svc, "explain_paper", fake_explain)
+    meta, search = _client_with({**PAPER, "abstract": _STUMP})
+    return meta, search, seen
+
+
+def test_explain_waits_for_the_full_abstract(monkeypatch):
+    meta, search, seen = _cut_paper_client(monkeypatch, "on")
+    with meta, search:
+        with TestClient(app) as c:
+            r = c.get("/api/papers/1706.03762/explain")
+            page = c.get("/p/1706.03762")
+    assert r.status_code == 200 and "Plain words." in r.text
+    assert seen["explained_from"] == _FULL
+    assert seen["fetches"] == 1
+    assert "finish the sentence, with results." in page.text
+    assert "stored truncated" not in page.text
+
+
+def test_with_full_abstracts_off_nothing_changes(monkeypatch):
+    meta, search, seen = _cut_paper_client(monkeypatch, "off")
+    with meta, search:
+        with TestClient(app) as c:
+            c.get("/api/papers/1706.03762/explain")
+            page = c.get("/p/1706.03762")
+    assert seen["explained_from"] == _STUMP
+    assert seen["fetches"] == 0
+    assert "stored truncated" in page.text
+
+
+def test_opening_a_paper_schedules_its_arxiv_page_without_waiting(monkeypatch):
+    from app import paper_source_svc
+    scheduled = []
+    monkeypatch.setattr(paper_source_svc, "schedule", scheduled.append)
+    meta, search = _client_with()
+    with meta, search:
+        with TestClient(app) as c:
+            assert c.get("/p/1706.03762").status_code == 200
+    assert scheduled == ["1706.03762"]
+
+
+def test_healthz_sources_reports_the_paper_source_layer(monkeypatch):
+    monkeypatch.setenv("PAPER_SOURCES", "shadow")
+    with TestClient(app) as c:
+        body = c.get("/healthz/sources").json()
+    assert body["switch"] == "shadow"
+    assert body["by_status"] == {} and body["breaker_open"] is False

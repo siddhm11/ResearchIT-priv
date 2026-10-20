@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding</title>
+</head>
+<body>
+<!-- Test fixture trimmed from arXiv HTML by scripts/make_arxiv_fixture.py. arXiv:2609.30670, TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding, by Yibo Ma, Qianqian Zhang, Peng Liu, Tiancheng Zhao. CC BY 4.0, https://arxiv.org/abs/2609.30670 -->
+<nav class="ltx_TOC"><ol><li><a href="#S1" class="ltx_ref">Contents stub</a></li></ol></nav>
+<div class="ltx_page_main">
+<div id="infobox" class="infobox">
+  <a id="license-tr" href="https://info.arxiv.org/help/license/index.html#licenses-available">
+    License: CC BY 4.0
+  </a>
+  <div id="watermark-tr">
+arXiv:2609.30670v1 [cs.CL] 25 Sep 2026</div>
+</div>
+<h1 class="ltx_title ltx_title_document">TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding</h1>
+
+<section id="S1" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
+
+<div id="S1.p1" class="ltx_para">
+<p id="S1.p1.1" class="ltx_p">Multimodal large language models (MLLMs) for streaming video understanding receive information incrementally rather than as a complete video. They must process new observations as they arrive, retain information that may become useful later, and respond when a question is asked or when a monitored condition becomes true. This setting differs from conventional long-video understanding, where the complete video or a presampled context is typically available before inference. Consequently, models operating on a live stream cannot be compared meaningfully with offline video models without accounting for what evidence in video was available at the time of each response <cite class="ltx_cite ltx_citemacro_citep">[<a href="#bib.bib10" title="" class="ltx_ref">10</a>]</cite>.</p>
+</div>
+<div id="S1.p2" class="ltx_para">
+<p id="S1.p2.1" class="ltx_p">Causal access alone, however, does not fully specify a streaming evaluation. A reported score also depends on <em id="S1.p2.1.1" class="ltx_emph ltx_font_italic">when</em> the supporting evidence becomes valid, <em id="S1.p2.1.2" class="ltx_emph ltx_font_italic">how</em> the system maintains or reconstructs visual history, <em id="S1.p2.1.3" class="ltx_emph ltx_font_italic">who</em> decides when a response is produced, and <em id="S1.p2.1.4" class="ltx_emph ltx_font_italic">what</em> processing and failures occur along the way. Two systems can therefore obtain similar task scores while differing substantially in state maintenance, history replay, response timing, output redundancy, workload, completion, or answer validity. We argue that a streaming-video score is meaningful only when it is interpreted together with three forms of context: <span id="S1.p2.1.5" class="ltx_text ltx_font_bold">temporal validity</span>, <span id="S1.p2.1.6" class="ltx_text ltx_font_bold">execution conditions</span>, and <span id="S1.p2.1.7" class="ltx_text ltx_font_bold">operational outcomes</span>.</p>
+</div>
+<div id="S1.p3" class="ltx_para">
+<p id="S1.p3.1" class="ltx_p">We introduce TRACE (Temporal Audit and Condition-aware Evaluation), a benchmark and evaluation framework designed around this principle. TRACE combines temporally audited visual tasks with a unified causal Core–Adapter protocol. The task annotations specify when evidence supports a question-answering (QA) response and when a proactive response becomes valid; the execution protocol controls what video is available while recording how models process history and produce outputs; and the reporting layer measures task quality together with response timing, extra output, workload, completion, and runtime reliability under explicitly declared execution and deployment conditions.</p>
+</div>
+<div id="S1.p4" class="ltx_para">
+<p id="S1.p4.1" class="ltx_p">We evaluate eight publicly available models or systems in eight configurations. The experiments show why the additional context matters: nearly identical QA accuracy can coincide with different completion rates, output volumes, and invalid-output rates, while similar proactive scores can mask large differences in response timing, false alarms, and missed target windows. Differences in history processing and evaluation boundary further show why a reported score must remain tied to the execution condition under which it was obtained.</p>
+</div>
+<div id="S1.p5" class="ltx_para">
+<p id="S1.p5.1" class="ltx_p">Our contributions are threefold:</p>
+<ol id="S1.I1" class="ltx_enumerate" style="--ltx-enum-leftmargin:1.5em;">
+<li id="S1.I1.i1" class="ltx_item" style="list-style-type:none;"><span class="ltx_tag ltx_tag_item">(1)</span> 
+<div id="S1.I1.i1.p1" class="ltx_para">
+<p id="S1.I1.i1.p1.1" class="ltx_p"><span id="S1.I1.i1.p1.1.1" class="ltx_text ltx_font_bold">Condition-aware streaming evaluation.</span> We formulate streaming-video evaluation as a system-level measurement problem in which task scores are interpreted under explicit execution conditions. TRACE records visual-state maintenance, response initiation, and evaluation boundary instead of treating these choices as implicit properties of a model.</p>
+</div></li>
+<li id="S1.I1.i2" class="ltx_item" style="list-style-type:none;"><span class="ltx_tag ltx_tag_item">(2)</span> 
+<div id="S1.I1.i2.p1" class="ltx_para">
+<p id="S1.I1.i2.p1.1" class="ltx_p"><span id="S1.I1.i2.p1.1.1" class="ltx_text ltx_font_bold">Temporally audited tasks and multidimensional measurement.</span> We construct a visual-only evaluation set from existing streaming-video benchmarks with reviewed evidence timing and instruction-dependent proactive trigger annotations. TRACE pairs these annotations with a unified Core–Adapter protocol that records actual execution behavior and reports quality, timeliness, extra output, workload, completion, and reliability.</p>
+</div></li>
+<li id="S1.I1.i3" class="ltx_item" style="list-style-type:none;"><span class="ltx_tag ltx_tag_item">(3)</span> 
+<div id="S1.I1.i3.p1" class="ltx_para">
+<p id="S1.I1.i3.p1.1" class="ltx_p"><span id="S1.I1.i3.p1.1.1" class="ltx_text ltx_font_bold">Empirical analysis of current streaming systems.</span> Across eight public models or systems in eight configurations, we show that conventional task scores can conceal substantial operational differences, and that results obtained with different history-processing mechanisms or evaluation boundaries must be interpreted under their declared execution conditions rather than as directly interchangeable measurements.</p>
+</div></li>
+</ol>
+</div>
+</section>
+<section id="S3" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">3 </span>TRACE Evaluation Framework</h2>
+
+<div id="S3.p1" class="ltx_para">
+<p id="S3.p1.1" class="ltx_p">TRACE is designed around a simple premise: a streaming-video score is under-specified unless the evaluation also states <em id="S3.p1.1.1" class="ltx_emph ltx_font_italic">when the evidence becomes valid</em>, <em id="S3.p1.1.2" class="ltx_emph ltx_font_italic">under what execution conditions the response is produced</em>, and <em id="S3.p1.1.3" class="ltx_emph ltx_font_italic">what operational behavior accompanies the score</em>. The framework therefore links temporal validity, execution conditions, and operational outcomes rather than reporting them as independent implementation details.</p>
+</div>
+<section id="S3.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">3.1 </span>Design Principles and Overview</h3>
+
+<section id="S3.SS1.SSS0.Px1" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">Temporal validity.</h4>
+
+<div id="S3.SS1.SSS0.Px1.p1" class="ltx_para">
+<p id="S3.SS1.SSS0.Px1.p1.1" class="ltx_p">The evaluation must establish which past visual evidence supports an answer and when a response becomes eligible. For QA, this requires evidence timing relative to question arrival. For proactive tasks, it requires instruction-dependent trigger semantics rather than a single generic event timestamp.</p>
+</div>
+</section>
+<section id="S3.SS1.SSS0.Px2" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">Explicit execution conditions.</h4>
+
+<div id="S3.SS1.SSS0.Px2.p1" class="ltx_para">
+<p id="S3.SS1.SSS0.Px2.p1.1" class="ltx_p">Models can satisfy the same causal-visibility rule while processing the stream differently. TRACE separates how visual history is maintained, whether proactive output is self-initiated, and what components are included in the evaluated system boundary. These categories define comparison conditions rather than capability levels.</p>
+</div>
+</section>
+<section id="S3.SS1.SSS0.Px3" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">Operational outcomes.</h4>
+
+<div id="S3.SS1.SSS0.Px3.p1" class="ltx_para">
+<p id="S3.SS1.SSS0.Px3.p1.1" class="ltx_p">Task quality is reported together with timing, extra output, workload, completion, and runtime reliability. This allows a score to be interpreted together with the behavior and execution volume observed in the run, rather than as a self-contained scalar.</p>
+</div>
+</section>
+<section id="S3.SS1.SSS0.Px4" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">Framework components.</h4>
+
+<div id="S3.SS1.SSS0.Px4.p1" class="ltx_para">
+<p id="S3.SS1.SSS0.Px4.p1.1" class="ltx_p">TRACE operationalizes these principles through four connected components. First, a temporally audited visual task set supplies reviewed QA evidence times and proactive trigger annotations. Second, an Evaluation Core delivers timestamped frames and tasks on a controlled causal timeline. Third, model-specific Adapters connect the shared input protocol to heterogeneous models and systems while recording actual submissions, replay, state maintenance, outputs, and failures. Fourth, task-specific scoring converts those observations into quality, timeliness, behavior, workload, and reliability measurements under declared execution conditions.</p>
+</div>
+<div id="S3.SS1.SSS0.Px4.p2" class="ltx_para">
+<p id="S3.SS1.SSS0.Px4.p2.1" class="ltx_p">Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a> is the reading guide for the framework and for the metrics defined below. It links the execution path to the QA and Proactive Response timelines so that each reported measurement can be traced to an explicit observation point.</p>
+</div>
+<figure id="S3.F1" class="ltx_figure"><object type="image/svg+xml" data="2609.30670v1/evaluation-design-report.en.svg" id="S3.F1.g1" class="ltx_graphics ltx_centering ltx_img_landscape" style="aspect-ratio:624/416;" width="624" height="416"></object>
+<figcaption class="ltx_caption ltx_centering"><span class="ltx_tag ltx_tag_figure"><span id="S3.F1.3" class="ltx_text" style="font-size:90%;">Figure 1</span>: </span><span id="S3.F1.4" class="ltx_text" style="font-size:90%;">TRACE overview from causal video input to condition-aware measurement. The top row connects the controlled Core, model-specific Adapter, evaluated model or system, and scoring layer. The middle timeline separates QA video-time evidence availability from runtime response events; the bottom timeline separates proactive trigger validity, response onset, and response content. These observation points support the quality, timing, extra-output, workload, completion, and reliability measurements reported by TRACE. Timelines are schematic.</span></figcaption>
+</figure>
+<div id="S3.SS1.SSS0.Px4.p3" class="ltx_para">
+<p id="S3.SS1.SSS0.Px4.p3.1" class="ltx_p">The middle timeline in Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a> illustrates QA using separate video-time and runtime boundaries. The video-time question timestamp <math id="S3.SS1.SSS0.Px4.p3.m1" class="ltx_Math" alttext="q" display="inline" intent=":literal"><semantics><mi>q</mi><annotation encoding="application/x-tex">q</annotation></semantics></math> determines which frames constitute legal evidence. On the runtime clock, <math id="S3.SS1.SSS0.Px4.p3.m2" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math> denotes <em id="S3.SS1.SSS0.Px4.p3.1.1" class="ltx_emph ltx_font_italic">question arrival</em>: the moment the question becomes active and the evaluated response path begins. The first output token occurs at <math id="S3.SS1.SSS0.Px4.p3.m3" class="ltx_Math" alttext="r_{1}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mn>1</mn></msub><annotation encoding="application/x-tex">r_{1}</annotation></semantics></math>, and completion is received at <math id="S3.SS1.SSS0.Px4.p3.m4" class="ltx_Math" alttext="r_{\mathrm{end}}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>end</mi></msub><annotation encoding="application/x-tex">r_{\mathrm{end}}</annotation></semantics></math>. TRACE therefore uses the same runtime origin for both QA timing metrics: <em id="S3.SS1.SSS0.Px4.p3.1.2" class="ltx_emph ltx_font_italic">Time to First Token (TTFT)</em> is measured from <math id="S3.SS1.SSS0.Px4.p3.m5" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math> to <math id="S3.SS1.SSS0.Px4.p3.m6" class="ltx_Math" alttext="r_{1}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mn>1</mn></msub><annotation encoding="application/x-tex">r_{1}</annotation></semantics></math>, while <em id="S3.SS1.SSS0.Px4.p3.1.3" class="ltx_emph ltx_font_italic">Response Latency</em> is measured from <math id="S3.SS1.SSS0.Px4.p3.m7" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math> to <math id="S3.SS1.SSS0.Px4.p3.m8" class="ltx_Math" alttext="r_{\mathrm{end}}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>end</mi></msub><annotation encoding="application/x-tex">r_{\mathrm{end}}</annotation></semantics></math>. Any query-time history reconstruction, input preparation, or queueing that occurs after question arrival is included in both intervals; Response Latency additionally includes generation after the first token.</p>
+</div>
+<div id="S3.SS1.SSS0.Px4.p4" class="ltx_para">
+<p id="S3.SS1.SSS0.Px4.p4.1" class="ltx_p">The bottom timeline in Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a> illustrates Proactive Response. An audited trigger or state interval defines when a response becomes eligible; the first-token onset assigns a generated segment to a response window, while response content is judged separately. <em id="S3.SS1.SSS0.Px4.p4.1.1" class="ltx_emph ltx_font_italic">In-window Accuracy</em> credits content only when it is assigned to a valid target window, the <em id="S3.SS1.SSS0.Px4.p4.1.2" class="ltx_emph ltx_font_italic">Median Response Delay</em> reports how quickly assigned responses begin, the <em id="S3.SS1.SSS0.Px4.p4.1.3" class="ltx_emph ltx_font_italic">False-alarm Rate</em> measures cases in which the system speaks when it should not yet speak, and the <em id="S3.SS1.SSS0.Px4.p4.1.4" class="ltx_emph ltx_font_italic">Miss Rate</em> measures target windows that receive no response. The figure therefore connects temporal annotation, runtime observation, and the four classes of reported outcomes: quality, timing, response behavior, and workload/reliability.</p>
+</div>
+<figure id="S3.F2" class="ltx_figure"><object type="image/svg+xml" data="2609.30670v1/execution-modes-report.en.svg" id="S3.F2.g1" class="ltx_graphics ltx_centering ltx_img_landscape" style="aspect-ratio:662/381;" width="662" height="381"></object>
+<figcaption class="ltx_caption ltx_centering"><span class="ltx_tag ltx_tag_figure"><span id="S3.F2.3" class="ltx_text" style="font-size:90%;">Figure 2</span>: </span><span id="S3.F2.4" class="ltx_text" style="font-size:90%;">Execution conditions recorded by TRACE. Native Streaming updates persistent state as frames arrive, whereas Non-native Streaming reconstructs a legal causal prefix or window at query time. Model + Adapter and complete-system boundaries specify which components contribute to reported measurements; deployment is declared separately. Proactive configurations in the standard comparison receive one monitoring instruction and self-initiate their responses. These properties define measurement conditions, not capability levels.</span></figcaption>
+</figure>
+</section>
+</section>
+<section id="S3.SS2" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">3.2 </span>Unified Causal Execution and Declared Conditions</h3>
+
+<div id="S3.SS2.p1" class="ltx_para">
+<p id="S3.SS2.p1.1" class="ltx_p">Core delivers timestamped video frames and tasks on a common timeline, using fixed sampling and image-processing rules. Models can access only video already received. Adapters preserve question, option, and instruction content while connecting this shared input to model-specific interfaces. They record actual image submissions, history replay, frame drops, state maintenance, outputs, and failures.</p>
+</div>
+<div id="S3.SS2.p2" class="ltx_para">
+<p id="S3.SS2.p2.1" class="ltx_p">The protocol standardizes causal visibility and task arrival, but it does not force heterogeneous systems into the same internal state mechanism. Instead, TRACE records the relevant execution choices so that measured quality can be interpreted together with how the run was produced. In the top row of Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a>, this distinction appears as a controlled Core feeding model-specific Adapters: the Core defines the legal stream, whereas the Adapter records what the evaluated configuration actually does with that stream.</p>
+</div>
+<div id="S3.SS2.p3" class="ltx_para">
+<p id="S3.SS2.p3.1" class="ltx_p">For each run, TRACE records how visual history is maintained, how proactive output is initiated, and what components are included in the evaluation boundary. <span id="S3.SS2.p3.1.1" class="ltx_text ltx_font_bold">Native Streaming</span> continuously receives frames and reuses persistent internal state, whereas <span id="S3.SS2.p3.1.2" class="ltx_text ltx_font_bold">Non-native Streaming</span> reconstructs a legal causal prefix or window when a query arrives. In the standard Proactive comparison used in this paper, configurations receive one monitoring instruction and self-initiate their responses. The evaluation boundary distinguishes a model with its Adapter from a complete interaction system that may include external memory, scheduling, or multiple services. Deployment is declared separately, such as directly loaded weights or a local service.</p>
+</div>
+<div id="S3.SS2.p4" class="ltx_para">
+<p id="S3.SS2.p4.1" class="ltx_p">Figure <a href="#S3.F2" title="Figure 2 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">2</span></a> focuses on the two execution dimensions that vary in the reported experiments: <em id="S3.SS2.p4.1.1" class="ltx_emph ltx_font_italic">state and input organization</em>, and the <em id="S3.SS2.p4.1.2" class="ltx_emph ltx_font_italic">measurement boundary</em>. The former determines whether the legal visual history is maintained incrementally or reconstructed at query time; the latter determines whether reported measurements cover a model with its Adapter or an end-to-end system with additional memory, scheduling, or services. System-level timing and workload retain these tested boundaries and should not be read as hardware-neutral efficiency rankings.</p>
+</div>
+</section>
+<section id="S3.SS3" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">3.3 </span>Evaluation Metrics</h3>
+
+<div id="S3.SS3.p1" class="ltx_para">
+<p id="S3.SS3.p1.1" class="ltx_p">The metric families in Table <a href="#S3.T2" title="Table 2 ‣ 3.3 Evaluation Metrics ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">2</span></a> attach measurements to the same execution trace. QA metrics separate answer quality and format validity from runtime timing and workload. Proactive metrics separate content credit from response timeliness and from two distinct response-selection failures: speaking when no target response is yet valid, and failing to cover a target window. In particular, the main proactive quality metric is <em id="S3.SS3.p1.1.1" class="ltx_emph ltx_font_italic">In-window Accuracy</em>, timeliness is summarized by the <em id="S3.SS3.p1.1.2" class="ltx_emph ltx_font_italic">Median Response Delay</em>, and response behavior is summarized by the <em id="S3.SS3.p1.1.3" class="ltx_emph ltx_font_italic">False-alarm</em> and <em id="S3.SS3.p1.1.4" class="ltx_emph ltx_font_italic">Miss rates</em>. The arrows in the table indicate preferred directions only when the task population, completion conditions, and measurement boundaries are comparable.</p>
+</div>
+<figure id="S3.T2" class="ltx_table">
+<figcaption class="ltx_caption" style="font-size:80%;"><span class="ltx_tag ltx_tag_table"><span id="S3.T2.5" class="ltx_text" style="font-size:113%;">Table 2</span>: </span><span id="S3.T2.6" class="ltx_text" style="font-size:113%;">Main evaluation metrics. Arrows indicate preferred directions when task population, completion conditions, and measurement boundaries are comparable.</span></figcaption>
+<table id="S3.T2.7" class="ltx_tabular ltx_align_middle">
+<tbody class="ltx_tbody">
+<tr id="S3.T2.7.1" class="ltx_tr">
+<td id="S3.T2.7.1.1" class="ltx_td ltx_align_left ltx_align_top ltx_border_tt" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.1.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.1.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.1.1.1.1.1" class="ltx_text ltx_font_bold" style="font-size:80%;">Task / dimension</span></span>
+</span></td>
+<td id="S3.T2.7.1.2" class="ltx_td ltx_align_left ltx_align_top ltx_border_tt" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.1.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.1.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.1.2.1.1.1" class="ltx_text ltx_font_bold" style="font-size:80%;">Metric</span></span>
+</span></td>
+<td id="S3.T2.7.1.3" class="ltx_td ltx_nopad_r ltx_align_left ltx_border_tt" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.1.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.1.3.1.1" class="ltx_p"><span id="S3.T2.7.1.3.1.1.1" class="ltx_text ltx_font_bold" style="font-size:80%;">Definition</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.2" class="ltx_tr">
+<td id="S3.T2.7.2.1" class="ltx_td ltx_align_left ltx_align_top ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.2.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.2.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.2.1.1.1.1" class="ltx_text" style="font-size:80%;">QA quality</span></span>
+</span></td>
+<td id="S3.T2.7.2.2" class="ltx_td ltx_align_left ltx_align_top ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.2.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.2.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.2.2.1.1.1" class="ltx_text" style="font-size:80%;">Accuracy </span><math id="S3.T2.m1" class="ltx_Math" alttext="\uparrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↑</mo><annotation encoding="application/x-tex">\uparrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.2.3" class="ltx_td ltx_nopad_r ltx_align_left ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.2.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.2.3.1.1" class="ltx_p"><span id="S3.T2.7.2.3.1.1.1" class="ltx_text" style="font-size:80%;">Correct, uniquely parsed records divided by all records</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.3" class="ltx_tr">
+<td id="S3.T2.7.3.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.3.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.3.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.3.1.1.1.1" class="ltx_text" style="font-size:80%;">QA reliability</span></span>
+</span></td>
+<td id="S3.T2.7.3.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.3.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.3.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.3.2.1.1.1" class="ltx_text" style="font-size:80%;">Completion Rate </span><math id="S3.T2.m2" class="ltx_Math" alttext="\uparrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↑</mo><annotation encoding="application/x-tex">\uparrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.3.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.3.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.3.3.1.1" class="ltx_p"><span id="S3.T2.7.3.3.1.1.1" class="ltx_text" style="font-size:80%;">Successfully completed records divided by all QA records</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.4" class="ltx_tr">
+<td id="S3.T2.7.4.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.4.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.4.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.4.1.1.1.1" class="ltx_text" style="font-size:80%;">QA response</span></span>
+</span></td>
+<td id="S3.T2.7.4.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.4.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.4.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.4.2.1.1.1" class="ltx_text" style="font-size:80%;">Response Latency </span><math id="S3.T2.m3" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.4.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.4.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.4.3.1.1" class="ltx_p"><span id="S3.T2.7.4.3.1.1.1" class="ltx_text" style="font-size:80%;">Question arrival </span><math id="S3.T2.m4" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi mathsize="0.800em">r</mi><mi mathsize="0.800em">q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math><span id="S3.T2.7.4.3.1.1.2" class="ltx_text" style="font-size:80%;"> to completion receipt </span><math id="S3.T2.m5" class="ltx_Math" alttext="r_{\mathrm{end}}" display="inline" intent=":literal"><semantics><msub><mi mathsize="0.800em">r</mi><mi mathsize="0.800em">end</mi></msub><annotation encoding="application/x-tex">r_{\mathrm{end}}</annotation></semantics></math></span>
+</span></td></tr>
+<tr id="S3.T2.7.5" class="ltx_tr">
+<td id="S3.T2.7.5.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.5.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.5.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.5.1.1.1.1" class="ltx_text" style="font-size:80%;">QA response</span></span>
+</span></td>
+<td id="S3.T2.7.5.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.5.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.5.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.5.2.1.1.1" class="ltx_text" style="font-size:80%;">Time to First Token (TTFT) </span><math id="S3.T2.m6" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.5.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.5.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.5.3.1.1" class="ltx_p"><span id="S3.T2.7.5.3.1.1.1" class="ltx_text" style="font-size:80%;">Question arrival </span><math id="S3.T2.m7" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi mathsize="0.800em">r</mi><mi mathsize="0.800em">q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math><span id="S3.T2.7.5.3.1.1.2" class="ltx_text" style="font-size:80%;"> to first output token </span><math id="S3.T2.m8" class="ltx_Math" alttext="r_{1}" display="inline" intent=":literal"><semantics><msub><mi mathsize="0.800em">r</mi><mn mathsize="0.800em">1</mn></msub><annotation encoding="application/x-tex">r_{1}</annotation></semantics></math></span>
+</span></td></tr>
+<tr id="S3.T2.7.6" class="ltx_tr">
+<td id="S3.T2.7.6.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.6.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.6.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.6.1.1.1.1" class="ltx_text" style="font-size:80%;">QA workload</span></span>
+</span></td>
+<td id="S3.T2.7.6.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.6.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.6.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.6.2.1.1.1" class="ltx_text" style="font-size:80%;">Submitted Image Count </span><math id="S3.T2.m9" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.6.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.6.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.6.3.1.1" class="ltx_p"><span id="S3.T2.7.6.3.1.1.1" class="ltx_text" style="font-size:80%;">Actual image submissions, including repeats</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.7" class="ltx_tr">
+<td id="S3.T2.7.7.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.7.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.7.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.7.1.1.1.1" class="ltx_text" style="font-size:80%;">QA workload</span></span>
+</span></td>
+<td id="S3.T2.7.7.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.7.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.7.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.7.2.1.1.1" class="ltx_text" style="font-size:80%;">Total Output Tokens </span><math id="S3.T2.m10" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.7.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.7.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.7.3.1.1" class="ltx_p"><span id="S3.T2.7.7.3.1.1.1" class="ltx_text" style="font-size:80%;">All tokens generated during the QA run; Section </span><a href="#S5" title="5 Experiments ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref" style="font-size:80%;"><span class="ltx_text ltx_ref_tag">5</span></a><span id="S3.T2.7.7.3.1.1.2" class="ltx_text" style="font-size:80%;"> reports the portion observed through interface telemetry</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.8" class="ltx_tr">
+<td id="S3.T2.7.8.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.8.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.8.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.8.1.1.1.1" class="ltx_text" style="font-size:80%;">QA format</span></span>
+</span></td>
+<td id="S3.T2.7.8.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.8.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.8.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.8.2.1.1.1" class="ltx_text" style="font-size:80%;">Invalid Output Rate </span><math id="S3.T2.m11" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.8.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.8.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.8.3.1.1" class="ltx_p"><span id="S3.T2.7.8.3.1.1.1" class="ltx_text" style="font-size:80%;">Fraction not uniquely mapped to a legal option</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.9" class="ltx_tr">
+<td id="S3.T2.7.9.1" class="ltx_td ltx_align_left ltx_align_top ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.9.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.9.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.9.1.1.1.1" class="ltx_text" style="font-size:80%;">Proactive quality</span></span>
+</span></td>
+<td id="S3.T2.7.9.2" class="ltx_td ltx_align_left ltx_align_top ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.9.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.9.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.9.2.1.1.1" class="ltx_text" style="font-size:80%;">In-window Accuracy </span><math id="S3.T2.m12" class="ltx_Math" alttext="\uparrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↑</mo><annotation encoding="application/x-tex">\uparrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.9.3" class="ltx_td ltx_nopad_r ltx_align_left ltx_border_t" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.9.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.9.3.1.1" class="ltx_p"><span id="S3.T2.7.9.3.1.1.1" class="ltx_text" style="font-size:80%;">Average score over all target windows, including partial credit</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.10" class="ltx_tr">
+<td id="S3.T2.7.10.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.10.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.10.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.10.1.1.1.1" class="ltx_text" style="font-size:80%;">Proactive timeliness</span></span>
+</span></td>
+<td id="S3.T2.7.10.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.10.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.10.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.10.2.1.1.1" class="ltx_text" style="font-size:80%;">Median Response Delay </span><math id="S3.T2.m13" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.10.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.10.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.10.3.1.1" class="ltx_p"><span id="S3.T2.7.10.3.1.1.1" class="ltx_text" style="font-size:80%;">Median trigger-to-onset delay over answered windows</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.11" class="ltx_tr">
+<td id="S3.T2.7.11.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.11.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.11.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.11.1.1.1.1" class="ltx_text" style="font-size:80%;">Proactive behavior</span></span>
+</span></td>
+<td id="S3.T2.7.11.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.11.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.11.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.11.2.1.1.1" class="ltx_text" style="font-size:80%;">False-alarm Rate </span><math id="S3.T2.m14" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.11.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.11.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.11.3.1.1" class="ltx_p"><span id="S3.T2.7.11.3.1.1.1" class="ltx_text" style="font-size:80%;">False-alarm response episodes divided by all assembled response episodes (global ratio)</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.12" class="ltx_tr">
+<td id="S3.T2.7.12.1" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.12.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.12.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.12.1.1.1.1" class="ltx_text" style="font-size:80%;">Proactive behavior</span></span>
+</span></td>
+<td id="S3.T2.7.12.2" class="ltx_td ltx_align_left ltx_align_top" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.12.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.12.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.12.2.1.1.1" class="ltx_text" style="font-size:80%;">Miss Rate </span><math id="S3.T2.m15" class="ltx_Math" alttext="\downarrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↓</mo><annotation encoding="application/x-tex">\downarrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.12.3" class="ltx_td ltx_nopad_r ltx_align_left" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.12.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.12.3.1.1" class="ltx_p"><span id="S3.T2.7.12.3.1.1.1" class="ltx_text" style="font-size:80%;">Target windows without an assigned response, divided by all target windows</span></span>
+</span></td></tr>
+<tr id="S3.T2.7.13" class="ltx_tr">
+<td id="S3.T2.7.13.1" class="ltx_td ltx_align_left ltx_align_top ltx_border_bb" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.13.1.1" class="ltx_inline-block ltx_align_top" style="width:84.5pt;">
+<span id="S3.T2.7.13.1.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.13.1.1.1.1" class="ltx_text" style="font-size:80%;">Proactive reliability</span></span>
+</span></td>
+<td id="S3.T2.7.13.2" class="ltx_td ltx_align_left ltx_align_top ltx_border_bb" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.13.2.1" class="ltx_inline-block ltx_align_top" style="width:154.0pt;">
+<span id="S3.T2.7.13.2.1.1" class="ltx_p ltx_align_left"><span id="S3.T2.7.13.2.1.1.1" class="ltx_text" style="font-size:80%;">Completion Rate </span><math id="S3.T2.m16" class="ltx_Math" alttext="\uparrow" display="inline" intent=":literal"><semantics><mo mathsize="0.800em" stretchy="false">↑</mo><annotation encoding="application/x-tex">\uparrow</annotation></semantics></math></span>
+</span></td>
+<td id="S3.T2.7.13.3" class="ltx_td ltx_nopad_r ltx_align_left ltx_border_bb" style="padding:0.55pt 4.0pt;">
+<span id="S3.T2.7.13.3.1" class="ltx_inline-block ltx_align_top">
+<span id="S3.T2.7.13.3.1.1" class="ltx_p"><span id="S3.T2.7.13.3.1.1.1" class="ltx_text" style="font-size:80%;">Successfully completed records divided by all Proactive records</span></span>
+</span></td></tr>
+</tbody>
+</table>
+</figure>
+<section id="S3.SS3.SSS0.Px1" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">QA evaluation.</h4>
+
+<div id="S3.SS3.SSS0.Px1.p1" class="ltx_para">
+<p id="S3.SS3.SSS0.Px1.p1.1" class="ltx_p">A question and its options arrive at video time <math id="S3.SS3.SSS0.Px1.p1.m1" class="ltx_Math" alttext="q" display="inline" intent=":literal"><semantics><mi>q</mi><annotation encoding="application/x-tex">q</annotation></semantics></math>. Only frames available by <math id="S3.SS3.SSS0.Px1.p1.m2" class="ltx_Math" alttext="q" display="inline" intent=":literal"><semantics><mi>q</mi><annotation encoding="application/x-tex">q</annotation></semantics></math> are legal evidence; future video is excluded. As shown in the middle timeline of Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a>, the runtime clock starts at question arrival <math id="S3.SS3.SSS0.Px1.p1.m3" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math>. The first output token occurs at <math id="S3.SS3.SSS0.Px1.p1.m4" class="ltx_Math" alttext="r_{1}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mn>1</mn></msub><annotation encoding="application/x-tex">r_{1}</annotation></semantics></math>, and completion is received at <math id="S3.SS3.SSS0.Px1.p1.m5" class="ltx_Math" alttext="r_{\mathrm{end}}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>end</mi></msub><annotation encoding="application/x-tex">r_{\mathrm{end}}</annotation></semantics></math>.</p>
+</div>
+<div id="S3.SS3.SSS0.Px1.p2" class="ltx_para">
+<p id="S3.SS3.SSS0.Px1.p2.1" class="ltx_p">Accuracy counts a record as correct only when the parser recovers one unambiguous valid option:</p>
+<table id="S3.Ex1" class="ltx_equation ltx_eqn_table">
+
+<tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+<td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+<td class="ltx_eqn_cell ltx_align_center"><math id="S3.Ex1.m1" class="ltx_math_unparsed" alttext="\mathrm{Accuracy}=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[\hat{y}_{i}=y_{i}]." display="block" intent=":literal"><semantics><mrow><mi>Accuracy</mi><mo>=</mo><mfrac><mn>1</mn><mi>N</mi></mfrac><munderover><mo movablelimits="false">∑</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>N</mi></munderover><mn>𝟏</mn><mrow><mo stretchy="false">[</mo><msub><mover accent="true"><mi>y</mi><mo>^</mo></mover><mi>i</mi></msub><mo>=</mo><msub><mi>y</mi><mi>i</mi></msub><mo stretchy="false">]</mo></mrow><mo lspace="0em">.</mo></mrow><annotation encoding="application/x-tex">\mathrm{Accuracy}=\frac{1}{N}\sum_{i=1}^{N}\mathbf{1}[\hat{y}_{i}=y_{i}].</annotation></semantics></math></td>
+<td class="ltx_eqn_cell ltx_eqn_center_padright"></td></tr></tbody>
+</table>
+<p id="S3.SS3.SSS0.Px1.p2.2" class="ltx_p">Failures, timeouts, and invalid outputs remain in the denominator. Completion Rate reports whether execution finishes successfully, while Invalid Output Rate reports responses for which no unique option can be recovered.</p>
+</div>
+<div id="S3.SS3.SSS0.Px1.p3" class="ltx_para">
+<p id="S3.SS3.SSS0.Px1.p3.1" class="ltx_p">TRACE uses <span id="S3.SS3.SSS0.Px1.p3.1.1" class="ltx_text ltx_font_bold">Response Latency</span> as the primary QA timing metric:</p>
+<table id="S3.Ex2" class="ltx_equation ltx_eqn_table">
+
+<tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+<td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+<td class="ltx_eqn_cell ltx_align_center"><math id="S3.Ex2.m1" class="ltx_Math" alttext="L_{\mathrm{comp}}=r_{\mathrm{end}}-r_{q}," display="block" intent=":literal"><semantics><mrow><mrow><msub><mi>L</mi><mi>comp</mi></msub><mo>=</mo><mrow><msub><mi>r</mi><mi>end</mi></msub><mo>−</mo><msub><mi>r</mi><mi>q</mi></msub></mrow></mrow><mo>,</mo></mrow><annotation encoding="application/x-tex">L_{\mathrm{comp}}=r_{\mathrm{end}}-r_{q},</annotation></semantics></math></td>
+<td class="ltx_eqn_cell ltx_eqn_center_padright"></td></tr></tbody>
+</table>
+<p id="S3.SS3.SSS0.Px1.p3.2" class="ltx_p">where <math id="S3.SS3.SSS0.Px1.p3.m1" class="ltx_Math" alttext="r_{q}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>q</mi></msub><annotation encoding="application/x-tex">r_{q}</annotation></semantics></math> denotes question arrival and <math id="S3.SS3.SSS0.Px1.p3.m2" class="ltx_Math" alttext="r_{\mathrm{end}}" display="inline" intent=":literal"><semantics><msub><mi>r</mi><mi>end</mi></msub><annotation encoding="application/x-tex">r_{\mathrm{end}}</annotation></semantics></math> denotes completion received by the Evaluation Core. It includes query-time history replay, input preparation, queueing, and generation after the question becomes active.</p>
+</div>
+<div id="S3.SS3.SSS0.Px1.p4" class="ltx_para">
+<p id="S3.SS3.SSS0.Px1.p4.1" class="ltx_p">We additionally record <span id="S3.SS3.SSS0.Px1.p4.1.1" class="ltx_text ltx_font_bold">Time to First Token (TTFT)</span>,</p>
+<table id="S3.Ex3" class="ltx_equation ltx_eqn_table">
+
+<tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+<td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+<td class="ltx_eqn_cell ltx_align_center"><math id="S3.Ex3.m1" class="ltx_Math" alttext="\mathrm{TTFT}=r_{1}-r_{q}," display="block" intent=":literal"><semantics><mrow><mrow><mi>TTFT</mi><mo>=</mo><mrow><msub><mi>r</mi><mn>1</mn></msub><mo>−</mo><msub><mi>r</mi><mi>q</mi></msub></mrow></mrow><mo>,</mo></mrow><annotation encoding="application/x-tex">\mathrm{TTFT}=r_{1}-r_{q},</annotation></semantics></math></td>
+<td class="ltx_eqn_cell ltx_eqn_center_padright"></td></tr></tbody>
+</table>
+<p id="S3.SS3.SSS0.Px1.p4.2" class="ltx_p">as a diagnostic of when generation begins. TTFT is reported in Appendix <a href="#A2.SS2" title="B.2 Supplementary Timing, Workload, and Frame Processing ‣ Appendix B Supplementary Evaluation Details and Results ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">B.2</span></a> where available.</p>
+</div>
+<div id="S3.SS3.SSS0.Px1.p5" class="ltx_para">
+<p id="S3.SS3.SSS0.Px1.p5.1" class="ltx_p">Submitted Image Count and Total Output Tokens describe the execution volume observed by the Model Adapter. They are workload measurements rather than normalized compute-cost measures. Parsing, timing coverage, and resource-accounting details are provided in Appendix <a href="#A2.SS2" title="B.2 Supplementary Timing, Workload, and Frame Processing ‣ Appendix B Supplementary Evaluation Details and Results ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">B.2</span></a>.</p>
+</div>
+</section>
+<section id="S3.SS3.SSS0.Px2" class="ltx_paragraph">
+<h4 class="ltx_title ltx_title_paragraph">Proactive Response evaluation.</h4>
+
+<div id="S3.SS3.SSS0.Px2.p1" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p1.1" class="ltx_p">Each Proactive Response task provides a monitoring instruction and one or more annotated event triggers or valid state intervals. As shown in the bottom timeline of Figure <a href="#S3.F1" title="Figure 1 ‣ Framework components. ‣ 3.1 Design Principles and Overview ‣ 3 TRACE Evaluation Framework ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">1</span></a>, each trigger defines a valid response window. Before that window, there is no valid response yet; responses beginning during the window can be assigned to the target, while responses outside it do not receive strict-window credit.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p2" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p2.1" class="ltx_p">For a point trigger <math id="S3.SS3.SSS0.Px2.p2.m1" class="ltx_Math" alttext="t_{i}" display="inline" intent=":literal"><semantics><msub><mi>t</mi><mi>i</mi></msub><annotation encoding="application/x-tex">t_{i}</annotation></semantics></math>, tolerance <math id="S3.SS3.SSS0.Px2.p2.m2" class="ltx_Math" alttext="W" display="inline" intent=":literal"><semantics><mi>W</mi><annotation encoding="application/x-tex">W</annotation></semantics></math>, and next trigger <math id="S3.SS3.SSS0.Px2.p2.m3" class="ltx_Math" alttext="t_{i+1}" display="inline" intent=":literal"><semantics><msub><mi>t</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><annotation encoding="application/x-tex">t_{i+1}</annotation></semantics></math>, TRACE defines</p>
+<table id="S3.Ex4" class="ltx_equation ltx_eqn_table">
+
+<tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+<td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+<td class="ltx_eqn_cell ltx_align_center"><math id="S3.Ex4.m1" class="ltx_Math" alttext="[t_{i},\min(t_{i}+W,t_{i+1}))." display="block" intent=":literal"><semantics><mrow><mrow><mo stretchy="false">[</mo><msub><mi>t</mi><mi>i</mi></msub><mo>,</mo><mrow><mi>min</mi><mo>⁡</mo><mrow><mo stretchy="false">(</mo><mrow><msub><mi>t</mi><mi>i</mi></msub><mo>+</mo><mi>W</mi></mrow><mo>,</mo><msub><mi>t</mi><mrow><mi>i</mi><mo>+</mo><mn>1</mn></mrow></msub><mo stretchy="false">)</mo></mrow></mrow><mo stretchy="false">)</mo></mrow><mo lspace="0em">.</mo></mrow><annotation encoding="application/x-tex">[t_{i},\min(t_{i}+W,t_{i+1})).</annotation></semantics></math></td>
+<td class="ltx_eqn_cell ltx_eqn_center_padright"></td></tr></tbody>
+</table>
+<p id="S3.SS3.SSS0.Px2.p2.2" class="ltx_p">The endpoint is excluded. State tasks instead use their annotated valid intervals. Main results use <math id="S3.SS3.SSS0.Px2.p2.m4" class="ltx_Math" alttext="W=5" display="inline" intent=":literal"><semantics><mrow><mi>W</mi><mo>=</mo><mn>5</mn></mrow><annotation encoding="application/x-tex">W=5</annotation></semantics></math> seconds.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p3" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p3.1" class="ltx_p">Responses are assigned by segment onset, i.e., the first output token. Timing determines which response window a segment belongs to, while response content is scored separately. An in-window answer is therefore not necessarily correct.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p4" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p4.1" class="ltx_p">Sequential Steps Recognition (SSR) and Clues Reveal Responding (CRR) use a semantic Judge; the remaining tasks use normalized exact matching. In-window Accuracy is the sum of assigned window scores divided by all target windows.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p5" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p5.1" class="ltx_p">Timeliness is measured by <span id="S3.SS3.SSS0.Px2.p5.1.1" class="ltx_text ltx_font_bold">Median Response Delay</span>, the median response-onset delay from the event trigger to the first output token of the assigned response.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p6" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p6.1" class="ltx_p">TRACE also reports two response-selection errors. A <span id="S3.SS3.SSS0.Px2.p6.1.1" class="ltx_text ltx_font_bold">false alarm</span> is a response that begins when no response window is currently valid and a later response opportunity remains. The global False-alarm Rate is</p>
+<table id="S3.Ex5" class="ltx_equation ltx_eqn_table">
+
+<tbody><tr class="ltx_equation ltx_eqn_row ltx_align_baseline">
+<td class="ltx_eqn_cell ltx_eqn_center_padleft"></td>
+<td class="ltx_eqn_cell ltx_align_center"><math id="S3.Ex5.m1" class="ltx_Math" alttext="\mathrm{FA}=\frac{\sum\text{false-alarm response episodes}}{\sum\text{all assembled response episodes}}." display="block" intent=":literal"><semantics><mrow><mrow><mi>FA</mi><mo>=</mo><mfrac><mrow><mo>∑</mo><mtext>false-alarm response episodes</mtext></mrow><mrow><mo>∑</mo><mtext>all assembled response episodes</mtext></mrow></mfrac></mrow><mo lspace="0em">.</mo></mrow><annotation encoding="application/x-tex">\mathrm{FA}=\frac{\sum\text{false-alarm response episodes}}{\sum\text{all assembled response episodes}}.</annotation></semantics></math></td>
+<td class="ltx_eqn_cell ltx_eqn_center_padright"></td></tr></tbody>
+</table>
+<p id="S3.SS3.SSS0.Px2.p6.2" class="ltx_p">The <span id="S3.SS3.SSS0.Px2.p6.2.1" class="ltx_text ltx_font_bold">Miss Rate</span> is the fraction of target windows that receive no assigned response.</p>
+</div>
+<div id="S3.SS3.SSS0.Px2.p7" class="ltx_para">
+<p id="S3.SS3.SSS0.Px2.p7.1" class="ltx_p">Thus, In-window Accuracy measures response quality, Median Response Delay measures response timing, and FA and Miss measure response-selection behavior. Appendix <a href="#A2.SS2" title="B.2 Supplementary Timing, Workload, and Frame Processing ‣ Appendix B Supplementary Evaluation Details and Results ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">B.2</span></a> reports timing coverage and additional output statistics.</p>
+</div>
+</section>
+</section>
+<section id="S3.SS4" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">3.4 </span>Evaluation Scope</h3>
+
+<div id="S3.SS4.p1" class="ltx_para">
+<p id="S3.SS4.p1.1" class="ltx_p">TRACE currently evaluates visual-only, single-instruction streaming video understanding. QA tasks introduce a question at a specified video time, while Proactive Response tasks provide a monitoring instruction before one or more target events or states. The standard protocol uses causal visual access at 1 FPS. Proactive configurations in the standard comparison self-initiate responses after one monitoring instruction, and execution boundaries are reported explicitly. Section <a href="#S4" title="4 Benchmark Construction and Temporal Audit ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">4</span></a> describes task construction and temporal annotation; Section <a href="#S5" title="5 Experiments ‣ TRACE: Temporal Audit and Condition-aware Evaluation of Streaming Video Understanding" class="ltx_ref"><span class="ltx_text ltx_ref_tag">5</span></a> reports the evaluated models and results.</p>
+</div>
+</section>
+</section>
+<section id="S6" class="ltx_section">
+<h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">6 </span>Analysis and Key Findings</h2>
+
+<div id="S6.p1" class="ltx_para">
+<p id="S6.p1.1" class="ltx_p">The results reveal three reasons why a single task score is insufficient
+for streaming-video evaluation. First, temporal audit materially changes
+the boundaries on which correctness and response timing are measured.
+Second, proactive performance separates into quality, timing, and
+response-selection behavior rather than varying along one common axis.
+Third, the same model or task score can have different meanings under
+different execution conditions and system boundaries. We examine these
+three findings below.</p>
+</div>
+<section id="S6.SS1" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.1 </span>Finding 1: Temporal Audit Establishes Reliable Measurement Boundaries</h3>
+
+<div id="S6.SS1.p1" class="ltx_para">
+<p id="S6.SS1.p1.1" class="ltx_p">TRACE’s temporal audit is not merely a data-cleaning step: it determines
+the boundaries on which both QA and Proactive Response are evaluated.
+Across the reviewed data, 328 records were edited and 52 were excluded,
+with 325 of the 328 edited records involving temporal or trigger-related
+fields. For QA, 100 of 103 edited records contained timing revisions; for
+Proactive Response, all 225 edited records revised or added trigger
+annotations. Among directly comparable timestamps, the median absolute
+revision was 3.0 s for QA and 2.24 s for Proactive Response, with much
+larger shifts in the upper tail.</p>
+</div>
+<div id="S6.SS1.p2" class="ltx_para">
+<p id="S6.SS1.p2.1" class="ltx_p">These revisions affect different parts of the two task types. In QA,
+reviewed evidence times determine which visual information is legally
+available before question arrival and how much history the answer requires.
+In Proactive Response, audited triggers and valid intervals determine
+whether a response is in-window, how response delay is measured, and
+whether an unassigned response contributes to a false alarm or a target
+window to a miss. The same model output can therefore receive different
+evaluation outcomes under different temporal boundaries.</p>
+</div>
+<div id="S6.SS1.p3" class="ltx_para">
+<p id="S6.SS1.p3.1" class="ltx_p">The audit thus provides the shared temporal basis on which TRACE’s
+downstream measurements are defined. Rather than treating timestamps as
+fixed metadata, TRACE makes temporal validity an explicit, reviewed part
+of the evaluation protocol.</p>
+</div>
+</section>
+<section id="S6.SS2" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.2 </span>Finding 2: Similar Task Scores Can Hide Different System Behaviors</h3>
+
+<div id="S6.SS2.p1" class="ltx_para">
+<p id="S6.SS2.p1.1" class="ltx_p">Across both QA and Proactive Response, task quality does not determine
+the operational or response behavior observed during evaluation.
+TRACE therefore keeps these measurements separate instead of collapsing
+them into a single aggregate score.</p>
+</div>
+<div id="S6.SS2.p2" class="ltx_para">
+<p id="S6.SS2.p2.1" class="ltx_p">The QA results provide a simple example. LiveCC and MOSS-Preview achieve
+nearly identical Accuracy, at 65.19% and 65.07%, yet their operational
+profiles differ substantially. MOSS-Preview completes all records,
+compared with 93.88% completion for LiveCC, records 42,206 output tokens
+rather than 146,064, and has a lower Invalid Output Rate
+(1.92% versus 6.12%). Similar accuracy therefore does not imply similar
+completion, answer validity, or generation workload.</p>
+</div>
+<div id="S6.SS2.p3" class="ltx_para">
+<p id="S6.SS2.p3.1" class="ltx_p">The same separation is more pronounced for Proactive Response, where
+quality, timing, and response selection can vary independently. MOSS-VL
+and AURA occupy essentially the same accuracy, with 8.05% and
+7.92% In-window Accuracy. Their
+response behavior, however, is not equally similar. MOSS-VL has a
+41.1% False-alarm Rate and a 0.33 s median Response Delay, compared
+with 59.1% and 1.15 s for AURA. Thus, two models can receive nearly the
+same window-level quality score while differing substantially in when
+and how often they respond outside valid opportunities.</p>
+</div>
+<div id="S6.SS2.p4" class="ltx_para">
+<p id="S6.SS2.p4.1" class="ltx_p">The two MOSS models illustrate another form of separation.
+MOSS-VL reaches 8.05% In-window Accuracy with 74,672 recorded output
+tokens, compared with 4.45% and 193,517 tokens for MOSS-Preview.
+MOSS-Preview begins its observed assigned responses slightly earlier at
+the median (0.20 s versus 0.33 s), but it also produces a much higher
+False-alarm Rate (77.7% versus 41.1%) while missing fewer target windows
+(35.67% versus 47.24%). Faster observed responses and lower miss rates
+therefore do not necessarily imply better response selection or higher
+response quality. The measurements describe distinct aspects of behavior.</p>
+</div>
+<div id="S6.SS2.p5" class="ltx_para">
+<p id="S6.SS2.p5.1" class="ltx_p">LiveCC makes this distinction especially clear. Its autonomous
+In-window Accuracy is 12.98%, and on the shared-video population it
+exceeds AURA by <math id="S6.SS2.p5.m1" class="ltx_Math" alttext="+" display="inline" intent=":literal"><semantics><mo>+</mo><annotation encoding="application/x-tex">+</annotation></semantics></math>4.92 points (95% CI <math id="S6.SS2.p5.m2" class="ltx_Math" alttext="+" display="inline" intent=":literal"><semantics><mo>+</mo><annotation encoding="application/x-tex">+</annotation></semantics></math>2.28 to <math id="S6.SS2.p5.m3" class="ltx_Math" alttext="+" display="inline" intent=":literal"><semantics><mo>+</mo><annotation encoding="application/x-tex">+</annotation></semantics></math>7.97). At the same
+time, it misses only 0.31% of target windows, but 65.0% of its assembled
+response episodes are false alarms. This is not a contradiction: Miss Rate
+measures whether target windows receive an assigned response, whereas
+False-alarm Rate measures responses emitted when no response window is
+currently valid and a later opportunity remains. A configuration can
+therefore cover nearly every target window while also producing many
+responses at inappropriate times. Conversely, ThinkStream and
+VideoLLM-Online combine high Miss Rates (68.43% and 60.39%) with high
+False-alarm Rates (73.6% and 82.4%), showing that frequent off-window
+output does not guarantee target-window coverage.</p>
+</div>
+<div id="S6.SS2.p6" class="ltx_para">
+<p id="S6.SS2.p6.1" class="ltx_p">These cases show that accuracy,
+completion, answer validity, workload, response timing, false alarms,
+and misses expose different aspects of system behavior. TRACE reports
+these quantities separately because no single one reliably predicts the
+others. The resulting multidimensional view does not replace task
+accuracy; it explains how a reported task score was obtained and which
+operational or response behaviors accompany it.</p>
+</div>
+</section>
+<section id="S6.SS3" class="ltx_subsection">
+<h3 class="ltx_title ltx_title_subsection"><span class="ltx_tag ltx_tag_subsection">6.3 </span>Finding 3: Execution Conditions Define What a Score Measures</h3>
+
+<div id="S6.SS3.p1" class="ltx_para">
+<p id="S6.SS3.p1.1" class="ltx_p">A reported metric remains tied to the execution path that produced it. This matters even when all Proactive configurations in the main comparison are self-initiated. AURA, for example, reconstructs the legal visual prefix at QA query time but maintains persistent incremental state for Proactive Response. Its QA latency and submitted-image count therefore describe a different history-processing path from native stateful configurations, rather than a hardware-normalized notion of model speed or efficiency.</p>
+</div>
+<div id="S6.SS3.p2" class="ltx_para">
+<p id="S6.SS3.p2.1" class="ltx_p">Evaluation boundary creates a second distinction. JoyAI’s 17.08% In-window Accuracy is measured at the complete-system boundary, including the tested memory and scheduling components, whereas the model + Adapter results measure the model-side execution path exposed through TRACE. These measurements remain informative, but the same numeric metric does not imply that the same components, workload, or failure sources are included in the result.</p>
+</div>
+<div id="S6.SS3.p3" class="ltx_para">
+<p id="S6.SS3.p3.1" class="ltx_p">MiniCPM-O native duplex provides a complementary interface diagnostic. It is evaluated through its native persistent listen/speak interaction, but its spoken-style QA outputs are poorly matched to the benchmark’s text-option protocol: 93.52% cannot be recovered as a unique option, yielding 2.40% QA Accuracy. On Proactive Response it remains self-initiated, with 0.51% In-window Accuracy and a 65.43% Miss Rate. These numbers are reported as measurements of the tested interface, not as interface-independent estimates of the underlying model’s capability. Together, the examples show why TRACE keeps history organization, response mode, and system boundary visible when interpreting a score.</p>
+</div>
+<div id="S6.SS3.p4" class="ltx_para">
+<p id="S6.SS3.p4.1" class="ltx_p">Taken together, these findings show that temporal validity, multidimensional behavior, and execution conditions each affect how a streaming result should be interpreted. TRACE makes these distinctions explicit so that similar task scores are not mistaken for equivalent system behavior.</p>
+</div>
+</section>
+</section>
+<section id="bib" class="ltx_bibliography"><h2 class="ltx_title ltx_title_bibliography">References</h2><ul class="ltx_biblist"><li id="bib.bib1" class="ltx_bibitem">Bibliography stub, never parsed.</li></ul></section>
+</div>
+</body>
+</html>

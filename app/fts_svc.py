@@ -22,8 +22,9 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
+import time
 
-from app import config, local_meta
+from app import config, local_meta, runtime_stats
 
 # Title matches are weighted above abstract matches. bm25() returns a NEGATIVE
 # score where more negative is better, so results sort ascending.
@@ -32,6 +33,21 @@ _ABSTRACT_WEIGHT = 1.0
 
 _probed = False
 _available = False
+
+# SQLite VM instructions between budget checks: ~1 ms of work, so the check is
+# free and the budget is honoured to within a millisecond or two.
+_PROGRESS_STEPS = 10_000
+
+# Rank inside FTS first, then look up only the `limit` winners in `papers`.
+# Joining before the sort made SQLite fetch the papers row of EVERY match: 56k
+# for "LLM", 280k for "learning", each a random read into a 1.7 GB table. Warm
+# on a laptop that cost 0.06-2.9 s; on the Space's cold disk "LLM" ran past the
+# 1.5 s budget on every try, so ~40% of searches lost the lexical arm
+# (flight test 2026-10-16). Same rows in the same order (847 eval queries).
+_SQL = ("SELECT p.arxiv_id, f.s FROM ("
+        "SELECT rowid AS rid, bm25(papers_fts, ?, ?) AS s FROM papers_fts "
+        "WHERE papers_fts MATCH ? ORDER BY s LIMIT ?"
+        ") f JOIN papers p ON p.rowid = f.rid ORDER BY f.s")
 
 
 def _probe() -> bool:
@@ -62,6 +78,22 @@ def is_available() -> bool:
     return _probe()
 
 
+# Filler words dropped before matching. They are in nearly every abstract, so
+# they add nothing to BM25 ranking, and in the OR fallback each one drags a
+# posting list of ~1M rows through the scan: "how do transformers handle long
+# context" took 20.7 s in production (2026-10-11). Measured on 847 known-item
+# queries over the full sidecar: same MRR@10 and recall, word-match median
+# 2.0 s -> 0.6 s, max 14.7 s -> 1.4 s. Domain words that only read as filler
+# in questions ("methods", "approach") are included because the eval was run
+# with exactly this list; change it only with a re-run of
+# scripts/embedding_eval/search/search_eval.py fts (FTS_STOP=1).
+_FILLER = frozenset("""a an the of for and or in on to with by is are was were be been being what which who whom how why
+when where do does did there any some that this these those it its as at from into about than such can could would
+should may might will their they them we our you your i me my papers paper studies study research works work
+literature exist exists existing available explore explores exploring looking find finding examples example
+show shows give gives use used using approach approaches method methods technique techniques""".split())
+
+
 def _terms(query: str) -> list[str]:
     """Bare alphanumeric terms.
 
@@ -71,9 +103,12 @@ def _terms(query: str) -> list[str]:
     re-quoting them means no user input is ever parsed as an operator.
 
     Single characters are dropped — they match a large fraction of the corpus
-    and contribute nothing to BM25 ranking.
+    and contribute nothing to BM25 ranking. Filler words are dropped too, unless
+    nothing else is left ("what is it" still searches for something).
     """
-    return [t for t in re.findall(r"[A-Za-z0-9]+", query) if len(t) > 1]
+    terms = [t for t in re.findall(r"[A-Za-z0-9]+", query) if len(t) > 1]
+    content = [t for t in terms if t.lower() not in _FILLER]
+    return content or terms
 
 
 def _search_sync(query: str, limit: int) -> list[dict]:
@@ -85,9 +120,7 @@ def _search_sync(query: str, limit: int) -> list[dict]:
     if not terms:
         return []
 
-    sql = ("SELECT p.arxiv_id, bm25(papers_fts, ?, ?) AS s "
-           "FROM papers_fts JOIN papers p ON p.rowid = papers_fts.rowid "
-           "WHERE papers_fts MATCH ? ORDER BY s LIMIT ?")
+    sql = _SQL
 
     # Conjunction first: precise and fast, because the term intersection is
     # small. It also returns nothing when one term is absent from the corpus,
@@ -96,16 +129,47 @@ def _search_sync(query: str, limit: int) -> list[dict]:
     if len(terms) > 1:
         attempts.append(" OR ".join(f'"{t}"' for t in terms))
 
-    for match in attempts:
-        try:
-            rows = conn.execute(sql, (_TITLE_WEIGHT, _ABSTRACT_WEIGHT,
-                                      match, limit)).fetchall()
-        except sqlite3.Error as e:
-            print(f"[fts_svc] query failed ({e})")
-            return []
-        if rows:
-            return [{"arxiv_id": a, "score": -float(s)} for a, s in rows]
-    return []
+    # Hard time budget across both attempts. A lexical list that arrives late
+    # holds up the whole search, while a missing one only costs RRF one input:
+    # the dense arm still answers. SQLite checks the handler every N VM steps
+    # and aborts the statement when it returns non-zero.
+    deadline = time.monotonic() + config.SEARCH_FTS_BUDGET_MS / 1000
+    conn.set_progress_handler(lambda: int(time.monotonic() > deadline), _PROGRESS_STEPS)
+    t0 = time.perf_counter()
+    timing: dict[str, int] = {}
+    outcome = "empty"
+    try:
+        for kind, match in zip(("and_ms", "or_ms"), attempts):
+            t_try = time.perf_counter()
+            try:
+                rows = conn.execute(sql, (_TITLE_WEIGHT, _ABSTRACT_WEIGHT,
+                                          match, limit)).fetchall()
+            except sqlite3.OperationalError as e:
+                if time.monotonic() > deadline:
+                    outcome = "budget_skip"
+                    print(f"[fts_svc] over {config.SEARCH_FTS_BUDGET_MS} ms budget, "
+                          f"lexical arm skipped for {len(terms)} terms")
+                else:
+                    outcome = "error"
+                    print(f"[fts_svc] query failed ({e})")
+                return []
+            except sqlite3.Error as e:
+                outcome = "error"
+                print(f"[fts_svc] query failed ({e})")
+                return []
+            finally:
+                timing[kind] = int((time.perf_counter() - t_try) * 1000)
+            if rows:
+                outcome = "or_hit" if kind == "or_ms" else "and_hit"
+                return [{"arxiv_id": a, "score": -float(s)} for a, s in rows]
+        return []
+    finally:
+        conn.set_progress_handler(None, 0)
+        # Live evidence for the lexical arm: how long it takes on the Space's
+        # disk and how often the budget drops it (/healthz/runtime).
+        timing["fts_ms"] = int((time.perf_counter() - t0) * 1000)
+        runtime_stats.record("fts", timing)
+        runtime_stats.count(f"fts_{outcome}")
 
 
 async def search_sparse(query: str, limit: int = 50) -> list[dict]:

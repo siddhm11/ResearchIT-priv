@@ -2,16 +2,20 @@
 Cross-Encoder Reranker service singleton.
 
 Responsibilities:
-  - Load cross-encoder/ms-marco-MiniLM-L-6-v2 once (lazily or eagerly via get_reranker())
+  - Load config.RERANKER_MODEL once (lazily or eagerly via get_reranker())
   - rerank(query, papers) -> (sorted_papers, compute_time_ms)
   - CPU float32, graceful fallback if model loading or computation fails
   - Thread-safe (model is read-only after load)
 
 Model notes:
-  - MiniLM-L-6 is a 22M-param cross-encoder (~20x lighter than bge-reranker-v2-m3)
-  - Achieves ~200-400ms for 10 pairs on CPU (vs ~7s for BGE-reranker)
-  - Trained on MS MARCO passage ranking — generalizes well to academic search
-  - Scores are logits: higher = more relevant (no sigmoid needed for ranking)
+  - Default mixedbread-ai/mxbai-rerank-xsmall-v1 (70M, DeBERTa-v3), read at
+    RERANKER_MAX_LENGTH=256 tokens. Previously ms-marco-MiniLM-L-6-v2 (22M).
+  - Scores are always returned as raw LOGITS. Some cross-encoders (mxbai,
+    gte-reranker) ship a Sigmoid activation and return probabilities; the
+    search pipeline applies its own sigmoid, and a second one squeezes every
+    score into ~0.5-0.73, where the title/citation boosts overwhelm the
+    reranker. Measured: with the double sigmoid mxbai looked WORSE than
+    MiniLM. predict(activation_fn=Identity) gives logits for every model.
 """
 from __future__ import annotations
 
@@ -43,13 +47,52 @@ def get_reranker():
 
         print(f"[reranker_svc] Loading {config.RERANKER_MODEL} on {config.BGE_M3_DEVICE}...")
 
+        from app import compute_pool
+        compute_pool.configure_torch()
         _reranker = CrossEncoder(
             config.RERANKER_MODEL,
-            max_length=512,
+            max_length=config.RERANKER_MAX_LENGTH,
             device=config.BGE_M3_DEVICE,
+            revision=config.RERANKER_REVISION,
         )
         print("[reranker_svc] Cross-encoder reranker model loaded successfully")
         return _reranker
+
+
+# A batch is padded to its longest text, so one full-length abstract (papers
+# ingested since 2025-06 store the full text) made all ten pairs cost as much as
+# the long one: measured on the Space 2026-10-16, a median of 1.22 s per search
+# with a full abstract in the top 10 against 0.50 s without. Scoring short and
+# long pairs as separate batches gives identical scores, no extra cost when all
+# are short, and 32-36% less time when they are mixed (laptop, 2 threads).
+_LONG_PAIR_CHARS = 800
+
+
+def _score_in_length_groups(model, pairs: list[list[str]]) -> list[float]:
+    groups = ([i for i, p in enumerate(pairs) if len(p[1]) <= _LONG_PAIR_CHARS],
+              [i for i, p in enumerate(pairs) if len(p[1]) > _LONG_PAIR_CHARS])
+    scores = [0.0] * len(pairs)
+    for idx in groups:
+        if not idx:
+            continue
+        out = model.predict([pairs[i] for i in idx], show_progress_bar=False,
+                            batch_size=len(idx), activation_fn=_identity())
+        out = out.tolist() if hasattr(out, "tolist") else list(out)
+        if isinstance(out, (int, float)):
+            out = [out]
+        for i, s in zip(idx, out):
+            scores[i] = float(s)
+    return scores
+
+
+def _identity():
+    """Identity activation, so predict() returns logits. None without torch,
+    which only happens where no cross-encoder can be loaded anyway."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    return torch.nn.Identity()
 
 
 def rerank(
@@ -90,8 +133,9 @@ def rerank(
             doc_text = f"Title: {title}\nAbstract: {abstract}"
             pairs.append([query, doc_text])
 
-        # Inference — CrossEncoder.predict() returns numpy array of scores
-        scores = model.predict(pairs, show_progress_bar=False)
+        # Inference: logits for every model (Identity activation, see the
+        # module docstring), scored in length groups (see _score_in_length_groups).
+        scores = _score_in_length_groups(model, pairs)
 
         # Normalize to list of floats
         if hasattr(scores, 'tolist'):
