@@ -53,9 +53,9 @@ def main(argv=None) -> int:
             print(f"{m.group(1):6} {len(section(html, m.group(1))) // 1024:5} KB")
         return 0
 
-    parts = [element(html, r'<div id="infobox"', "div"),
-             element(html, r'<h1 class="ltx_title ltx_title_document"', "h1"),
-             element(html, r'<div class="ltx_abstract"', "div")]
+    parts = [element(html, r'<div[^>]*\bid="infobox"', "div"),
+             element(html, r'<h1[^>]*\bclass="ltx_title ltx_title_document"', "h1"),
+             element(html, r'<div[^>]*\bclass="ltx_abstract"', "div")]
     for anchor in filter(None, args.keep.split(",")):
         s = section(html, anchor.strip())
         if not s:

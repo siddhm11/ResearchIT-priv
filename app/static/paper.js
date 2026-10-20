@@ -172,6 +172,9 @@
     function watch() {
       links.forEach(function (a) {
         var el = document.getElementById(a.getAttribute('data-sec'));
+        /* Briefing sections exist only once their fragment arrives, and not at
+           all when there is no briefing; their links stay hidden until then. */
+        a.hidden = !el;
         if (el && !el.hasAttribute('data-watched')) { el.setAttribute('data-watched', '1'); observer.observe(el); }
       });
     }

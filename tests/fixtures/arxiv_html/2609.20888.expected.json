@@ -3,7 +3,7 @@
  "version": "v2",
  "licence_text": "CC BY 4.0",
  "title": "Elastic Threshold Attention: Learned Contextual Sparsity for Long-Context Decoding",
- "abstract_start": "",
+ "abstract_start": "Massive KV caches can cause severe memory-bandwidth bottlenecks during long-context decoding. Sparse attention methods mitigate this problem, but often drop nec",
  "sections": [
   [
    "S1",

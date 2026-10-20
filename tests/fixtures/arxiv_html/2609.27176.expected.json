@@ -3,7 +3,7 @@
  "version": "v2",
  "licence_text": "CC BY 4.0",
  "title": "LeakScale: Estimating the Causal Effect of Benchmark Exposure",
- "abstract_start": "",
+ "abstract_start": "Evidence that evaluation material entered training does not reveal how much it affected evaluation. This distinction leaves a contaminated benchmark score diffi",
  "sections": [
   [
    "S1",

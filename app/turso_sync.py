@@ -123,6 +123,35 @@ TABLES: dict[str, dict] = {
         "blobs": [],
         "paged": True,
     },
+    "llm_calls": {
+        "remote": "llm_calls",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "feature", "provider", "model", "chars_in", "chars_out", "usd_est",
+                 "latency_ms", "status", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    "paper_briefings": {
+        "remote": "paper_briefings",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "cache_key", "arxiv_id", "status", "briefing_json", "provider", "model",
+                 "prompt_version", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    "content_reports": {
+        "remote": "content_reports",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "arxiv_id", "feature", "reason", "user_id", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
 }
 
 RESTORE_PAGE = 2000
@@ -154,6 +183,17 @@ REMOTE_DDL = [
         version TEXT, licence TEXT, licence_text TEXT, figures_json TEXT, n_figures INTEGER,
         n_sections INTEGER, n_paragraphs INTEGER, code_repo TEXT, code_stars INTEGER,
         code_checked_at TEXT, parser_version INTEGER, fetched_at TEXT, error TEXT)""",
+    """CREATE TABLE IF NOT EXISTS llm_calls (
+        id INTEGER PRIMARY KEY, feature TEXT NOT NULL, provider TEXT, model TEXT,
+        chars_in INTEGER, chars_out INTEGER, usd_est REAL, latency_ms INTEGER,
+        status TEXT NOT NULL, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS paper_briefings (
+        id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
+        status TEXT NOT NULL, briefing_json TEXT, provider TEXT, model TEXT,
+        prompt_version TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS content_reports (
+        id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
+        reason TEXT, user_id TEXT, created_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS paper_abstracts (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL UNIQUE, abstract TEXT NOT NULL,
         source TEXT, fetched_at TEXT)""",

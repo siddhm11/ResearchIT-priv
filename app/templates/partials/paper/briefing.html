@@ -1,0 +1,34 @@
+{#
+  The briefing, swapped in after the page paints (app/briefing_svc.py).
+  Every point passed the code checks: its cited passage was sent to the model
+  and holds every number it states. Each chip opens that passage on arXiv.
+#}
+<section class="brief" id="sec-things">
+  <h2 class="brief-h">Three things to know <span class="gen-tag">AI-written from the paper's text</span></h2>
+  <ul class="things">
+    {% for t in briefing.things %}
+      <li><b>{{ t.lead }}</b> {{ t.text }}<a class="src" href="{{ paper_source.html_url(t.anchor) }}"
+           target="_blank" rel="noopener" title="Open this passage on arXiv">{{ t.label }}</a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% if briefing.how %}
+<section class="brief" id="sec-how">
+  <h2 class="brief-h">How it works</h2>
+  <ol class="how">
+    {% for s in briefing.how %}
+      <li><div class="nm"><i>{{ loop.index }}</i>{{ s.name }}</div><div class="tx">{{ s.text }}</div></li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+{% if briefing.use %}
+<section class="brief" id="sec-use">
+  <h2 class="brief-h">Where you'd use this</h2>
+  <p class="use">{{ briefing.use }}</p>
+</section>
+{% endif %}
+<p class="brief-foot">Written by an AI model from this paper's text and checked against it.
+  Check the paper before citing it.
+  <button type="button" class="link-btn" hx-post="/api/papers/{{ paper_source.arxiv_id }}/report"
+          hx-vals='{"feature": "briefing"}' hx-swap="outerHTML">Report a problem</button></p>

@@ -3,7 +3,7 @@
  "version": "v1",
  "licence_text": "CC BY 4.0",
  "title": "AlphaEarth distinguishes cities but compresses urban variation",
- "abstract_start": "",
+ "abstract_start": "Cities differ in built form, land cover and development history, complicating comparison across places and time. Satellite foundation models map Earth’s surface",
  "sections": [
   [
    "S1",

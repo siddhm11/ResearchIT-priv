@@ -16,7 +16,17 @@
 arXiv:2609.31507v1 [cs.CV] 25 Sep 2026</div>
 </div>
 <h1 class="ltx_title ltx_title_document"><span id="id1" class="ltx_text ltx_font_bold">SatNav</span>: A Scalable Benchmark for Long-Horizon UAV Vision-Language Navigation from Satellite Imagery</h1>
-
+<div id="abstract1" class="ltx_abstract"><h6 class="ltx_title ltx_title_abstract">Abstract</h6>
+    
+<p id="abstract1.1" class="ltx_p">Urban uncrewed aerial vehicle (UAV) vision-language navigation (VLN) requires agents to follow instructions across extended urban spaces, inherently demanding long-term memory and geospatial grounding. However, scaling existing benchmarks remains difficult because of their reliance on costly reconstructed 3D assets, limiting geographic diversity and episode scale.
+To address this, we introduce SatNav, a scalable, long-horizon UAV VLN benchmark built from high-resolution satellite imagery.
+SatNav targets city-level navigation missions and uses satellite crops as approximations of UAV nadir views for visual observations. Through an automated cue-to-episode pipeline, SatNav constructs 118K episodes from 59 scenes across 18 cities, with an average trajectory length of 379 m.
+To stress-test long-horizon memory and geospatial reasoning, SatNav defines three task families: Boundary, Landmark, and Route, targeting loop progress tracking, landmark-based spatial grounding, and route following with counting cues. Benchmarking classical VLN agents and recent agents based on large vision-language models (LVLMs) on SatNav shows that city-scale navigation remains challenging.
+We further introduce SwiftVLN, a modular framework with switchable memory components, and conduct systematic memory-design ablations.
+Finally, satellite-to-UAV transfer experiments show that satellite-trained navigation models can operate on real-flight UAV observations, showing the practical relevance of SatNav.
+Our project page: <a href="https://eku127.github.io/SatNav/" title="" class="ltx_ref ltx_url ltx_font_typewriter">https://eku127.github.io/SatNav/</a>.</p>
+  
+</div>
 <section id="S1" class="ltx_section">
 <h2 class="ltx_title ltx_title_section"><span class="ltx_tag ltx_tag_section">1 </span>Introduction</h2>
 

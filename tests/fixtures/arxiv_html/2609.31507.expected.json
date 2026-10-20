@@ -3,7 +3,7 @@
  "version": "v1",
  "licence_text": "CC BY 4.0",
  "title": "SatNav: A Scalable Benchmark for Long-Horizon UAV Vision-Language Navigation from Satellite Imagery",
- "abstract_start": "",
+ "abstract_start": "Urban uncrewed aerial vehicle (UAV) vision-language navigation (VLN) requires agents to follow instructions across extended urban spaces, inherently demanding l",
  "sections": [
   [
    "S1",

@@ -679,3 +679,25 @@ the project is offered more widely.
 **Action items:** Done on branch `feat/paper-source-svc` and the branches below
 it. Switch `PAPER_SOURCES` to `shadow` first and watch `/healthz/sources` for
 three days. Display-only throughout: no ranking, quota, MMR or scoring change.
+
+### 2026-10-19 — Paper briefing: model-written, code-checked, display-only
+**Decision:** The redesigned paper page shows a briefing ("Three things to
+know", "How it works", "Where you'd use this") written by the configured model
+(the `GROQ_MODELS` chain, the owner's choice on 2026-10-19) from the paper's own
+passages, behind switch `BRIEFING` (off, shadow, preview, on). Code, not the
+prompt, decides what is shown: each point must cite a passage that was sent and
+contain only numbers found in it; fewer than two surviving points means no
+briefing. Every model call goes through `app/llm.py`, is logged to the
+replicated `llm_calls` table, and stops for the day at `LLM_DAILY_CALLS` or
+`LLM_DAILY_USD_CAP`. Briefing calls run one at a time, 8 s apart, with prompts
+capped at 16,000 characters.
+**Supersedes:** "Claude/Groq-generated cluster summaries (Phase 8)" stays out of
+scope; this is per-paper text on the paper page, not interest summaries, and it
+never touches ranking.
+**Rationale:** Readers asked to understand a paper without leaving. Prompt-only
+grounding (doc 07 §A.6) can't stop an invented number; checking numbers and
+anchors in code can. Measured 2026-10-19: a SatNav briefing took 1.8 s and
+passed every check; four large prompts back to back benched every Groq model,
+so briefings are paced and a saturated chain is retried rather than cached.
+**Action items:** Run `scripts/eval_briefings.py` on `scripts/eval_papers.txt`,
+rate the 50 results, and switch `BRIEFING` past shadow only at 45 or more good.
