@@ -168,6 +168,16 @@ async def _security_and_cache_headers(request: Request, call_next):
 
     if request.url.path.startswith("/static/"):
         response.headers.setdefault("Cache-Control", _STATIC_CACHE_CONTROL)
+    else:
+        # One URL, two bodies: htmx asks /search?q=... for the results alone, a
+        # browser asks it for the whole page. Without Vary, the Back button could
+        # show the cached results fragment as the page (no header, no styles);
+        # htmx fragments are not worth caching at all.
+        vary = response.headers.get("Vary", "")
+        if "hx-request" not in vary.lower():
+            response.headers["Vary"] = f"{vary}, HX-Request" if vary else "HX-Request"
+        if request.headers.get("HX-Request"):
+            response.headers.setdefault("Cache-Control", "no-store")
 
     # ?preview=<token> turns on the owner's preview of switched features for
     # this browser; ?preview=off turns it off. See app/features.py.
