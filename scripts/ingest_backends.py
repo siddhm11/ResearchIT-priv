@@ -176,7 +176,7 @@ class Upserter:
         self.ztok = os.environ.get("ZILLIZ_TOKEN", "")
         if WRITE_ZILLIZ and not (self.zuri and self.ztok):
             raise SystemExit("INGEST_WRITE_ZILLIZ=1 needs ZILLIZ_URI and ZILLIZ_TOKEN")
-        self.turl = os.environ["TURSO_URL"].rstrip("/")
+        self.turl = os.environ["TURSO_URL"].replace("libsql://", "https://", 1).rstrip("/")
         self.ttok = os.environ["TURSO_DB_TOKEN"]
 
     # ── Qdrant ───────────────────────────────────────────────────────────
