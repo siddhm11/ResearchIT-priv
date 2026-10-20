@@ -823,3 +823,23 @@ used today, so only our own count can say how close a day comes.
 **Action items:** Build the dashboard on `/healthz/ai`'s data; fix 1 and 2 and
 measure the saving in `ai_daily` cache counts.
 
+### 2026-10-20 — Reader and search analytics, with search queries kept 90 days and unlinked
+**Decision:** Searches are logged (`search_log`), each AI call records its paper
+or search query, and each reader cookie gets one row per day of what it did
+(`reader_days`), all replicated and shown on owner-only dashboards. By the
+owner's choice, search query text is kept 90 days and then cleared here and in
+Turso. It is never stored against a reader; a search links to the clicks and
+saves on its results only through its `query_id`, as before. The owner's own
+browsers (holding the preview token) are flagged and left out by default. The
+AI overview shown for a query over its top five papers is stored, which also
+makes it the overview cache.
+**Supersedes:** nothing; searches, visits and questions were not recorded before.
+**Rationale:** Of 476 recorded actions since 2026-08-09, 321 of 335 saves came
+from search results, yet no search had ever been recorded. 109 of 131 readers did
+exactly one thing and 7 came back on another day; October's three active
+readers were the owner. Without searches, visits and an owner filter, none of
+that could be measured going forward.
+**Action items:** Watch the share of searches that find nothing and that lead
+to an opened or saved paper. Measure the readers who return within seven days
+before and after each product change.
+
