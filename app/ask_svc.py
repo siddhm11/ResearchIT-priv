@@ -339,15 +339,20 @@ async def answer(arxiv_id: str, paper: dict, question: str, *, user_id: str | No
     try:
         source = await paper_source_svc.get(arxiv_id)
         version = source.version if source and source.ok else ""
+        has_paragraphs = bool(source and source.ok and source.n_paragraphs >= 3)
         key = cache_key(arxiv_id, version, qkey)
         if suggested:
             hit = await cached_answer(key)
-            if hit is not None:
+            # An answer written from the abstract alone while the paper's text
+            # was missing here is not reused (see paper_source_svc.has_text).
+            if hit is not None and not (hit.get("abstract_only") and has_paragraphs):
                 log.update(kind=hit["kind"], status="cached")
                 return {**hit, "cached": True}
         if user_id and await used_today(user_id) >= DAILY_CAP:
             log.update(kind="cap", status="cap")
             return {"kind": "cap"}
+        if version and not await paper_source_svc.has_text(arxiv_id):
+            source = await paper_source_svc.ensure(arxiv_id, need_text=True) or source
         paragraphs = await paper_source_svc.paragraphs(arxiv_id) if version else []
         full = await paper_source_svc.fulltext(arxiv_id) if version else None
         passages = retrieve(question, paper.get("abstract") or (full or {}).get("abstract", ""), paragraphs, full,
@@ -368,7 +373,7 @@ async def answer(arxiv_id: str, paper: dict, question: str, *, user_id: str | No
         result["abstract_only"] = not paragraphs
         log.update(kind=result["kind"], quotes_kept=len(result["quotes"]), cites_kept=len(result["cites"]),
                    quotes_dropped=result["dropped"]["quotes"], cites_dropped=result["dropped"]["cites"])
-        if suggested and result["kind"] in ("answer", "unanswerable"):
+        if suggested and result["kind"] in ("answer", "unanswerable") and not (has_paragraphs and not paragraphs):
             await _store_answer(key, arxiv_id, qkey, result, call.model)
         return result
     except Exception as e:
