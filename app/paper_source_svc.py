@@ -167,6 +167,16 @@ async def fulltext(arxiv_id: str) -> dict | None:
             "tables": json.loads(tables or "[]")}
 
 
+async def has_text(arxiv_id: str) -> bool:
+    """Whether this container holds the paper's full text and paragraphs.
+
+    They are local only: a deploy or prune() drops them while the replicated
+    paper_sources row stays, so a row that says "ok" does not mean the text is here."""
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        cur = await conn.execute("SELECT 1 FROM paper_fulltext WHERE arxiv_id = ?", (arxiv_id,))
+        return await cur.fetchone() is not None
+
+
 async def paragraphs(arxiv_id: str) -> list[dict]:
     """Paragraphs in page order: anchor, section, text, refs."""
     async with aiosqlite.connect(config.DB_PATH) as conn:
@@ -421,20 +431,24 @@ def needs_fetch(src: Source | None) -> bool:
     return not _fresh(src, time.time())
 
 
-async def ensure(arxiv_id: str, *, force: bool = False, background: bool = False) -> Source | None:
+async def ensure(arxiv_id: str, *, force: bool = False, background: bool = False,
+                 need_text: bool = False) -> Source | None:
     """The saved source, fetching it first if needed. Never raises.
 
     Callers pass ids they found in our metadata; anything that isn't a
     new-style arXiv id is refused before any request. With background=True the
     fetch waits for a background slot (pace) before it claims the paper, so a
     reader opening the same paper meanwhile is never queued behind it.
+    need_text=True also fetches a saved paper whose local text this container
+    lacks (see has_text); the briefing and Ask read that text.
     """
     if not ID_PATTERN.match(arxiv_id or ""):
         return None
     try:
         existing = await get(arxiv_id)
         if not force and _fresh(existing, time.time()):
-            return existing
+            if not (need_text and existing.ok and not await has_text(arxiv_id)):
+                return existing
         st = _get_state()
         if background:
             if st.in_flight.get(arxiv_id) is not None:
@@ -477,9 +491,10 @@ def schedule_task(coro) -> None:
 
 
 def schedule(arxiv_id: str) -> None:
-    """Fetch this paper's page in the background when the switch allows it."""
+    """Fetch this paper's page in the background when the switch allows it,
+    including its text when this container lacks it, ready for the briefing and Ask."""
     if features.active(SWITCH) and ID_PATTERN.match(arxiv_id or ""):
-        schedule_task(ensure(arxiv_id))
+        schedule_task(ensure(arxiv_id, need_text=True))
 
 
 async def save_code_link(arxiv_id: str, repo: str, stars: int | None) -> None:
