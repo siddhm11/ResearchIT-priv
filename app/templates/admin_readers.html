@@ -1,0 +1,103 @@
+{#
+  Readers (/admin/readers), owner only; data from app/analytics.py:readers_report().
+  A reader is a browser (the anonymous cookie): there are no accounts.
+#}
+{% extends "base.html" %}
+{% from "partials/admin/bars.html" import bars %}
+
+{% block title %}Readers — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% macro pct(part, whole) -%}{{ ((100 * part / whole) | round | int) ~ "%" if whole else "—" }}{%- endmacro %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
+
+  <header class="ai-head">
+    <h1>Readers</h1>
+    <p class="ai-sub">A reader is a browser: there are no accounts. {{ "Your own use is included." if include_owner else "Your own use is left out." }}
+      {% if tracked_since %}Visits, searches and questions are counted from {{ tracked_since }}; before that only saves,
+      passes and opened papers were recorded.{% else %}Visits, searches and questions are counted from today.{% endif %}</p>
+  </header>
+
+  <section class="ai-kpis" aria-label="Readers at a glance">
+    <div class="ai-kpi"><span class="ai-kpi-label">Readers today</span><span class="ai-kpi-value">{{ windows.today | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Last 7 days</span><span class="ai-kpi-value">{{ windows.week | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Last 30 days</span><span class="ai-kpi-value">{{ windows.month | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Came back another day (30 days)</span><span class="ai-kpi-value">{{ pct(did.came_back, did.readers) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Since launch ({{ (since or "")[:10] }})</span><span class="ai-kpi-value">{{ all_readers | commafy }}</span></div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="r-did-h">
+    <h2 id="r-did-h">What readers did, last 30 days</h2>
+    <div class="ai-model ai-funnel">
+      {% for label, n in [("Searched", did.searched), ("Opened a paper", did.opened), ("Saved a paper", did.saved), ("Asked a question", did.asked)] %}
+        {% set p = ((100 * n / did.readers) | round | int) if did.readers else 0 %}
+        <div class="ai-meter-row">
+          <span class="ai-meter-label">{{ label }}</span>
+          <span class="ai-meter" aria-hidden="true"><span style="width: {{ p }}%"></span></span>
+          <span class="ai-meter-value">{{ n | commafy }} of {{ did.readers | commafy }} readers ({{ p }}%)</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="r-daily-h">
+    <h2 id="r-daily-h">Readers per day, last 30 days</h2>
+    {{ bars(daily, "Readers per day, new and returning") }}
+    <details class="ai-tableview">
+      <summary>Show as a table</summary>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Day</th><th scope="col">Readers</th><th scope="col">New</th><th scope="col">Pages</th>
+            <th scope="col">Searches</th><th scope="col">Feed pages</th><th scope="col">Papers opened</th>
+            <th scope="col">Saves</th><th scope="col">Passes</th><th scope="col">Questions</th></tr></thead>
+          <tbody>
+            {% for d in days | reverse %}
+              <tr><th scope="row">{{ d.day }}</th><td>{{ d.readers }}</td><td>{{ d.new }}</td><td>{{ d.pages }}</td>
+                <td>{{ d.searches }}</td><td>{{ d.feed_pages }}</td><td>{{ d.opens }}</td><td>{{ d.saves }}</td>
+                <td>{{ d.passes }}</td><td>{{ d.asks }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="r-long-h">
+    <h2 id="r-long-h">Readers per month since launch, from saved actions</h2>
+    <p class="ai-note">From every save, pass and opened paper since {{ (since or "launch")[:10] }}: a reader shows up
+      here only once they did one of those.</p>
+    {{ bars(monthly, "Readers per month") }}
+    <div class="ai-split">
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <caption class="ai-caption">How many days readers came back</caption>
+          <thead><tr><th scope="col">Active on</th><th scope="col">Readers</th></tr></thead>
+          <tbody>{% for d in depth %}<tr><th scope="row">{{ d.bucket }}</th><td>{{ d.readers | commafy }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <caption class="ai-caption">Where saves and opens came from</caption>
+          <thead><tr><th scope="col">Page</th><th scope="col">Saves</th><th scope="col">Opened</th><th scope="col">Passes</th></tr></thead>
+          <tbody>{% for s in sources %}<tr><th scope="row">{{ s.source }}</th><td>{{ s.saves | commafy }}</td><td>{{ s.opens | commafy }}</td><td>{{ s.passes | commafy }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <caption class="ai-caption">Per month</caption>
+          <thead><tr><th scope="col">Month</th><th scope="col">Readers</th><th scope="col">Actions</th><th scope="col">Saves</th></tr></thead>
+          <tbody>{% for m in months | reverse %}<tr><th scope="row">{{ m.month }}</th><td>{{ m.readers | commafy }}</td><td>{{ m.actions | commafy }}</td><td>{{ m.saves | commafy }}</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="/static/admin.js?v={{ static_version }}"></script>
+{% endblock %}

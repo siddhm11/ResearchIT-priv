@@ -1885,7 +1885,8 @@ a.src:hover { text-decoration: underline; }
 .ai-stack .ai-seg:last-child { border-radius: 4px 4px 0 0; }
 .ai-chart:has(.ai-col.is-active) .ai-col:not(.is-active) .ai-seg { opacity: .4; }
 .ai-xaxis { display: flex; margin-top: .35rem; }
-.ai-xaxis span { flex: 1; text-align: center; font-size: .68rem; color: var(--text-3); white-space: nowrap; }
+.ai-xaxis span { flex: 1; min-width: 0; text-align: center; font-size: .68rem; color: var(--text-3);
+  white-space: nowrap; overflow: visible; display: flex; justify-content: center; }
 .ai-tip { position: absolute; z-index: 2; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm); box-shadow: var(--shadow-1); padding: .45rem .6rem; font-size: .76rem;
   color: var(--text-2); pointer-events: none; min-width: 9rem; }
@@ -1902,3 +1903,32 @@ a.src:hover { text-decoration: underline; }
   border: 1px solid var(--border); border-radius: var(--radius); }
 .ai-tableview { margin-top: .6rem; }
 .ai-tableview summary { cursor: pointer; font-size: .82rem; color: var(--text-2); margin-bottom: .5rem; }
+/* Series slots for any dashboard chart, in the validated order (slot 1 = blue). */
+.viz-s1 { background: var(--s-search_rewrite); }
+.viz-s2 { background: var(--s-search_overview); }
+.viz-s3 { background: var(--s-explain); }
+.viz-s4 { background: var(--s-briefing); }
+.viz-s5 { background: var(--s-ask); }
+.ai-tabs { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; border-bottom: 1px solid var(--border);
+  padding-bottom: .5rem; }
+.ai-tabs a { font-size: .84rem; color: var(--text-2); text-decoration: none; padding: .3rem .65rem; border-radius: 99px; }
+.ai-tabs a:hover { background: var(--surface-2); color: var(--text); }
+.ai-tabs a[aria-current="page"] { background: var(--surface); color: var(--text); font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--border); }
+.ai-tabs .ai-tabs-toggle { margin-left: auto; font-size: .78rem; }
+.ai-funnel { max-width: 44rem; }
+.ai-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .75rem; margin-top: .75rem;
+  align-items: start; }
+.ai-caption { caption-side: top; text-align: left; padding: .55rem .7rem .2rem; font-size: .78rem; font-weight: 600;
+  color: var(--text-2); }
+.ai-table--wrap th, .ai-table--wrap td { white-space: normal; vertical-align: top; }
+.ai-table--wrap td:first-child { white-space: nowrap; }
+.ai-query { font-family: var(--font-mono); font-size: .8rem; font-weight: 500; overflow-wrap: anywhere; min-width: 10rem; }
+.ai-paper { min-width: 14rem; max-width: 26rem; }
+.ai-paper a { color: var(--text); }
+.ai-paper .muted { display: block; font-family: var(--font-mono); font-size: .72rem; font-weight: 400; }
+.ai-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.ai-chips li { background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: .2rem .65rem;
+  font-size: .8rem; }
+.ai-overview { margin: .4rem 0 0; max-width: 34rem; font-size: .82rem; line-height: 1.45; color: var(--text-2); }
+.ai-table details summary { cursor: pointer; color: var(--text-2); }

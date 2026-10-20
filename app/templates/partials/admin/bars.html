@@ -1,0 +1,41 @@
+{#
+  Stacked columns from app/routers/admin.py:bars(). Text keeps its size at any
+  width (HTML, not SVG). Series colours are validated slots (viz-s1..s5);
+  identity also comes from the legend, and every value is in the page's table.
+#}
+{% macro bars(chart, aria) %}
+  {# One series needs no legend box: the section's title already names it. #}
+  {% if chart.legend | length > 1 %}
+    <ul class="ai-legend" aria-label="Series">
+      {% for l in chart.legend %}
+        <li><span class="ai-key viz-s{{ l.slot }}" aria-hidden="true"></span>{{ l.label }}
+          <span class="muted">{{ l.total | commafy }}</span></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+  {% if chart.empty %}
+    <p class="ai-empty">Nothing recorded in this period yet.</p>
+  {% else %}
+    <div class="ai-chart" data-viz-chart>
+      <div class="ai-plot" role="img" aria-label="{{ aria }}; the table on this page has every value">
+        {% for t in chart.ticks %}
+          <div class="ai-tickline{% if loop.first %} ai-tickline--base{% endif %}" style="bottom: {{ t.pct }}%"><span>{{ t.label }}</span></div>
+        {% endfor %}
+        <div class="ai-cols">
+          {% for c in chart.columns %}
+            <div class="ai-col" tabindex="0" aria-label="{{ c.tip.title }}: {{ c.tip.total | commafy }}{{ ' ' ~ c.tip.unit if c.tip.unit else '' }}"
+                 data-tip='{{ c.tip | tojson }}'>
+              {% if c.height %}
+                <div class="ai-stack" style="height: {{ c.height }}%">
+                  {% for s in c.segments %}<span class="ai-seg viz-s{{ s.slot }}" style="flex-grow: {{ s.n }}"></span>{% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="ai-xaxis" aria-hidden="true">{% for c in chart.columns %}<span>{{ c.label if c.show_label else "" }}</span>{% endfor %}</div>
+      <div class="ai-tip" role="status" hidden></div>
+    </div>
+  {% endif %}
+{% endmacro %}
