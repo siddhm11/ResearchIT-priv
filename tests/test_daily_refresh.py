@@ -58,6 +58,10 @@ def test_workflow_is_gated_serialised_and_passes_every_required_secret():
     # a catch-up day reaches the script through env, never pasted into the shell
     assert "TODAY: ${{ inputs.today }}" in text and '${TODAY:+--today "$TODAY"}' in text
     assert "inputs.today }} \\" not in text
+    # catch-up runs can raise the ingest limit; the job ceiling sits above it
+    assert "INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '60' }}" in text
+    assert '--ingest-timeout-min "$INGEST_TIMEOUT_MIN"' in text
+    assert re.search(r"(?m)^    timeout-minutes: 300$", text)
 
 
 def test_ingest_that_overruns_fails_the_run_with_its_output(monkeypatch, capsys):
