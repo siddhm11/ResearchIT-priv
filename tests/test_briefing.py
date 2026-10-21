@@ -199,9 +199,21 @@ def test_an_anchor_that_was_not_sent_drops_the_point():
     assert status == "insufficient" and "not sent" in b["dropped"][0]["why"]
 
 
+def test_an_over_long_point_or_step_is_dropped_not_the_whole_reply():
+    status, b = briefing_svc.verify({
+        "things": [thing("118,494 tasks.", "In 18 cities.", "abstract"),
+                   thing("A long point.", "word " * 90, "abstract"),
+                   thing("Real flights improved.", "From 38.9% to 55.6%.", "S5.p1")],
+        "how": [{"name": "Collect", "text": "Gather images."}, {"name": "Explain", "text": "word " * 70}],
+        "use": "word " * 90}, PASSAGES)
+    assert status == "ok" and [t["lead"] for t in b["things"]] == ["118,494 tasks.", "Real flights improved."]
+    assert [s["name"] for s in b["how"]] == ["Collect"] and b["use"] == ""
+    assert [d["why"] for d in b["dropped"]] == ["too long"] * 3
+
+
 @pytest.mark.parametrize("bad", [
     {"things": [{"lead": "no anchor", "text": "x"}]},
-    {"things": [thing("x" * 200, "t", "abstract")]},
+    {"things": [thing("   ", "t", "abstract")]},
     {"things": ["just a string"]},
     {"things": [thing("ok.", "ok.", "abstract")], "how": [{"name": "n"}]},
 ])

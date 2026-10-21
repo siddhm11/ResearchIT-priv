@@ -212,11 +212,10 @@ def number_supported(token: str, source: str) -> bool:
     return False
 
 
-def _clean_text(value, limit: int) -> str | None:
+def _clean_text(value) -> str | None:
     if not isinstance(value, str):
         return None
-    text = re.sub(r"\s+", " ", value).strip()
-    return text if 0 < len(text) <= limit else None
+    return re.sub(r"\s+", " ", value).strip() or None
 
 
 def verify(data: dict | None, passages: list[dict]) -> tuple[str, dict]:
@@ -231,9 +230,14 @@ def verify(data: dict | None, passages: list[dict]) -> tuple[str, dict]:
     for t in data.get("things") or []:
         if not isinstance(t, dict):
             return "failed", {"error": "thing is not an object"}
-        lead, text, anchor = _clean_text(t.get("lead"), 160), _clean_text(t.get("text"), 400), t.get("anchor")
+        lead, text, anchor = _clean_text(t.get("lead")), _clean_text(t.get("text")), t.get("anchor")
         if lead is None or text is None or not isinstance(anchor, str):
-            return "failed", {"error": "thing has a missing or over-long field"}
+            return "failed", {"error": "thing has a missing field"}
+        # Fuller passages draw fuller points: one ran to 420 characters on
+        # 2026-10-22, and failing the reply for it threw away two good points.
+        if len(lead) > 160 or len(text) > 400:
+            dropped.append({"lead": lead[:160], "why": "too long"})
+            continue
         passage = by_anchor.get(anchor)
         if passage is None:
             dropped.append({"lead": lead, "why": f"anchor {anchor!r} was not sent"})
@@ -247,14 +251,20 @@ def verify(data: dict | None, passages: list[dict]) -> tuple[str, dict]:
     for step in data.get("how") or []:
         if not isinstance(step, dict):
             return "failed", {"error": "step is not an object"}
-        name, text = _clean_text(step.get("name"), 60), _clean_text(step.get("text"), 300)
+        name, text = _clean_text(step.get("name")), _clean_text(step.get("text"))
         if name is None or text is None:
-            return "failed", {"error": "step has a missing or over-long field"}
+            return "failed", {"error": "step has a missing field"}
+        if len(name) > 60 or len(text) > 300:
+            dropped.append({"step": name[:60], "why": "too long"})
+            continue
         if any(not number_supported(n, all_text) for n in _numbers(name + " " + text)):
             dropped.append({"step": name, "why": "number not in the passages"})
             continue
         how.append({"name": name, "text": text})
-    use = _clean_text(data.get("use"), 400) or ""
+    use = _clean_text(data.get("use")) or ""
+    if len(use) > 400:
+        dropped.append({"use": use[:400], "why": "too long"})
+        use = ""
     if use and any(not number_supported(n, all_text) for n in _numbers(use)):
         dropped.append({"use": use, "why": "number not in the passages"})
         use = ""
