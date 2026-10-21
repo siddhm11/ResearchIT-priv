@@ -1703,3 +1703,21 @@ a.src:hover { text-decoration: underline; }
   .ask-fab svg { width: 1rem; height: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) { .typing i { animation: none; } }
+
+/* ── feed card v2 ── */
+.pc { display: flex; flex-direction: column; gap: .55rem; }
+.pc-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.6rem; }
+.pc-top .pc-menu { margin-left: auto; }
+.pc .card-title { margin: 0; }
+.pc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-size: .8rem; color: var(--text-3); }
+.pc-meta .sep { opacity: .45; }
+.pc-fig { margin: .1rem 0 0; }
+.pc-fig .plate { cursor: pointer; }
+.pc-fig .plate img { max-height: 18rem; }
+.pc-text .tx-body { padding-top: .45rem; }
+.pc-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden; }
+.pc-actions { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; padding-top: .15rem; }
+/* The card's "⋯" menu has "Why this paper"; the action row's copy, which the
+   Save response re-renders, stays out of sight on these cards. */
+.pc-actions .card-why { display: none; }
+.pc .card-reason { margin: 0; }

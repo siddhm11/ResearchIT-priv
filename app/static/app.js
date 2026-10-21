@@ -398,8 +398,50 @@
     if (open) { closeMenus(null); open.focus(); }
   });
 
+  /* ── Feed card v2: per-card text tabs, Why this paper, text preference ──
+     Each card opens on the reader's preferred text (researchit-cardtext,
+     "plain" or "abs"; set from the feed rail) and can switch on its own. */
+
+  var CARDTEXT_KEY = 'researchit-cardtext';
+
+  function cardText(card, which) {
+    var box = card.querySelector('[data-cardtext]');
+    if (!box || !box.querySelector('[data-cardtab]')) return;
+    box.querySelectorAll('[data-cardtab]').forEach(function (t) {
+      t.setAttribute('aria-selected', t.getAttribute('data-cardtab') === which ? 'true' : 'false');
+    });
+    box.querySelectorAll('[data-panel]').forEach(function (p) {
+      p.hidden = p.getAttribute('data-panel') !== which;
+    });
+  }
+
+  function cardTextPref() {
+    try { return localStorage.getItem(CARDTEXT_KEY) === 'abs' ? 'abs' : 'plain'; } catch (e) { return 'plain'; }
+  }
+
+  function applyCardTextPref(root) {
+    var pref = cardTextPref();
+    (root || document).querySelectorAll('.pc').forEach(function (card) { cardText(card, pref); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var tab = e.target.closest && e.target.closest('[data-cardtab]');
+    if (tab) { cardText(tab.closest('.pc'), tab.getAttribute('data-cardtab')); return; }
+    var why = e.target.closest && e.target.closest('[data-why]');
+    if (why) {
+      var panel = document.getElementById('why-' + why.getAttribute('data-why'));
+      if (panel) panel.classList.toggle('hidden');
+    }
+  });
+  document.addEventListener('DOMContentLoaded', function () { applyCardTextPref(document); });
+  document.body.addEventListener('htmx:afterSwap', function (e) { applyCardTextPref(e.target && e.target.parentNode || document); });
+
   /* Shared with paper.js and the feed. */
   window.ResearchIT = window.ResearchIT || {};
+  window.ResearchIT.setCardTextPref = function (which) {
+    try { localStorage.setItem(CARDTEXT_KEY, which === 'abs' ? 'abs' : 'plain'); } catch (e) { /* private mode */ }
+    applyCardTextPref(document);
+  };
   window.ResearchIT.toast = function (message, ms) {
     var t = makeToast(message);
     if (t) setTimeout(function () { closeToast(t); }, ms || 2600);

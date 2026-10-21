@@ -25,7 +25,7 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import db, discovery_svc, errors, qdrant_svc, arxiv_svc, runtime_stats, turso_svc, user_state as us
+from app import card_data, db, discovery_svc, errors, features, qdrant_svc, arxiv_svc, runtime_stats, turso_svc, user_state as us
 from app.config import (
     COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
@@ -370,7 +370,15 @@ async def _serve_recommendations(
     except Exception as e:  # pragma: no cover - defensive
         errors.report("recs", "exposure log write failed", e)
 
+    # The redesigned card's extras (figure, code link, cached plain summary,
+    # full abstract) are added to copies here, after the page is built and
+    # logged: display only, local reads only, order and ids untouched.
+    card_v2 = features.visible("FEED_CARD_V2", request)
+    if card_v2:
+        papers = await card_data.enrich(papers, request)
+
     ctx = {
+        "card_v2": card_v2,
         "papers": papers,
         "has_more": has_more,
         "next_page": page + 1,

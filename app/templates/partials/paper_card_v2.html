@@ -1,0 +1,117 @@
+{#
+  Feed card, redesigned (switch FEED_CARD_V2). paper_card.html is used when it
+  is off, and everywhere outside the feed.
+
+  At most eight things to click: the "⋯" menu, the title, the Code chip, the
+  figure, the two text tabs, Save and Pass. Gone from the card: the match
+  meter, the foot line and the separate 3D link (into the menu); citations
+  stay on the paper page.
+
+  Hooks app.js relies on are kept: class "card", id "paper-<id>",
+  data-arxiv-id, the "actions-<id>" container and the hidden "why-<id>" panel.
+  The title link carries the same §3.11 query string as today's card, built
+  the same way (with `source`, not `_source`; see paper_card.html).
+
+  The card_* fields come from app/card_data.py and are all read locally.
+#}
+{% set source = source | default("search") %}
+{% set position = position if position is defined else (paper.position | default(0)) %}
+{% set authors_list = paper.authors | default("[]") | tojson_parse %}
+{% if not authors_list and paper.authors %}
+  {% set authors_list = paper.authors.split(", ") %}
+{% endif %}
+{% set pub_year = (paper.year | string) if paper.year else (paper.published[:4] if paper.published else "") %}
+{% set tone = paper.cluster_tone if paper.cluster_tone is defined else -1 %}
+{% set is_explore = paper.candidate_source | default("") == "exploration" %}
+{% set interest = paper.cluster_label | default("") %}
+{% set pid = paper.arxiv_id %}
+
+{%- set _q = [] -%}
+{%- if paper.query_id %}{% set _ = _q.append("qid=" ~ paper.query_id) %}{% endif -%}
+{%- if paper.query_id %}{% set _ = _q.append("sf=" ~ source) %}{% endif -%}
+{%- if paper.position is not none %}{% set _ = _q.append("pos=" ~ (paper.position | default(0))) %}{% endif -%}
+{%- if paper.candidate_source %}{% set _ = _q.append("src=" ~ paper.candidate_source) %}{% endif -%}
+{%- if paper.propensity %}{% set _ = _q.append("prop=" ~ paper.propensity) %}{% endif -%}
+{%- if paper.policy_id %}{% set _ = _q.append("pol=" ~ paper.policy_id) %}{% endif -%}
+{% set href = "/p/" ~ pid ~ ("?" ~ (_q | join("&")) if _q else "") %}
+
+<article class="card pc
+                {%- if tone >= 0 %} card--tone tone-{{ tone }}{% endif %}
+                {%- if is_explore %} card--explore{% endif %}"
+         id="paper-{{ pid }}" data-arxiv-id="{{ pid }}"
+         data-interest="{{ interest if interest else ('explore' if is_explore else '') }}"
+         data-tone="{{ tone }}">
+
+  {% if paper.previously_shown %}<span class="small muted">Previously discovered</span>{% endif %}
+
+  <div class="pc-top">
+    {% if interest %}<span class="card-interest">{{ interest }}</span>
+    {% elif is_explore %}<span class="card-interest">Something different</span>{% endif %}
+    <div class="pc-menu">
+      <button type="button" class="pc-menu-btn" data-menu aria-haspopup="true" aria-expanded="false"
+              aria-label="More about this paper">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+      </button>
+      <div class="menu" role="menu" hidden>
+        <button type="button" role="menuitem" data-why="{{ pid }}">Why this paper</button>
+        {% if space_app_url %}<a role="menuitem" href="{{ space_paper_url(pid) }}" target="_blank" rel="noopener">See it in 3D ↗</a>{% endif %}
+        <a role="menuitem" href="https://arxiv.org/abs/{{ pid }}" target="_blank" rel="noopener">arXiv page ↗</a>
+        <button type="button" role="menuitem" data-copy="{{ pid }}">Copy arXiv ID</button>
+      </div>
+    </div>
+  </div>
+
+  <a class="card-title" href="{{ href }}">{{ paper.title }}</a>
+
+  <div class="pc-meta">
+    {% if authors_list %}<span>{{ authors_list[:2] | join(", ") }}{% if authors_list | length > 2 %} et al.{% endif %}</span>{% endif %}
+    {% if pub_year %}<span class="sep">·</span><span>{{ pub_year }}</span>{% endif %}
+    {% if paper.card_code %}
+      <span class="sep">·</span>
+      <a class="code-chip" href="{{ paper.card_code.repo }}" target="_blank" rel="noopener" title="Code for this paper on GitHub">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+             stroke-linejoin="round" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5" /></svg>
+        Code{% if paper.card_code.stars %} <span class="st">★ {{ paper.card_code.stars | commafy }}</span>{% endif %}
+      </a>
+    {% endif %}
+  </div>
+
+  {% if paper.card_figure %}
+    {% set f = paper.card_figure %}
+    <figure class="pc-fig">
+      <a class="plate" href="{{ href }}#sec-fig" aria-label="{{ f.label or 'Figure' }}: open the paper">
+        <img src="{{ f.url }}" alt="{{ f.label }}{% if f.label %}: {% endif %}{{ f.caption }}"
+             {% if f.w and f.h %}width="{{ f.w }}" height="{{ f.h }}" style="aspect-ratio: {{ f.w }} / {{ f.h }}"{% endif %}
+             loading="lazy" decoding="async">
+      </a>
+      <figcaption class="plate-cap">{% if f.label %}<b>{{ f.label }}</b>{% endif %}
+        <span>{{ f.caption | truncate(140) }}</span><span class="credit">{{ f.credit }}</span></figcaption>
+    </figure>
+  {% endif %}
+
+  <div class="pc-text" data-cardtext>
+    {% if paper.card_plain %}
+      <div class="tx-tabs" role="tablist" aria-label="Card text">
+        <button type="button" class="tx-tab" role="tab" aria-selected="true" data-cardtab="plain">In plain terms</button>
+        <button type="button" class="tx-tab" role="tab" aria-selected="false" data-cardtab="abs">Abstract</button>
+      </div>
+      <p class="tx-body pc-clamp" data-panel="plain">{{ paper.card_plain }}</p>
+      <p class="tx-body tx-body--abs pc-clamp" data-panel="abs" hidden>{{ paper.abstract }}</p>
+    {% elif paper.abstract %}
+      <p class="tx-body tx-body--abs pc-clamp">{{ paper.abstract }}</p>
+    {% endif %}
+  </div>
+
+  <div class="card-actions pc-actions" id="actions-{{ pid }}">
+    {% include "partials/action_buttons.html" %}
+  </div>
+
+  {% if interest %}
+    {% set reason = "Retrieved for your “" ~ interest ~ "” interest — one of the clusters found in your saved papers." %}
+  {% else %}
+    {% set reason = paper.candidate_source | default("") | why_shown %}
+  {% endif %}
+  {% if reason %}
+    <p class="card-reason hidden" id="why-{{ pid }}">{{ reason }}</p>
+  {% endif %}
+</article>
