@@ -25,7 +25,8 @@ values in .env.local can't leak in (load_dotenv never overrides a set name):
     DB_PATH=/tmp/e2e.db METADATA_SIDECAR_PATH=/tmp/e2e_sidecar.sqlite \\
     RESEARCHIT_ENV=test ARXIV_HTML_BASE=http://127.0.0.1:8799 \\
     TURSO_URL= TURSO_DB_TOKEN= QDRANT_URL= GROQ_API_KEY= TURSO_SYNC_DISABLED=1 \\
-    PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on BRIEFING=on ASK=on PORT=7861 python run.py
+    PAPER_PAGE_V2=on FIGURES=on PAPER_SOURCES=on BRIEFING=on ASK=on FEED_CARD_V2=on FEED_WIDE=on \\
+    PORT=7861 python run.py
 """
 from __future__ import annotations
 

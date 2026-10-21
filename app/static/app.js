@@ -91,7 +91,9 @@
     var p = pending.get(id);
     if (!p) return;
     pending.delete(id);
-    fetch(endpointFor(id, p.action), { method: 'POST', body: payloadFor(p.vals) })
+    var body = payloadFor(p.vals);
+    body.append('layout', currentLayout());
+    fetch(endpointFor(id, p.action), { method: 'POST', body: body })
       .catch(function () { /* the card is already gone; a lost dismissal is
                               recoverable, an error dialog here is not worth it */ });
     if (p.card && p.card.parentNode) p.card.remove();
@@ -435,6 +437,163 @@
   });
   document.addEventListener('DOMContentLoaded', function () { applyCardTextPref(document); });
   document.body.addEventListener('htmx:afterSwap', function (e) { applyCardTextPref(e.target && e.target.parentNode || document); });
+
+  /* ── Wide feed (FEED_WIDE): two columns, rail, filter, layout logging ──
+     The feed stays one list in served order; each card spans grid rows to
+     its height so the two columns pack without reordering anything. */
+
+  var WIDE = window.matchMedia ? window.matchMedia('(min-width: 1180px)') : { matches: false };
+  var ROW_PX = 4, GAP_PX = 16;
+
+  function gridOn() {
+    return !!document.querySelector('[data-wide-feed]') && WIDE.matches;
+  }
+
+  /* Which layout an interaction happened in, for the interactions log: a grid
+     changes how position relates to attention, so evaluation must split them. */
+  function currentLayout() { return gridOn() ? 'grid2' : 'list'; }
+
+  var spanObserver = 'ResizeObserver' in window ? new ResizeObserver(function (entries) {
+    entries.forEach(function (e) { setSpan(e.target); });
+  }) : null;
+
+  function setSpan(card) {
+    if (!gridOn()) { card.style.gridRowEnd = ''; return; }
+    var h = card.getBoundingClientRect().height;
+    card.style.gridRowEnd = 'span ' + Math.max(1, Math.ceil((h + GAP_PX) / ROW_PX));
+  }
+
+  function layoutFeed() {
+    var feed = document.querySelector('[data-wide-feed] .feed');
+    if (!feed) return;
+    Array.prototype.forEach.call(feed.children, function (el) {
+      if (!el.classList.contains('card')) return;
+      if (spanObserver && !el.hasAttribute('data-span')) { el.setAttribute('data-span', '1'); spanObserver.observe(el); }
+      setSpan(el);
+    });
+  }
+
+  var activeFilter = '';
+
+  function feedCards() {
+    return Array.prototype.slice.call(document.querySelectorAll('[data-wide-feed] .feed > .card'));
+  }
+
+  function railCounts() {
+    var rail = document.getElementById('rail-ints');
+    if (!rail) return;
+    var cards = feedCards(), order = [], counts = {}, tones = {};
+    cards.forEach(function (c) {
+      var key = c.getAttribute('data-interest') || '';
+      if (!key) return;
+      if (!(key in counts)) { order.push(key); counts[key] = 0; tones[key] = c.getAttribute('data-tone'); }
+      counts[key] += 1;
+    });
+    order.sort(function (a, b) { return (a === 'explore') - (b === 'explore'); });
+    rail.querySelectorAll('[data-filter]:not(.is-all)').forEach(function (b) { b.remove(); });
+    var all = rail.querySelector('.is-all');
+    all.querySelector('[data-count]').textContent = cards.length;
+    all.setAttribute('aria-pressed', activeFilter ? 'false' : 'true');
+    order.forEach(function (key) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'rail-int' + (key === 'explore' ? ' is-explore' : ' tone-' + tones[key]);
+      b.setAttribute('data-filter', key);
+      b.setAttribute('aria-pressed', key === activeFilter ? 'true' : 'false');
+      b.textContent = key === 'explore' ? 'Something different' : key;     /* textContent: labels are data */
+      var n = document.createElement('span');
+      n.className = 'n';
+      n.textContent = counts[key];
+      b.appendChild(n);
+      rail.appendChild(b);
+    });
+  }
+
+  function applyFilter() {
+    var cards = feedCards(), shown = 0;
+    cards.forEach(function (c) {
+      var on = !activeFilter || c.getAttribute('data-interest') === activeFilter;
+      c.hidden = !on;
+      if (on) shown += 1;
+    });
+    var note = document.getElementById('filter-note');
+    if (note) {
+      note.hidden = !activeFilter;
+      note.textContent = '';
+      if (activeFilter) {
+        note.appendChild(document.createTextNode('Showing ' + shown + ' of ' + cards.length + ' papers.'));
+        var all = document.createElement('button');
+        all.type = 'button';
+        all.className = 'link-btn';
+        all.setAttribute('data-filter', '');
+        all.textContent = 'Show all';
+        note.appendChild(all);
+      }
+    }
+    layoutFeed();
+  }
+
+  function uiEvent(event, value) {
+    var feed = document.querySelector('.feed-more');
+    var qid = feed ? (new URLSearchParams((feed.getAttribute('hx-get') || '').split('?')[1] || '')).get('query_id') : '';
+    var body = new FormData();
+    body.append('event', event);
+    body.append('value', value || '');
+    body.append('query_id', qid || '');
+    if (navigator.sendBeacon) navigator.sendBeacon('/api/ui-event', body);
+  }
+
+  document.addEventListener('click', function (e) {
+    var f = e.target.closest && e.target.closest('[data-filter]');
+    if (f && document.querySelector('[data-wide-feed]')) {
+      activeFilter = f.getAttribute('data-filter') || '';
+      railCounts();
+      applyFilter();
+      uiEvent(activeFilter ? 'filter_on' : 'filter_off', activeFilter);
+      return;
+    }
+    var pref = e.target.closest && e.target.closest('[data-cardpref]');
+    if (pref) {
+      var which = pref.getAttribute('data-cardpref');
+      window.ResearchIT.setCardTextPref(which);
+      document.querySelectorAll('[data-cardpref]').forEach(function (b) {
+        b.setAttribute('aria-pressed', b.getAttribute('data-cardpref') === which ? 'true' : 'false');
+      });
+      uiEvent('cardtext', which);
+      return;
+    }
+    /* Click-throughs carry the layout they came from (paper.py logs it). */
+    var title = e.target.closest && e.target.closest('.card .card-title');
+    if (title && title.href) {
+      try {
+        var u = new URL(title.href, window.location.href);
+        u.searchParams.set('lay', currentLayout());
+        title.href = u.toString();
+      } catch (err) { /* leave the link as it is */ }
+    }
+  });
+
+  /* Save, Pass and Remove from a card send the layout too. */
+  document.body.addEventListener('htmx:configRequest', function (e) {
+    var elt = e.detail && e.detail.elt;
+    if (elt && elt.closest && elt.closest('.card')) e.detail.parameters.layout = currentLayout();
+  });
+
+  function refreshWideFeed() {
+    if (!document.querySelector('[data-wide-feed]')) return;
+    railCounts();
+    applyFilter();
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    var pref = cardTextPref();
+    document.querySelectorAll('[data-cardpref]').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-cardpref') === pref ? 'true' : 'false');
+    });
+    refreshWideFeed();
+  });
+  document.body.addEventListener('htmx:afterSettle', refreshWideFeed);
+  if (WIDE.addEventListener) WIDE.addEventListener('change', layoutFeed);
+  window.addEventListener('load', layoutFeed);
 
   /* Shared with paper.js and the feed. */
   window.ResearchIT = window.ResearchIT || {};

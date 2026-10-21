@@ -1,0 +1,22 @@
+{
+ "questions": 80,
+ "by_kind": {
+  "answer": 55,
+  "unanswerable": 23,
+  "nosupport": 2,
+  "busy": 0,
+  "error": 0
+ },
+ "off_topic_unanswerable": "20/20",
+ "quotes_shown": 84,
+ "quotes_dropped": 24,
+ "median_s": 0.72,
+ "p95_s": 1.41,
+ "model": "qwen/qwen3.8-27b",
+ "today": {
+  "calls": 94,
+  "usd": 0.0,
+  "call_cap": 1500,
+  "usd_cap": 2.0
+ }
+}

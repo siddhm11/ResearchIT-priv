@@ -117,6 +117,7 @@ async def paper_page(
     sf: str = Query(default=""),
     prop: float = Query(default=0.0),
     pol: str = Query(default=""),
+    lay: str = Query(default=""),
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     t_start = time.perf_counter()
@@ -187,6 +188,7 @@ async def paper_page(
                 cluster_id=_cluster_of(src),
                 propensity=prop if prop > 0 else None,
                 policy_id=pol or None,
+                layout=lay or None,
             )
         except Exception as e:   # a lost click must never cost the page
             print(f"[paper] click log failed for {arxiv_id}: {e}")
@@ -516,3 +518,26 @@ async def ask(arxiv_id: str, request: Request, q: str = Form(default=""), key: s
     context["answer"] = await ask_svc.answer(arxiv_id, paper, question, user_id=user_id, suggested=suggested)
     context["paper_source"] = await paper_source_svc.get(arxiv_id)
     return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context)
+
+
+
+# ── Feed controls (wide feed) ────────────────────────────────────────────────
+
+UI_EVENTS = {"filter_on", "filter_off", "cardtext"}
+
+
+@router.post("/api/ui-event")
+async def ui_event(request: Request, event: str = Form(default=""), value: str = Form(default=""),
+                   query_id: str = Form(default=""),
+                   user_id: str | None = Cookie(default=None, alias=COOKIE_NAME)):
+    """Record a feed control the reader used; sent with navigator.sendBeacon."""
+    if user_id and event in UI_EVENTS:
+        try:
+            import aiosqlite
+            async with aiosqlite.connect(config.DB_PATH) as conn:
+                await conn.execute("INSERT INTO ui_events (user_id, event, value, query_id) VALUES (?, ?, ?, ?)",
+                                   (user_id, event, value[:80], query_id[:64] or None))
+                await conn.commit()
+        except Exception as e:
+            print(f"[paper] ui event not saved: {e}")
+    return HTMLResponse("", status_code=204)

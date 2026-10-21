@@ -60,7 +60,7 @@ TABLES: dict[str, dict] = {
         "pk": ["id"],
         "cols": ["id", "user_id", "paper_id", "event_type", "source", "position",
                  "query_id", "ranker_version", "candidate_source", "cluster_id",
-                 "propensity", "policy_id", "timestamp"],
+                 "propensity", "policy_id", "timestamp", "layout"],
         "blobs": [],
     },
     "user_profiles": {
@@ -171,7 +171,7 @@ REMOTE_DDL = [
         id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, paper_id TEXT NOT NULL,
         event_type TEXT NOT NULL, source TEXT, position INTEGER, query_id TEXT,
         ranker_version TEXT, candidate_source TEXT, cluster_id INTEGER,
-        propensity REAL, policy_id TEXT, timestamp TEXT)""",
+        propensity REAL, policy_id TEXT, timestamp TEXT, layout TEXT)""",
     "CREATE INDEX IF NOT EXISTS idx_ui_user ON user_interactions(user_id)",
     """CREATE TABLE IF NOT EXISTS user_profiles (
         user_id TEXT NOT NULL, profile_type TEXT NOT NULL, vector BLOB NOT NULL,
@@ -339,8 +339,24 @@ async def _set_wm(conn, table: str, value) -> None:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+# Columns added to remote tables after they were first created. CREATE TABLE IF
+# NOT EXISTS never adds a column to a table that already exists, so each is
+# added here, once; a "duplicate column" error means it is already there, and
+# any other error stops start-up of replication rather than pushing rows the
+# remote can't take (trap T8 in docs/redesign/03-start-here-agent-handoff.md).
+REMOTE_COLUMNS = [
+    ("user_interactions", "layout", "TEXT"),
+]
+
+
 async def ensure_remote_schema() -> None:
     await _execute([{"sql": d} for d in REMOTE_DDL])
+    for table, column, kind in REMOTE_COLUMNS:
+        try:
+            await _execute([{"sql": f"ALTER TABLE {table} ADD COLUMN {column} {kind}"}])
+        except Exception as e:
+            if "duplicate column" not in str(e).lower():
+                raise
 
 
 async def _reserve_id_space(conn, local: str, spec: dict) -> bool:

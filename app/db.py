@@ -318,6 +318,18 @@ CREATE TABLE IF NOT EXISTS ask_log (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Feed controls a reader used (the wide feed's interest filter and text
+-- preference). Local only: cards a filter hid were still served and logged as
+-- exposures, and this records that the reader chose to hide them.
+CREATE TABLE IF NOT EXISTS ui_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     TEXT,
+    event       TEXT NOT NULL,
+    value       TEXT,
+    query_id    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- "Report a problem" on generated text. Replicated; reviewed by hand.
 CREATE TABLE IF NOT EXISTS content_reports (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -371,6 +383,20 @@ _MIGRATION_6_5 = [
 ]
 
 
+# ── Redesign: which layout an interaction happened in ("list" or "grid2") ────
+# A two-column feed changes how position relates to attention, so evaluation
+# must be able to tell the layouts apart. Replicated: see turso_sync's T8 notes.
+_MIGRATION_REDESIGN = [
+    "ALTER TABLE interactions ADD COLUMN layout TEXT",
+]
+
+LAYOUTS = ("list", "grid2")
+
+
+def normalise_layout(value: str | None) -> str | None:
+    return value if value in LAYOUTS else None
+
+
 async def init_db() -> None:
     """Create tables if they don't exist. Called once at startup."""
     async with aiosqlite.connect(DB_PATH) as db:
@@ -389,6 +415,11 @@ async def init_db() -> None:
                 pass  # Column already exists — safe to ignore
         # Phase 6.5 B2: add propensity + policy_id for SNIPS evaluation
         for stmt in _MIGRATION_6_5:
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # Column already exists — safe to ignore
+        for stmt in _MIGRATION_REDESIGN:
             try:
                 await db.execute(stmt)
             except Exception:
@@ -445,17 +476,18 @@ async def log_interaction(
     cluster_id: int | None = None,
     propensity: float | None = None,
     policy_id: str | None = None,
+    layout: str | None = None,
 ) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO interactions
                (user_id, paper_id, event_type, source, position, query_id,
                 ranker_version, candidate_source, cluster_id,
-                propensity, policy_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                propensity, policy_id, layout)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, paper_id, event_type, source, position, query_id,
              ranker_version, candidate_source, cluster_id,
-             propensity, policy_id),
+             propensity, policy_id, normalise_layout(layout)),
         )
         await db.commit()
 

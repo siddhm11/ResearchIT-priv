@@ -79,9 +79,9 @@ async def healthz_sources():
     licences among them, `breaker_open` whether arXiv recently pushed back and
     fetching is paused. See app/paper_source_svc.py.
     """
-    from app import paper_source_svc
+    from app import figure_prewarm, paper_source_svc
     try:
-        return await paper_source_svc.stats()
+        return {**await paper_source_svc.stats(), "prewarm": figure_prewarm.status()}
     except Exception as e:
         return {"error": str(e)[:200]}
 

@@ -1708,6 +1708,10 @@ a.src:hover { text-decoration: underline; }
 .pc { display: flex; flex-direction: column; gap: .55rem; }
 .pc-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.6rem; }
 .pc-top .pc-menu { margin-left: auto; }
+/* No interest label (category and popularity tiers): a row holding only the
+   menu left a blank band above the title, so the menu sits in the corner. */
+.pc-top--bare { position: absolute; top: .55rem; right: .6rem; min-height: 0; z-index: 1; }
+.pc-top--bare + .card-title { padding-right: 2.1rem; }
 .pc .card-title { margin: 0; }
 .pc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .55rem; font-size: .8rem; color: var(--text-3); }
 .pc-meta .sep { opacity: .45; }
@@ -1721,3 +1725,55 @@ a.src:hover { text-decoration: underline; }
    Save response re-renders, stays out of sight on these cards. */
 .pc-actions .card-why { display: none; }
 .pc .card-reason { margin: 0; }
+
+/* ── wide feed (FEED_WIDE): rail + two columns, served order kept ──────────
+   The feed stays ONE list in served order (quota interleaves interests, §3.1).
+   CSS columns would fill the left column top to bottom and undo that, and two
+   column containers would break infinite scroll, which swaps the loader in
+   place. So: a grid with small rows, each card spanning rows to its height
+   (app.js sets the span), auto-flow row and never dense, which would reorder. */
+.fx { display: block; }
+@media (min-width: 900px) { .fx { display: grid; grid-template-columns: 14.5rem minmax(0, 1fr); gap: 2.25rem; align-items: start; } }
+.fx-main { min-width: 0; }
+@media (min-width: 1180px) {
+  .fx-main .feed { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: 4px;
+    grid-auto-flow: row; column-gap: 1rem; row-gap: 0; align-items: start; }
+  .fx-main .feed > * { grid-column: 1 / -1; margin: 0 0 1rem; }
+  .fx-main .feed > .card { grid-column: auto; margin: 0; }
+  .fx-main .feed > .card .card-title { font-size: 1.22rem; }
+}
+.rail { display: flex; flex-direction: column; gap: 1.1rem; margin-bottom: 1.1rem; min-width: 0; }
+@media (min-width: 900px) { .rail { position: sticky; top: var(--sticky-top); margin-bottom: 0; } }
+.rail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .3rem .7rem; padding-bottom: .7rem; border-bottom: 2px solid var(--rule); }
+.rail-title { font-family: var(--font-read); font-size: 1.7rem; line-height: 1.1; font-weight: 660; letter-spacing: -.024em; margin: 0; }
+.rail-date { font-family: var(--font-mono); font-size: .72rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.rail-head .btn { margin-left: auto; }
+@media (min-width: 900px) { .rail-head { flex-direction: column; align-items: flex-start; } .rail-head .btn { margin-left: 0; margin-top: .4rem; } }
+.rail-sec { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.rail-sec > h2 { font-family: var(--font-mono); font-size: .64rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); margin: 0; }
+.rail-ints { display: flex; gap: .3rem; overflow-x: auto; scrollbar-width: none; }
+.rail-ints::-webkit-scrollbar { display: none; }
+@media (min-width: 900px) { .rail-ints { flex-direction: column; overflow: visible; gap: .1rem; } }
+.rail-int { display: flex; align-items: center; gap: .5rem; flex: none; padding: .38rem .7rem; text-align: left;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface); font-size: .82rem; color: var(--text-2); white-space: nowrap; }
+.rail-int::before { content: ""; width: .45rem; height: .45rem; border-radius: 50%; flex: none; background: var(--tone, var(--text-3)); }
+.rail-int.is-explore::before { background: none; box-shadow: inset 0 0 0 1px var(--text-3); }
+.rail-int.is-all::before { display: none; }
+.rail-int .n { margin-left: auto; padding-left: .4rem; font-family: var(--font-mono); font-size: .68rem; color: var(--text-3); }
+.rail-int[aria-pressed="true"] { border-color: var(--text); color: var(--text); font-weight: 600; }
+@media (min-width: 900px) {
+  .rail-int { width: 100%; border-color: transparent; background: transparent; border-radius: var(--radius-sm); white-space: normal; padding: .42rem .6rem; }
+  .rail-int:hover { background: var(--surface-2); }
+  .rail-int[aria-pressed="true"] { background: var(--surface); border-color: var(--border-2); box-shadow: var(--shadow-1); }
+}
+.rail-link { font-size: .8rem; color: var(--text-3); padding-left: .6rem; }
+.rail-link:hover { color: var(--accent); }
+.rail-help { font-size: .76rem; color: var(--text-3); line-height: 1.45; margin: 0; }
+@media (max-width: 899px) { .rail-sec--desk { display: none; } }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+.seg button { font-size: .8rem; font-weight: 560; padding: .38rem .75rem; color: var(--text-2); }
+.seg button + button { border-left: 1px solid var(--border-2); }
+.seg button:hover { color: var(--text); background: var(--surface-2); }
+.seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+.filter-note { font-size: .84rem; color: var(--text-2); margin: 0 0 .8rem; }
+.filter-note .link-btn { margin-left: .4rem; }

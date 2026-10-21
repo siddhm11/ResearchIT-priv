@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-10-14
+> **Last updated**: 2026-10-19
 
 ---
 
@@ -83,6 +83,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
 - **Quota binds the SERVED order, not just the candidate pool.** Enforced at two points: `merge_quota_results` interleaves clusters on a proportional stride schedule (never concatenates their blocks), and `enforce_quota_on_ranking` re-derives the cross-cluster arrangement after rerank + MMR. Order *within* a cluster is the ranker's; order *across* clusters is quota's. Removing either point collapses a multi-interest feed to a single interest — see the 2026-08-16 entry in doc 06.
+- **The page layout must keep the served order too.** The two-column feed (`FEED_WIDE`) is a grid with `grid-auto-flow: row`, never `dense`, never CSS columns or two column containers; no card may sit above the card served before it (`tests/test_e2e_feed_v2.py`). See doc 06, 2026-10-19.
 - **Never let fusion order leak into a relevance signal.** `candidate_position` (reranker feature 1) is the index in the merged candidate list, and `position_inverse` (feature 35) carries a 0.10 weight in `heuristic_score`. Any merge that groups a cluster's papers together therefore hands that cluster a scoring bonus on top of its slots.
 - **Current status:** Recommendations use per-cluster quota fusion in `app/recommend/fusion.py` and `app/routers/recommendations.py`. `multi_interest_search()` remains only as a legacy helper; do not use it for new recommendation code.
 
@@ -209,6 +210,8 @@ Ranked-surface interactions must preserve available **`query_id`**, **`propensit
 - `query_id` (UUID): links all papers in a single feed request for per-feed CTR.
 - `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
+
+Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any position or CTR analysis by it, since two columns change how position relates to attention.
 
 **When adding a new recommendation tier or call path**, always include these three fields in the `paper_tags` dict. The round-trip is: `recommendations.py` → paper dict → `action_buttons.html` `hx-vals` → `events.py` Form params → `db.log_interaction()`.
 
@@ -494,4 +497,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-10-14. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-10-19. Update this date when CLAUDE.md changes.*
