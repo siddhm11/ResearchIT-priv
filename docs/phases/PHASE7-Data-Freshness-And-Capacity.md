@@ -314,3 +314,50 @@ Notes:
   apart with up to 4 in flight. Two fetches at once would exceed the limit.
 - Vector search sees new papers as soon as step 4 writes them; the starter feed and
   keyword search only after step 8.
+
+### 8.1 The daily job (on since 2026-10-21)
+
+Steps 1–5 now run every day in GitHub Actions (`.github/workflows/daily-refresh.yml` →
+`scripts/daily_refresh.py`), gated on the repository variable `DAILY_REFRESH=on` and five
+repository secrets (`QDRANT_RECENT_URL`, `QDRANT_RECENT_API_KEY`, `TURSO_URL`,
+`TURSO_DB_TOKEN`, `S2_API_KEY`; `TURSO_URL` may be `libsql://` or `https://`). Steps 6–8,
+the sidecar, are still manual.
+
+| Stage | What it does | Fails the run when |
+|---|---|---|
+| Preflight | counts `arxiv_recent` points and Turso rows | a secret is missing, or the shard is at `--max-recent-points` (600,000) |
+| Ingest | `ingest_arxiv.py --source oai` over [today − `lookback_days`, today], arXiv's OAI-PMH feed (about 10 requests a day); licences to Turso `paper_licences` | an attempt passes `ingest_timeout_min`, or coverage stays short after one retry |
+| Citations | Semantic Scholar counts for the last three months; only changed rows written | the fetch errors |
+| Verify | new points == new Turso rows == papers the ingest reported; 5 sampled vectors are 1024-dim unit vectors with complete rows | any mismatch |
+| Licences | new papers with a licence row, how many are open, how many may show figures | never (reported only) |
+
+Manual runs take four inputs: `lookback_days` (default 3), `today` (run as if on a past day),
+`ingest_timeout_min` (default 60) and `skip_citations`.
+
+**Measured 2026-10-20/21** (the 2026-09-29 → 10-20 catch-up):
+
+| Run | Window | New papers | Ingest minutes | Result |
+|---|---|---|---|---|
+| 39418260634 | 28 Sep – 2 Oct, 60-min limit | 2,414 | 60 | stopped at the limit; every finished page kept |
+| 39430402556 | 28 Sep – 7 Oct | 5,773 | 118 | ok |
+| 39455348129 | 7 – 14 Oct | 7,973 | 181 | ok |
+| 39482029187 | 14 – 20 Oct, with citations | 6,938 | 180 + 13 | ok; 75,873 citation rows checked, 7,705 changed |
+
+Both stores grew by exactly 23,098 (`arxiv_recent` 256,680 → 279,778; Turso max rowid
+1,853,777 → 1,876,875), and every new paper got a licence row.
+
+Rules learned:
+- A GitHub runner encodes about 2,400–2,900 papers an hour on CPU, and the 43 categories add
+  about 770 (late September) to 1,140 (mid-October) new papers a day. A daily run takes
+  10–30 minutes; a gap of more than two days needs a longer `ingest_timeout_min`.
+- Catch up one run at a time. The `daily-refresh` concurrency group keeps one run going and one
+  pending, and a newer dispatch replaces the pending one. Size each window to about 2–3 hours:
+  `today=<last day>`, `lookback_days=<days since the previous window>`, `ingest_timeout_min=240`,
+  citations skipped on all but the last.
+- A run that hits its limit is not wasted: every finished page is saved, and the next run skips
+  stored papers. Re-running a window is always safe.
+- `actions/cache` saves the 2.2 GB model only when a run succeeds.
+- GitHub fires the 02:30 UTC schedule late: on 18–20 Oct it started at 07:20–07:59 UTC.
+- Capacity: at 23–34k new papers a month, `--max-recent-points` leaves about 9–14 months
+  from 279,778. `arxiv_recent` shares cluster 2 with `arxiv_dense_b` (697,131 points), so settle
+  §4.2's disk question for that cluster before raising the cap.

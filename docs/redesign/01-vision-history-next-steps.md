@@ -279,6 +279,13 @@ What changed from the first list: I added a baseline and real readers, merged th
 - [ ] **Ask this paper on the same 50 papers.** Answer from the full text, check quotes and link sections, and cache the answers to suggested questions per paper. *Done when* every quote shown matches the paper word for word and the cost per question is known.
 - [ ] **Recruit 5–10 real readers.** *Done when* they've used ResearchIT in two separate weeks, and you've watched two of them use it.
 
+> **Status on 2026-10-21.** Built and live on the Space: the daily harvest with licences (catch-up
+> done, 23,098 papers), full abstracts, the paper page with the summary first and maths, the
+> decluttered card, the Code chip, the figure store and briefing, the laptop layouts and Ask.
+> Each item's *Done when* is a measurement that has not been taken yet: the baseline export,
+> a week of save rates, and the owner's ratings of 50 briefings and 80 Ask answers. Recruiting
+> readers has not started; in October the only reader was the owner.
+
 Off the critical path: messaging cneuralnets is distribution and can happen anytime. Choosing a second use case waits until the "readers use it" gate passes. Doc 06 changelog entries get written as each decision is made.
 
 The step-by-step build plan for the redesign, with a tracker: the “$lid:f” tab
