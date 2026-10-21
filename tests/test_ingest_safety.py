@@ -80,21 +80,60 @@ def test_failed_fetch_reports_unknown_total(monkeypatch):
     assert ingest_arxiv.fetch_page("cs.CV", "2026-08-01", "2026-08-02", 0) == ([], None)
 
 
-def test_windows_split_until_each_fits_one_query(monkeypatch):
-    # 11,092 papers over 64 days, spread evenly: two halves of ~5.5k fit.
-    def probe(cat, since, until, start):
-        from datetime import date
-        days = (date.fromisoformat(until) - date.fromisoformat(since)).days
-        return [], round(11092 * days / 64)
-    w = ingest_arxiv.plan_windows("cs.AI", "2026-07-29", "2026-10-01", probe=probe)
-    assert w == [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+class FakeArxiv:
+    """Papers spread evenly over days; fails pages that pass arXiv's 10k cap."""
+    def __init__(self, per_day: dict, fail=()):
+        self.per_day, self.fail, self.calls = per_day, set(fail), []
+
+    def __call__(self, cat, since, until, start):
+        from datetime import date, timedelta
+        self.calls.append((cat, since, until, start))
+        if cat in self.fail:
+            return [], None
+        a, b = date.fromisoformat(since), date.fromisoformat(until)
+        ids = [f"{cat}:{(a + timedelta(d)).isoformat()}:{i}"
+               for d in range((b - a).days) for i in range(self.per_day[cat])]
+        if start + 200 > 10_000 and len(ids) > 10_000:
+            return [], None                                   # the real API's 500
+        return [{"arxiv_id": x} for x in ids[start:start + 200]], len(ids)
 
 
-def test_small_or_failed_probe_keeps_one_window():
-    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
-                                     probe=lambda *a: ([], 3273)) == [["2026-07-29", "2026-10-01"]]
-    assert ingest_arxiv.plan_windows("cs.RO", "2026-07-29", "2026-10-01",
-                                     probe=lambda *a: ([], None)) == [["2026-07-29", "2026-10-01"]]
+def _walk(fake, cats, state=None):
+    state = {} if state is None else state
+    handled = []
+    seen, new = ingest_arxiv.walk(cats, "2026-07-29", "2026-10-01", state,
+                                  lambda ps: handled.extend(p["arxiv_id"] for p in ps) or len(ps),
+                                  lambda: None, fetch=fake, delay=0, log=lambda m: None)
+    return state, handled, seen, new
+
+
+def test_small_category_costs_only_its_own_pages():
+    fake = FakeArxiv({"cs.RO": 10})                           # 640 papers, 4 pages
+    state, handled, seen, new = _walk(fake, ["cs.RO"])
+    assert len(fake.calls) == 4 and seen == new == 640 == len(set(handled))
+    assert ingest_arxiv.report_coverage(["cs.RO"], state) == 0
+
+
+def test_oversized_window_splits_before_processing_and_covers_everything():
+    fake = FakeArxiv({"cs.AI": 175})                          # 11,200 papers in 64 days
+    state, handled, seen, _ = _walk(fake, ["cs.AI"])
+    assert state["cs.AI#windows"] == [["2026-07-29", "2026-08-30"], ["2026-08-30", "2026-10-01"]]
+    assert seen == len(handled) == len(set(handled)) == 11_200   # nothing twice, nothing lost
+    assert ingest_arxiv.report_coverage(["cs.AI"], state) == 0
+
+
+def test_failed_requests_leave_a_coverage_gap():
+    fake = FakeArxiv({"cs.CL": 5, "cs.CV": 5}, fail={"cs.CL"})
+    state, _h, _s, _n = _walk(fake, ["cs.CL", "cs.CV"])
+    assert ingest_arxiv.report_coverage(["cs.CL", "cs.CV"], state) == 3
+
+
+def test_resumed_run_keeps_the_recorded_split():
+    fake = FakeArxiv({"cs.AI": 175})
+    state, _h, _s, _n = _walk(fake, ["cs.AI"])
+    fake2 = FakeArxiv({"cs.AI": 175})
+    _st, handled, seen, _n = _walk(fake2, ["cs.AI"], state=state)
+    assert seen == 0 and all(c[3] > 0 for c in fake2.calls)      # resumes at the end, no re-split
 
 
 def test_coverage_checks_every_window(capsys):
@@ -114,3 +153,98 @@ def test_point_ids_are_stable_disjoint_and_fit_uint64():
     assert len(set(ids)) == len(ids)                      # 300k ids, no collision
     assert min(ids) >= 1 << 62 > 300_000                  # never meets sequential ids
     assert max(ids) < 1 << 63                             # Qdrant ids are unsigned 64-bit
+
+
+def test_rate_limits_back_off_for_minutes_and_honour_retry_after():
+    import urllib.error
+    def http(code, retry_after=None):
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        return urllib.error.HTTPError("u", code, "x", headers, None)
+    assert ingest_arxiv.retry_wait(http(429), 0) == 30
+    assert ingest_arxiv.retry_wait(http(429), 2) == 120
+    assert ingest_arxiv.retry_wait(http(429), 5) == 300           # capped
+    assert ingest_arxiv.retry_wait(http(503, "45"), 0) == 45      # server's own advice
+    assert ingest_arxiv.retry_wait(TimeoutError("x"), 0) == 5     # transient: retry soon
+
+
+def test_fetch_page_retries_a_rate_limit_then_succeeds(monkeypatch):
+    import io, urllib.error
+    calls, waits = [], []
+    feed = (b'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">'
+            b'<opensearch:totalResults>0</opensearch:totalResults></feed>')
+
+    def urlopen(url, timeout):
+        calls.append(url)
+        if len(calls) < 3:
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+        return io.BytesIO(feed)
+
+    monkeypatch.setattr(ingest_arxiv.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ingest_arxiv.time, "sleep", waits.append)
+    assert ingest_arxiv.fetch_page("cs.RO", "2026-09-28", "2026-10-02", 0) == ([], 0)
+    assert waits == [30, 60] and len(calls) == 3
+
+
+# ── licences ─────────────────────────────────────────────────────────────────
+
+def _licensed(aid, url):
+    p = _papers(aid)[0]
+    return {**p, "licence_url": url, "licence": "CC-BY-4.0" if "creativecommons" in url else ""}
+
+
+def test_licence_rows_ride_in_the_same_batch_as_the_paper_rows(monkeypatch):
+    up, calls = _upserter(monkeypatch, present=set())
+    papers = [_licensed("2610.00001", "http://creativecommons.org/licenses/by/4.0/"), _papers("2610.00002")[0]]
+    up.upsert(papers, [([0.1] * 4, {})] * 2)
+    (batch,) = calls["t"]
+    sqls = [s["sql"] for s in batch]
+    assert [s.split()[0:3] for s in sqls[:2]] == [["INSERT", "OR", "REPLACE"]] * 2      # papers first
+    assert sqls[2] == ingest_backends.LICENCE_DDL                                        # then the table, once
+    assert sqls[3].startswith("INSERT INTO paper_licences") and "ON CONFLICT(arxiv_id) DO UPDATE" in sqls[3]
+    assert [a["value"] for a in batch[3]["args"]] == ["2610.00001", "CC-BY-4.0",
+                                                      "http://creativecommons.org/licenses/by/4.0/"]
+    assert len(batch) == 4                                     # the paper without a licence gets no row
+
+    up.upsert([_licensed("2610.00003", "http://creativecommons.org/licenses/by/4.0/")], [([0.1] * 4, {})])
+    assert ingest_backends.LICENCE_DDL not in [s["sql"] for s in calls["t"][1]]      # created once per run
+
+
+def test_stored_papers_get_licence_rows_and_nothing_else(monkeypatch):
+    up, calls = _upserter(monkeypatch, present=set())
+    up._licence_table = True
+    up.write_licences(_papers("2610.00004"))                   # no licence in the record: no call at all
+    assert calls["t"] == []
+    up.write_licences([_licensed("2610.00005", "http://arxiv.org/licenses/nonexclusive-distrib/1.0/")])
+    (batch,) = calls["t"]
+    assert len(batch) == 1 and batch[0]["sql"].startswith("INSERT INTO paper_licences")
+    # an unchanged row is left alone, so daily re-harvests write nothing
+    assert "WHERE paper_licences.licence IS NOT excluded.licence" in batch[0]["sql"]
+
+
+def test_the_licence_upsert_updates_only_rows_that_changed(tmp_path):
+    import sqlite3
+    db = sqlite3.connect(tmp_path / "t.db")
+    db.execute(ingest_backends.LICENCE_DDL)
+
+    def write(url, code):
+        (s,) = ingest_backends.licence_stmts([{"arxiv_id": "2610.00006", "licence_url": url, "licence": code}])
+        db.execute(s["sql"], [a["value"] for a in s["args"]])
+        return db.total_changes
+
+    first = write("http://arxiv.org/licenses/nonexclusive-distrib/1.0/", "ARXIV-NONEXCLUSIVE-1.0")
+    assert write("http://arxiv.org/licenses/nonexclusive-distrib/1.0/", "ARXIV-NONEXCLUSIVE-1.0") == first
+    write("http://creativecommons.org/licenses/by/4.0/", "CC-BY-4.0")
+    assert db.execute("SELECT licence, source FROM paper_licences").fetchall() == [("CC-BY-4.0", "oai")]
+
+
+@pytest.mark.parametrize("url", ["libsql://db-org.turso.io", "https://db-org.turso.io/", "https://db-org.turso.io"])
+def test_turso_urls_work_in_either_form(url, monkeypatch):
+    """Turso hands out libsql:// URLs; urllib only opens https://."""
+    assert ingest_arxiv._pipeline_url(url) == "https://db-org.turso.io/v2/pipeline"
+    monkeypatch.setenv("QDRANT_RECENT_URL", "https://recent.example")
+    monkeypatch.setenv("QDRANT_RECENT_API_KEY", "k")
+    monkeypatch.setenv("QDRANT_URL", "https://primary.example")
+    monkeypatch.setenv("TURSO_URL", url)
+    monkeypatch.setenv("TURSO_DB_TOKEN", "t")
+    monkeypatch.setattr(ingest_backends, "WRITE_ZILLIZ", False)
+    assert ingest_backends.Upserter().turl == "https://db-org.turso.io"
