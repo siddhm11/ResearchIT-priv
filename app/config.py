@@ -436,6 +436,12 @@ SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
 # hit this budget on ~40% of searches. /healthz/runtime counts the skips.
 SEARCH_FTS_BUDGET_MS = int(os.getenv("SEARCH_FTS_BUDGET_MS", "1500"))
 
+# Recent search results kept in memory (app/search_cache.py), so going back to a
+# search doesn't run it again. A search missing one retrieval arm is kept briefly,
+# since a later run may do better. 0 turns the cache off.
+SEARCH_CACHE_TTL_S = int(os.getenv("SEARCH_CACHE_TTL_S", "600"))
+SEARCH_CACHE_DEGRADED_TTL_S = int(os.getenv("SEARCH_CACHE_DEGRADED_TTL_S", "120"))
+
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator
 SEARCH_FETCH_K_MULTIPLIER = 6     # candidates = top_k × 6 before rerank

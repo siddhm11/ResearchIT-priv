@@ -14,7 +14,7 @@ Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, turso_svc, user_state as us, hybrid_search_svc
+from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, search_cache, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -31,7 +31,14 @@ async def search(
     start_time = time.perf_counter()
     search_meta = {}
     papers = []
-    if q.strip():
+    # A search shown in the last few minutes is served from memory: going back
+    # to it, or running it again, costs no encode, no Groq call and no retrieval.
+    cached = search_cache.get(q) if q.strip() else None
+    if cached is not None:
+        papers, search_meta = cached.copies()
+        search_meta["cached"] = True
+        search_meta["total_time_ms"] = int((time.perf_counter() - start_time) * 1000)
+    elif q.strip():
         # Phase 3: Hybrid semantic search (BGE-M3 + Qdrant + Zilliz + RRF)
         try:
             arxiv_ids, search_meta = await hybrid_search_svc.search(
@@ -78,10 +85,16 @@ async def search(
                 papers = []
         
         search_meta["total_time_ms"] = int((time.perf_counter() - start_time) * 1000)
+        cached = search_cache.put(q, papers, search_meta)
 
+    # Phase 6.5 B1: one query_id per search request for per-feed CTR. A reader
+    # coming back to the same cached results keeps the query_id they were shown
+    # under, and the visit is not logged or counted as another search.
+    repeat_qid = search_cache.repeat_query_id(user_id, q, cached)
+    request.state.repeat_search = repeat_qid is not None
     user_id = user_id or str(uuid.uuid4())
-    # Phase 6.5 B1: one query_id per search request for per-feed CTR
-    query_id = str(uuid.uuid4())
+    query_id = repeat_qid or str(uuid.uuid4())
+    search_cache.remember(user_id, q, cached, query_id)
     # Labels come from the durable decision log, not the hot deques: those keep
     # only the newest 20 saves / 50 dismissals for retrieval, so an older saved
     # paper rendered with a live Save button and invited a duplicate save.
@@ -104,7 +117,7 @@ async def search(
     if features.visible("SEARCH_FIGURES", request):
         papers = await card_data.enrich(papers, request)
     figure_prewarm.enqueue([p["arxiv_id"] for p in papers[:figure_prewarm.SEARCH_TOP] if p.get("arxiv_id")])
-    if q.strip():
+    if q.strip() and repeat_qid is None:
         await analytics.log_search(q, query_id, len(papers), search_meta.get("retrieval_mode") or "hybrid",
                                    search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
                                    features.has_preview(request))

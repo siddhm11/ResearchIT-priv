@@ -37,8 +37,9 @@ def _isolate_application_state(request, tmp_path, monkeypatch):
     # event loop running, where the asyncio.run() below would raise.
     if request.node.get_closest_marker("browser"):
         return
-    from app import config, db, user_state
+    from app import config, db, search_cache, user_state
     from app.routers import recommendations
+    search_cache.clear()
     path = str(tmp_path / "isolated-app.db")
     monkeypatch.setattr(config, "DB_PATH", path)
     monkeypatch.setattr(db, "DB_PATH", path)

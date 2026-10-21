@@ -162,7 +162,8 @@ def observe(request, status: int, content_type: str) -> None:
     partial = request.headers.get("HX-Request") == "true"
     if method == "GET":
         if path == "/search" and request.query_params.get("q", "").strip():
-            count_reader(user_id, "searches", owner)
+            if not getattr(getattr(request, "state", None), "repeat_search", False):   # already counted
+                count_reader(user_id, "searches", owner)
         elif path == "/api/recommendations":
             count_reader(user_id, "feed_pages", owner)
         elif path.startswith("/p/") and not partial:

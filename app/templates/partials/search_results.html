@@ -1,6 +1,6 @@
 {# Search result list. #}
 {% if papers %}
-  <div class="stack stack-4">
+  <div class="stack stack-4"{% if search_meta and search_meta.cached %} data-cached{% endif %}>
 
     <div class="search-meta">
       <span>{{ papers | length }} result{{ "s" if papers | length != 1 else "" }} for &ldquo;{{ query }}&rdquo;</span>

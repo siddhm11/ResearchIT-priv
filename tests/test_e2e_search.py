@@ -88,7 +88,7 @@ def test_a_thumbnail_opens_the_paper_at_its_figure_with_the_search_link(browser)
 def test_back_from_a_paper_returns_to_the_search(browser):
     """Search, open a result, go back (reported 2026-10-21). Back used to show the
     cached results fragment without the page around it, and the paper page's own
-    link said "Your feed" and went to /."""
+    link said "Your feed" and went to /. Going back must not run the search again."""
     ctx = browser.new_context(viewport={"width": 1280, "height": 900})
     ctx.add_cookies([{"name": "arxiv_user_id", "value": f"e2e-{uuid.uuid4()}", "url": BASE_URL}])
     page = ctx.new_page()
@@ -108,10 +108,12 @@ def test_back_from_a_paper_returns_to_the_search(browser):
         assert page.url.endswith("/search?q=navigation")
         assert page.locator("form.searchbar").count() == 1 and page.locator("#search-results .card").count() > 0
         assert "navigation" in page.title()
+        assert page.locator("#search-results [data-cached]").count() == 1   # served from memory, not run again
 
         page.go_forward(wait_until="networkidle")                    # the page's own link
         page.click(".back-link")
         page.wait_for_load_state("networkidle")
         assert page.url.endswith("/search?q=navigation") and page.locator("#search-results .card").count() > 0
+        assert page.locator("#search-results [data-cached]").count() == 1
     finally:
         ctx.close()
