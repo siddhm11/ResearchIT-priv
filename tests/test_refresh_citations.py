@@ -4,6 +4,8 @@ import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+
 _spec = importlib.util.spec_from_file_location(
     "refresh_citations", Path(__file__).resolve().parents[1] / "scripts" / "refresh_citations.py")
 rc = importlib.util.module_from_spec(_spec)
@@ -95,3 +97,32 @@ def test_fetch_stops_cleanly_on_a_failed_batch(tmp_path, monkeypatch):
     staged = sqlite3.connect(stage).execute("SELECT COUNT(*) FROM citations").fetchone()[0]
     assert staged == 200          # the two batches before the failure, in order
     assert len(calls) <= 5        # nothing like the full 10 batches was queued
+
+
+def _client(responses, seen):
+    """An httpx client that answers each batch POST with the next response."""
+    def handler(request):
+        seen.append(request)
+        return responses.pop(0)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_a_batch_s2_knows_none_of_is_all_unknown_not_a_failure(monkeypatch):
+    # 2026-10-21: the daily run's last batch was papers announced that morning;
+    # S2 answered 400 "No valid paper ids given" 14 times and the run failed.
+    monkeypatch.setitem(rc._KEY, "value", None)
+    monkeypatch.setattr(rc.time, "sleep", lambda s: None)
+    seen = []
+    client = _client([httpx.Response(400, json={"error": "No valid paper ids given"})], seen)
+    assert rc._post(client, ["2610.28261", "2610.28263"]) == [None, None]
+    assert len(seen) == 1         # not retried
+
+
+def test_rate_limits_are_still_retried(monkeypatch):
+    monkeypatch.setitem(rc._KEY, "value", None)
+    monkeypatch.setattr(rc.time, "sleep", lambda s: None)
+    seen = []
+    client = _client([httpx.Response(429, json={"message": "Too Many Requests"}),
+                      httpx.Response(200, json=[{"citationCount": 3}, None])], seen)
+    assert rc._post(client, ["2608.11967", "2612.99991"]) == [{"citationCount": 3}, None]
+    assert len(seen) == 2
