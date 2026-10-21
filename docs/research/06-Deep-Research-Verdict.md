@@ -843,3 +843,70 @@ that could be measured going forward.
 to an opened or saved paper. Measure the readers who return within seven days
 before and after each product change.
 
+
+### 2026-10-20 — Daily papers through arXiv OAI-PMH; licences in their own table
+**Decision:** The daily job (`scripts/daily_refresh.py`, `.github/workflows/daily-refresh.yml`)
+harvests new papers through arXiv's OAI-PMH feed (`ingest_arxiv.py --source oai`), not the
+per-category search API, which stays for backfills. A paper is "new" by its arXiv id (from the
+month before the window), not OAI's `<created>`. Each harvested paper's licence is stored as a
+short code (`app/licences.py`) in Turso `paper_licences`, written in the same pipeline as its
+`papers` row, never as a column on `papers`. The job is on (`DAILY_REFRESH=on`) from 2026-10-21;
+manual runs take `today`, `lookback_days` and `ingest_timeout_min` to catch up in windows.
+**Supersedes:** the search-API daily ingest (never switched on).
+**Rationale:** OAI-PMH is arXiv's interface for bulk harvesting: about 10 requests a day instead
+of about 100 search requests, with no 10,000-result cap. `INSERT OR REPLACE INTO papers` rewrites
+whole rows, so a licence column would vanish on any re-ingest (trap T5). Measured: a GitHub runner
+encodes about 2,400–2,900 papers an hour, and the categories add about 770 (late September) to
+1,140 (mid-October) new papers a day, so a 60-minute ingest limit holds a daily run but not a
+three-week gap. The catch-up (2026-10-20/21) added 23,098 papers in four runs; Qdrant and Turso
+grew by the same count every run, and every new paper got a licence row. Of the 44,516 records
+the last three runs examined, 46% carry arXiv's default licence, 44% CC BY and 10% other CC.
+**Action items:** Watch seven green daily runs and the licence share in each summary. Rebuild
+and publish the metadata sidecar so keyword search and the starter feed see the new papers.
+GitHub has been firing the 02:30 UTC schedule about five hours late; that is harmless.
+
+### 2026-10-21 — A paper's local text is fetched again; briefings keyed on paper version and prompt
+**Decision:** `paper_sources` is replicated but a paper's full text and paragraphs are local, so
+after a deploy (or a prune) the row says "ok" while the text is gone. `paper_source_svc.has_text()`
+says whether the text is here, and `ensure(need_text=True)` fetches it again: opening a paper, the
+briefing and Ask ask for it. A briefing never stores "too few passages" when the source records
+three or more paragraphs (nothing is stored and a later visit retries), and such stored rows are
+ignored. Ask does not cache an answer written from the abstract alone for a paper that has
+paragraphs. The briefing cache key is paper + arXiv version + prompt version; rows stored under
+the older key are still found, and a worse attempt never replaces a good briefing of that version.
+**Supersedes:** finding 1 of "2026-10-20 — Every model call is measured", which proposed keying on
+the passages sent. Those passages come from the local paragraphs, which a deploy drops, so
+computing that key would mean fetching arXiv again just to check the cache.
+**Rationale:** Production had 2 of 6 failed briefings stored as "too few passages" for papers with
+61 and 43 stored paragraphs (2508.16989, 2410.17725), reproduced in a test against the live code.
+Briefing citations link to arXiv's own anchors on a fixed paper version (`Source.html_url`), so the
+parser version and model don't change what a stored briefing says; keying on them threw good
+briefings away (2608.11967 went from ok to insufficient after the parser bump).
+**Action items:** Ask's answer cache key still holds the parser version and model; give it the
+same treatment. Check that the two broken briefings repair on their next visit.
+
+### 2026-10-21 — Back to a search: whole pages, a true back link, and recent results kept in memory
+**Decision:** Every non-static response carries `Vary: HX-Request`, htmx fragments are sent
+`Cache-Control: no-store`, and an htmx history restore gets the whole search page. The paper
+page's back link returns to the page the reader came from (same-origin Referer; a search keeps
+only its `q`), else to the click's surface. Search results are kept in memory
+(`app/search_cache.py`): 600 s for a hybrid search, 120 s when a retrieval arm was missing, keyed
+by the query with case and spacing ignored, at most 256 queries, copies only. A reader coming back
+to the same cached results keeps the `query_id` they were shown under and is not logged to
+`search_log` or counted in `reader_days` again; that reader-to-query link lives only in memory and
+dies with the entry.
+**Supersedes:** §3.11's "one query_id per request" for this case: a return to identical results
+is the same search, so its clicks stay tied to it. Also supersedes finding 2 of "2026-10-20 —
+Every model call is measured" for the rewrite: a repeated search now skips the whole pipeline,
+rewrite included, so no separate rewrite cache is built.
+**Rationale:** Reported 2026-10-21: after search → open a paper → Back, readers landed on the
+feed. Two causes, both reproduced in Chromium on the sealed world: the paper page linked "← Your
+feed" whenever a click carried a `query_id`, which search clicks do; and `/search?q=` answered the
+browser and htmx with different bodies and no `Vary`, so Back could show the cached fragment as
+the page. Going back also re-ran the pipeline (1–5 s on the Space, a Groq call) and logged a second
+search. With the cache, a two-reader session of search, Back, back link and reload ran the
+pipeline once per first search and logged one search per reader.
+**Not done:** clearing `search_log.query_id` after 30 days. At one to three readers a day,
+timestamps alone re-link a search to the save that follows it, and `reader_days` holds each
+cookie's searches per day; the 90-day deletion of the query text is the real protection.
+**Action items:** Watch `search_cache_hit` / `search_cache_miss` in `/healthz/runtime`.
