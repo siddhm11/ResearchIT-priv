@@ -1,0 +1,64 @@
+{#
+  Ask this paper: a panel beside the text from 900 px, a bottom sheet from a
+  floating button on a phone. The form posts to /api/papers/<id>/ask; the
+  reader's question is echoed into the log by paper.js before the answer
+  arrives, and the server returns only the answer bubble.
+#}
+{% set pid = paper.arxiv_id %}
+<aside class="chat" id="chat" aria-label="Ask this paper" data-ask>
+  <div class="chat-head">
+    <div class="chat-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+           stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" /><path d="M8 9h8M8 12h5" /></svg>
+      Ask this paper
+      <button type="button" class="icon-btn x" data-ask-close aria-label="Close">✕</button>
+    </div>
+    <p class="chat-sub">Answers come only from this paper, and each one links to the passages it is based on.</p>
+    {% if ask_ctx.full %}
+      <div class="ctx">
+        <span>Full text</span>
+        {% if ask_ctx.sections %}<span>{{ ask_ctx.sections }} sections</span>{% endif %}
+        {% if ask_ctx.appendices %}<span>{{ ask_ctx.appendices }} appendices</span>{% endif %}
+        {% if ask_ctx.figures %}<span>{{ ask_ctx.figures }} figures</span>{% endif %}
+      </div>
+    {% else %}
+      <div class="ctx"><span>Abstract only</span></div>
+    {% endif %}
+  </div>
+
+  <div class="chat-log" id="chat-log" aria-live="polite">
+    <div class="msg msg-bot"><div class="bubble">
+      {% if ask_ctx.full %}
+        I've read the whole of this paper. Ask about the method, the results, a figure, or what you'd need to reproduce it.
+      {% else %}
+        This paper's full text isn't here yet, so answers come from the abstract only.
+      {% endif %}
+    </div></div>
+  </div>
+  <div class="typing htmx-indicator" id="ask-typing" aria-label="Writing an answer"><i></i><i></i><i></i></div>
+
+  <div class="sugg" id="ask-sugg" aria-label="Suggested questions">
+    {% for key, question in ask_suggested %}
+      <button type="button" data-ask-q="{{ question }}" data-ask-key="{{ key }}">{{ question }}</button>
+    {% endfor %}
+  </div>
+
+  <form class="chat-form" id="chat-form" hx-post="/api/papers/{{ pid }}/ask" hx-target="#chat-log"
+        hx-swap="beforeend" hx-indicator="#ask-typing" hx-disabled-elt="find button[type=submit]"
+        hx-request='{"timeout": 20000}'>
+    <input type="hidden" name="key" value="">
+    <textarea id="chat-input" name="q" rows="1" maxlength="500" placeholder="Ask about this paper…"
+              aria-label="Ask about this paper" required></textarea>
+    <button type="submit" class="send" aria-label="Send">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"
+           stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+    </button>
+  </form>
+  <p class="chat-foot">An AI model writes each answer from the passages shown; only quotes found word for word in the paper are kept.</p>
+</aside>
+<div class="sheet-backdrop" data-ask-close hidden></div>
+<button type="button" class="ask-fab" data-ask-open>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+       stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z" /></svg>
+  Ask this paper
+</button>

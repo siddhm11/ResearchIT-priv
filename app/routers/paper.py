@@ -24,13 +24,14 @@ GET /p/{arxiv_id}
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 import uuid
 
 from fastapi import APIRouter, Cookie, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
-from app import (abstract_svc, arxiv_svc, briefing_svc, config, db, features, groq_svc,
+from app import (abstract_svc, arxiv_svc, ask_svc, briefing_svc, config, db, features, groq_svc,
                  hf_papers_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
@@ -237,16 +238,17 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
         source = await paper_source_svc.get(arxiv_id)
     except Exception as e:                      # the page is worth serving without it
         print(f"[paper] saved source unavailable for {arxiv_id}: {e}")
+    full = None
+    if source is not None and source.ok:
+        try:
+            full = await paper_source_svc.fulltext(arxiv_id)
+        except Exception as e:
+            print(f"[paper] full text unavailable for {arxiv_id}: {e}")
     figures = []
     if source is not None and features.visible("FIGURES", request):
         # The replicated row cuts captions at 300 characters; the local full
         # text, when this container has it, holds them whole.
-        full_captions = {}
-        try:
-            full = await paper_source_svc.fulltext(arxiv_id) if source.ok else None
-            full_captions = {f["anchor"]: f.get("caption") or "" for f in (full or {}).get("figures", [])}
-        except Exception as e:
-            print(f"[paper] full text unavailable for {arxiv_id}: {e}")
+        full_captions = {f["anchor"]: f.get("caption") or "" for f in (full or {}).get("figures", [])}
         for n, f in enumerate(source.figures):
             url = figure_url(source, n)
             if not url:
@@ -268,7 +270,21 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
         outline.append(("sec-figs", "All figures"))
     if related:
         outline.append(("sec-near", "What sits near this"))
+    ask_ctx, ask_suggested = {}, []
+    if ask_visible:
+        secs = (full or {}).get("sections", [])
+        ask_ctx = {
+            "full": bool(source and source.ok and source.n_paragraphs),
+            "sections": sum(1 for x in secs if x.get("kind") == "section"),
+            "appendices": sum(1 for x in secs if x.get("kind") == "appendix"),
+            "figures": source.n_figures if source else 0,
+        }
+        ask_suggested = list(ask_svc.SUGGESTED.items())
+        for f in [f for f in (full or {}).get("figures", []) if f.get("label")][:2]:
+            ask_suggested.append((f"fig:{f['anchor']}", f"Explain {f['label'].lower()}"))
     return {
+        "ask_ctx": ask_ctx,
+        "ask_suggested": ask_suggested,
         "paper_source": source,
         "figures": figures,
         "credit": figure_credit(paper, source) if source else "",
@@ -454,3 +470,49 @@ async def report_problem(arxiv_id: str, request: Request, feature: str = Form(de
         except Exception as e:
             print(f"[paper] saving a report failed: {e}")
     return HTMLResponse('<span class="report-done">Thanks — we\'ll look at it.</span>')
+
+
+
+# ── Ask this paper ───────────────────────────────────────────────────────────
+
+@router.post("/api/papers/{arxiv_id}/ask", response_class=HTMLResponse)
+async def ask(arxiv_id: str, request: Request, q: str = Form(default=""), key: str = Form(default=""),
+              user_id: str | None = Cookie(default=None, alias=COOKIE_NAME)):
+    """One answer bubble for the chat log (app/ask_svc.py).
+
+    Needs the reader's cookie, which the paper page sets: a cookie-less caller
+    gets nothing. Suggested questions arrive by key and are cached per paper.
+    """
+    if not features.visible("ASK", request):
+        return HTMLResponse("", status_code=404)
+    if not user_id:
+        return HTMLResponse("", status_code=400)
+    context = {"arxiv_id": arxiv_id, "cap": ask_svc.DAILY_CAP, "paper_source": None}
+    question = ask_svc.clean_question(q)
+    if key not in ask_svc.SUGGESTED and not key.startswith("fig:") and \
+            (not question or len(question) > ask_svc.MAX_QUESTION):
+        context["answer"] = {"kind": "invalid",
+                             "answer": f"Questions can be up to {ask_svc.MAX_QUESTION} characters."}
+        return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context, status_code=400)
+    paper = await _known_paper(arxiv_id)
+    if paper is None:
+        return HTMLResponse("", status_code=404)
+    # A suggested question's text is always the server's own, never the form's:
+    # its answer is cached for every reader, so a crafted request must not be
+    # able to store a different question under that key.
+    suggested = None
+    if key in ask_svc.SUGGESTED:
+        suggested, question = key, ask_svc.SUGGESTED[key]
+    elif key.startswith("fig:"):
+        full = await paper_source_svc.fulltext(arxiv_id)
+        label = next((f.get("label") for f in (full or {}).get("figures", [])
+                      if f.get("anchor") == key[4:] and f.get("label")), None)
+        if label:
+            suggested, question = key, f"Explain {label.lower()}"
+    if not question or len(question) > ask_svc.MAX_QUESTION:
+        context["answer"] = {"kind": "invalid",
+                             "answer": f"Questions can be up to {ask_svc.MAX_QUESTION} characters."}
+        return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context, status_code=400)
+    context["answer"] = await ask_svc.answer(arxiv_id, paper, question, user_id=user_id, suggested=suggested)
+    context["paper_source"] = await paper_source_svc.get(arxiv_id)
+    return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context)

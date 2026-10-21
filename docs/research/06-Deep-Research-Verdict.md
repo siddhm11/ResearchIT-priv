@@ -701,3 +701,24 @@ passed every check; four large prompts back to back benched every Groq model,
 so briefings are paced and a saturated chain is retried rather than cached.
 **Action items:** Run `scripts/eval_briefings.py` on `scripts/eval_papers.txt`,
 rate the 50 results, and switch `BRIEFING` past shadow only at 45 or more good.
+
+### 2026-10-19 — Ask this paper: model-drafted, code-checked answers
+**Decision:** The redesigned paper page has an "Ask this paper" panel behind
+switch `ASK` (off, preview, on). Passages are picked without a model (abstract,
+named figures and their citing paragraphs, BM25 top 8 in plain Python); the
+`GROQ_MODELS` chain drafts JSON; code shows only quotes found word for word in
+their cited paragraph (in the paper's own words), only cites that were sent,
+and replaces any answer with an unfound number or no valid cite by a
+no-support message. Suggested questions are cached per paper with server-side
+question text; free-form questions are not cached. Per-reader daily cap
+(`ASK_DAILY_CAP`, 30), rate limit, and the shared model budget. Ask writes no
+`interactions` row and logs counts only, never question text.
+**Supersedes:** the plan's BGE-M3 section retrieval for Ask
+(docs/redesign/02-implementation-plan.md, data model): the Space runs one
+inference worker, so embedding paragraphs at question time would queue
+searches behind it.
+**Rationale:** Readers want to question a paper without leaving, and the risk
+is a confident wrong answer. Grounding is enforced in code so a wrong or
+injected draft fails a check instead of reaching the page.
+**Action items:** Run `scripts/eval_ask.py` on 20 papers, rate the answers, and
+switch `ASK` past preview only at the gate in docs/redesign/07-pr-8-ask-this-paper.md.

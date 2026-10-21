@@ -85,7 +85,7 @@
       <div class="paper-actions" id="actions-{{ pid }}">
         {% include "partials/action_buttons.html" %}
       </div>
-      <span class="code-slot" hx-get="/api/papers/{{ pid }}/code" hx-trigger="load" hx-swap="outerHTML"></span>
+      <span class="code-slot" data-quiet hx-get="/api/papers/{{ pid }}/code" hx-trigger="load" hx-swap="outerHTML"></span>
       <a class="lnk" href="https://arxiv.org/pdf/{{ pid }}" target="_blank" rel="noopener">PDF ↗</a>
       <div class="pc-menu">
         <button type="button" class="pc-menu-btn" data-menu aria-haspopup="true" aria-expanded="false"
@@ -107,7 +107,7 @@
         <button type="button" class="tx-tab" role="tab" id="tab-abs" aria-controls="panel-abs"
                 aria-selected="false" tabindex="-1" data-tab="abs">Abstract</button>
       </div>
-      <div class="tx-panel" id="panel-plain" role="tabpanel" aria-labelledby="tab-plain"
+      <div class="tx-panel" id="panel-plain" role="tabpanel" aria-labelledby="tab-plain" data-quiet
            hx-get="/api/papers/{{ pid }}/explain?v=2" hx-trigger="load" hx-swap="innerHTML">
         <p class="tx-loading">Writing a plain-language summary…</p>
       </div>
@@ -146,7 +146,7 @@
     {% endif %}
 
     {% if briefing_visible %}
-      <div class="brief-slot" hx-get="/api/papers/{{ pid }}/briefing" hx-trigger="load" hx-swap="outerHTML"></div>
+      <div class="brief-slot" data-quiet hx-get="/api/papers/{{ pid }}/briefing" hx-trigger="load" hx-swap="outerHTML"></div>
     {% endif %}
 
     {% if figures | length > 1 %}

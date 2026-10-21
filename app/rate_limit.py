@@ -74,11 +74,17 @@ LIMITS: dict[str, tuple[int, int]] = {
 # "/api/papers" would throttle Save and Pass too. These match the path's end,
 # under /api/papers/, and each suffix gets one budget across all papers. Each
 # one can spend model quota or an outside request, which is what they guard.
+#
+# Sized for a shared network: a university or office NAT puts many readers
+# behind one address. The fragments that load with every paper page are mostly
+# cache reads (their generation is paced and budgeted elsewhere), so they get
+# room; Ask spends a model call on every free-form question.
 PAPER_SUFFIX_LIMITS: dict[str, tuple[int, int]] = {
-    "/explain": (30, 60),
-    "/code": (30, 60),
-    "/briefing": (20, 60),
+    "/explain": (60, 60),
+    "/code": (60, 60),
+    "/briefing": (60, 60),
     "/report": (10, 60),
+    "/ask": (20, 60),
 }
 
 MAX_KEYS = 10_000

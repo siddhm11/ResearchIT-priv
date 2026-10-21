@@ -143,6 +143,16 @@ TABLES: dict[str, dict] = {
         "blobs": [],
         "paged": True,
     },
+    "paper_answers": {
+        "remote": "paper_answers",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "cache_key", "arxiv_id", "question_key", "answer_json", "model",
+                 "prompt_version", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
     "content_reports": {
         "remote": "content_reports",
         "watermark": "id",
@@ -190,6 +200,10 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS paper_briefings (
         id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
         status TEXT NOT NULL, briefing_json TEXT, provider TEXT, model TEXT,
+        prompt_version TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS paper_answers (
+        id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
+        question_key TEXT NOT NULL, answer_json TEXT NOT NULL, model TEXT,
         prompt_version TEXT, created_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS content_reports (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
