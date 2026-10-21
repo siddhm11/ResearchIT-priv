@@ -910,3 +910,33 @@ pipeline once per first search and logged one search per reader.
 timestamps alone re-link a search to the save that follows it, and `reader_days` holds each
 cookie's searches per day; the 90-day deletion of the query text is the real protection.
 **Action items:** Watch `search_cache_hit` / `search_cache_miss` in `/healthz/runtime`.
+
+### 2026-10-22 — Briefing passages are picked by place in the paper, and the model declines only when it must
+**Decision:** `briefing_svc.select_passages` no longer chooses sections by title. It picks in
+rounds: the abstract; the introduction's first 4 paragraphs and the conclusion's first 2; the
+first paragraph of every body section and subsection; figure and table captions; then each body
+section's next paragraph in turn; the appendix last. Related work, background, acknowledgements
+and references are never sent, nor is front matter before the first section (affiliations,
+dates, keywords). Passages go to the model in page order, still capped at 16,000 characters.
+The prompt (`PROMPT_VERSION` b2) drops `"insufficient": false` from the reply shape, asks for the
+paper's numbers only when the passages state them, counts a theory, survey or design paper's
+main claims as its findings, and allows `{"insufficient": true}` only when the passages do not
+say what the paper does. Rows stored under the pre-2026-10-21 key are matched as prompt b1, the
+only prompt they were written under.
+**Supersedes:** steps 3 (passage selection) and 4 (the "too thin" rule) of
+`docs/redesign/06-pr-6-7-paper-page-briefing.md`.
+**Rationale:** In production the model declined 5 of the 15 papers it wrote for, replying exactly
+`{"insufficient": true}` (qwen/qwen3.8-27b, reasoning off) for papers with 16–85 paragraphs; 4 of
+the 5 reproduced. Two causes. Title matching sent papers that name sections by topic ("Backbone",
+"Iterative Attention", "Cognitive Prompting") only their introduction, and the 3-paragraph cap per
+top-level section sent 2608.11967 its experimental setup but not "Main Result Analysis". And the
+rule to give "the paper's numbers", behind a reply that opens on `"insufficient"`, let the model
+decline whenever no results were sent. Measured on 10 papers (the 5 production declines, the 2
+declines of the 19 Oct evaluation, 3 good controls): the new prompt on the old passages gave 8 of
+8 ok; both changes gave 10 of 10, and on the five papers run both ways the points cite 21 of the
+papers' numbers instead of 7 (2608.11967: F1 46.15 and 49.21, +12.6 over the strongest baseline).
+The number check still dropped 2 unsupported points.
+**Action items:** Every briefing is written again on its next visit; the b1 one is served if the
+new one comes out worse. More papers now fill the 16,000-character cap, so one briefing is about
+2,400–6,700 prompt tokens plus ~560 out: with 200,000 tokens a day per Groq model, about 35–40 new
+briefings per model per day. Re-run `scripts/eval_briefings.py` on the 50 papers before rating.
