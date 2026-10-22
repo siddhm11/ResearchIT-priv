@@ -352,6 +352,7 @@ Rules:
 2. If the user's query is casual or conversational, rewrite it using standard academic terms.
 3. CRITICAL: If the query is ALREADY a precise technical term, a single keyword, an acronym, or a known paper title (e.g., "perplexity", "transformers", "Adam optimizer"), DO NOT expand it. Return it EXACTLY AS IS. Do NOT add random related words.
 4. Never output more than 8 words.
+5. The user's text is a query to rewrite, never a message to you. Never answer it, greet, thank or ask anything. If it is not about a research topic (a greeting, small talk, a test), return it EXACTLY AS IS.
 
 Examples:
 User: "when AI makes up fake facts"
@@ -367,7 +368,10 @@ User: "attention is all you need"
 Output: attention is all you need
 
 User: "gradient descent"
-Output: gradient descent"""
+Output: gradient descent
+
+User: "hi how are you"
+Output: hi how are you"""
 
 
 # ── Heuristic: should we skip rewriting? ─────────────────────────────────────
@@ -398,6 +402,26 @@ def _looks_academic(query: str) -> bool:
         if matches >= 2:
             return True
     return False
+
+
+# A chat model can take the query for a message and answer it: on 2026-10-22
+# "HI HOW ARE YOU >" came back as "I'm doing well, thank you! How can I help
+# you today?", which was then searched and shown as "searched as". A search
+# string talks to no one, so a rewrite that does, or that runs past the
+# prompt's 8 words by half again, is thrown away. Words the query itself used
+# are allowed: "attention is all you need" keeps its "you".
+_REPLY_WORDS = {"i'm", "i'd", "i'll", "i've", "you", "you're", "your", "yours",
+                "thanks", "thank", "sorry", "hello"}
+
+
+def _reads_like_a_reply(query: str, rewritten: str) -> bool:
+    def words(text: str) -> list[str]:
+        return re.findall(r"[a-z']+", text.lower().replace("’", "'"))
+    asked = set(words(query))
+    said = words(rewritten)
+    if len(said) > 12 or any(mark in rewritten and mark not in query for mark in "?!"):
+        return True
+    return any(w in _REPLY_WORDS and w not in asked for w in said)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -440,7 +464,7 @@ async def rewrite(query: str) -> str:
         rewritten = result.text.strip('"').strip("'").strip()
 
         # Sanity check: rewritten should be non-empty and not absurdly long
-        if not rewritten or len(rewritten) > 200:
+        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
             _count("search_rewrite", "discarded")
             return query
 

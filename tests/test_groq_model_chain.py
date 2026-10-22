@@ -199,6 +199,26 @@ async def test_truncated_rewrite_is_discarded(monkeypatch):
         "the llama model by facebook"
 
 
+async def test_a_rewrite_that_answers_the_reader_is_discarded(monkeypatch):
+    # Production, 2026-10-22: the model answered a greeting instead of rewriting it.
+    monkeypatch.setattr(groq_svc, "_get_client",
+                        lambda: _only("I'm doing well, thank you! How can I help you today?"))
+    assert await groq_svc.rewrite("HI HOW ARE YOU >") == "HI HOW ARE YOU >"
+
+
+@pytest.mark.parametrize("query,rewritten,reply", [
+    ("when AI makes up fake facts", "LLM hallucination factual errors", False),
+    ("papers like attention is all you need", "attention is all you need", False),
+    ("automating know your business verification", "automated KYB verification", False),
+    ("false positives in statistics", "type I error rate", False),
+    ("hey whats up there", "Hey there!", True),
+    ("how are u today", "I am fine, thanks for asking", True),
+    ("tell me about llms", "large language models " * 5, True),
+])
+def test_what_reads_like_a_reply(query, rewritten, reply):
+    assert groq_svc._reads_like_a_reply(query, rewritten) is reply
+
+
 async def test_truncated_overview_keeps_whole_sentences(monkeypatch):
     monkeypatch.setattr(groq_svc, "_get_client", lambda: _only(
         "**Transformers** replaced recurrence. Scaling laws predict loss. Underpinning these", "length"))
