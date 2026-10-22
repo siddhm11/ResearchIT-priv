@@ -21,7 +21,18 @@ QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "arxiv_bgem3_dense")
 DB_PATH = os.getenv("DB_PATH", "interactions.db")
 
 # ── arXiv API ─────────────────────────────────────────────────────────────────
-ARXIV_API_URL = "https://export.arxiv.org/api/query"
+def _test_override(name: str, default: str) -> str:
+    """An arXiv address the browser tests may point at a local stand-in.
+
+    Honoured only when RESEARCHIT_ENV=test, so production always talks to
+    arXiv itself and the tests' world never does.
+    """
+    if os.getenv("RESEARCHIT_ENV", "").strip().lower() == "test":
+        return os.getenv(name, "").strip().rstrip("/") or default
+    return default
+
+
+ARXIV_API_URL = _test_override("ARXIV_API_URL", "https://export.arxiv.org/api/query")
 ARXIV_MAX_RESULTS = 10          # results per search page
 METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
 
@@ -42,8 +53,7 @@ FULL_ABSTRACTS_DAILY_CAP = int(os.getenv("FULL_ABSTRACTS_DAILY_CAP", "3000"))
 # only be changed when RESEARCHIT_ENV=test, for browser tests against a local
 # stand-in; production always reads arxiv.org.
 RESEARCHIT_ENV = os.getenv("RESEARCHIT_ENV", "").strip().lower()
-ARXIV_HTML_BASE = (os.getenv("ARXIV_HTML_BASE", "").strip().rstrip("/")
-                   if RESEARCHIT_ENV == "test" else "") or "https://arxiv.org/html"
+ARXIV_HTML_BASE = _test_override("ARXIV_HTML_BASE", "https://arxiv.org/html")
 # Parsed full text kept locally for this many most recently used papers. Each is
 # roughly 50-150 KB of text; measure the database before raising it.
 FULLTEXT_MAX_PAPERS = int(os.getenv("FULLTEXT_MAX_PAPERS", "5000"))

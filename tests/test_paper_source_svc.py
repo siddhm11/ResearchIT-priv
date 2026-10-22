@@ -245,6 +245,55 @@ async def test_the_pacer_allows_a_burst_of_three_then_one_every_two_seconds(cloc
     assert clock["sleeps"] == [pytest.approx(2.0), pytest.approx(2.0)]
 
 
+async def test_background_requests_are_at_least_15_seconds_apart(clock):
+    for _ in range(3):
+        assert await pss.pace(background=True)
+    assert clock["sleeps"] == [pytest.approx(15.0), pytest.approx(15.0)]
+
+
+async def test_readers_are_not_held_back_by_the_background_lane(clock):
+    assert await pss.pace(background=True)
+    assert await pss.pace() and await pss.pace()
+    assert clock["sleeps"] == []                   # the shared bucket still had room
+
+
+async def test_a_background_read_of_a_saved_paper_costs_no_slot(fake_arxiv, clock):
+    await pss.ensure("2609.31507")                 # a reader opened it
+    await pss.ensure("2609.20888", background=True)
+    clock["sleeps"].clear()
+    src = await pss.ensure("2609.31507", background=True)
+    assert src.ok and clock["sleeps"] == [] and len(fake_arxiv["requests"]) == 2
+
+
+async def test_background_reads_go_through_the_slow_lane(fake_arxiv, clock):
+    fake_arxiv["pages"]["2609.20888"] = (200, (FIXTURES / "2609.20888.html").read_bytes(), {})
+    assert (await pss.ensure("2609.31507", background=True)).ok
+    assert (await pss.ensure("2609.20888", background=True)).ok
+    assert clock["sleeps"] == [pytest.approx(15.0)]
+    assert len(fake_arxiv["requests"]) == 2
+
+
+async def test_a_background_read_never_queues_behind_or_ahead_of_a_reader(fake_arxiv, clock):
+    gate = asyncio.Event()
+    original = pss._download
+
+    async def slow(arxiv_id):
+        await gate.wait()
+        return await original(arxiv_id)
+
+    pss._download = slow
+    try:
+        reader = asyncio.create_task(pss.ensure("2609.31507"))
+        while "2609.31507" not in pss._get_state().in_flight:
+            await asyncio.sleep(0)
+        assert await pss.ensure("2609.31507", background=True) is None   # returns at once, nothing saved yet
+        gate.set()
+        assert (await reader).ok
+    finally:
+        pss._download = original
+    assert len(fake_arxiv["requests"]) == 1
+
+
 async def test_parsing_a_large_page_does_not_stall_the_event_loop(fake_arxiv):
     body = SATNAV.replace(b"</body>", b"".join(
         b'<div class="ltx_para" id="S9.p%d"><p class="ltx_p">%s</p></div>' % (i, b"word " * 200)

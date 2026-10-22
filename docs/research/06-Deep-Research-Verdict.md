@@ -766,3 +766,33 @@ shows one of its bars); ours match arXiv's page, and the PDF stays linked.
 class of real figures fails cleaning, widen the allow-list with a test for it,
 never by relaxing the attribute checks.
 
+### 2026-10-20 — arXiv access: a readers' lane and a 15-second background lane
+**Decision:** Requests to arxiv.org are split by who is waiting. Fetches a
+reader triggers (opening a paper, viewing its figures) keep the shared pacer of
+one per 2 s in bursts of 3: each replaces what that reader's own browser would
+have downloaded from arXiv, and is cached for everyone. Work nobody is waiting
+for (the figure warm-up, which now also reads papers people were shown in the
+feed and the top 5 search results) additionally waits 15 s after the previous
+background request, at most 800 papers a day, and gives way to any reader
+fetching the same paper. Search shows a small figure beside each result
+(`SEARCH_FIGURES`).
+**Supersedes:** the figure warm-up's shared pacer and batch of 1,500
+(2026-10-19, two-column feed entry).
+**Rationale:** arxiv.org/robots.txt sets `Crawl-delay: 15` for all automated
+clients and says indiscriminate automated downloads are not permitted;
+info.arxiv.org/help/bulk_data says arXiv's "first priority is to support
+interactive use by human users" and points bulk work to S3 and export.arxiv.org
+(whose robots.txt disallows everything; its API terms ask one request per 3 s).
+Background reading at one request per 15 s stays inside the rule even at full
+volume. Thumbnails in results helped people find the wanted result faster
+without changing how they scan, in Google's eye-tracking and a 2025 IJHCI study.
+**Open risk, owner's call:** arXiv's API terms say e-print content may be
+retrieved and stored for personal or research use, but redistributing it needs
+the copyright holder's permission. Figures are shown for every licence by the
+owner's choice (2026-10-18); the arXiv default licence (about 41% of one day's
+cs papers) grants no reuse rights. `FIGURE_LICENCES` restricts figures to
+Creative Commons licences without a deploy.
+**Action items:** Watch `queued`, `read_today` and `soft_blocks_last_hour` in
+`/healthz/sources` after turning `FIGURE_PREWARM` on. Revisit the licence
+policy before the audience grows.
+
