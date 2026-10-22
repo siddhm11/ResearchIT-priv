@@ -32,7 +32,8 @@ def client():
 def test_the_results_fragment_varies_on_htmx_and_is_never_stored(client):
     r = client.get("/search?q=drone", headers={"HX-Request": "true"})
     assert "HX-Request" in r.headers["vary"] and r.headers["cache-control"] == "no-store"
-    assert "<title>" not in r.text                                      # the fragment
+    # The fragment: no page around it (its <title> only renames the tab).
+    assert "<html" not in r.text.lower() and 'class="searchbar"' not in r.text
 
 
 def test_the_whole_page_says_it_varies_too(client):

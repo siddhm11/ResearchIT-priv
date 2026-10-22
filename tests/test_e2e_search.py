@@ -117,3 +117,30 @@ def test_back_from_a_paper_returns_to_the_search(browser):
         assert page.locator("#search-results [data-cached]").count() == 1
     finally:
         ctx.close()
+
+
+def test_a_search_from_the_box_renames_the_heading_and_the_tab(browser):
+    """Open one search, run another from the box (reported 2026-10-23). Only the
+    results were swapped, so the heading and the tab kept the first query above
+    the second one's results. Back and Forward must show each its own."""
+    ctx, page = search(browser, 1280)                                # opens /search?q=navigation
+    heading = "() => document.getElementById('search-title').textContent"
+    try:
+        assert page.evaluate(heading) == "navigation" and page.title() == "navigation — Search — ResearchIT"
+        page.fill('form.searchbar input[name="q"]', "astra")
+        page.press('form.searchbar input[name="q"]', "Enter")
+        page.wait_for_function(f"({heading})() === 'astra'")
+        # htmx sets the title as the swap settles, a moment after the heading.
+        page.wait_for_function("document.title === 'astra — Search — ResearchIT'")
+        assert page.url.endswith("/search?q=astra")
+        assert page.locator("#search-title").count() == 1 and page.locator("#search-title").is_visible()
+
+        page.go_back()
+        page.wait_for_function(f"({heading})() === 'navigation'")
+        page.wait_for_function("document.title === 'navigation — Search — ResearchIT'")
+        page.go_forward()
+        page.wait_for_function(f"({heading})() === 'astra'")
+        page.wait_for_function("document.title === 'astra — Search — ResearchIT'")
+        assert not page.errors
+    finally:
+        ctx.close()
