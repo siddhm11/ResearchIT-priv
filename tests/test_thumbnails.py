@@ -9,6 +9,7 @@ import asyncio
 import io
 import json
 import random
+import xml.etree.ElementTree as ET
 
 import aiosqlite
 import httpx
@@ -16,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app import config, http_client, paper_source_svc, thumbnails
+from app import config, http_client, paper_source_svc, svg_clean, thumbnails
 from app.routers import figures
 
 AID = "2609.31507"
@@ -315,3 +316,140 @@ def test_the_sweep_removes_the_oldest_files_first(tmp_path, monkeypatch):
         os.utime(p, (now - 1000 + i, now - 1000 + i))
     assert figures.sweep(max_mb=1) == 3
     assert [p.name for p in (tmp_path / AID).iterdir()] == ["3-00000000.webp"]
+
+
+# ── vector figures ───────────────────────────────────────────────────────────
+
+SVG_SRC, PAGE_SRC = f"{AID}v1/chart.svg", f"{AID}v1"
+SVG_FILE = (b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30" '
+            b'onload="alert(1)"><script>alert(2)</script><rect width="40" height="30" fill="#c33"/></svg>')
+PAGE = (b'<html><body><figure id="S2.F2" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 20 10">'
+        b'<foreignObject width="20" height="10"><span>Accuracy</span></foreignObject></svg></figure>'
+        b'<figure id="S2.F3" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 9 9"><circle r="4"/>'
+        b'</svg></figure></body></html>')
+VECTOR_FIGS = [
+    {"anchor": "S1.F1", "label": "Figure 1", "caption": "A photo.", "src": SRC, "w": 476, "h": 235},
+    {"anchor": "S2.F1", "label": "Figure 2", "caption": "A chart.", "src": SVG_SRC, "w": 40, "h": 30, "kind": "svg"},
+    {"anchor": "S2.F2", "label": "Figure 3", "caption": "Drawn.", "src": PAGE_SRC, "w": 20, "h": 10, "kind": "svg-inline"},
+    {"anchor": "S2.F3", "label": "Figure 4", "caption": "Drawn.", "src": PAGE_SRC, "w": 9, "h": 9, "kind": "svg-inline"},
+]
+
+
+@pytest.fixture
+def vector_world(world):
+    """The same fake arXiv, now answering per path: a picture, an SVG file and a page."""
+    async def save():
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            await conn.execute("UPDATE paper_sources SET figures_json = ? WHERE arxiv_id = ?",
+                               (json.dumps(VECTOR_FIGS), AID))
+            await conn.commit()
+    asyncio.run(save())
+    bodies = {SRC: (png(800, 400), "image/png"), SVG_SRC: (SVG_FILE, "image/svg+xml"),
+              PAGE_SRC: (PAGE, "text/html; charset=utf-8")}
+
+    def handler(request):
+        path = request.url.path.split("/html/", 1)[-1].lstrip("/")
+        world["requests"].append(path)
+        body, ctype = bodies.get(path, (b"", "text/plain"))
+        return httpx.Response(200 if body else 404, content=body, headers={"content-type": ctype})
+
+    world["handler"] = handler
+    clients = {}
+
+    def get_client():
+        loop = asyncio.get_running_loop()
+        if loop not in clients:
+            clients[loop] = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return clients[loop]
+
+    http_client.get_client = get_client
+    world["bodies"] = bodies
+    return world
+
+
+def saved():
+    return asyncio.run(paper_source_svc.get(AID))
+
+
+def test_figure_urls_keep_pictures_as_they_were_and_give_vectors_svg():
+    class S:
+        arxiv_id, figures, figures_allowed = AID, VECTOR_FIGS, True
+    urls = [figures.figure_url(S, n) for n in range(4)]
+    assert urls[0] == f"/fig/{AID}/0-{figures.path_hash(SRC)}.webp"           # unchanged: caches stay valid
+    assert urls[1] == f"/fig/{AID}/1-{figures.path_hash(SVG_SRC)}.svg"
+    assert urls[2].endswith(".svg") and urls[3].endswith(".svg")
+    assert urls[2].split("-")[1] != urls[3].split("-")[1]                     # same page, different drawings
+
+
+@pytest.mark.parametrize("fig", [
+    {"src": f"{AID}v1/../x.svg", "kind": "svg"},
+    {"src": f"2609.00001v1/x.svg", "kind": "svg"},              # another paper's file
+    {"src": f"{AID}v1/x.png", "kind": "svg"},                   # a picture claiming to be a vector
+    {"src": "2609.00001v1", "kind": "svg-inline"},              # another paper's page
+    {"src": f"{AID}v1/x.html", "kind": "svg-inline"},
+])
+def test_vector_figures_with_unsafe_paths_get_no_url(fig):
+    class S:
+        arxiv_id, figures, figures_allowed = AID, [{"anchor": "S1.F1", **fig}], True
+    assert figures.figure_url(S, 0) is None
+
+
+def test_an_svg_file_is_served_cleaned_under_a_locked_down_policy(vector_world):
+    from app.main import app
+    u = figures.figure_url(saved(), 1)
+    with TestClient(app) as c:
+        first, second = c.get(u), c.get(u)
+    assert first.status_code == 200 and first.headers["content-type"].startswith("image/svg+xml")
+    policy = first.headers["content-security-policy"]
+    assert "default-src 'none'" in policy and "sandbox" in policy and "script-src" not in policy
+    assert b"alert" not in first.content and b"script" not in first.content and b"onload" not in first.content
+    root = ET.fromstring(first.content)
+    assert root.tag == f"{{{svg_clean.SVG_NS}}}svg" and root.find(f"{{{svg_clean.SVG_NS}}}rect") is not None
+    assert second.content == first.content and vector_world["requests"] == [SVG_SRC]
+
+
+def test_a_papers_drawings_come_from_one_fetch_of_its_page(vector_world):
+    from app.main import app
+    src = saved()
+    with TestClient(app) as c:
+        a, b = c.get(figures.figure_url(src, 2)), c.get(figures.figure_url(src, 3))
+    assert a.status_code == b.status_code == 200
+    assert b"Accuracy" in a.content and b"circle" in b.content
+    assert vector_world["requests"] == [PAGE_SRC]
+
+
+async def test_concurrent_requests_for_drawings_share_one_page_fetch(vector_world):
+    src = await paper_source_svc.get(AID)
+    hashes = {n: figures.figure_url(src, n).rsplit("-", 1)[1].split(".")[0] for n in (2, 3)}
+    try:
+        results = await asyncio.gather(*[figures.thumbnail(AID, n, hashes[n], "svg") for n in (2, 3, 2, 3)])
+    finally:
+        await paper_source_svc.stop()
+    assert vector_world["requests"] == [PAGE_SRC]
+    assert all(path is not None or data for path, data in results)
+
+
+@pytest.mark.parametrize("n,ext", [(0, "svg"), (1, "webp"), (2, "webp")])
+def test_a_figure_asked_for_in_the_wrong_format_is_a_404(vector_world, n, ext):
+    from app.main import app
+    good = figures.figure_url(saved(), n)
+    with TestClient(app) as c:
+        assert c.get(good.rsplit(".", 1)[0] + f".{ext}").status_code == 404
+    assert vector_world["requests"] == []
+
+
+def test_a_drawing_missing_from_the_page_is_remembered_as_a_failure(vector_world):
+    from app.main import app
+    vector_world["bodies"][PAGE_SRC] = (b"<html><body>No figures here.</body></html>", "text/html")
+    u = figures.figure_url(saved(), 2)
+    with TestClient(app) as c:
+        assert c.get(u).status_code == 404
+        assert c.get(u).status_code == 404
+    assert vector_world["requests"] == [PAGE_SRC]
+
+
+def test_an_svg_that_will_not_clean_is_a_404(vector_world):
+    from app.main import app
+    vector_world["bodies"][SVG_SRC] = (b'<!DOCTYPE svg [<!ENTITY x "y">]><svg/>', "image/svg+xml")
+    with TestClient(app) as c:
+        assert c.get(figures.figure_url(saved(), 1)).status_code == 404

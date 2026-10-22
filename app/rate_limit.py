@@ -63,8 +63,10 @@ LIMITS: dict[str, tuple[int, int]] = {
     "/api/recommendations": (60, 60),
     "/api/search/summary": (20, 60),
     "/search": (30, 60),
-    # Figure thumbnails: generous for a person scrolling, a wall for a scraper.
-    "/fig": (240, 60),
+    # Figures: generous for people scrolling, a wall for a scraper. A paper
+    # page shows up to 24, and one campus NAT can be many readers. Serving a
+    # cached figure is a file read; fetching from arXiv has its own pacer.
+    "/fig": (600, 60),
     "/api/ui-event": (60, 60),
 }
 

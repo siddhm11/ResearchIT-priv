@@ -1,5 +1,13 @@
 """
-GET /fig/{arxiv_id}/{n}-{h8}.webp: one saved figure, as a small cached WebP.
+GET /fig/{arxiv_id}/{n}-{h8}.webp or .svg: one saved figure, cached.
+
+Pictures (PNG, JPEG, GIF) become a small WebP. Vector figures are served as
+SVG after app/svg_clean.py has rebuilt them from drawing elements only: an SVG
+file is fetched from its path, and a drawing inline in the page is lifted out
+of the page itself (app.arxiv_html.inline_svgs), one fetch for all of a
+paper's drawings. SVG responses carry a Content-Security-Policy that blocks
+scripts and sandboxes the file if it is opened directly; pages only show
+figures through <img>, where browsers never run scripts.
 
 WHY NOT LINK ARXIV'S IMAGES
 ---------------------------
@@ -8,8 +16,9 @@ base.html promises the page loads nothing from other origins, originals run to
 
 HOW A REQUEST IS ANSWERED
 -------------------------
-The URL names a figure by its position in the saved list (`n`, 0-7) plus the
-first 8 hex digits of the SHA-1 of its saved path (`h8`), so a refetched figure
+The URL names a figure by its position in the saved list (`n`) plus the first
+8 hex digits of the SHA-1 of its saved path (`h8`; for a drawing in the page,
+the page path and the figure's anchor), so a refetched figure
 gets a new URL and the old one can be cached forever. The URL never carries an
 address: the image is fetched from https://arxiv.org/html/ + the saved path,
 after that path passes a strict pattern, so this route can't be used as a proxy.
@@ -34,7 +43,8 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
 
-from app import config, errors, features, http_client, licences, paper_source_svc, runtime_stats, thumbnails
+from app import (arxiv_html, config, errors, features, http_client, licences, paper_source_svc, runtime_stats,
+                 svg_clean, thumbnails)
 
 router = APIRouter()
 
@@ -43,27 +53,51 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 FAIL_SKIP_S = 24 * 3600
 SWEEP_EVERY_S = 3600
 CACHE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
-_NAME = re.compile(r"^(\d{1,2})-([0-9a-f]{8})\.webp$")
+SVG_HEADERS = {**CACHE_HEADERS, "Content-Disposition": "inline",
+               "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"}
+SVG_KINDS = ("svg", "svg-inline")
+_NAME = re.compile(r"^(\d{1,2})-([0-9a-f]{8})\.(webp|svg)$")
 
 
 def path_hash(src: str) -> str:
     return hashlib.sha1(src.encode()).hexdigest()[:8]
 
 
-def safe_src(arxiv_id: str, src: str) -> bool:
-    """A saved image path we are willing to fetch: under this paper, an image type."""
-    return bool(src) and ".." not in src and bool(
-        re.fullmatch(rf"{re.escape(arxiv_id)}v\d+/[A-Za-z0-9._\-/]+\.(?:png|jpe?g|gif)", src, re.I))
+def figure_kind(fig: dict) -> str:
+    """img (a picture), svg (an SVG file) or svg-inline (drawn in the page)."""
+    return fig.get("kind") or "img"
+
+
+def figure_key(fig: dict) -> str:
+    """What a figure's URL hash is taken from: its path, plus the anchor for a drawing."""
+    src = fig.get("src") or ""
+    return f"{src}#{fig.get('anchor') or ''}" if figure_kind(fig) == "svg-inline" else src
+
+
+def _ext(kind: str) -> str:
+    return "svg" if kind in SVG_KINDS else "webp"
+
+
+def safe_src(arxiv_id: str, src: str, kind: str = "img") -> bool:
+    """A saved path we are willing to fetch: under this paper, of the figure's type."""
+    if not src or ".." in src:
+        return False
+    base = re.escape(arxiv_id)
+    if kind == "svg-inline":                             # the paper's own page
+        return bool(re.fullmatch(rf"{base}(?:v\d+)?", src))
+    types = "svg" if kind == "svg" else "png|jpe?g|gif"
+    return bool(re.fullmatch(rf"{base}v\d+/[A-Za-z0-9._\-/]+\.(?:{types})", src, re.I))
 
 
 def figure_url(source, n: int) -> str | None:
-    """The thumbnail URL for figure n of a saved source, or None if it can't be shown."""
+    """The URL for figure n of a saved source, or None if it can't be shown."""
     if source is None or not source.figures_allowed or not 0 <= n < len(source.figures):
         return None
-    src = source.figures[n].get("src") or ""
-    if not safe_src(source.arxiv_id, src):
+    fig = source.figures[n]
+    kind = figure_kind(fig)
+    if not safe_src(source.arxiv_id, fig.get("src") or "", kind):
         return None
-    return f"/fig/{source.arxiv_id}/{n}-{path_hash(src)}.webp"
+    return f"/fig/{source.arxiv_id}/{n}-{path_hash(figure_key(fig))}.{_ext(kind)}"
 
 
 def figure_credit(paper: dict, source) -> str:
@@ -144,17 +178,17 @@ def sweep(max_mb: int | None = None) -> int:
     return removed
 
 
-async def _download(src: str) -> tuple[int, bytes, str]:
+async def _download(src: str, accept: str = "image/", cap: int = MAX_IMAGE_BYTES) -> tuple[int, bytes, str]:
     url = f"{config.ARXIV_HTML_BASE}/{src}"
     body = bytearray()
     async with http_client.get_client().stream(
             "GET", url, headers={"User-Agent": config.OUTBOUND_USER_AGENT},
             timeout=20, follow_redirects=True) as resp:
         ctype = resp.headers.get("content-type", "")
-        if resp.status_code == 200 and ctype.startswith("image/"):
+        if resp.status_code == 200 and ctype.startswith(accept):
             async for chunk in resp.aiter_bytes():
                 body.extend(chunk)
-                if len(body) > MAX_IMAGE_BYTES:
+                if len(body) > cap:
                     return 413, b"", ctype
         retry = resp.headers.get("retry-after")
         if resp.status_code in paper_source_svc.SOFT_BLOCK:
@@ -165,7 +199,7 @@ async def _download(src: str) -> tuple[int, bytes, str]:
         return resp.status_code, bytes(body), ctype
 
 
-async def _generate(arxiv_id: str, src: str, path: Path) -> bytes | None:
+async def _generate(arxiv_id: str, src: str, path: Path, kind: str = "img") -> bytes | None:
     st = _get_state()
     marker = path.with_suffix(".fail")
     if not await paper_source_svc.pace():
@@ -182,10 +216,11 @@ async def _generate(arxiv_id: str, src: str, path: Path) -> bytes | None:
         runtime_stats.count("figure_failed")
         return None
     t0 = time.perf_counter()
+    make = svg_clean.clean if kind == "svg" else thumbnails.make
     async with st.cpu:
         try:
-            data = await asyncio.to_thread(thumbnails.make, raw)
-        except thumbnails.NotAnImage as e:
+            data = await asyncio.to_thread(make, raw)
+        except (thumbnails.NotAnImage, svg_clean.NotSVG) as e:
             _write_atomic(marker, str(e).encode()[:300])
             runtime_stats.count("figure_failed")
             return None
@@ -199,31 +234,85 @@ async def _generate(arxiv_id: str, src: str, path: Path) -> bytes | None:
     return data
 
 
-async def thumbnail(arxiv_id: str, n: int, h8: str) -> tuple[Path | None, bytes | None]:
+def _drawings(html: bytes, anchors: list[str]) -> dict[str, bytes | str]:
+    """Cleaned SVG, or why there is none, for each anchor. CPU-bound: run in a thread."""
+    found = arxiv_html.inline_svgs(html)
+    out: dict[str, bytes | str] = {}
+    for anchor in anchors:
+        if anchor not in found:
+            out[anchor] = "no drawing for this figure in the page"
+            continue
+        try:
+            out[anchor] = svg_clean.clean_tree(found[anchor])
+        except svg_clean.NotSVG as e:
+            out[anchor] = str(e)
+    return out
+
+
+async def _generate_inline(source, src: str) -> None:
+    """Every drawing of a paper from one fetch of its page, written to the cache."""
+    st = _get_state()
+    wanted = {f["anchor"]: _cache_path(source.arxiv_id, f"{i}-{path_hash(figure_key(f))}.svg")
+              for i, f in enumerate(source.figures)
+              if figure_kind(f) == "svg-inline" and f.get("src") == src and f.get("anchor")}
+    if not wanted or not await paper_source_svc.pace():
+        return
+    try:
+        status, raw, ctype = await _download(src, accept="text/html", cap=arxiv_html.MAX_HTML_BYTES)
+    except (httpx.TimeoutException, httpx.TransportError) as e:
+        print(f"[figures] {src}: {type(e).__name__}")
+        return
+    if status in paper_source_svc.SOFT_BLOCK:
+        return
+    if status != 200 or not raw:
+        results: dict[str, bytes | str] = {a: f"HTTP {status} {ctype}" for a in wanted}
+    else:
+        async with st.cpu:
+            results = await asyncio.to_thread(_drawings, raw, list(wanted))
+    for anchor, path in wanted.items():
+        result = results[anchor]
+        if isinstance(result, bytes):
+            _write_atomic(path, result)
+            runtime_stats.count("figure_made")
+        else:
+            _write_atomic(path.with_suffix(".fail"), result.encode()[:300])
+            runtime_stats.count("figure_failed")
+
+
+async def thumbnail(arxiv_id: str, n: int, h8: str, ext: str = "webp") -> tuple[Path | None, bytes | None]:
     """(cached file, or freshly made bytes) for a figure, or (None, None)."""
     if not paper_source_svc.ID_PATTERN.match(arxiv_id):
         return None, None
     source = await paper_source_svc.get(arxiv_id)
     if source is None or not source.figures_allowed or not 0 <= n < len(source.figures):
         return None, None
-    src = source.figures[n].get("src") or ""
-    if path_hash(src) != h8 or not safe_src(arxiv_id, src):
+    fig = source.figures[n]
+    kind, src = figure_kind(fig), fig.get("src") or ""
+    if ext != _ext(kind) or path_hash(figure_key(fig)) != h8 or not safe_src(arxiv_id, src, kind):
         return None, None
-    path = _cache_path(arxiv_id, f"{n}-{h8}.webp")
+    path = _cache_path(arxiv_id, f"{n}-{h8}.{ext}")
     if path.exists():
         return path, None
     if _failed_recently(path.with_suffix(".fail")):
         return None, None
     st = _get_state()
-    key = f"{arxiv_id}/{n}-{h8}"
+    # A paper's drawings share one fetch of its page, so they share one flight.
+    key = f"{arxiv_id}/page" if kind == "svg-inline" else f"{arxiv_id}/{n}-{h8}"
     fut = st.in_flight.get(key)
     if fut is not None:
-        return None, await asyncio.shield(fut)
+        data = await asyncio.shield(fut)
+        if kind == "svg-inline":
+            return (path, None) if path.exists() else (None, None)
+        return None, data
     fut = st.loop.create_future()
     st.in_flight[key] = fut
     data = None
     try:
-        data = await _generate(arxiv_id, src, path)
+        if kind == "svg-inline":
+            await _generate_inline(source, src)
+            data = path.read_bytes() if path.exists() else None
+        else:
+            data = await _generate(arxiv_id, src, path, kind)
     except Exception as e:
         errors.report("figures", f"thumbnail {key} failed", e)
     finally:
@@ -238,9 +327,21 @@ async def figure(arxiv_id: str, name: str, request: Request):
     m = _NAME.match(name)
     if not features.visible(SWITCH, request) or m is None:
         return Response(status_code=404)
-    path, data = await thumbnail(arxiv_id, int(m.group(1)), m.group(2))
+    ext = m.group(3)
+    path, data = await thumbnail(arxiv_id, int(m.group(1)), m.group(2), ext)
+    media, headers = ("image/svg+xml", SVG_HEADERS) if ext == "svg" else ("image/webp", CACHE_HEADERS)
     if path is not None:
-        return FileResponse(path, media_type="image/webp", headers=CACHE_HEADERS)
+        return FileResponse(path, media_type=media, headers=headers)
     if data:
-        return Response(content=data, media_type="image/webp", headers=CACHE_HEADERS)
+        return Response(content=data, media_type=media, headers=headers)
     return Response(status_code=404)
+
+
+async def prepare(source, n: int) -> bool:
+    """Make figure n ready in the cache, as a page request for it would."""
+    url = figure_url(source, n)
+    m = _NAME.match(url.rsplit("/", 1)[1]) if url else None
+    if m is None:
+        return False
+    path, data = await thumbnail(source.arxiv_id, int(m.group(1)), m.group(2), m.group(3))
+    return bool(path or data)

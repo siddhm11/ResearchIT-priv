@@ -28,6 +28,7 @@ playwright_api = pytest.importorskip("playwright.sync_api", reason="playwright n
 
 BASE_URL = os.getenv("E2E_BASE_URL", "http://127.0.0.1:7861").rstrip("/")
 SATNAV, MATHS, NO_SUMMARY, LEAKSCALE = "2609.31507", "2609.99001", "2609.99002", "2609.27176"
+TRACE = "2609.30670"
 
 
 def _redesign_world() -> bool:
@@ -272,3 +273,22 @@ def test_a_figure_that_cannot_be_made_is_hidden_not_shown_broken(satnav):
     satnav.wait_for_function("document.getElementById('sec-figs').hidden && document.getElementById('sec-fig').hidden")
     assert satnav.is_visible("#sec-sum")                     # the rest of the page is untouched
 
+
+
+def test_vector_figures_render_on_the_page_and_in_the_lightbox(browser):
+    """TRACE's two figures are SVG files: no figure showed before vector support."""
+    ctx, page = open_page(browser, f"/p/{TRACE}")
+    try:
+        key = page.locator("#sec-fig img")
+        assert key.get_attribute("src").endswith(".svg")
+        page.wait_for_function("(() => { const i = document.querySelector('#sec-fig img');"
+                               " return i.complete && i.naturalWidth > 0; })()")
+        head = page.evaluate("""async src => { const r = await fetch(src);
+            return [r.headers.get('content-type'), r.headers.get('content-security-policy')]; }""",
+                             key.get_attribute("src"))
+        assert head[0].startswith("image/svg+xml") and "sandbox" in head[1]
+        page.click("#sec-fig [data-fig]")
+        page.wait_for_function("document.getElementById('lb-img').naturalWidth > 0")
+        assert page.errors == []
+    finally:
+        ctx.close()

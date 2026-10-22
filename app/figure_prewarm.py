@@ -54,10 +54,9 @@ async def recent_ids(days: int = 2) -> list[tuple[str, str]]:
 
 async def _thumbnail(source) -> bool:
     from app.routers import figures
-    for n, f in enumerate(source.figures):
+    for n in range(len(source.figures)):
         if figures.figure_url(source, n):
-            path, data = await figures.thumbnail(source.arxiv_id, n, figures.path_hash(f.get("src") or ""))
-            return bool(path or data)
+            return await figures.prepare(source, n)
     return False
 
 

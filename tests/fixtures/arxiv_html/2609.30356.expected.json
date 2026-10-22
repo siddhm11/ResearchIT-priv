@@ -445,7 +445,8 @@
      457,
      516,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ],
@@ -453,7 +454,16 @@
    "S3.F2",
    "Figure 2",
    "City similarity is continuous but geographically structured. The hierarchy over ",
-   []
+   [
+    [
+     "2609.30356v1/fig2.svg",
+     476,
+     512,
+     "",
+     false,
+     "svg"
+    ]
+   ]
   ],
   [
    "S3.F3",
@@ -465,7 +475,8 @@
      457,
      527,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ],
@@ -479,7 +490,8 @@
      438,
      514,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ]

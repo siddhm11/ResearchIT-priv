@@ -203,21 +203,40 @@ async def test_a_code_link_saved_first_does_not_block_the_fetch(fake_arxiv):
     assert src.ok and src.code_checked_at
 
 
+def page_with(figs: str, aid: str = "2609.00005") -> bytes:
+    return (f'<div id="infobox"><a id="license-tr">License: CC BY 4.0</a>'
+            f'<div id="watermark-tr">arXiv:{aid}v1 [cs.LG] 1 Sep 2026</div></div>'
+            f'<h1 class="ltx_title ltx_title_document">Figures</h1>{figs}'
+            f'<div class="ltx_para" id="S1.p1">Text.</div>').encode()
+
+
 async def test_replicated_rows_stay_slim(fake_arxiv):
+    total = pss.REPLICATED_FIGURES + 4
     figs = "".join(
         f'<figure id="S1.F{i}" class="ltx_figure"><img src="2609.00005v1/f{i}.png" class="ltx_graphics" '
         f'width="100" height="50"><figcaption>Figure {i}: {"long caption " * 60}</figcaption></figure>'
-        for i in range(1, 13))
-    page = (f'<div id="infobox"><a id="license-tr">License: CC BY 4.0</a>'
-            f'<div id="watermark-tr">arXiv:2609.00005v1 [cs.LG] 1 Sep 2026</div></div>'
-            f'<h1 class="ltx_title ltx_title_document">Twelve figures</h1>{figs}'
-            f'<div class="ltx_para" id="S1.p1">Text.</div>').encode()
-    fake_arxiv["pages"]["2609.00005"] = (200, page, {})
+        for i in range(1, total + 1))
+    fake_arxiv["pages"]["2609.00005"] = (200, page_with(figs), {})
     src = await pss.ensure("2609.00005")
-    assert len(src.figures) == pss.REPLICATED_FIGURES and src.n_figures == 12
+    assert len(src.figures) == pss.REPLICATED_FIGURES and src.n_figures == total
     assert all(len(f["caption"]) <= pss.REPLICATED_CAPTION for f in src.figures)
     full = await pss.fulltext("2609.00005")
-    assert len(full["figures"]) == 12
+    assert len(full["figures"]) == total
+
+
+async def test_vector_figures_are_saved_with_their_kind(fake_arxiv):
+    figs = ('<figure id="S1.F1" class="ltx_figure"><img src="2609.00005v1/a.png" class="ltx_graphics"></figure>'
+            '<figure id="S1.F2" class="ltx_figure"><object type="image/svg+xml" data="2609.00005v1/b.svg" '
+            'width="40" height="30"></object></figure>'
+            '<figure id="S1.F3" class="ltx_figure"><svg class="ltx_picture" width="20" height="10"><path d="M0 0"/>'
+            '</svg></figure>'
+            '<figure id="S1.F4" class="ltx_figure"><span class="ltx_text">Just text</span></figure>')
+    fake_arxiv["pages"]["2609.00005"] = (200, page_with(figs), {})
+    src = await pss.ensure("2609.00005")
+    assert [(f["anchor"], f.get("kind", "img"), f["src"]) for f in src.figures] == [
+        ("S1.F1", "img", "2609.00005v1/a.png"), ("S1.F2", "svg", "2609.00005v1/b.svg"),
+        ("S1.F3", "svg-inline", "2609.00005v1")]
+    assert src.n_figures == 3                      # a figure that is only text is not counted
 
 
 async def test_the_pacer_allows_a_burst_of_three_then_one_every_two_seconds(clock):

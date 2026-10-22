@@ -420,13 +420,31 @@
    "S3.F1",
    "Figure 1",
    "TRACE overview from causal video input to condition-aware measurement. The top r",
-   []
+   [
+    [
+     "2609.30670v1/evaluation-design-report.en.svg",
+     624,
+     416,
+     "",
+     false,
+     "svg"
+    ]
+   ]
   ],
   [
    "S3.F2",
    "Figure 2",
    "Execution conditions recorded by TRACE. Native Streaming updates persistent stat",
-   []
+   [
+    [
+     "2609.30670v1/execution-modes-report.en.svg",
+     662,
+     381,
+     "",
+     false,
+     "svg"
+    ]
+   ]
   ]
  ],
  "tables": [

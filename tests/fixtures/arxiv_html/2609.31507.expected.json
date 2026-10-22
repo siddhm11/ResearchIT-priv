@@ -308,7 +308,8 @@
      476,
      235,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ],
@@ -322,7 +323,8 @@
      476,
      159,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ],
@@ -332,25 +334,36 @@
    "SatNav episode-level statistics",
    [
     [
+     "2609.31507v1/a.svg",
+     476,
+     424,
+     "S3.F3.sf1",
+     false,
+     "svg"
+    ],
+    [
      "2609.31507v1/figures/satnav_bench/statistics/b.jpg",
      476,
      419,
      "S3.F3.sf2",
-     false
+     false,
+     "img"
     ],
     [
      "2609.31507v1/figures/satnav_bench/statistics/c.jpg",
      476,
      476,
      "S3.F3.sf3",
-     false
+     false,
+     "img"
     ],
     [
      "2609.31507v1/figures/satnav_bench/statistics/d.jpg",
      476,
      476,
      "S3.F3.sf4",
-     false
+     false,
+     "img"
     ]
    ]
   ],
@@ -364,7 +377,8 @@
      405,
      178,
      "",
-     false
+     false,
+     "img"
     ]
    ]
   ]

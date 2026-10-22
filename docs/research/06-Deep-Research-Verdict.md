@@ -745,3 +745,24 @@ two exposure models.
 the exposure write. Turn `FEED_WIDE` on only after `FEED_CARD_V2` has been on
 for a week.
 
+### 2026-10-20 — Vector figures are served as cleaned SVG
+**Decision:** Paper pages and feed cards show SVG figures too: files an
+`<object>` points to, and drawings LaTeXML renders inline in the arXiv page.
+Each is rebuilt by `app/svg_clean.py` from an allow-list of SVG, HTML and
+MathML elements (no scripts, no `on*` attributes, no links or `url(...)` outside
+the document, no CSS escapes, no entity declarations), served from `/fig/...svg`
+with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
+img-src data:; sandbox`, and shown only through `<img>`. Saved figures go from 8
+to 24 per paper, and the `/fig` rate limit from 240 to 600 a minute per address.
+**Supersedes:** the picture-only figure handling in the 2026-10-19 source-layer
+entry, and its cap of 8 figures.
+**Rationale:** In 50 papers from September 2026, 118 of 333 figure images were
+SVG, 11 papers showed no figure at all, and 27 of 44 were missing at least one.
+Rasterising would need a new native dependency (cairo); serving cleaned SVG
+needs none, stays sharp in the lightbox, and three layers keep script out.
+Some inline drawings are incomplete on arXiv's own page (2201.11903 Figure 2
+shows one of its bars); ours match arXiv's page, and the PDF stays linked.
+**Action items:** Watch `figure_failed` in `/healthz/runtime` after deploy. If a
+class of real figures fails cleaning, widen the allow-list with a test for it,
+never by relaxing the attribute checks.
+

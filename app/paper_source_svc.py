@@ -47,7 +47,8 @@ from app import arxiv_html, config, errors, features, http_client, licences, run
 SWITCH = "PAPER_SOURCES"
 ID_PATTERN = re.compile(r"^\d{4}\.\d{4,5}$")
 
-REPLICATED_FIGURES = 8
+# A paper averages about 7 figures; 24 covers nearly all and keeps a row small.
+REPLICATED_FIGURES = 24
 REPLICATED_CAPTION = 300
 FETCH_TIMEOUT_S = 15.0
 RETRY_NO_HTML_S = 7 * 24 * 3600
@@ -280,13 +281,21 @@ async def _download(arxiv_id: str) -> tuple[int, bytes, str, float | None]:
 
 
 def _slim_figures(parsed: arxiv_html.ParsedPaper) -> list[dict]:
+    """The figures the page shows: each one's first image, at most REPLICATED_FIGURES.
+
+    A drawing inline in the page has no file of its own, so its src is the
+    page (2201.11903v6) and app/routers/figures.py finds it by anchor."""
     out = []
     for f in parsed.figures:
         img = f.first_image()
-        if img is None:
+        if img is None or (img.kind == "svg-inline" and not f.anchor):
             continue
-        out.append({"anchor": f.anchor, "label": f.label, "caption": f.caption[:REPLICATED_CAPTION],
-                    "src": img.src, "w": img.width, "h": img.height})
+        item = {"anchor": f.anchor, "label": f.label, "caption": f.caption[:REPLICATED_CAPTION],
+                "src": f"{parsed.arxiv_id}{parsed.version}" if img.kind == "svg-inline" else img.src,
+                "w": img.width, "h": img.height}
+        if img.kind != "img":
+            item["kind"] = img.kind
+        out.append(item)
         if len(out) >= REPLICATED_FIGURES:
             break
     return out
@@ -303,7 +312,8 @@ async def _save_parsed(parsed: arxiv_html.ParsedPaper, keep: Source | None) -> N
             f"INSERT OR REPLACE INTO paper_sources ({', '.join(_COLS)}) "
             f"VALUES ({', '.join('?' * len(_COLS))})",
             (parsed.arxiv_id, "ok", parsed.version, licences.code_from_text(parsed.licence_text),
-             parsed.licence_text, json.dumps(figures), len(parsed.figures), len(parsed.sections),
+             parsed.licence_text, json.dumps(figures), sum(1 for f in parsed.figures if f.first_image()),
+             len(parsed.sections),
              len(parsed.paragraphs), code[0] or None, code[1], code[2] or None,
              arxiv_html.PARSER_VERSION, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), None))
         await conn.execute(

@@ -31,7 +31,7 @@ def summary(p):
         "sections": [[s.anchor, s.number, s.title, s.level, s.kind] for s in p.sections],
         "paragraphs": [[x.anchor, x.section, x.text[:80], x.refs] for x in p.paragraphs],
         "figures": [[f.anchor, f.label, f.caption[:80],
-                     [[i.src, i.width, i.height, i.panel, i.missing] for i in f.images]] for f in p.figures],
+                     [[i.src, i.width, i.height, i.panel, i.missing, i.kind] for i in f.images]] for f in p.figures],
         "tables": [[t.anchor, t.label, t.caption[:80]] for t in p.tables],
     }
 
@@ -170,3 +170,62 @@ def test_every_fixture_has_a_title_an_abstract_and_paragraphs(aid):
     recorded the gap faithfully; this catches it directly."""
     p = load(aid)
     assert p.title and len(p.abstract) > 200 and len(p.paragraphs) >= 5
+
+
+# ── vector figures ───────────────────────────────────────────────────────────
+
+FIG = """<html><body><div id="watermark-tr">arXiv:2508.12461v3 [cs.CL] 1 Sep 2025</div>
+<h1 class="ltx_title ltx_title_document">T</h1>
+<figure id="S1.F1" class="ltx_figure">{body}<figcaption class="ltx_caption">
+<span class="ltx_tag ltx_tag_figure">Fig. 1: </span>A chart.</figcaption></figure>
+<div class="ltx_para" id="S1.p1"><p class="ltx_p">Text.</p></div></body></html>"""
+
+
+def fig(body):
+    return arxiv_html.parse(FIG.format(body=body), "2508.12461").figures[0]
+
+
+def test_an_svg_file_in_an_object_is_a_figure_image():
+    f = fig('<object type="image/svg+xml" data="2508.12461v3/figure_6_radar_chart.svg" '
+            'class="ltx_graphics" width="476" height="380"></object>')
+    assert f.first_image() == arxiv_html.Image(src="2508.12461v3/figure_6_radar_chart.svg", width=476,
+                                               height=380, kind="svg")
+
+
+def test_an_svg_file_in_an_img_is_marked_svg():
+    assert fig('<img src="2508.12461v3/x.svg" class="ltx_graphics" width="10" height="5">').first_image().kind == "svg"
+
+
+def test_an_inline_drawing_is_a_figure_image_without_a_path():
+    f = fig('<div class="ltx_flex_figure"><span class="ltx_inline-block"><svg id="S1.F1.pic1" '
+            'class="ltx_picture" width="259.33" height="182.79" viewBox="0 0 259.33 182.79">'
+            '<g><svg class="ltx_nestedsvg"><path d="M0 0"/></svg></g></svg></span></div>')
+    assert f.first_image() == arxiv_html.Image(src="", width=259, height=182, kind="svg-inline")
+    assert len(f.images) == 1                         # the nested <svg> is part of the same drawing
+
+
+def test_inline_svgs_lifts_the_first_drawing_of_each_figure():
+    page = """<figure id="S1.F1" class="ltx_figure"><span><svg class="ltx_picture" viewBox="0 0 9 9">
+    <foreignObject width="9" height="9"><span>label<br>two lines</span></foreignObject>
+    <clipPath id="c"><rect width="1"/></clipPath></svg></span>
+    <svg class="ltx_picture"><rect id="second"/></svg><figcaption>c</figcaption></figure>
+    <p><svg class="icon"><path d="M1 1"/></svg></p>
+    <figure id="S2.F2" class="ltx_figure"><img src="2508.12461v3/a.png" class="ltx_graphics"></figure>"""
+    got = arxiv_html.inline_svgs(page)
+    assert list(got) == ["S1.F1"]                     # icons outside figures and picture figures are not drawings
+    svg = got["S1.F1"]
+    assert svg.tag == "svg" and svg.find("foreignobject/span").text == "label"
+    assert svg.find("foreignobject/span/br").tail == "two lines"
+    assert svg.find(".//rect[@id='second']") is None
+
+
+def test_inline_svgs_gives_up_on_a_drawing_with_too_many_elements(monkeypatch):
+    monkeypatch.setattr(arxiv_html, "MAX_SVG_ELEMENTS", 5)
+    page = '<figure id="S1.F1" class="ltx_figure"><svg>' + "<rect/>" * 10 + "</svg></figure>"
+    assert arxiv_html.inline_svgs(page) == {}
+
+
+def test_inline_svgs_never_raises_on_a_cut_page():
+    page = '<figure id="S1.F1" class="ltx_figure"><svg><g><path d="M0'
+    assert arxiv_html.inline_svgs(page) == {}
+
