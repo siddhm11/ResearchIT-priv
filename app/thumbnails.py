@@ -14,11 +14,16 @@ from PIL import Image, ImageOps
 MAX_WIDTH = 800
 TARGET_BYTES = 150 * 1024
 QUALITIES = (80, 70, 60)
+# The most pixels make() will ever decode, whatever the file says it holds.
 MAX_PIXELS = 50_000_000
+# A JPEG decodes at 1/2, 1/4 or 1/8 scale (Image.draft), so it may say it is
+# much larger than MAX_PIXELS: authors export print-resolution figures, e.g.
+# 15,598 x 6,411 in 2607.28156, which decodes at 1,950 x 801.
+JPEG_MAX_PIXELS = 400_000_000
 
-# Pillow's own bomb guard warns past this and refuses at twice it; make() also
-# refuses anything over it outright, before decoding.
-Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+# Pillow's own bomb guard runs when a file is opened, warning past this and
+# refusing at twice it. make() applies the limits above itself, before decoding.
+Image.MAX_IMAGE_PIXELS = JPEG_MAX_PIXELS
 
 
 class NotAnImage(ValueError):
@@ -48,6 +53,13 @@ def make(raw: bytes, max_width: int = MAX_WIDTH) -> bytes:
     except Exception as e:                          # PIL raises several types here
         raise NotAnImage(str(e)) from e
     with im:
+        if im.format == "JPEG":
+            if im.width * im.height > JPEG_MAX_PIXELS:
+                raise NotAnImage(f"{im.width}x{im.height} is over {JPEG_MAX_PIXELS} pixels")
+            # The smallest scale still at least max_width wide once upright: an
+            # EXIF turn of 90 degrees (orientations 5 to 8) makes height the width.
+            turned = im.getexif().get(0x0112) in (5, 6, 7, 8)
+            im.draft(im.mode, (1, max_width) if turned else (max_width, 1))
         if im.width * im.height > MAX_PIXELS:
             raise NotAnImage(f"{im.width}x{im.height} is over {MAX_PIXELS} pixels")
         im.seek(0)
