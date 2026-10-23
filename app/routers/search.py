@@ -14,7 +14,7 @@ Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import arxiv_svc, card_data, db, features, figure_prewarm, turso_svc, user_state as us, hybrid_search_svc
+from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -104,6 +104,10 @@ async def search(
     if features.visible("SEARCH_FIGURES", request):
         papers = await card_data.enrich(papers, request)
     figure_prewarm.enqueue([p["arxiv_id"] for p in papers[:figure_prewarm.SEARCH_TOP] if p.get("arxiv_id")])
+    if q.strip():
+        await analytics.log_search(q, query_id, len(papers), search_meta.get("retrieval_mode") or "hybrid",
+                                   search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
+                                   features.has_preview(request))
 
     if request.headers.get("HX-Request"):
         resp = templates.TemplateResponse(
@@ -165,11 +169,19 @@ async def search_summary(
     # The overview is strictly additive, so every failure mode degrades to
     # "no overview" -- the same contract every other optional service in this
     # app follows (BGE-M3, the cross-encoder, Zilliz, the sidecar).
-    try:
-        summary_html = await groq_svc.generate_search_summary(q, papers)
-    except Exception as e:
-        print(f"[search] summary generation failed: {e}")
-        return ""
+    # The same query over the same top papers reuses the overview shown before
+    # (app/analytics.py), instead of asking the model again.
+    from app import ai_usage
+    summary_html = await analytics.cached_overview(q, arxiv_ids)
+    ai_usage.count("search_overview", "cache_hit" if summary_html else "cache_miss")
+    if not summary_html:
+        try:
+            summary_html = await groq_svc.generate_search_summary(q, papers)
+        except Exception as e:
+            print(f"[search] summary generation failed: {e}")
+            return ""
+        if summary_html:
+            await analytics.save_overview(q, arxiv_ids, summary_html)
 
     if not summary_html:
         return ""

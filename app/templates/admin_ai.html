@@ -7,6 +7,7 @@
 {% block title %}AI usage — ResearchIT{% endblock %}
 {% block body_class %} class="page-wide"{% endblock %}
 {% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% from "partials/admin/bars.html" import bars %}
 
 {% macro status(level, meter=false) -%}
   {%- set icons = {"good": "✓", "warning": "▲", "critical": "●", "info": "○"} -%}
@@ -24,6 +25,7 @@
 
 {% block content %}
 <div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
 
   <header class="ai-head">
     <h1>AI usage</h1>
@@ -136,37 +138,7 @@
 
   <section class="ai-sec" aria-labelledby="ai-history-h">
     <h2 id="ai-history-h">Tokens per day, last 14 days</h2>
-    <ul class="ai-legend" aria-label="Features">
-      {% for f in features_order %}
-        <li><span class="ai-key ai-key--{{ f }}" aria-hidden="true"></span>{{ labels[f] }}
-          <span class="muted">{{ history_totals[f] | commafy }}</span></li>
-      {% endfor %}
-    </ul>
-    {% if chart.empty %}
-      <p class="ai-empty">No model calls in the last 14 days yet.</p>
-    {% else %}
-      <div class="ai-chart" data-ai-chart>
-        <div class="ai-plot" role="img" aria-label="Tokens per day by feature; the table below has every value">
-          {% for t in chart.ticks %}
-            <div class="ai-tickline{% if loop.first %} ai-tickline--base{% endif %}" style="bottom: {{ t.pct }}%"><span>{{ t.label }}</span></div>
-          {% endfor %}
-          <div class="ai-cols">
-            {% for c in chart.columns %}
-              <div class="ai-col" tabindex="0" aria-label="{{ c.label }}: {{ c.total | commafy }} tokens"
-                   data-day="{{ c.label }}" data-total="{{ c.total }}" data-tokens='{{ c.tokens | tojson }}'>
-                {% if c.total %}
-                  <div class="ai-stack" style="height: {{ c.height }}%">
-                    {% for sgm in c.segments %}<span class="ai-seg ai-key--{{ sgm.feature }}" style="flex-grow: {{ sgm.tokens }}"></span>{% endfor %}
-                  </div>
-                {% endif %}
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-        <div class="ai-xaxis" aria-hidden="true">{% for c in chart.columns %}<span>{{ c.label if c.show_label else "" }}</span>{% endfor %}</div>
-        <div class="ai-tip" role="status" hidden></div>
-      </div>
-    {% endif %}
+    {{ bars(chart, "Tokens per day by feature") }}
     <details class="ai-tableview">
       <summary>Show as a table</summary>
       <div class="ai-table-wrap">
@@ -185,56 +157,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-  /* One tooltip per day: every feature's tokens, the value leading. Built with
-     textContent; the labels are this page's own, but the habit stays. */
-  (function () {
-    var box = document.querySelector('[data-ai-chart]');
-    if (!box) return;
-    var tip = box.querySelector('.ai-tip');
-    var labels = {{ labels | tojson }};
-    var order = {{ features_order | tojson }};
-    function show(hit) {
-      var tokens = JSON.parse(hit.getAttribute('data-tokens'));
-      tip.textContent = '';
-      var head = document.createElement('div');
-      head.className = 'ai-tip-head';
-      var v = document.createElement('strong');
-      v.textContent = Number(hit.getAttribute('data-total')).toLocaleString() + ' tokens';
-      head.appendChild(v);
-      head.appendChild(document.createTextNode(' · ' + hit.getAttribute('data-day')));
-      tip.appendChild(head);
-      order.slice().reverse().forEach(function (f) {
-        if (!tokens[f]) return;
-        var row = document.createElement('div');
-        row.className = 'ai-tip-row';
-        var key = document.createElement('span');
-        key.className = 'ai-tip-key ai-key--' + f;
-        var val = document.createElement('strong');
-        val.textContent = tokens[f].toLocaleString();
-        row.appendChild(key);
-        row.appendChild(val);
-        row.appendChild(document.createTextNode(' ' + labels[f]));
-        tip.appendChild(row);
-      });
-      var r = hit.getBoundingClientRect(), b = box.getBoundingClientRect();
-      tip.hidden = false;
-      /* Beside the column, never over it: right of it when it fits, else left. */
-      var right = r.right - b.left + 6, left = r.left - b.left - tip.offsetWidth - 6;
-      tip.style.left = Math.max(0, right + tip.offsetWidth <= b.width ? right : left) + 'px';
-      tip.style.top = '.5rem';
-      box.querySelectorAll('.ai-col').forEach(function (g) { g.classList.toggle('is-active', g === hit); });
-    }
-    function hide() {
-      tip.hidden = true;
-      box.querySelectorAll('.ai-col').forEach(function (g) { g.classList.remove('is-active'); });
-    }
-    box.querySelectorAll('.ai-col').forEach(function (hit) {
-      hit.addEventListener('pointerenter', function () { show(hit); });
-      hit.addEventListener('focus', function () { show(hit); });
-      hit.addEventListener('blur', hide);
-    });
-    box.addEventListener('pointerleave', hide);
-  })();
-</script>
+<script defer src="/static/admin.js?v={{ static_version }}"></script>
 {% endblock %}

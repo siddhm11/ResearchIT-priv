@@ -261,7 +261,9 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     model_rank    INTEGER,
     truncated     INTEGER DEFAULT 0,
     requests_left INTEGER,
-    tokens_left   INTEGER
+    tokens_left   INTEGER,
+    subject       TEXT       -- the paper (arXiv id) or, for search, the query; search
+                             -- queries are cleared after 90 days (app/analytics.py)
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 
@@ -269,6 +271,47 @@ CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
 -- misses, outcomes (declined, busy), points and quotes dropped by the checks,
 -- reader reports (app/ai_usage.py). One row per day, feature and metric,
 -- rewritten whole (new id) on each flush so turso_sync pushes it. Replicated.
+-- Searches and the AI overviews shown for them (app/analytics.py). Query text
+-- and overviews are cleared after 90 days; no reader is stored. Replicated.
+CREATE TABLE IF NOT EXISTS search_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    query       TEXT,
+    query_id    TEXT,
+    n_results   INTEGER,
+    mode        TEXT,
+    rewritten   TEXT,
+    latency_ms  INTEGER,
+    owner       INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_search_log_time ON search_log(created_at);
+CREATE TABLE IF NOT EXISTS search_overviews (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key   TEXT NOT NULL UNIQUE,
+    query       TEXT,
+    paper_ids   TEXT,
+    overview    TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One row per reader (anonymous cookie) per UTC day: what they did. owner = 1
+-- for a browser holding the preview token (app/analytics.py). Rewritten whole
+-- on each flush so turso_sync pushes it. Replicated.
+CREATE TABLE IF NOT EXISTS reader_days (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    owner       INTEGER DEFAULT 0,
+    pages       INTEGER DEFAULT 0,
+    searches    INTEGER DEFAULT 0,
+    feed_pages  INTEGER DEFAULT 0,
+    opens       INTEGER DEFAULT 0,
+    saves       INTEGER DEFAULT 0,
+    passes      INTEGER DEFAULT 0,
+    asks        INTEGER DEFAULT 0,
+    UNIQUE (day, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS ai_daily (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
     day     TEXT NOT NULL,
@@ -418,6 +461,7 @@ _MIGRATION_AI_USAGE = [
     "ALTER TABLE llm_calls ADD COLUMN truncated INTEGER DEFAULT 0",
     "ALTER TABLE llm_calls ADD COLUMN requests_left INTEGER",
     "ALTER TABLE llm_calls ADD COLUMN tokens_left INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN subject TEXT",
 ]
 
 LAYOUTS = ("list", "grid2")

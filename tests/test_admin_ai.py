@@ -67,28 +67,41 @@ def test_the_page_shows_what_was_recorded(owner):
 
 def test_an_empty_history_says_so_instead_of_drawing_nothing(owner):
     html = get("/admin/ai?preview=owner-token").text
-    assert "No model calls in the last 14 days yet." in html and "No AI calls yet today." in html
+    assert "Nothing recorded in this period yet." in html and "No AI calls yet today." in html
 
 
 # ── the chart ────────────────────────────────────────────────────────────────
 
-def day(d, **tokens):
-    full = {f: tokens.get(f, 0) for f in ai_usage.FEATURES}
-    return {"day": d, "tokens": full, "total": sum(full.values())}
-
-
-def test_columns_scale_to_a_round_top_and_stack_in_feature_order():
-    c = admin.chart([day("2026-10-19", briefing=3000, search_overview=1400), day("2026-10-20", explain=800)])
+def test_columns_scale_to_a_round_top_and_stack_in_series_order():
+    series = [("search_overview", "Search overview"), ("briefing", "Briefing")]
+    c = admin.bars([{"label": "19 Oct", "values": {"briefing": 3000, "search_overview": 1400}},
+                    {"label": "20 Oct", "values": {"briefing": 800}}], series, unit="tokens")
     assert [t["label"] for t in c["ticks"]] == ["0", "1.2K", "2.5K", "3.8K", "5K"]
     first, second = c["columns"]
     assert first["height"] == 88.0 and second["height"] == 16.0
-    assert [s["feature"] for s in first["segments"]] == ["search_overview", "briefing"]   # FEATURES order
-    assert first["label"] == "19 Oct" and not c["empty"]
+    assert [s["slot"] for s in first["segments"]] == [1, 2]                        # bottom-up, in series order
+    assert [r["label"] for r in first["tip"]["rows"]] == ["Briefing", "Search overview"]   # top first in the tooltip
+    assert c["legend"] == [{"slot": 1, "label": "Search overview", "total": 1400},
+                           {"slot": 2, "label": "Briefing", "total": 3800}]
+    assert first["show_label"] and second["show_label"] and not c["empty"]      # few columns: all labelled
 
 
-@pytest.mark.parametrize("top,expected", [(0, 1000), (7, 10), (120, 200), (2400, 2500), (79_198, 100_000)])
+@pytest.mark.parametrize("n,labelled", [(14, 7), (30, 6), (3, 3)])
+def test_about_seven_columns_are_labelled_counting_back_from_the_newest(n, labelled):
+    c = admin.bars([{"label": str(i), "values": {"r": 1}} for i in range(n)], [("r", "R")])
+    shown = [col["label"] for col in c["columns"] if col["show_label"]]
+    assert len(shown) == labelled and shown[-1] == str(n - 1)
+
+
+@pytest.mark.parametrize("top,expected", [(0, 4), (3, 4), (7, 8), (20, 20), (120, 200), (2400, 2500),
+                                          (79_198, 100_000)])
 def test_the_scale_top_is_a_round_number(top, expected):
     assert admin._nice(top) == expected
+
+
+def test_small_counts_get_whole_number_ticks():
+    c = admin.bars([{"label": "a", "values": {"r": 3}}], [("r", "Readers")])
+    assert [t["label"] for t in c["ticks"]] == ["0", "1", "2", "3", "4"]
 
 
 # ── insights ─────────────────────────────────────────────────────────────────

@@ -91,9 +91,10 @@ async def lifespan(app: FastAPI):
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
-    from app import ai_usage, figure_prewarm
+    from app import ai_usage, analytics, figure_prewarm
     await figure_prewarm.start()
     await ai_usage.start()
+    await analytics.start()
     try:
         yield
     finally:
@@ -101,6 +102,7 @@ async def lifespan(app: FastAPI):
         from app import abstract_svc, figure_prewarm, paper_source_svc
         await figure_prewarm.stop()
         await ai_usage.stop()
+        await analytics.stop()
         await abstract_svc.stop()
         await paper_source_svc.stop()
 
@@ -172,6 +174,15 @@ async def _security_and_cache_headers(request: Request, call_next):
     if "preview" in request.query_params:
         from app import features
         features.apply_preview_cookie(request, response)
+
+    # What the reader did, for /admin/readers (app/analytics.py). In-memory
+    # counts only; never slows or fails the request.
+    try:
+        from app import analytics
+        analytics.observe(request, response.status_code, response.headers.get("content-type", ""))
+    except Exception as e:  # pragma: no cover - defensive
+        from app import errors
+        errors.report("analytics", "counting a request failed", e)
 
     return response
 

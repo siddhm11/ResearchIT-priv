@@ -69,8 +69,8 @@ async def test_search_and_plain_summary_calls_do_not_use_up_the_briefing_budget(
 
 
 def test_the_new_columns_replicate_and_are_added_remotely():
-    new = ["tokens_in", "tokens_out", "model_rank", "truncated", "requests_left", "tokens_left"]
-    assert turso_sync.TABLES["llm_calls"]["cols"][-6:] == new
+    new = ["tokens_in", "tokens_out", "model_rank", "truncated", "requests_left", "tokens_left", "subject"]
+    assert turso_sync.TABLES["llm_calls"]["cols"][-7:] == new
     ddl = next(d for d in turso_sync.REMOTE_DDL if "TABLE IF NOT EXISTS llm_calls" in d)
     assert all(c in ddl for c in new)
     assert {("llm_calls", c) for c in new} <= {(t, c) for t, c, _ in turso_sync.REMOTE_COLUMNS}
@@ -198,3 +198,26 @@ def test_the_healthz_route_serves_it():
         body = c.get("/healthz/ai").json()
     assert set(body) >= {"day", "limits", "features", "models", "budget", "history"}
     assert set(body["features"]) >= set(ai_usage.FEATURES)
+
+
+# ── what each call was for ───────────────────────────────────────────────────
+
+async def test_each_call_records_its_paper_or_query(groq_answers, monkeypatch):
+    await groq_svc.rewrite("how   do computers\nlearn from examples")
+    await groq_svc.generate_search_summary("drone navigation", [{"title": "A", "abstract": "x"},
+                                                                {"title": "B", "abstract": "y"}])
+    await groq_svc.explain_paper("T", "An abstract long enough to explain. " * 6, "2609.31507")
+
+    async def answer(system, user, max_tokens, timeout):
+        return Completion('{"a": 1}', "m", False)
+    monkeypatch.setattr(llm, "_provider", lambda: "groq")
+    monkeypatch.setattr(llm, "_ask_groq", answer)
+    await llm.complete_json("briefing", "s", "u", subject="2607.28156")
+    assert await rows("SELECT feature, subject FROM llm_calls ORDER BY id") == [
+        ("search_rewrite", "how do computers learn from examples"), ("search_overview", "drone navigation"),
+        ("explain", "2609.31507"), ("briefing", "2607.28156")]
+
+
+def test_a_query_is_stored_collapsed_and_capped():
+    assert ai_usage.query_subject("  a\tb \n c ") == "a b c"
+    assert len(ai_usage.query_subject("x" * 500)) == 200 and ai_usage.query_subject("   ") is None

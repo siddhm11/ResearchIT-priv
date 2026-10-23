@@ -1,0 +1,106 @@
+{#
+  Searches (/admin/searches), owner only; data from app/analytics.py:searches_report().
+  Queries are kept 90 days and never shown against a reader.
+#}
+{% extends "base.html" %}
+{% from "partials/admin/bars.html" import bars %}
+
+{% block title %}Searches — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% macro pct(part, whole) -%}{{ ((100 * part / whole) | round | int) ~ "%" if whole else "—" }}{%- endmacro %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
+
+  <header class="ai-head">
+    <h1>Searches</h1>
+    <p class="ai-sub">Last 30 days. {{ "Your own searches are included." if include_owner else "Your own searches are left out." }}
+      What people typed is kept {{ retention_days }} days and never shown against a reader.</p>
+  </header>
+
+  <section class="ai-kpis" aria-label="Searches at a glance">
+    <div class="ai-kpi"><span class="ai-kpi-label">Searches</span><span class="ai-kpi-value">{{ totals.searches | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Found nothing</span><span class="ai-kpi-value">{{ pct(totals.no_results, totals.searches) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Led to an opened paper</span><span class="ai-kpi-value">{{ pct(totals.opened, totals.searches) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Led to a save</span><span class="ai-kpi-value">{{ pct(totals.saved, totals.searches) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Rewritten by AI</span><span class="ai-kpi-value">{{ pct(totals.rewritten, totals.searches) }}</span></div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="s-daily-h">
+    <h2 id="s-daily-h">Searches per day</h2>
+    {{ bars(chart, "Searches per day, with and without results") }}
+    <details class="ai-tableview">
+      <summary>Show as a table</summary>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Day</th><th scope="col">Searches</th><th scope="col">Found nothing</th>
+            <th scope="col">Keyword only</th><th scope="col">Rewritten by AI</th><th scope="col">Time</th></tr></thead>
+          <tbody>
+            {% for d in days | reverse %}
+              <tr><th scope="row">{{ d.day }}</th><td>{{ d.searches }}</td><td>{{ d.no_results }}</td><td>{{ d.keyword_only }}</td>
+                <td>{{ d.rewritten }}</td><td>{{ ("%.1f s" % (d.avg_ms / 1000)) if d.avg_ms else "—" }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="s-top-h">
+    <h2 id="s-top-h">Most searched</h2>
+    {% if top %}
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Query</th><th scope="col">Times</th><th scope="col">Results</th>
+            <th scope="col">Led to an open</th><th scope="col">Led to a save</th></tr></thead>
+          <tbody>
+            {% for t in top %}
+              <tr><th scope="row" class="ai-query">{{ t.query }}</th><td>{{ t.times }}</td><td>{{ t.avg_results }}</td>
+                <td>{{ pct(t.opened, t.times) }}</td><td>{{ pct(t.saved, t.times) }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">No searches recorded yet.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="s-none-h">
+    <h2 id="s-none-h">Searches that found nothing</h2>
+    {% if nothing %}
+      <ul class="ai-chips">{% for n in nothing %}<li><span class="ai-query">{{ n.query }}</span>{% if n.times > 1 %} <span class="muted">× {{ n.times }}</span>{% endif %}</li>{% endfor %}</ul>
+    {% else %}<p class="ai-note">None.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="s-latest-h">
+    <h2 id="s-latest-h">Latest searches</h2>
+    {% if latest %}
+      <div class="ai-table-wrap">
+        <table class="ai-table ai-table--wrap">
+          <thead><tr><th scope="col">When (UTC)</th><th scope="col">Query</th><th scope="col">Results</th><th scope="col">Search</th>
+            <th scope="col">AI rewrite</th><th scope="col">Then</th><th scope="col">AI overview</th></tr></thead>
+          <tbody>
+            {% for s in latest %}
+              <tr>
+                <td>{{ s.at[5:16] }}{% if s.owner %} <span class="ai-tag">you</span>{% endif %}</td>
+                <th scope="row" class="ai-query">{{ s.query }}</th>
+                <td>{{ s.results }}</td>
+                <td>{{ "keyword" if s.mode in ("keyword", "arxiv_keyword") else "semantic" }} <span class="muted">· {{ ("%.1f s" % (s.ms / 1000)) if s.ms else "" }}</span></td>
+                <td>{{ s.rewritten or "—" }}</td>
+                <td>{{ "saved" if s.saved else ("opened" if s.opened else "—") }}</td>
+                <td>{% if s.overview %}<details><summary>Read</summary><p class="ai-overview">{{ s.overview | striptags }}</p></details>{% else %}—{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">No searches recorded yet.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="/static/admin.js?v={{ static_version }}"></script>
+{% endblock %}

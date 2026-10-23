@@ -1,0 +1,79 @@
+{#
+  AI history (/admin/ai/history), owner only; data from app/analytics.py:ai_history().
+  Every model call grouped by the paper or search it was for, with what was
+  written. Model text is shown as text (striptags), never as markup.
+#}
+{% extends "base.html" %}
+
+{% block title %}AI history — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
+
+  <header class="ai-head">
+    <h1>AI history</h1>
+    <p class="ai-sub">Every AI call, grouped by the paper or search it was for, newest first. Calls are recorded
+      with their paper or query from 20 Oct 2026; search queries are kept {{ retention_days }} days.</p>
+  </header>
+
+  <section class="ai-sec" aria-labelledby="h-papers-h">
+    <h2 id="h-papers-h">Papers</h2>
+    {% if papers %}
+      <div class="ai-table-wrap">
+        <table class="ai-table ai-table--wrap">
+          <thead><tr><th scope="col">Paper</th><th scope="col">In plain terms</th><th scope="col">Briefing</th>
+            <th scope="col">Ask</th><th scope="col">Failed</th><th scope="col">Tokens</th><th scope="col">Last (UTC)</th></tr></thead>
+          <tbody>
+            {% for p in papers %}
+              <tr>
+                <th scope="row" class="ai-paper"><a href="/p/{{ p.arxiv_id }}">{{ p.title or p.arxiv_id }}</a>
+                  {%- if p.title %} <span class="muted">{{ p.arxiv_id }}</span>{% endif %}</th>
+                <td>{% if p.plain %}<details><summary>{{ p.explain }} call{{ "s" if p.explain != 1 else "" }} · read</summary>
+                      <p class="ai-overview">{{ p.plain | striptags }}</p></details>
+                    {% else %}{{ p.explain or "—" }}{% endif %}</td>
+                {% set outcome = {"ok": "written", "insufficient": "declined", "failed": "failed"}.get(p.briefing_status, p.briefing_status) %}
+                <td>{% if p.briefing %}{{ p.briefing }} call{{ "s" if p.briefing != 1 else "" }}{{ " · " ~ outcome if p.briefing_status else "" }}
+                      {%- if p.briefings_written > 1 %} <span class="muted">· {{ p.briefings_written }} versions</span>{% endif %}
+                    {%- else %}—{% endif %}</td>
+                <td>{{ p.ask or "—" }}</td>
+                <td>{{ p.failed or "—" }}</td>
+                <td>{{ p.tokens | commafy }}</td>
+                <td>{{ p.last[5:16] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">No AI calls for papers recorded yet.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="h-queries-h">
+    <h2 id="h-queries-h">Searches</h2>
+    {% if queries %}
+      <div class="ai-table-wrap">
+        <table class="ai-table ai-table--wrap">
+          <thead><tr><th scope="col">Query</th><th scope="col">Rewrite</th><th scope="col">Overview</th>
+            <th scope="col">Failed</th><th scope="col">Tokens</th><th scope="col">Last (UTC)</th></tr></thead>
+          <tbody>
+            {% for q in queries %}
+              <tr>
+                <th scope="row" class="ai-query">{{ q.query }}</th>
+                <td>{% if q.rewritten %}{{ q.rewritten }}{% elif q.rewrites %}<span class="muted">kept as typed</span>{% else %}—{% endif %}</td>
+                <td>{% if q.overview %}<details><summary>{{ q.overviews }} call{{ "s" if q.overviews != 1 else "" }} · read</summary>
+                      <p class="ai-overview">{{ q.overview | striptags }}</p></details>
+                    {% else %}{{ q.overviews or "—" }}{% endif %}</td>
+                <td>{{ q.failed or "—" }}</td>
+                <td>{{ q.tokens | commafy }}</td>
+                <td>{{ q.last[5:16] }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">No AI calls for searches recorded yet.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

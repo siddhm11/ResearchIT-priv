@@ -187,7 +187,7 @@ def test_the_feed_serves_v2_cards_only_with_the_switch_on(monkeypatch):
 def test_v2_feed_cards_never_trigger_a_summary(monkeypatch):
     called = []
 
-    async def spy(title, abstract):
+    async def spy(title, abstract, arxiv_id=None):
         called.append(1)
         return "x"
 

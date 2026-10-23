@@ -130,7 +130,7 @@ TABLES: dict[str, dict] = {
         "pk": ["id"],
         "cols": ["id", "feature", "provider", "model", "chars_in", "chars_out", "usd_est",
                  "latency_ms", "status", "created_at", "tokens_in", "tokens_out", "model_rank",
-                 "truncated", "requests_left", "tokens_left"],
+                 "truncated", "requests_left", "tokens_left", "subject"],
         "blobs": [],
         "paged": True,
     },
@@ -162,7 +162,35 @@ TABLES: dict[str, dict] = {
         "cols": ["id", "arxiv_id", "feature", "reason", "user_id", "created_at"],
         "blobs": [],
         "paged": True,
-    },    "ai_daily": {
+    },    "search_log": {
+        "remote": "search_log",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "created_at", "query", "query_id", "n_results", "mode", "rewritten", "latency_ms", "owner"],
+        "blobs": [],
+        "paged": True,
+    },
+    "search_overviews": {
+        "remote": "search_overviews",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "cache_key", "query", "paper_ids", "overview", "created_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    "reader_days": {
+        "remote": "reader_days",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "day", "user_id", "owner", "pages", "searches", "feed_pages", "opens", "saves",
+                 "passes", "asks"],
+        "blobs": [],
+        "paged": True,
+    },
+    "ai_daily": {
         "remote": "ai_daily",
         "watermark": "id",
         "wm_kind": "int",
@@ -206,7 +234,7 @@ REMOTE_DDL = [
         id INTEGER PRIMARY KEY, feature TEXT NOT NULL, provider TEXT, model TEXT,
         chars_in INTEGER, chars_out INTEGER, usd_est REAL, latency_ms INTEGER,
         status TEXT NOT NULL, created_at TEXT, tokens_in INTEGER, tokens_out INTEGER,
-        model_rank INTEGER, truncated INTEGER, requests_left INTEGER, tokens_left INTEGER)""",
+        model_rank INTEGER, truncated INTEGER, requests_left INTEGER, tokens_left INTEGER, subject TEXT)""",
     """CREATE TABLE IF NOT EXISTS paper_briefings (
         id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, arxiv_id TEXT NOT NULL,
         status TEXT NOT NULL, briefing_json TEXT, provider TEXT, model TEXT,
@@ -218,6 +246,16 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS content_reports (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
         reason TEXT, user_id TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS search_log (
+        id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
+        mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS search_overviews (
+        id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, query TEXT, paper_ids TEXT,
+        overview TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS reader_days (
+        id INTEGER PRIMARY KEY, day TEXT NOT NULL, user_id TEXT NOT NULL, owner INTEGER, pages INTEGER,
+        searches INTEGER, feed_pages INTEGER, opens INTEGER, saves INTEGER, passes INTEGER, asks INTEGER,
+        UNIQUE (day, user_id))""",
     """CREATE TABLE IF NOT EXISTS ai_daily (
         id INTEGER PRIMARY KEY, day TEXT NOT NULL, feature TEXT NOT NULL, metric TEXT NOT NULL,
         n INTEGER, UNIQUE (day, feature, metric))""",
@@ -365,6 +403,7 @@ REMOTE_COLUMNS = [
     ("llm_calls", "truncated", "INTEGER"),
     ("llm_calls", "requests_left", "INTEGER"),
     ("llm_calls", "tokens_left", "INTEGER"),
+    ("llm_calls", "subject", "TEXT"),
 ]
 
 
