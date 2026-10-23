@@ -161,7 +161,10 @@ def _search_sync(query: str, limit: int) -> list[dict]:
                 timing[kind] = int((time.perf_counter() - t_try) * 1000)
             if rows:
                 outcome = "or_hit" if kind == "or_ms" else "and_hit"
-                return [{"arxiv_id": a, "score": -float(s)} for a, s in rows]
+                # "all": every word matched; "any": the any-word fallback.
+                # hybrid_search_svc reads it to tell a title from a question.
+                match = "any" if kind == "or_ms" else "all"
+                return [{"arxiv_id": a, "score": -float(s), "match": match} for a, s in rows]
         return []
     finally:
         conn.set_progress_handler(None, 0)

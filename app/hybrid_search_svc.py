@@ -33,9 +33,12 @@ from app import fts_svc
 from app import groq_svc
 from app import turso_svc
 from app import arxiv_svc
+from app import features
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+REWRITE_KEYWORDS_SWITCH = "SEARCH_REWRITE_KEYWORDS"
 
 async def search(
     query: str,
@@ -186,9 +189,27 @@ async def search(
     search_meta["retrieval_time_ms"] = int((time.perf_counter() - t0_retrieval) * 1000)
     search_meta["n_retrieval_tasks"] = len(tasks)
 
+    # A conversational question the rewriter changed: its literal words steer
+    # keyword search off course (after the 2026-10-23 rewriter fix, the two
+    # "stop" papers left in the top 10 for "how do I stop a RAG system from
+    # making things up" were #2 and #3 of the original's keyword list), so only
+    # the rewrite's keyword list counts. Its meaning still counts: the vector
+    # list stays. Only when no paper matched every word of the original, which
+    # is what tells a question from a title: every known title tested matched
+    # at least one paper word for word, and the rewriter shortens titles
+    # ("Direct Preference Optimization: Your Language Model is Secretly a
+    # Reward Model" became "Direct Preference Optimization"), so dropping a
+    # title's keyword list lost the paper.
+    skipped = set()
+    if rewritten_query != query and features.mode(REWRITE_KEYWORDS_SWITCH) == "on":
+        orig = raw_results[task_labels.index("fts_q0")] if "fts_q0" in task_labels else None
+        if isinstance(orig, list) and (not orig or orig[0].get("match") == "any"):
+            skipped.add("fts_q0")
     valid_result_lists: list[list[dict]] = []
     search_meta["retrieval_sources"] = []
     for label, r in zip(task_labels, raw_results):
+        if label in skipped:
+            continue
         if isinstance(r, Exception):
             print(f"[hybrid_search] search task failed: {r}")
             continue

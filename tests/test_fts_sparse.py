@@ -69,6 +69,12 @@ def test_falls_back_from_and_to_or(sidecar):
     assert [r["arxiv_id"] for r in out][:1] == ["2506.00001"]
 
 
+def test_results_say_whether_every_word_matched(sidecar):
+    """hybrid_search_svc tells a title from a question by this mark."""
+    assert {r["match"] for r in run("diffusion transformer video")} == {"all"}
+    assert {r["match"] for r in run("diffusion zzzznotacorpusterm")} == {"any"}
+
+
 @pytest.mark.parametrize("q", [
     'quantum "unbalanced',          # unterminated quote
     "graph AND OR NOT",             # bare operators

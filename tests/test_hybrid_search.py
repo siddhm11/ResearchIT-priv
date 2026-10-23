@@ -365,3 +365,47 @@ class TestHybridSearchOrchestrator:
             result = await hybrid_search_svc.search("test", limit=10)
 
         assert result == []
+
+
+
+# ── After a rewrite, a question's own keyword list stops counting ─────────────
+
+def _lexical(query_lists):
+    async def search(text, limit=50):
+        return query_lists[text]
+    return search
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switch,match,original_counts", [
+    ("on", "any", False),     # a question: no paper had every word, so its words only steer
+    ("on", "all", True),      # a title: some paper matched word for word, keep its list
+    ("off", "any", True),     # switch off: unchanged behaviour
+])
+async def test_rewritten_question_drops_its_keyword_list(monkeypatch, switch, match, original_counts):
+    import numpy as np
+    from app import config, fts_svc, hybrid_search_svc
+    monkeypatch.setenv("SEARCH_REWRITE_KEYWORDS", switch)
+    monkeypatch.setattr(config, "SPARSE_BACKEND", "fts")
+    monkeypatch.setattr(config, "SEARCH_BGE_RERANK", False)
+    lists = {
+        "how do I stop a RAG system from making things up":
+            [{"arxiv_id": "stop-paper", "score": 9.0, "match": match}],
+        "RAG hallucination mitigation":
+            [{"arxiv_id": "hallucination-paper", "score": 9.0, "match": "all"}],
+    }
+    with patch.object(hybrid_search_svc.groq_svc, "rewrite", new_callable=AsyncMock,
+                      return_value="RAG hallucination mitigation"), \
+         patch.object(fts_svc, "is_available", return_value=True), \
+         patch.object(fts_svc, "search_sparse", side_effect=_lexical(lists)), \
+         patch.object(hybrid_search_svc.embed_svc, "encode_query",
+                      return_value=(np.ones(1024, dtype=np.float32), {})), \
+         patch.object(hybrid_search_svc.qdrant_svc, "search_dense_merged", new_callable=AsyncMock,
+                      return_value=[]), \
+         patch.object(hybrid_search_svc, "_title_match_rerank", new_callable=AsyncMock,
+                      side_effect=lambda fused, q, **kw: fused):
+        ids, meta = await hybrid_search_svc.search(
+            "how do I stop a RAG system from making things up", limit=10, return_meta=True)
+    assert "hallucination-paper" in ids
+    assert ("stop-paper" in ids) is original_counts
+    assert ("fts_q0" in meta["retrieval_sources"]) is original_counts

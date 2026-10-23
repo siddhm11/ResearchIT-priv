@@ -978,3 +978,22 @@ papers and leaves the quota, the MMR and the served order of the feed untouched.
 **Action items:** Turn on as `preview`, then `on`. Read shelf saves and clicks per policy id in
 `feed_exposures`. Readers outside machine learning get no shelf until trending in every field
 (citation history, recorded from 2026-10-24) supplies a second source.
+
+### 2026-10-23 — A rewritten question searches keywords in the rewrite's words only
+**Decision:** When the LLM rewriter changes a query and no paper contains every word of the
+original (keyword search fell back to matching any word), the original's keyword list is left
+out of RRF; its dense list and the exact-title boost stay. Switch `SEARCH_REWRITE_KEYWORDS`.
+**Supersedes:** nothing; refines §3.1 "RRF fuses actual available result lists".
+**Rationale:** After the rewriter fix (2026-10-23) long questions are rewritten, but their own
+literal words still steered keyword search: "how do I stop a RAG system from making things up"
+kept two "stop" papers from the original's keyword list. Blind-graded on the 12 of 79 logged
+searches it changes: 124 → 138 points (6 better, 1 worse, 5 equal). The guard is what keeps
+titles safe: dropping the list whenever a rewrite happened lost "Direct Preference Optimization:
+Your Language Model is Secretly a Reward Model" from the top 10, because the rewriter shortened it;
+every known title tested matches at least one paper word for word, and all 9 stay first.
+Also measured and rejected the same day: requiring the rarest words instead of falling back to
+any word (keyword top-10 hit rate on 487 LitSearch questions 33.9% → 11.1%), phrases for
+hyphenated terms (neutral), and topping up a short every-word list with any-word matches (+1.4
+points keyword-only, but its extra RRF votes pushed the DPO paper out of the top 10).
+**Action items:** Set `SEARCH_REWRITE_KEYWORDS=on` on the Space; watch search_log for rewritten
+queries.
