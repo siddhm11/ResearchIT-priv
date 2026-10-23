@@ -99,3 +99,20 @@ async def test_a_served_page_records_what_the_reader_waited_for(monkeypatch):
     stats = runtime_stats.timings()
     assert {"page_ms", "log_ms", "cards_ms", "request_ms"} <= stats["feed_first_page"].keys()
     assert "request_ms" in stats["feed_next_page"] and "total_ms" in stats["feed_tier1"]
+
+
+async def test_candidate_vectors_and_details_are_fetched_side_by_side(monkeypatch):
+    install(monkeypatch, vectors_wait=0.3, details_wait=0.3)
+    state = await reader()
+    *_, timing = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
+    assert timing["cand_vectors_ms"] >= 300 and timing["cand_details_ms"] >= 300
+    assert timing["candidate_meta_ms"] < 500          # one wait, not two
+
+
+async def test_which_fetch_finishes_first_does_not_change_the_feed(monkeypatch):
+    install(monkeypatch, vectors_wait=0.15)
+    state = await reader()
+    vectors_last = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
+    install(monkeypatch, details_wait=0.15)
+    details_last = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
+    assert vectors_last[0] == details_last[0] and vectors_last[2] == details_last[2]
