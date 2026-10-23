@@ -137,6 +137,36 @@ def changed_counts(current: dict[str, tuple[int, int]], fetched: dict[str, dict 
     return out
 
 
+# Citation history. The papers table keeps only the latest count, so before the
+# update overwrites a count, the old and new values are written here. Growth over
+# any window is then the sum of (citations - citations_before) for the rows in it,
+# with no baseline snapshot. Trending in every field reads this (doc 06,
+# 2026-10-23); until it existed every overwritten count was lost.
+HISTORY_DDL = ("CREATE TABLE IF NOT EXISTS citation_history ("
+               "arxiv_id TEXT NOT NULL, checked_on TEXT NOT NULL, "
+               "citations_before INTEGER NOT NULL, citations INTEGER NOT NULL, "
+               "influential_before INTEGER NOT NULL, influential INTEGER NOT NULL, "
+               "PRIMARY KEY (arxiv_id, checked_on))")
+
+
+def history_rows(current: dict[str, tuple[int, int]], changes: list[tuple[str, int, int]],
+                 day: str) -> list[tuple[str, str, int, int, int, int]]:
+    """(arxiv_id, day, citations_before, citations, influential_before, influential)."""
+    return [(a, day, current[a][0], c, current[a][1], f) for a, c, f in changes]
+
+
+def history_insert(rows: list[tuple]) -> dict:
+    """One multi-row upsert. A second run on the same day keeps the first run's
+    `before` values, so a day's row always spans the whole day's change."""
+    sql = ("INSERT INTO citation_history (arxiv_id, checked_on, citations_before, citations, "
+           "influential_before, influential) VALUES " + ", ".join(["(?, ?, ?, ?, ?, ?)"] * len(rows))
+           + " ON CONFLICT (arxiv_id, checked_on) DO UPDATE SET "
+             "citations = excluded.citations, influential = excluded.influential")
+    args = [{"type": "integer" if isinstance(v, int) else "text", "value": str(v)}
+            for row in rows for v in row]
+    return {"sql": sql, "args": args}
+
+
 def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str]:
     problems = []
     dq = after["recent_points"] - before["recent_points"]
@@ -202,13 +232,20 @@ def stage_citations(st: Stores, prefix: str) -> dict:
                 raise SystemExit(f"Semantic Scholar batch failed at {chunk[0]}")
             fetched.update(zip(chunk, res))
     changes = changed_counts(current, fetched)
+    day = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    st.t(HISTORY_DDL)
     sql = "UPDATE papers SET citation_count = ?, influential_citations = ? WHERE arxiv_id = ?"
     for i in range(0, len(changes), 500):
-        st.t_many([{"sql": sql, "args": [{"type": "integer", "value": str(c)},
-                                         {"type": "integer", "value": str(f)},
-                                         {"type": "text", "value": a}]} for a, c, f in changes[i:i + 500]])
+        batch = changes[i:i + 500]
+        # One transaction per batch: a history row without its update would be
+        # counted again by the next run, and an update without its row is lost.
+        st.t_many([{"sql": "BEGIN"}]
+                  + [{"sql": sql, "args": [{"type": "integer", "value": str(c)},
+                                           {"type": "integer", "value": str(f)},
+                                           {"type": "text", "value": a}]} for a, c, f in batch]
+                  + [history_insert(history_rows(current, batch, day)), {"sql": "COMMIT"}])
     found = sum(1 for v in fetched.values() if v)
-    return {"papers": len(ids), "found": found, "changed": len(changes)}
+    return {"papers": len(ids), "found": found, "changed": len(changes), "history_rows": len(changes)}
 
 
 def licence_coverage(codes: list[str | None]) -> dict:

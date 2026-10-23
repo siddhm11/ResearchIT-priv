@@ -35,6 +35,30 @@ def test_only_changed_known_counts_are_written():
     assert dr.changed_counts(current, fetched) == [("b", 12, 2)]
 
 
+def test_history_rows_keep_the_count_being_overwritten():
+    current = {"a": (5, 1), "b": (0, 0)}
+    assert dr.history_rows(current, [("b", 12, 2)], "2026-10-24") == [("b", "2026-10-24", 0, 12, 0, 2)]
+
+
+def _run(conn, stmt):
+    conn.execute(stmt["sql"], [int(a["value"]) if a["type"] == "integer" else a["value"]
+                               for a in stmt.get("args", [])])
+
+
+def test_history_upsert_spans_the_whole_day_and_sums_to_the_growth():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute(dr.HISTORY_DDL)
+    _run(conn, dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2), ("c", "2026-10-24", 3, 4, 0, 0)]))
+    _run(conn, dr.history_insert([("b", "2026-10-24", 12, 15, 2, 3)]))     # second run, same day
+    _run(conn, dr.history_insert([("b", "2026-10-25", 15, 16, 3, 3)]))
+    assert conn.execute("SELECT citations_before, citations FROM citation_history "
+                        "WHERE arxiv_id = 'b' ORDER BY checked_on").fetchall() == [(0, 15), (15, 16)]
+    gain = conn.execute("SELECT SUM(citations - citations_before) FROM citation_history "
+                        "WHERE arxiv_id = 'b'").fetchone()[0]
+    assert gain == 16
+
+
 def test_verify_counts_catches_mismatches():
     before = {"recent_points": 100, "turso_rows": 1000, "turso_max_rowid": 1000}
     ok = {"recent_points": 150, "turso_rows": 1050, "turso_max_rowid": 1050}
