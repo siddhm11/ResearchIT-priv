@@ -25,7 +25,7 @@ import re
 
 import aiosqlite
 
-from app import arxiv_html, config, errors, llm, paper_source_svc
+from app import ai_usage, arxiv_html, config, errors, llm, paper_source_svc
 
 SWITCH = "BRIEFING"
 PROMPT_VERSION = "b1"
@@ -324,24 +324,31 @@ async def get_or_generate(arxiv_id: str, title: str, abstract: str) -> tuple[str
     if source is not None and source.ok:
         hit = await cached(arxiv_id, source.version)
         if hit is not None:
+            ai_usage.count("briefing", "cache_hit")
             return hit
     key = (asyncio.get_running_loop(), arxiv_id)
     fut = _in_flight.get(key)
     if fut is None:
         async def run():
+            ai_usage.count("briefing", "cache_miss")
             try:
-                return await _generate(arxiv_id, title, abstract)
+                status, briefing = await _generate(arxiv_id, title, abstract)
             except Exception as e:
                 errors.report("briefing_svc", f"briefing for {arxiv_id} failed", e)
-                return "failed", {}
+                status, briefing = "failed", {}
             finally:
                 _in_flight.pop(key, None)
+            busy = str(briefing.get("error", "")).startswith("model ")
+            ai_usage.count("briefing", "busy" if busy else status)
+            ai_usage.count("briefing", "points_dropped", len(briefing.get("dropped") or []))
+            return status, briefing
         fut = asyncio.ensure_future(run())
         _in_flight[key] = fut
     return await asyncio.shield(fut)
 
 
 async def report(arxiv_id: str, feature: str, reason: str, user_id: str | None) -> None:
+    ai_usage.count(feature[:40], "reported")
     async with aiosqlite.connect(config.DB_PATH) as conn:
         await conn.execute(
             "INSERT INTO content_reports (arxiv_id, feature, reason, user_id) VALUES (?, ?, ?, ?)",

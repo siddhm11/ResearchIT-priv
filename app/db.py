@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS paper_explanations (
 CREATE INDEX IF NOT EXISTS idx_explanations_paper ON paper_explanations(arxiv_id);
 
 -- One row per paper whose arXiv HTML page has been read (app/paper_source_svc.py).
--- Replicated, so kept slim: at most 8 figures with captions cut to 300
+-- Replicated, so kept slim: at most 24 figures with captions cut to 300
 -- characters, no paragraph text. `status` is ok | no_html | error.
 CREATE TABLE IF NOT EXISTS paper_sources (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -255,9 +255,28 @@ CREATE TABLE IF NOT EXISTS llm_calls (
     usd_est     REAL,
     latency_ms  INTEGER,
     status      TEXT NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    tokens_in     INTEGER,
+    tokens_out    INTEGER,
+    model_rank    INTEGER,
+    truncated     INTEGER DEFAULT 0,
+    requests_left INTEGER,
+    tokens_left   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_llm_calls_time ON llm_calls(created_at);
+
+-- Daily counts per AI feature of what isn't a model call: cache hits and
+-- misses, outcomes (declined, busy), points and quotes dropped by the checks,
+-- reader reports (app/ai_usage.py). One row per day, feature and metric,
+-- rewritten whole (new id) on each flush so turso_sync pushes it. Replicated.
+CREATE TABLE IF NOT EXISTS ai_daily (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    day     TEXT NOT NULL,
+    feature TEXT NOT NULL,
+    metric  TEXT NOT NULL,
+    n       INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (day, feature, metric)
+);
 
 -- Briefings ("Three things to know", "How it works", "Where you'd use this"),
 -- one per paper version, parser, prompt and model (app/briefing_svc.py).
@@ -390,6 +409,17 @@ _MIGRATION_REDESIGN = [
     "ALTER TABLE interactions ADD COLUMN layout TEXT",
 ]
 
+# ── AI usage: tokens and Groq's rate-limit window per model call ───────────
+# (app/ai_usage.py). Replicated; turso_sync adds the remote columns too.
+_MIGRATION_AI_USAGE = [
+    "ALTER TABLE llm_calls ADD COLUMN tokens_in INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN tokens_out INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN model_rank INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN truncated INTEGER DEFAULT 0",
+    "ALTER TABLE llm_calls ADD COLUMN requests_left INTEGER",
+    "ALTER TABLE llm_calls ADD COLUMN tokens_left INTEGER",
+]
+
 LAYOUTS = ("list", "grid2")
 
 
@@ -419,7 +449,7 @@ async def init_db() -> None:
                 await db.execute(stmt)
             except Exception:
                 pass  # Column already exists — safe to ignore
-        for stmt in _MIGRATION_REDESIGN:
+        for stmt in _MIGRATION_REDESIGN + _MIGRATION_AI_USAGE:
             try:
                 await db.execute(stmt)
             except Exception:

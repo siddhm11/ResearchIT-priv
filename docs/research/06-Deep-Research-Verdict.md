@@ -796,3 +796,30 @@ Creative Commons licences without a deploy.
 `/healthz/sources` after turning `FIGURE_PREWARM` on. Revisit the licence
 policy before the audience grows.
 
+### 2026-10-20 — Every model call is measured; caching flaws found
+**Decision:** All five AI features log each model call with its tokens, the
+answering model's place in the chain, truncation, status and Groq's
+rate-limit window (`llm_calls`), plus daily counts of cache use and answer
+quality (`ai_daily`), shown at `/healthz/ai`. `LLM_DAILY_CALLS` keeps covering
+only the briefing and Ask.
+**Supersedes:** nothing; before this only the briefing and Ask logged calls, in
+characters.
+**Rationale:** Groq's per-model limits are 8,000 tokens a minute and 200,000 a
+day. A briefing is about 3,700 tokens and a search about 1,850 (rewrite plus
+overview), so two briefings fill a model's minute. The response headers report
+requests left today and tokens left this minute, but nothing reports tokens
+used today, so only our own count can say how close a day comes.
+**Findings to act on** (production, 2026-10-19, one day of data):
+1. The briefing cache key includes `PARSER_VERSION` and the configured model.
+   The figure-only parser bump of 2026-10-19 invalidated every briefing;
+   1706.03762 was regenerated, and 2608.11967 went from ok to insufficient.
+   Key on the passages actually sent, and never replace an ok briefing with a
+   worse result.
+2. Search rewrites and overviews are not cached; an identical search asks the
+   model again. Cache the rewrite by normalised query and the overview by
+   query plus its top five papers.
+3. A plain summary can be written twice, from the cut abstract and then the
+   full one (1 of 10 papers).
+**Action items:** Build the dashboard on `/healthz/ai`'s data; fix 1 and 2 and
+measure the saving in `ai_daily` cache counts.
+

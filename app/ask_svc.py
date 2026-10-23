@@ -35,7 +35,7 @@ from collections import Counter
 
 import aiosqlite
 
-from app import arxiv_html, briefing_svc, config, errors, llm, paper_source_svc
+from app import ai_usage, arxiv_html, briefing_svc, config, errors, llm, paper_source_svc
 
 SWITCH = "ASK"
 PROMPT_VERSION = "a1"
@@ -378,3 +378,9 @@ async def answer(arxiv_id: str, paper: dict, question: str, *, user_id: str | No
     finally:
         log["latency_ms"] = int((time.perf_counter() - t0) * 1000)
         await _log(log)
+        if suggested:
+            ai_usage.count("ask", "cache_hit" if log["status"] == "cached" else "cache_miss")
+        ai_usage.count("ask", log["kind"] or "error")
+        ai_usage.count("ask", "quotes_kept", log["quotes_kept"])
+        ai_usage.count("ask", "quotes_dropped", log["quotes_dropped"])
+        ai_usage.count("ask", "cites_dropped", log["cites_dropped"])

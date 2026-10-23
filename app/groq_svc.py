@@ -10,6 +10,7 @@ Responsibilities:
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import threading
 import time
@@ -185,7 +186,75 @@ def probe_models() -> dict:
 class Completion(NamedTuple):
     text: str
     model: str
-    truncated: bool     # stopped at the token cap, mid-thought
+    truncated: bool                 # stopped at the token cap, mid-thought
+    tokens_in: int | None = None    # Groq's usage, when the response carries it
+    tokens_out: int | None = None
+    rank: int = 0                   # place of `model` in GROQ_MODELS: 0 is the primary
+
+
+# The newest rate-limit headers Groq sent for each model (app/ai_usage.py shows
+# them). Groq reports requests left today and tokens left this MINUTE; tokens
+# per day are not in any header, so app/ai_usage.py counts them from usage.
+_windows: dict[str, dict] = {}
+_WINDOW_HEADERS = {
+    "requests_limit": "x-ratelimit-limit-requests", "requests_left": "x-ratelimit-remaining-requests",
+    "requests_reset": "x-ratelimit-reset-requests", "tokens_limit": "x-ratelimit-limit-tokens",
+    "tokens_left": "x-ratelimit-remaining-tokens", "tokens_reset": "x-ratelimit-reset-tokens",
+}
+
+
+def _note_window(model: str, headers) -> None:
+    """Keep the rate-limit headers of a response (or of a 429) for `model`."""
+    if not headers:
+        return
+    window = {}
+    for key, header in _WINDOW_HEADERS.items():
+        value = headers.get(header)
+        if value is None:
+            continue
+        try:
+            window[key] = int(value) if key.endswith(("_limit", "_left")) else str(value)
+        except ValueError:
+            window[key] = str(value)
+    if window:
+        window["at"] = time.time()
+        _windows[model] = window
+
+
+def windows() -> dict[str, dict]:
+    """A copy of the newest rate-limit headers per model."""
+    return {m: dict(w) for m, w in _windows.items()}
+
+
+async def _run_logged(feature: str, fn, *args, chars_in: int = 0) -> Completion:
+    """Run a blocking completion off the event loop and log it (app/ai_usage.py).
+
+    Raises what the completion raised, after logging it as failed, or as
+    unavailable when every model in the chain was benched or refused.
+    """
+    from app import ai_usage
+    t0 = time.perf_counter()
+    try:
+        result = await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+    except Exception as e:
+        status = "unavailable" if "no Groq model answered" in str(e) else "failed"
+        await ai_usage.log_call(feature, None, latency_ms=(time.perf_counter() - t0) * 1000,
+                                status=status, chars_in=chars_in)
+        raise
+    await ai_usage.log_call(feature, result, latency_ms=(time.perf_counter() - t0) * 1000, chars_in=chars_in)
+    return result
+
+
+def _count(feature: str, metric: str) -> None:
+    from app import ai_usage
+    ai_usage.count(feature, metric)
+
+
+def _rank(model: str) -> int:
+    try:
+        return list(config.GROQ_MODELS).index(model)
+    except ValueError:
+        return len(config.GROQ_MODELS)
 
 
 # Reasoning a model emits inline instead of in its own field, including an
@@ -227,15 +296,20 @@ def _complete(client, messages: list[dict], *, temperature: float,
         remaining = deadline - time.monotonic()
         if remaining < _MIN_ATTEMPT_S:
             break
+        kwargs = dict(messages=messages, model=model, temperature=temperature, timeout=remaining,
+                      **_request_options(model, max_tokens))
         try:
-            response = client.chat.completions.create(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                timeout=remaining,
-                **_request_options(model, max_tokens),
-            )
+            # The raw form exposes the rate-limit headers; a client without it
+            # (the tests' fake) is called the plain way.
+            raw_api = getattr(client.chat.completions, "with_raw_response", None)
+            if raw_api is not None:
+                raw = raw_api.create(**kwargs)
+                _note_window(model, raw.headers)
+                response = raw.parse()
+            else:
+                response = client.chat.completions.create(**kwargs)
         except groq.RateLimitError as e:
+            _note_window(model, getattr(getattr(e, "response", None), "headers", None))
             _bench(model, _retry_after(e), "rate limited")
             last_error = e
             continue
@@ -251,8 +325,10 @@ def _complete(client, messages: list[dict], *, temperature: float,
             last_error = e
             continue
         choice = response.choices[0]
-        return Completion(_clean(choice.message.content),
-                          model, choice.finish_reason == "length")
+        usage = getattr(response, "usage", None)
+        return Completion(_clean(choice.message.content), model, choice.finish_reason == "length",
+                          getattr(usage, "prompt_tokens", None), getattr(usage, "completion_tokens", None),
+                          _rank(model))
 
     raise RuntimeError(
         f"no Groq model answered (configured: {config.GROQ_MODELS}, "
@@ -339,6 +415,7 @@ async def rewrite(query: str) -> str:
 
     # Skip if already academic-looking
     if _looks_academic(query):
+        _count("search_rewrite", "skipped")
         return query
 
     client = _get_client()
@@ -346,20 +423,21 @@ async def rewrite(query: str) -> str:
         return query  # No API key configured — skip
 
     try:
-        import asyncio
-
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_rewrite, client, query)
+        result = await _run_logged("search_rewrite", _run_rewrite, client, query,
+                                   chars_in=len(_SYSTEM_PROMPT) + len(query))
         # A rewrite cut off at the cap ("LLa") is worse than none: it would be
         # embedded and searched as if it were the reader's intent.
         if result.truncated:
+            _count("search_rewrite", "discarded")
             return query
         rewritten = result.text.strip('"').strip("'").strip()
 
         # Sanity check: rewritten should be non-empty and not absurdly long
         if not rewritten or len(rewritten) > 200:
+            _count("search_rewrite", "discarded")
             return query
 
+        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
         return rewritten
 
     except Exception as e:
@@ -419,13 +497,13 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     prompt = _summary_prompt(query, papers)
 
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _run_summary, client, prompt)
+        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt))
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
+            _count("search_overview", "empty")
             return None
+        _count("search_overview", "trimmed" if result.truncated else "shown")
             
         # Escape first, then bold. ai_summary.html renders this with |safe, and
         # the model's text is steered by the search query -- which arrives in
@@ -528,10 +606,8 @@ async def explain_paper(title: str, abstract: str) -> str | None:
               f"<abstract>{abstract.strip()}</abstract>")
 
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, _run_explain, client, prompt)
+        result = await _run_logged("explain", _run_explain, client, prompt,
+                                   chars_in=len(_EXPLAIN_SYSTEM) + len(prompt))
     except Exception as e:
         print(f"[groq_svc] explain failed: {e}")
         return None
@@ -542,7 +618,9 @@ async def explain_paper(title: str, abstract: str) -> str | None:
     # The model's own refusal path. Honoured rather than second-guessed: a
     # summary of a mutilated abstract is worse than no summary.
     if not text or text.upper().startswith("INSUFFICIENT"):
+        _count("explain", "declined")
         return None
+    _count("explain", "trimmed" if result.truncated else "written")
     return text
 
 

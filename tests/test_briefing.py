@@ -344,3 +344,18 @@ def test_multipliers_and_tex_written_numbers(token, source, ok):
 
 def test_multipliers_are_quantities_not_names():
     assert briefing_svc._numbers("It scales 2.3x better on x86.") == ["2.3x"]
+
+
+async def test_cache_use_outcome_and_dropped_points_are_counted(fake, monkeypatch):
+    from app import ai_usage
+    monkeypatch.setattr(ai_usage, "_pending", {})
+    await satnav_inputs()
+    llm.fake_reply(good_reply)
+    await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
+    await ai_usage.flush()
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        got = dict(await (await conn.execute(
+            "SELECT metric, n FROM ai_daily WHERE feature = 'briefing'")).fetchall())
+    assert got == {"cache_miss": 1, "ok": 1, "points_dropped": 1, "cache_hit": 1}
+

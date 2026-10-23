@@ -40,6 +40,10 @@ class Call:
     usd_est: float = 0.0
     latency_ms: int = 0
     status: str = "ok"          # ok | failed | unparsable | over_budget | unavailable
+    tokens_in: int | None = None
+    tokens_out: int | None = None
+    model_rank: int | None = None   # 0 = the primary model answered
+    truncated: bool = False         # the reply hit the token cap (status is then "failed")
 
 
 class BudgetExceeded(Exception):
@@ -92,12 +96,19 @@ def estimate_usd(model: str, chars_in: int, chars_out: int) -> float:
     return round((chars_in * cin + chars_out * cout) / 1e6, 6)
 
 
+# The features LLM_DAILY_CALLS and LLM_DAILY_USD_CAP apply to. llm_calls also
+# holds search and plain-summary calls (app/ai_usage.py); they don't count here,
+# so a busy day of searching can't switch the briefing off.
+BUDGETED = ("briefing", "ask")
+
+
 async def today() -> dict:
-    """Calls and estimated spend so far this UTC day."""
+    """Calls and estimated spend so far this UTC day, for the budgeted features."""
+    marks = ",".join("?" * len(BUDGETED))
     async with aiosqlite.connect(config.DB_PATH) as conn:
         cur = await conn.execute(
             "SELECT COUNT(*), COALESCE(SUM(usd_est), 0) FROM llm_calls "
-            "WHERE created_at >= date('now') AND status != 'over_budget'")
+            f"WHERE created_at >= date('now') AND status != 'over_budget' AND feature IN ({marks})", BUDGETED)
         calls, usd = await cur.fetchone()
     return {"calls": calls, "usd": round(usd, 4),
             "call_cap": config.LLM_DAILY_CALLS, "usd_cap": config.LLM_DAILY_USD_CAP}
@@ -111,16 +122,8 @@ async def within_budget() -> bool:
 
 
 async def _log(call: Call) -> None:
-    try:
-        async with aiosqlite.connect(config.DB_PATH) as conn:
-            await conn.execute(
-                "INSERT INTO llm_calls (feature, provider, model, chars_in, chars_out, usd_est, "
-                "latency_ms, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (call.feature, call.provider, call.model, call.chars_in, call.chars_out,
-                 call.usd_est, call.latency_ms, call.status))
-            await conn.commit()
-    except Exception as e:
-        errors.report("llm", "logging a model call failed", e)
+    from app import ai_usage
+    await ai_usage.record(call)
 
 
 # ── parsing ──────────────────────────────────────────────────────────────────
@@ -177,7 +180,16 @@ def first_json_object(text: str) -> dict | None:
 
 # ── the call ─────────────────────────────────────────────────────────────────
 
-async def _ask_groq(system: str, user: str, max_tokens: int, timeout: float) -> tuple[str, str]:
+class Truncated(RuntimeError):
+    """The reply hit the token cap; carries the completion for the call log."""
+
+    def __init__(self, completion):
+        super().__init__("reply cut off at the token cap")
+        self.completion = completion
+
+
+async def _ask_groq(system: str, user: str, max_tokens: int, timeout: float):
+    """The groq_svc.Completion for one call through the GROQ_MODELS chain."""
     from app import groq_svc
     client = groq_svc._get_client()
     if client is None:
@@ -186,18 +198,19 @@ async def _ask_groq(system: str, user: str, max_tokens: int, timeout: float) -> 
     result = await asyncio.to_thread(groq_svc._complete, client, messages,
                                      temperature=0.2, max_tokens=max_tokens, timeout=timeout)
     if result.truncated:
-        raise RuntimeError("reply cut off at the token cap")
-    return result.text, result.model
+        raise Truncated(result)
+    return result
 
 
-async def _ask_fake(system: str, user: str) -> tuple[str, str]:
+async def _ask_fake(system: str, user: str):
+    from app.groq_svc import Completion
     if not _fake_replies:
         raise RuntimeError("no fake reply queued")
     reply = _fake_replies.pop(0)
     if isinstance(reply, Exception):
         raise reply
     text = reply(system, user) if callable(reply) else reply
-    return text, "fake"
+    return Completion(text, "fake", False)
 
 
 async def complete_json(feature: str, system: str, user: str, *, max_tokens: int = 900,
@@ -212,11 +225,16 @@ async def complete_json(feature: str, system: str, user: str, *, max_tokens: int
     t0 = time.perf_counter()
     try:
         if provider == "fake":
-            text, model = await _ask_fake(system, user)
+            result = await _ask_fake(system, user)
         else:
-            text, model = await asyncio.wait_for(_ask_groq(system, user, max_tokens, timeout), timeout + 1)
+            result = await asyncio.wait_for(_ask_groq(system, user, max_tokens, timeout), timeout + 1)
+        text, model = result.text, result.model
     except Exception as e:
         call.latency_ms = int((time.perf_counter() - t0) * 1000)
+        if isinstance(e, Truncated):
+            c = e.completion
+            call.model, call.tokens_in, call.tokens_out, call.model_rank = c.model, c.tokens_in, c.tokens_out, c.rank
+            call.truncated, call.chars_out = True, len(c.text or "")
         # Every model benched (rate limits on Groq's free tier) or no key: the
         # paper is not the problem, so callers retry soon instead of caching it.
         text = str(e)
@@ -226,6 +244,7 @@ async def complete_json(feature: str, system: str, user: str, *, max_tokens: int
         return None, call
     call.latency_ms = int((time.perf_counter() - t0) * 1000)
     call.model, call.chars_out = model, len(text or "")
+    call.tokens_in, call.tokens_out, call.model_rank = result.tokens_in, result.tokens_out, result.rank
     call.usd_est = estimate_usd(model, call.chars_in, call.chars_out)
     data = first_json_object(text)
     if data is None:

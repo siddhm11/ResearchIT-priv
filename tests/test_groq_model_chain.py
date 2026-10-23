@@ -229,3 +229,57 @@ async def test_overview_markup_from_the_model_is_escaped(monkeypatch):
     html = await groq_svc.generate_search_summary("q", papers)
     assert "<img" not in html and "<script" not in html
     assert "&lt;img" in html and "<strong>this</strong>" in html
+
+
+# ── usage and rate-limit windows (app/ai_usage.py reads these) ───────────────
+
+class RawFakeClient(FakeClient):
+    """Like FakeClient, but through with_raw_response, carrying Groq's headers."""
+
+    def __init__(self, behaviour: dict, headers: dict):
+        super().__init__(behaviour)
+        self.headers = headers
+        raw = SimpleNamespace(create=self._raw_create)
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create, with_raw_response=raw))
+
+    def _raw_create(self, **kwargs):
+        result = self._create(**kwargs)
+        return SimpleNamespace(headers=self.headers, parse=lambda: result)
+
+
+HEADERS = {"x-ratelimit-limit-requests": "1000", "x-ratelimit-remaining-requests": "987",
+           "x-ratelimit-reset-requests": "1m12.4s", "x-ratelimit-limit-tokens": "8000",
+           "x-ratelimit-remaining-tokens": "6512", "x-ratelimit-reset-tokens": "11.2s"}
+
+
+def _with_usage(text, prompt, completion):
+    c = _completion(text)
+    c.usage = SimpleNamespace(prompt_tokens=prompt, completion_tokens=completion)
+    return c
+
+
+def test_a_completion_carries_tokens_and_the_models_place_in_the_chain():
+    groq_svc._windows.clear()
+    client = RawFakeClient({CHAIN[0]: _status_error(groq.InternalServerError, 500),
+                            CHAIN[1]: _with_usage("ok", 812, 143)}, HEADERS)
+    result = groq_svc._complete(client, [{"role": "user", "content": "q"}],
+                                temperature=0.1, max_tokens=60, timeout=5)
+    assert (result.model, result.tokens_in, result.tokens_out, result.rank) == (CHAIN[1], 812, 143, 1)
+
+
+def test_rate_limit_headers_are_kept_per_model():
+    groq_svc._windows.clear()
+    client = RawFakeClient({CHAIN[0]: _with_usage("ok", 10, 2)}, HEADERS)
+    groq_svc._complete(client, [{"role": "user", "content": "q"}], temperature=0.1, max_tokens=60, timeout=5)
+    w = groq_svc.windows()[CHAIN[0]]
+    assert (w["requests_left"], w["requests_limit"], w["tokens_left"], w["tokens_limit"]) == (987, 1000, 6512, 8000)
+    assert w["tokens_reset"] == "11.2s" and w["at"] > 0
+
+
+def test_a_429_still_records_the_window_it_ran_into():
+    groq_svc._windows.clear()
+    limited = _status_error(groq.RateLimitError, 429, headers={**HEADERS, "x-ratelimit-remaining-tokens": "0",
+                                                               "retry-after": "7"})
+    client = RawFakeClient({CHAIN[0]: limited, CHAIN[1]: _completion("ok")}, HEADERS)
+    groq_svc._complete(client, [{"role": "user", "content": "q"}], temperature=0.1, max_tokens=60, timeout=5)
+    assert groq_svc.windows()[CHAIN[0]]["tokens_left"] == 0

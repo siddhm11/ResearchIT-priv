@@ -294,3 +294,20 @@ def test_the_panel_appears_on_the_paper_page_with_suggestions(world, monkeypatch
     assert 'id="chat"' in html and 'data-ask-key="limits"' in html
     assert 'data-ask-key="fig:S1.F1"' in html and "Explain figure 1" in html
     assert "px--noask" not in html
+
+
+def test_ai_daily_counts_cache_use_and_answers(world, monkeypatch):
+    from app import ai_usage
+    monkeypatch.setattr(ai_usage, "_pending", {})
+    llm.fake_reply(answer_from("S6"))
+    post({"key": "limits", "q": "x"})
+    post({"key": "limits", "q": "y"}, cookie="reader-2")
+    asyncio.run(ai_usage.flush())
+
+    async def read():
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            return dict(await (await conn.execute(
+                "SELECT metric, n FROM ai_daily WHERE feature = 'ask'")).fetchall())
+    got = asyncio.run(read())
+    assert got["cache_miss"] == 1 and got["cache_hit"] == 1 and got["answer"] == 2
+

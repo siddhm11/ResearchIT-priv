@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
-from app.routers import (search, events, recommendations, saved, onboarding,
+from app.routers import (admin, search, events, recommendations, saved, onboarding,
                          health, collections, paper, figures)
 
 
@@ -91,14 +91,16 @@ async def lifespan(app: FastAPI):
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
-    from app import figure_prewarm
+    from app import ai_usage, figure_prewarm
     await figure_prewarm.start()
+    await ai_usage.start()
     try:
         yield
     finally:
         await app.state.discovery.stop()
         from app import abstract_svc, figure_prewarm, paper_source_svc
         await figure_prewarm.stop()
+        await ai_usage.stop()
         await abstract_svc.stop()
         await paper_source_svc.stop()
 
@@ -209,6 +211,7 @@ app.include_router(health.router)
 app.include_router(collections.router)
 app.include_router(paper.router)
 app.include_router(figures.router)
+app.include_router(admin.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.
