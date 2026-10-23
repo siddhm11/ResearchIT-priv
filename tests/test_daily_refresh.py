@@ -59,6 +59,42 @@ def test_history_upsert_spans_the_whole_day_and_sums_to_the_growth():
     assert gain == 16
 
 
+def _run_batch(conn, batch):
+    """What Turso does with a Hrana batch: a step runs only if its condition holds."""
+    import sqlite3
+    ok = []
+
+    def holds(cond):
+        if cond is None:
+            return True
+        if cond["type"] == "ok":
+            return ok[cond["step"]]
+        if cond["type"] == "not":
+            return not holds(cond["cond"])
+        raise ValueError(cond)
+
+    for step in batch["steps"]:
+        ran = holds(step.get("condition"))
+        if ran:
+            try:
+                _run(conn, step["stmt"])
+            except sqlite3.Error:
+                ran = False
+        ok.append(ran)
+
+
+def test_a_failed_statement_rolls_back_the_whole_batch():
+    import sqlite3
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.execute(dr.HISTORY_DDL)
+    row = dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2)])
+    _run_batch(conn, dr.tx_batch([row, {"sql": "UPDATE no_such_table SET x = 1"}]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 0
+    assert not conn.in_transaction
+    _run_batch(conn, dr.tx_batch([row]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 1
+
+
 def test_verify_counts_catches_mismatches():
     before = {"recent_points": 100, "turso_rows": 1000, "turso_max_rowid": 1000}
     ok = {"recent_points": 150, "turso_rows": 1050, "turso_max_rowid": 1050}

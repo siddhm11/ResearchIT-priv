@@ -90,10 +90,14 @@ class Stores:
         return [[c.get("value") for c in row] for row in res["response"]["result"]["rows"]]
 
     def t_many(self, stmts: list[dict]) -> None:
+        """All of `stmts` in one transaction, or none of them (see tx_batch)."""
         r = self.http.post(f"{self.turl}/v2/pipeline", headers={"Authorization": f"Bearer {self.ttok}"},
-                           json={"requests": [{"type": "execute", "stmt": s} for s in stmts] + [{"type": "close"}]})
+                           json={"requests": [{"type": "batch", "batch": tx_batch(stmts)}, {"type": "close"}]})
         r.raise_for_status()
-        errs = [x for x in r.json().get("results", []) if x.get("type") == "error"]
+        res = r.json()["results"][0]
+        if res.get("type") != "ok":
+            raise RuntimeError(str(res)[:300])
+        errs = [e for e in res["response"]["result"]["step_errors"] if e]
         if errs:
             raise RuntimeError(str(errs[0])[:300])
 
@@ -147,6 +151,21 @@ HISTORY_DDL = ("CREATE TABLE IF NOT EXISTS citation_history ("
                "citations_before INTEGER NOT NULL, citations INTEGER NOT NULL, "
                "influential_before INTEGER NOT NULL, influential INTEGER NOT NULL, "
                "PRIMARY KEY (arxiv_id, checked_on))")
+
+
+def tx_batch(stmts: list[dict]) -> dict:
+    """A Hrana batch that commits only if every statement succeeded.
+
+    BEGIN ... COMMIT sent as a plain pipeline is not a transaction in practice:
+    Turso runs the statements after a failed one, and the COMMIT then keeps
+    those before it (checked on Turso, 2026-10-23). Here each step runs only if
+    the previous one succeeded, and ROLLBACK runs unless COMMIT did."""
+    steps = [{"stmt": {"sql": "BEGIN"}}]
+    for s in stmts + [{"sql": "COMMIT"}]:
+        steps.append({"stmt": s, "condition": {"type": "ok", "step": len(steps) - 1}})
+    steps.append({"stmt": {"sql": "ROLLBACK"},
+                  "condition": {"type": "not", "cond": {"type": "ok", "step": len(steps) - 1}}})
+    return {"steps": steps}
 
 
 def history_rows(current: dict[str, tuple[int, int]], changes: list[tuple[str, int, int]],
@@ -239,11 +258,10 @@ def stage_citations(st: Stores, prefix: str) -> dict:
         batch = changes[i:i + 500]
         # One transaction per batch: a history row without its update would be
         # counted again by the next run, and an update without its row is lost.
-        st.t_many([{"sql": "BEGIN"}]
-                  + [{"sql": sql, "args": [{"type": "integer", "value": str(c)},
-                                           {"type": "integer", "value": str(f)},
-                                           {"type": "text", "value": a}]} for a, c, f in batch]
-                  + [history_insert(history_rows(current, batch, day)), {"sql": "COMMIT"}])
+        st.t_many([{"sql": sql, "args": [{"type": "integer", "value": str(c)},
+                                         {"type": "integer", "value": str(f)},
+                                         {"type": "text", "value": a}]} for a, c, f in batch]
+                  + [history_insert(history_rows(current, batch, day))])
     found = sum(1 for v in fetched.values() if v)
     return {"papers": len(ids), "found": found, "changed": len(changes), "history_rows": len(changes)}
 
