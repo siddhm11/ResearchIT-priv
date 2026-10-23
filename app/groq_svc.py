@@ -376,10 +376,14 @@ Output: hi how are you"""
 
 # ── Heuristic: should we skip rewriting? ─────────────────────────────────────
 
+# The acronym branch must stay case-sensitive. Under IGNORECASE it matched every
+# word of two or more letters, so every query over six words "looked academic"
+# and none of them was ever rewritten ("how do I stop a RAG system from making
+# things up" counted 9 acronyms). The topic words below stay case-insensitive.
 _ACADEMIC_PATTERN = re.compile(
     r"""(?:
         \d{4}\.\d{4,5}          |   # arXiv ID
-        [A-Z]{2,}               |   # Acronyms like LLM, NLP, BERT
+        (?-i:[A-Z]{2,})         |   # Acronyms like LLM, NLP, BERT
         transformer|attention   |
         neural|network          |
         \b(?:et\s+al|arxiv)\b

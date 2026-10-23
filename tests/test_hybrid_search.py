@@ -218,6 +218,17 @@ class TestGroqRewriter:
         from app.groq_svc import _looks_academic
         assert not _looks_academic("when AI makes stuff up")
 
+    def test_long_casual_question_not_academic(self):
+        """Ordinary lowercase words are not acronyms, so a long question gets rewritten."""
+        from app.groq_svc import _looks_academic
+        assert not _looks_academic("how do I stop a RAG system from making things up")
+        assert not _looks_academic("when the AI makes up fake facts")
+
+    def test_long_query_topic_words_any_case(self):
+        """The topic words still count in any case; only acronyms are case-sensitive."""
+        from app.groq_svc import _looks_academic
+        assert _looks_academic("Mastering the game of Go with deep Neural Networks and tree search")
+
     def test_rewrite_empty_query(self):
         """Empty query returns empty string."""
         import asyncio
