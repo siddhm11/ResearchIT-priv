@@ -1,0 +1,44 @@
+{#
+  "Trending in your interests" (app/trending_shelf.py), swapped in for the
+  placeholder after the fourth card of the feed's first page.
+
+  A shelf, not feed cards: these papers hold no slot of any interest's quota,
+  so they sit in one labelled block the reader can tell apart from the feed.
+  One row that scrolls sideways on a phone; it wraps to a grid on wide screens.
+  Each card says which interest it matched and how many upvotes it has, which
+  is the whole reason it is here, so it carries no "Why this?".
+
+  Links and buttons carry the shelf's query_id, position, propensity and
+  policy_id (CLAUDE.md §3.11), like every ranked surface.
+#}
+<section class="shelf" aria-labelledby="shelf-title-{{ query_id[:8] }}">
+  <header class="shelf-head">
+    <h2 class="shelf-title" id="shelf-title-{{ query_id[:8] }}">Trending in your interests</h2>
+    <span class="shelf-note">Upvoted on Hugging Face Daily Papers this week</span>
+  </header>
+  <ol class="shelf-row">
+    {% for paper in papers %}
+      {% set _q = ["qid=" ~ paper.query_id, "sf=" ~ source, "pos=" ~ paper.position,
+                   "src=" ~ paper.candidate_source, "prop=" ~ paper.propensity,
+                   "pol=" ~ paper.policy_id] %}
+      <li class="shelf-card">
+        {% if paper.interest.label %}
+          <span class="interest tone-{{ paper.interest.tone }}">{{ paper.interest.label }}</span>
+        {% endif %}
+        <a class="shelf-paper" href="/p/{{ paper.arxiv_id }}?{{ _q | join('&') }}">{{ paper.title }}</a>
+        <span class="shelf-meta">
+          <a class="shelf-votes" href="https://huggingface.co/papers/{{ paper.arxiv_id }}"
+             target="_blank" rel="noopener"
+             aria-label="{{ paper.upvotes }} upvotes on Hugging Face">▲ {{ paper.upvotes }}</a>
+          <span>listed {{ paper.listed_label }}</span>
+          {% if paper.github %}
+            <a class="code-chip" href="{{ paper.github }}" target="_blank" rel="noopener">Code{% if paper.stars %} <span class="st">★ {{ paper.stars }}</span>{% endif %}</a>
+          {% endif %}
+        </span>
+        <div class="card-actions shelf-actions" id="actions-{{ paper.arxiv_id }}">
+          {% include "partials/action_buttons.html" %}
+        </div>
+      </li>
+    {% endfor %}
+  </ol>
+</section>

@@ -111,7 +111,7 @@
   function dismissPaper(btn) {
     var id = btn.getAttribute('data-paper-id');
     if (!id || pending.has(id)) return;
-    var card = btn.closest('.card');
+    var card = btn.closest('.card, .shelf-card');
     if (!card) return;
 
     var vals = {};
@@ -503,7 +503,7 @@
     var feed = document.querySelector('[data-wide-feed] .feed');
     if (!feed) return;
     Array.prototype.forEach.call(feed.children, function (el) {
-      if (!el.classList.contains('card')) return;
+      if (!el.classList.contains('card') && !el.classList.contains('shelf')) return;
       if (spanObserver && !el.hasAttribute('data-span')) { el.setAttribute('data-span', '1'); spanObserver.observe(el); }
       setSpan(el);
     });

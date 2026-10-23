@@ -84,9 +84,21 @@ def normalize_snapshot(payload: object, observed_at: datetime) -> dict:
             "input_count": len(payload), "trend_velocity": None}
 
 
-async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = None) -> dict:
-    """One bounded, read-only request. Caller owns scheduling and persistence."""
-    async with client.stream("GET", ENDPOINT, timeout=15) as response:
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = None,
+                         date: str | None = None) -> dict:
+    """One bounded, read-only request. Caller owns scheduling and persistence.
+
+    `date` (YYYY-MM-DD) asks for that day's list instead of today's. The
+    snapshot also carries `code`: {arxiv_id: (repo_url, stars)} for papers whose
+    record names a GitHub repository, read from the same response.
+    """
+    if date is not None and not _DATE.fullmatch(date):
+        raise ValueError("date must be YYYY-MM-DD")
+    params = {"date": date} if date else None
+    async with client.stream("GET", ENDPOINT, params=params, timeout=15) as response:
         response.raise_for_status()
         body = bytearray()
         async for chunk in response.aiter_bytes():
@@ -94,7 +106,23 @@ async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = No
             if len(body) > 4_000_000:
                 raise ValueError("Daily Papers response exceeds 4 MB")
     import json
-    return normalize_snapshot(json.loads(body), now or datetime.now(timezone.utc))
+    payload = json.loads(body)
+    snapshot = normalize_snapshot(payload, now or datetime.now(timezone.utc))
+    snapshot["code"] = _code_links(payload)
+    return snapshot
+
+
+def _code_links(payload: list) -> dict[str, tuple[str, int]]:
+    out: dict[str, tuple[str, int]] = {}
+    for record in payload:
+        paper = record.get("paper") if isinstance(record, dict) else None
+        if not isinstance(paper, dict) or not isinstance(paper.get("id"), str):
+            continue
+        repo = github_repo(paper.get("githubRepo"))
+        if repo:
+            stars = paper.get("githubStars")
+            out[re.sub(r"v\d+$", "", paper["id"])] = (repo, stars if type(stars) is int and stars >= 0 else 0)
+    return out
 
 
 # ── Code links for one paper (the paper page's Code chip) ────────────────────

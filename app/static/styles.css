@@ -2032,3 +2032,37 @@ a.src:hover { text-decoration: underline; }
   font-size: .8rem; }
 .ai-overview { margin: .4rem 0 0; max-width: 34rem; font-size: .82rem; line-height: 1.45; color: var(--text-2); }
 .ai-table details summary { cursor: pointer; color: var(--text-2); }
+
+/* ── Trending shelf ───────────────────────────────────────────────────────
+   "Trending in your interests" (app/trending_shelf.py): one labelled block
+   after the fourth card of page 1, holding papers that take no feed slot. A
+   row that scrolls sideways on a phone, so it costs one card's height; three
+   columns from 900 px; full width in the wide feed, where app.js gives it a
+   row span like a card. */
+.shelf { display: flex; flex-direction: column; gap: .6rem; padding: .85rem 0 .2rem;
+  border-top: 2px solid var(--rule); min-width: 0; }
+.shelf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .8rem; }
+.shelf-title { font-family: var(--font-read); font-size: 1.12rem; font-weight: 660; letter-spacing: -.01em; margin: 0; }
+.shelf-note { font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); }
+.shelf-row { list-style: none; margin: 0; padding: 0 0 .35rem; display: grid; gap: .7rem;
+  grid-auto-flow: column; grid-auto-columns: minmax(15rem, 80%); overflow-x: auto;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+@media (min-width: 900px) {
+  .shelf-row { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+}
+.shelf-card { display: flex; flex-direction: column; gap: .5rem; min-width: 0; scroll-snap-align: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .85rem .7rem; transition: opacity .2s ease; }
+.shelf-card .interest { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.shelf-paper { color: var(--text); text-decoration: none; font-family: var(--font-read); font-weight: 640;
+  font-size: 1.04rem; line-height: 1.26; letter-spacing: -.01em;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.shelf-paper:hover { color: var(--accent); }
+.shelf-paper:focus-visible, .shelf-votes:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shelf-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .65rem;
+  font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.shelf-votes { color: var(--text-2); font-weight: 600; text-decoration: none; }
+.shelf-votes:hover { color: var(--accent); }
+.shelf-actions { margin-top: auto; }
+.shelf-card.is-leaving { opacity: .35; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .shelf-card { transition: none; } }

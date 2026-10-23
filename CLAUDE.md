@@ -148,6 +148,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
   took a correct 61/39 pool and selected 39/1, dumping 60 minority papers into the
   exploration pool where no later quota stage could recover them. See doc 06,
   2026-08-21.
+- Trending shelf (switch `TRENDING_SHELF`, `app/trending_shelf.py`): Hugging Face Daily Papers close to the reader's interests, in one block after the fourth card of page 1. It holds no feed slot, so it never enters quota, MMR or the served order; its cards log policy `trending_shelf_v1`. See doc 06, 2026-10-23.
 - Exploration: 2 serendipitous papers per page, drawn in `_build_page()`. The pool is starter papers from ticked interests that no cluster medoid covers (`_uncovered_interest_papers`), otherwise the far half of the reader's own candidates. Draws stay uniform so propensities hold.
 - Quota (3.1) handles cross-cluster diversity. MMR handles within-quota redundancy.
   This is a statement about WHERE each runs, not just what it is for.
@@ -297,8 +298,8 @@ If a request asks for one of these, surface that it is out of scope per doc 06 p
 Recommendation diagnostics: `.venv/bin/python scripts/run_recommendation_audit.py
 --live --encode` generates `reports/recommendations/index.html` with temporary
 user storage and replication disabled. Live/semantic gaps must be reported, not
-filled with synthetic success. `app/hf_papers_svc.py` is a shadow-only source
-adapter; it does not replace the serving recommendation candidates.
+filled with synthetic success. `app/hf_papers_svc.py` never supplies feed
+candidates; its Daily Papers lists feed only the separate trending shelf.
 `scripts/hf_discovery.py` now supports local collection/preparation scheduling,
 scratch-profile baseline capture and offline comparison. See
 `docs/HF-DISCOVERY-OPERATIONS.md`; shadow-ready does not mean production-indexed.

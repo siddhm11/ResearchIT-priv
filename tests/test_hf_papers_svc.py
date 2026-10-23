@@ -53,3 +53,16 @@ def test_observed_web_sample_matches_adapter_schema():
     result=normalize_snapshot(sample['records'],NOW)
     assert result['input_count']==2 and len(result['papers'])==2
     assert result['rejected']==0
+
+async def test_fetch_for_a_date_keeps_code_links():
+    def handle(req):
+        assert req.url.params.get('date')=='2026-09-24'
+        return httpx.Response(200,json=[row('2609.00001v2',githubRepo='https://github.com/a/b',githubStars=12),
+                                        row('2609.00002',githubRepo='https://example.com/x')])
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as c:
+        s=await fetch_snapshot(c,now=NOW,date='2026-09-24')
+    assert s['code']=={'2609.00001':('https://github.com/a/b',12)}
+
+async def test_fetch_rejects_a_malformed_date():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=[]))) as c:
+        with pytest.raises(ValueError): await fetch_snapshot(c,now=NOW,date='24/09/2026')

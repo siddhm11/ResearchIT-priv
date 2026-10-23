@@ -958,3 +958,23 @@ Vision. The half weight exists because cs.LG is cross-listed on so much that, co
 Machine Learning would be suggested for most descriptions.
 **Action items:** After deploy, re-run the probe on the Space, where dense retrieval should place
 vague descriptions better; watch `/api/onboarding/describe` latency (one hybrid search).
+
+### 2026-10-23 — Trending in your interests: a shelf, not feed slots
+**Decision:** Readers in the clustered tier get a shelf of up to 6 papers from Hugging Face Daily
+Papers (last 7 days, refreshed every 3 hours) after the fourth card of the feed's first page,
+loaded after the page arrives. A paper qualifies when its closeness to its nearest interest medoid
+reaches the 25th percentile of the reader's own saves' closeness to their medoids (clamped to
+0.55–0.70; 0.60 below four measurable saves); the order is closeness + 0.07·log10(upvotes); each
+interest gets max(2, ⌈6/K⌉) places first; fewer than 3 qualifying papers means no shelf. Shelf
+cards carry their own query_id, propensity 1.0 and policy `trending_shelf_v1` (§3.11), and what
+the shelf shows counts as shown for the feed and for the next shelf. Switch `TRENDING_SHELF`.
+**Supersedes:** "app/hf_papers_svc.py is a shadow-only source adapter" in CLAUDE.md §5.4 for this
+surface; the shadow swap policy (`discovery_shadow.compare_feed`) stays offline.
+**Rationale:** On the owner's profile 147 of HF's 383 Daily Papers from 16–23 Oct were on-topic
+and the feed's 60-paper pool held 1; 379 of the 383 were already in the corpus with vectors. Swaps
+inside the feed would have traded slots the reader's interests are entitled to (closeness
+0.757–0.763 out, 0.628–0.690 in) for popularity, against §3.1. A separate shelf adds the same
+papers and leaves the quota, the MMR and the served order of the feed untouched.
+**Action items:** Turn on as `preview`, then `on`. Read shelf saves and clicks per policy id in
+`feed_exposures`. Readers outside machine learning get no shelf until trending in every field
+(citation history, recorded from 2026-10-24) supplies a second source.
