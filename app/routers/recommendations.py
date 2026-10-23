@@ -265,6 +265,7 @@ async def _serve_recommendations(
     and caches the ordering. Later pages replay that ordering, so they cost a
     metadata fetch instead of a recluster + re-retrieve + rescore.
     """
+    t_request = time.perf_counter()
     user_id = user_id or str(uuid.uuid4())
     state = await us.ensure_loaded(user_id)
     page = max(1, page)
@@ -312,10 +313,12 @@ async def _serve_recommendations(
             return _empty_resp()
         _cache_put(query_id, entry)
 
+    t_page = time.perf_counter()
     seen = us.all_seen(user_id) | {
         row["paper_id"] for row in await db.get_current_feedback(user_id)
     }
     papers, has_more = await _build_page(entry, seen)
+    page_ms = int((time.perf_counter() - t_page) * 1000)
 
     if not papers:
         return _empty_resp() if page == 1 else _with_cookie(
@@ -333,6 +336,7 @@ async def _serve_recommendations(
     # instead of repeating. Recorded here rather than in _build_feed because
     # only papers on a served page were really shown -- a ranked pool is not an
     # impression. Never fatal: a failure here costs churn, not correctness.
+    t_log = time.perf_counter()
     try:
         await db.record_impressions(
             user_id, [p["arxiv_id"] for p in papers if p.get("arxiv_id")])
@@ -369,13 +373,16 @@ async def _serve_recommendations(
         ])
     except Exception as e:  # pragma: no cover - defensive
         errors.report("recs", "exposure log write failed", e)
+    log_ms = int((time.perf_counter() - t_log) * 1000)
 
     # The redesigned card's extras (figure, code link, cached plain summary,
     # full abstract) are added to copies here, after the page is built and
     # logged: display only, local reads only, order and ids untouched.
+    t_cards = time.perf_counter()
     card_v2 = features.visible("FEED_CARD_V2", request)
     if card_v2:
         papers = await card_data.enrich(papers, request)
+    cards_ms = int((time.perf_counter() - t_cards) * 1000)
     # Cards only show figures already saved; queue this page's papers so the
     # warm-up reads them (slowly, in the background) for next time.
     figure_prewarm.enqueue([p["arxiv_id"] for p in papers if p.get("arxiv_id")])
@@ -397,7 +404,13 @@ async def _serve_recommendations(
         ctx["interests"] = _feed_interests(entry)
         ctx["strength"] = _profile_strength(entry, len(state.positive_list))
 
-    return _with_cookie(templates.TemplateResponse(request, template, ctx))
+    resp = _with_cookie(templates.TemplateResponse(request, template, ctx))
+    # What the reader waits for. A first page's request_ms includes the build
+    # (build_ms under "feed"); a later page replays it, so this is all of it.
+    runtime_stats.record("feed_first_page" if page == 1 else "feed_next_page", {
+        "page_ms": page_ms, "log_ms": log_ms, "cards_ms": cards_ms,
+        "request_ms": int((time.perf_counter() - t_request) * 1000)})
+    return resp
 
 
 # ── Feed construction ────────────────────────────────────────────────────────
@@ -780,12 +793,16 @@ async def _multi_interest_recommend(
         if len(positives) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
+        # Per-stage timing breakdown. Every network wait has its own key, so
+        # /healthz/runtime accounts for the whole build (total_ms).
+        timing = {}
+        t0_total = time.time()
+
         # Fetch embeddings for all saved papers
         vectors = await qdrant_svc.get_paper_vectors(positives)
+        timing["saved_vectors_ms"] = int((time.time() - t0_total) * 1000)
         if len(vectors) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
-
-        timing = {}  # Collect per-stage timing breakdown
 
         # Build aligned arrays (only papers we got vectors for)
         aligned_ids = [pid for pid in positives if pid in vectors]
@@ -885,6 +902,7 @@ async def _multi_interest_recommend(
             for c, quota in zip(clusters, quotas)
         ]
         per_cluster_scored = await asyncio.gather(*search_tasks)
+        timing["cluster_search_ms"] = int((time.time() - t0_ann) * 1000)
 
         paper_cluster_map: dict[str, int] = {}
         qdrant_score_map: dict[str, float] = {}
@@ -906,11 +924,13 @@ async def _multi_interest_recommend(
             # Built once and maintained, rather than rebuilt from the growing
             # candidate list on every hit as this used to do.
             candidate_set = set(candidate_ids)
+            t0_st = time.time()
             st_scored = await qdrant_svc.search_by_vector_with_scores(
                 query_vector=st_vec.tolist(),
                 limit=_ST_SUPPLEMENT,
                 exclude_ids=seen | candidate_set,
             )
+            timing["st_search_ms"] = int((time.time() - t0_st) * 1000)
             for hit in st_scored:
                 aid = hit["arxiv_id"]
                 if aid not in candidate_set:
@@ -930,7 +950,10 @@ async def _multi_interest_recommend(
         # disk-read cost.
         t0_cand_meta = time.time()
         cand_vectors = await qdrant_svc.get_paper_vectors(candidate_ids)
+        timing["cand_vectors_ms"] = int((time.time() - t0_cand_meta) * 1000)
+        t0_details = time.time()
         cand_meta = await turso_svc.fetch_metadata_batch(candidate_ids)
+        timing["cand_details_ms"] = int((time.time() - t0_details) * 1000)
         cand_missing = [cid for cid in candidate_ids if cid not in cand_meta]
         if cand_missing:
             try:
@@ -951,6 +974,7 @@ async def _multi_interest_recommend(
         valid_embs = np.array([cand_vectors[cid] for cid in valid_ids], dtype=np.float32)
         valid_meta = [cand_meta[cid] for cid in valid_ids]
 
+        t0_features = time.time()
         lt_vec = await profiles.load_profile(user_id, "long_term")
         neg_vec = await profiles.load_profile(user_id, "negative")
 
@@ -1040,6 +1064,7 @@ async def _multi_interest_recommend(
 
         # ── Step 6: LightGBM re-ranking (37 features) ────────────────────
         t0_rerank = time.time()
+        timing["features_ms"] = int((t0_rerank - t0_features) * 1000)
         reranked_ids, reranked_scores, reranked_embs = rerank_candidates(
             candidate_ids=valid_ids,
             candidate_embeddings=valid_embs,
@@ -1058,6 +1083,7 @@ async def _multi_interest_recommend(
         )
         t1_rerank = time.time()
         rerank_time_ms = int((t1_rerank - t0_rerank) * 1000)
+        timing["rerank_ms"] = rerank_time_ms
 
         # ── Step 4.3: Category suppression (post-rerank safety net) ───────
         # The model now sees feature 25 (is_suppressed_category), but we
@@ -1210,12 +1236,14 @@ async def _multi_interest_recommend(
         # a code-agent and a robotics paper. A ticked interest counts as
         # covered when any medoid lists one of its codes.
         uncovered: list[str] = []
+        t0_explore = time.time()
         try:
             uncovered = await _uncovered_interest_papers(
                 user_id, [c.medoid_paper_id for c in clusters],
                 exclude=seen | set(mmr_selected))
         except Exception as e:  # exploration is optional; keep the far half
             errors.report("recommendations", "uncovered-interest exploration failed", e)
+        timing["exploration_ms"] = int((time.time() - t0_explore) * 1000)
         if uncovered:
             explore_pool = uncovered
 
@@ -1280,6 +1308,7 @@ async def _multi_interest_recommend(
                 "match": round(float(qdrant_score_map.get(aid, 0.0)), 4),
             }
 
+        timing["total_ms"] = int((time.time() - t0_total) * 1000)
         return mmr_selected, explore_pool, paper_tags, rerank_time_ms, timing
 
     except Exception as e:
