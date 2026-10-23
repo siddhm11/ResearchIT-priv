@@ -216,22 +216,48 @@ def test_search_htmx_partial_with_hybrid(client, monkeypatch):
     assert "HTMX Test Paper" in resp.text
 
 
-def test_a_search_from_the_box_also_replaces_the_heading_and_title(client, monkeypatch):
-    """The box swaps in only #search-results, so the answer carries the heading
-    and the title too; otherwise they keep naming the page's first query."""
+def test_the_query_shows_in_the_box_and_the_tab_only(client, monkeypatch):
+    """Reported 2026-10-23: the query ran as the page heading, in the box and in
+    the result count. The page names it in the box alone, and the tab title. A
+    search from the box swaps in only #search-results, so its answer carries the
+    tab title and nothing else from outside the list."""
+    import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
+
+    monkeypatch.setattr(hs, "search", AsyncMock(return_value=(["1706.03762"], {"total_time_ms": 7})))
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={
+        "1706.03762": {
+            "arxiv_id": "1706.03762", "title": "Attention Is All You Need",
+            "abstract": "...", "authors": '["A"]',
+            "category": "cs.CL", "published": "2017-06-12", "year": 2017,
+        },
+    }))
+    q = "graph+%3Cneural%3E+nets"
+    shown = "graph &lt;neural&gt; nets"
+    page = client.get(f"/search?q={q}").text
+    frag = client.get(f"/search?q={q}", headers={"HX-Request": "true"}).text
+
+    assert '<h1 class="issue-title">Find papers</h1>' in page
+    assert f"<title>{shown} — Search — ResearchIT</title>" in page
+    assert f'id="search-q" value="{shown}"' in page
+    assert page.split("<body", 1)[1].count(shown) == 1                  # the box
+    assert "1 result</span>" in page
+
+    assert f"<title>{shown} — Search — ResearchIT</title>" in frag
+    assert frag.count(shown) == 1 and "<h1" not in frag and "hx-swap-oob" not in frag
+
+
+def test_no_results_does_not_repeat_the_query(client, monkeypatch):
     import app.hybrid_search_svc as hs
     import app.turso_svc as turso
 
     monkeypatch.setattr(hs, "search", AsyncMock(return_value=([], {})))
     monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={}))
     with patch("app.arxiv_svc.search", AsyncMock(return_value=[])):
-        frag = client.get("/search?q=graph+%3Cneural%3E+nets", headers={"HX-Request": "true"}).text
-        page = client.get("/search?q=graph+%3Cneural%3E+nets").text
+        frag = client.get("/search?q=zzqx+unfindable", headers={"HX-Request": "true"}).text
 
-    assert '<h1 class="issue-title" id="search-title" hx-swap-oob="true">graph &lt;neural&gt; nets</h1>' in frag
-    assert "<title>graph &lt;neural&gt; nets — Search — ResearchIT</title>" in frag
-    # The whole page has one heading, swapped by nothing.
-    assert page.count('id="search-title"') == 1 and "hx-swap-oob" not in page
+    assert "No papers matched this search" in frag
+    assert frag.count("zzqx unfindable") == 1                           # the tab title
 
 
 def test_search_empty_query_no_hybrid_call(client, monkeypatch):

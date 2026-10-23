@@ -348,6 +348,16 @@
     if (isSearchRequest(e)) searchProgressStop();
   });
 
+  /* The box is the only place the search page shows its query, so it must name
+     the results under it. htmx restores Back/Forward from a snapshot of the
+     page's HTML, and what a reader typed is not in the HTML: Forward to a search
+     run from the box showed its results under the query the page was opened
+     with. The URL is right, so the box follows it. */
+  document.body.addEventListener('htmx:historyRestore', function () {
+    var box = document.getElementById('search-q');
+    if (box) box.value = new URLSearchParams(location.search).get('q') || '';
+  });
+
   /* ── Overflow menus ("⋯") and Copy arXiv ID ───────────────────────────
      Used by the redesigned paper page and feed cards. One menu open at a
      time; Escape or a click elsewhere closes it and returns focus to its
