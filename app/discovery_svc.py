@@ -2,15 +2,47 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from collections.abc import Mapping
 from itertools import zip_longest
 
 from app import local_meta, turso_svc
+from app.config import CATEGORY_GROUPS
 
 # Every third starter slot within an interest goes to a paper from the corpus's
 # last three months. Ranked by citations alone, those can never compete: a
 # paper a few weeks old has almost none yet.
 _FRESH_EVERY = 3
+
+
+# A described interest suggests the areas its matching papers sit in. The
+# primary category counts in full, a cross-list for half: cs.LG is cross-listed
+# on so much that, counted equally, Machine Learning would be suggested for
+# nearly every description. An area needs 35% of the leader's weight and
+# about two papers' worth; the leader needs only to exist.
+_AREA_OF_CODE = {code: key for key, group in CATEGORY_GROUPS.items() for code in group["arxiv"]}
+_CROSS_LIST_WEIGHT = 0.5
+_AREA_SHARE_OF_LEADER = 0.35
+_AREA_MIN_WEIGHT = 1.5
+
+
+def areas_for_papers(papers: list[dict], limit: int = 3) -> list[str]:
+    """The onboarding areas `papers` fall in, strongest first (at most `limit`)."""
+    weights: Counter[str] = Counter()
+    for paper in papers:
+        codes = (paper.get("arxiv_categories") or paper.get("category") or "").split()
+        seen: set[str] = set()
+        for position, code in enumerate(codes):
+            area = _AREA_OF_CODE.get(code)
+            if area and area not in seen:
+                seen.add(area)
+                weights[area] += 1.0 if position == 0 else _CROSS_LIST_WEIGHT
+    ranked = weights.most_common()
+    if not ranked:
+        return []
+    leader, top = ranked[0]
+    return [area for area, weight in ranked
+            if area == leader or (weight >= top * _AREA_SHARE_OF_LEADER and weight >= _AREA_MIN_WEIGHT)][:limit]
 
 
 def _interleave(lists: list[list[dict]]) -> list[dict]:

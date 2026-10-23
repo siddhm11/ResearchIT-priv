@@ -3,6 +3,7 @@ Onboarding router — Phase 5 Cold-Start.
 
 GET  /onboarding                    → render wizard (redirect to / if done)
 POST /api/onboarding/categories     → save selected category groups
+POST /api/onboarding/describe       → suggest areas for a described interest (JSON)
 GET  /api/onboarding/seed-search    → search for seed papers (HTMX partial)
 POST /api/onboarding/complete       → mark done, redirect to /
 POST /api/onboarding/skip           → mark done (no categories), redirect to /
@@ -10,7 +11,7 @@ POST /api/onboarding/skip           → mark done (no categories), redirect to /
 import uuid
 import json
 from fastapi import APIRouter, Request, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import db, discovery_svc
 from app.config import COOKIE_NAME, CATEGORY_GROUPS
 from app.templates_env import templates
@@ -19,6 +20,18 @@ from app.templates_env import templates
 from app import hybrid_search_svc, arxiv_svc, turso_svc
 
 router = APIRouter()
+
+# "Describe what you work on": the sentence is searched like any query, never
+# stored, and the areas its top papers sit in are suggested for the reader to
+# confirm. Doc 06 cites Sanner et al. 2023: language-based preferences are
+# competitive with item-based ones near cold start, and newcomers often can't
+# map their work onto arXiv's area names.
+_DESCRIBE_MAX_CHARS = 300
+_DESCRIBE_PAPERS = 20
+
+
+def _description(value: object) -> str:
+    return value.strip()[:_DESCRIBE_MAX_CHARS] if isinstance(value, str) else ""
 
 
 def _validated_categories(value: object) -> list[str]:
@@ -112,6 +125,8 @@ async def save_categories(
     # Validate: must be valid group keys
     valid = _validated_categories(categories)
     await db.save_onboarding_categories(user_id, valid)
+    # A described interest opens step 2 on papers for that description.
+    described = _description(body.get("describe"))
 
     # Return the seed search step partial
     from app import user_state as us
@@ -125,10 +140,43 @@ async def save_categories(
             "seed_count": seed_count,
             "seed_target": 5,
             "suggestions": True,
+            "query": described,
         },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     return resp
+
+
+@router.post("/api/onboarding/describe")
+async def describe_work(request: Request):
+    """Suggest areas for a reader's own description of their work.
+
+    Searches the description with no LLM rewrite, so it reaches no model and
+    is not stored, and answers the areas its top papers sit in, with how many
+    papers matched and the best one's title, so the suggestion shows its
+    evidence.
+    """
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    text = _description(body.get("text") if isinstance(body, dict) else None)
+    if not text:
+        raise HTTPException(422, "Describe what you work on.")
+    papers: list[dict] = []
+    try:
+        ids = await hybrid_search_svc.search(text, limit=_DESCRIBE_PAPERS, use_rewrite=False)
+        if ids:
+            meta = await turso_svc.fetch_metadata_batch(ids)
+            papers = [meta[aid] for aid in ids if aid in meta]
+    except Exception as e:
+        print(f"[onboarding] describe search failed: {e}")
+    areas = discovery_svc.areas_for_papers(papers)
+    return JSONResponse({
+        "areas": [{"key": k, "name": CATEGORY_GROUPS[k]["name"]} for k in areas],
+        "matched": len(papers),
+        "example": papers[0].get("title", "") if papers and areas else "",
+    })
 
 
 @router.get("/api/onboarding/seed-search", response_class=HTMLResponse)

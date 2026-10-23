@@ -34,6 +34,7 @@ and deployed. Never copy old corpus counts or benchmark results into current cla
 | Paging | Cached ordered pool per query ID, bound to user; per-user lock includes serving/impression write in one process | recommendation router |
 | Preferences | Editable `/interests`; zero to eight known categories; no deletion of existing saves | `app/routers/onboarding.py` |
 | First seeds | Suggestions from selected categories; explicit search/save; count advances on successful response | onboarding router and seed templates |
+| Described interest | Onboarding step 1 takes a sentence (≤300 chars): searched without the LLM rewrite and not stored; areas its top papers sit in (primary category 1, cross-list ½) are picked for the reader to check, and step 2 opens on its papers. Every area card on `/onboarding` and `/interests` has a drawing (`partials/area_art.html`, written by `scripts/build_area_art.py`) | `app/routers/onboarding.py`, `discovery_svc.areas_for_papers` |
 | Reading history | Latest 50 distinct opens or served papers; metadata failure retains a navigable ID | `app/routers/saved.py`, `app/db.py` |
 | Feedback semantics | Latest save/unsave/dismissal sets explicit state; click/view never overrides it; unsave survives cache reload | `get_current_feedback`, `get_save_history`, `user_state.py` |
 | Library | All current saves; the 20-example retrieval deque no longer limits the library view | saved router |

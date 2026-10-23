@@ -155,7 +155,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
 
-IMPLEMENTED: category/seed onboarding, starter suggestions, and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
+IMPLEMENTED: category/seed onboarding, starter suggestions, a described interest ("In a sentence": suggests areas and opens the seed step on its papers; doc 06, 2026-10-23), and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
 
 1. arXiv category multi-select — used as a **filter and LightGBM feature**, NOT as the primary user vector.
 2. Author import is historical context, not a currently planned implementation.

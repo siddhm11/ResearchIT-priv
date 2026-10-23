@@ -34,10 +34,32 @@
         <span class="ob-kicker">Pick your areas</span>
         <h1 class="ob-title">What do you work on?</h1>
         <p class="ob-sub">
-          This filters what you get shown and is one of the signals behind
-          ranking. Pick anything that looks close — you are not locked in.
+          Say it in your own words and we'll suggest areas, or pick them
+          below. Areas filter what you're shown; the papers you save do the
+          rest. You're not locked in.
         </p>
       </div>
+
+      {#
+        Many newcomers can't map their work onto arXiv's area names, so they can
+        describe it instead: the sentence is searched, the areas its papers sit
+        in are picked for them to check, and step 2 opens on those papers.
+      #}
+      <form class="describe" onsubmit="describeWork(event)">
+        <label class="describe-label" for="describe-q">In a sentence</label>
+        <div class="searchbar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13.5 6.5 4 4" />
+          </svg>
+          <input type="text" id="describe-q" maxlength="300" autocomplete="off"
+                 placeholder="e.g. robots that learn to grasp objects from video" />
+          <button class="btn btn-primary btn-sm" type="submit" id="describe-btn">Suggest<span class="more"> areas</span></button>
+        </div>
+        <p class="describe-status small muted" id="describe-status" role="status" aria-live="polite"></p>
+      </form>
+
+      <div class="ob-or" aria-hidden="true">or pick areas</div>
 
       <div class="cat-grid cat-grid--art">
         {% for key, cat in categories.items() %}
@@ -101,7 +123,10 @@
         var res = await fetch('/api/onboarding/categories', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categories: Array.from(selectedCategories) })
+          body: JSON.stringify({
+            categories: Array.from(selectedCategories),
+            describe: document.getElementById('describe-q').value.trim()
+          })
         });
         if (!res.ok) throw new Error('bad status');
         var html = await res.text();
@@ -114,6 +139,48 @@
       } catch (e) {
         btn.removeAttribute('disabled');
         btn.textContent = 'Continue';
+      }
+    }
+
+    /* Pick the areas a description's papers sit in. Suggestions only add to
+       what is already picked, within the limit of 8, and say so out loud. */
+    async function describeWork(e) {
+      e.preventDefault();
+      var input = document.getElementById('describe-q');
+      var btn = document.getElementById('describe-btn');
+      var status = document.getElementById('describe-status');
+      var text = input.value.trim();
+      if (!text) { input.focus(); return; }
+      btn.setAttribute('disabled', 'true');
+      status.textContent = 'Reading papers like that…';
+      try {
+        var res = await fetch('/api/onboarding/describe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text })
+        });
+        if (!res.ok) throw new Error('bad status');
+        var data = await res.json();
+        if (!data.areas.length) {
+          status.textContent = 'Nothing placed that yet. Try naming a method or a field, or pick areas below.';
+          return;
+        }
+        var picked = [];
+        document.querySelectorAll('.cat-opt[data-suggested]').forEach(function (el) { el.removeAttribute('data-suggested'); });
+        data.areas.forEach(function (area) {
+          var el = document.querySelector('.cat-opt[data-key="' + area.key + '"]');
+          if (!el) return;
+          if (!selectedCategories.has(area.key)) toggleCategory(el);
+          if (selectedCategories.has(area.key)) { el.setAttribute('data-suggested', ''); picked.push(area.name); }
+        });
+        var example = data.example.length > 80 ? data.example.slice(0, 77) + '…' : data.example;
+        status.textContent = picked.length
+          ? 'Picked ' + picked.join(', ') + ' from ' + data.matched + ' matching papers, like “' + example + '”. Change anything below.'
+          : 'You already have 8 areas. Unpick one to add a suggestion.';
+      } catch (err) {
+        status.textContent = 'Couldn’t suggest areas just now. Pick them below.';
+      } finally {
+        btn.removeAttribute('disabled');
       }
     }
 

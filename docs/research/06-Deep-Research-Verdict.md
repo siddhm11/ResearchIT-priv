@@ -940,3 +940,21 @@ The number check still dropped 2 unsupported points.
 new one comes out worse. More papers now fill the 16,000-character cap, so one briefing is about
 2,400–6,700 prompt tokens plus ~560 out: with 200,000 tokens a day per Groq model, about 35–40 new
 briefings per model per day. Re-run `scripts/eval_briefings.py` on the 50 papers before rating.
+
+### 2026-10-23 — Onboarding takes a sentence, and every area is drawn
+**Decision:** Step 1 of onboarding opens with "In a sentence": the reader describes their work, the
+sentence is searched (hybrid search, no LLM rewrite, not stored), and the areas its top papers sit
+in are picked for the reader to check: a paper's primary category counts 1, a cross-list ½, and an
+area needs 35% of the leader's weight and 1.5 in all (at most 3). Step 2 then opens on papers
+for the sentence instead of popular ones. Areas stay a filter and a ranking feature, never the user
+vector (§3.6), and the reader still chooses every seed. Each area card also shows a drawing of the
+field (a detector's box for Computer Vision, a fitted line for Machine Learning).
+**Supersedes:** nothing; it adds the free-text layer this doc's verdict argued for.
+**Rationale:** Sanner et al. (RecSys 2023) found language-based preferences competitive with
+item-based ones near cold start, and the owner reported that area names alone ("Machine Learning")
+mean little to a newcomer. Probed on 12 descriptions with word-match search only (no BGE-M3
+locally), 11 got sensible areas; "I like space stuff" matched COCO-Stuff and suggested Computer
+Vision. The half weight exists because cs.LG is cross-listed on so much that, counted fully,
+Machine Learning would be suggested for most descriptions.
+**Action items:** After deploy, re-run the probe on the Space, where dense retrieval should place
+vague descriptions better; watch `/api/onboarding/describe` latency (one hybrid search).

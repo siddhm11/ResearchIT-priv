@@ -814,6 +814,27 @@ a.card-title:hover { color: var(--accent); }
 .cat-opt .desc { font-size: .75rem; color: var(--text-3); line-height: 1.4; }
 .cat-opt[aria-pressed="true"] .name { color: var(--accent); }
 
+/* "In a sentence": describe your work, and the areas get picked for you. */
+.describe { display: flex; flex-direction: column; gap: .4rem; }
+.describe-label {
+  font-family: var(--font-mono); font-size: .66rem; font-weight: 600; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.describe-status:empty { display: none; }
+.ob-or {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.ob-or::before, .ob-or::after { content: ""; flex: 1; height: 1px; background: var(--border-2); }
+.cat-opt[data-suggested]::after {
+  content: "from your words"; position: absolute; left: .7rem; top: -.55rem;
+  font-family: var(--font-mono); font-size: .6rem; font-weight: 600;
+  padding: .1rem .4rem; border-radius: 3px; background: var(--accent); color: var(--surface);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+@media (max-width: 480px) { .describe .btn .more { display: none; } }
+
 /* Area drawings (partials/area_art.html). The ink is the card's muted text
    colour; the one thing each drawing is about (the detector's box, the fitted
    line) is in --note, the annotation colour, and both turn green when the area
