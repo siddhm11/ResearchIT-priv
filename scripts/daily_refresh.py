@@ -90,10 +90,14 @@ class Stores:
         return [[c.get("value") for c in row] for row in res["response"]["result"]["rows"]]
 
     def t_many(self, stmts: list[dict]) -> None:
+        """All of `stmts` in one transaction, or none of them (see tx_batch)."""
         r = self.http.post(f"{self.turl}/v2/pipeline", headers={"Authorization": f"Bearer {self.ttok}"},
-                           json={"requests": [{"type": "execute", "stmt": s} for s in stmts] + [{"type": "close"}]})
+                           json={"requests": [{"type": "batch", "batch": tx_batch(stmts)}, {"type": "close"}]})
         r.raise_for_status()
-        errs = [x for x in r.json().get("results", []) if x.get("type") == "error"]
+        res = r.json()["results"][0]
+        if res.get("type") != "ok":
+            raise RuntimeError(str(res)[:300])
+        errs = [e for e in res["response"]["result"]["step_errors"] if e]
         if errs:
             raise RuntimeError(str(errs[0])[:300])
 
@@ -135,6 +139,51 @@ def changed_counts(current: dict[str, tuple[int, int]], fetched: dict[str, dict 
         if current.get(aid) != new:
             out.append((aid, *new))
     return out
+
+
+# Citation history. The papers table keeps only the latest count, so before the
+# update overwrites a count, the old and new values are written here. Growth over
+# any window is then the sum of (citations - citations_before) for the rows in it,
+# with no baseline snapshot. Trending in every field reads this (doc 06,
+# 2026-10-23); until it existed every overwritten count was lost.
+HISTORY_DDL = ("CREATE TABLE IF NOT EXISTS citation_history ("
+               "arxiv_id TEXT NOT NULL, checked_on TEXT NOT NULL, "
+               "citations_before INTEGER NOT NULL, citations INTEGER NOT NULL, "
+               "influential_before INTEGER NOT NULL, influential INTEGER NOT NULL, "
+               "PRIMARY KEY (arxiv_id, checked_on))")
+
+
+def tx_batch(stmts: list[dict]) -> dict:
+    """A Hrana batch that commits only if every statement succeeded.
+
+    BEGIN ... COMMIT sent as a plain pipeline is not a transaction in practice:
+    Turso runs the statements after a failed one, and the COMMIT then keeps
+    those before it (checked on Turso, 2026-10-23). Here each step runs only if
+    the previous one succeeded, and ROLLBACK runs unless COMMIT did."""
+    steps = [{"stmt": {"sql": "BEGIN"}}]
+    for s in stmts + [{"sql": "COMMIT"}]:
+        steps.append({"stmt": s, "condition": {"type": "ok", "step": len(steps) - 1}})
+    steps.append({"stmt": {"sql": "ROLLBACK"},
+                  "condition": {"type": "not", "cond": {"type": "ok", "step": len(steps) - 1}}})
+    return {"steps": steps}
+
+
+def history_rows(current: dict[str, tuple[int, int]], changes: list[tuple[str, int, int]],
+                 day: str) -> list[tuple[str, str, int, int, int, int]]:
+    """(arxiv_id, day, citations_before, citations, influential_before, influential)."""
+    return [(a, day, current[a][0], c, current[a][1], f) for a, c, f in changes]
+
+
+def history_insert(rows: list[tuple]) -> dict:
+    """One multi-row upsert. A second run on the same day keeps the first run's
+    `before` values, so a day's row always spans the whole day's change."""
+    sql = ("INSERT INTO citation_history (arxiv_id, checked_on, citations_before, citations, "
+           "influential_before, influential) VALUES " + ", ".join(["(?, ?, ?, ?, ?, ?)"] * len(rows))
+           + " ON CONFLICT (arxiv_id, checked_on) DO UPDATE SET "
+             "citations = excluded.citations, influential = excluded.influential")
+    args = [{"type": "integer" if isinstance(v, int) else "text", "value": str(v)}
+            for row in rows for v in row]
+    return {"sql": sql, "args": args}
 
 
 def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str]:
@@ -202,13 +251,19 @@ def stage_citations(st: Stores, prefix: str) -> dict:
                 raise SystemExit(f"Semantic Scholar batch failed at {chunk[0]}")
             fetched.update(zip(chunk, res))
     changes = changed_counts(current, fetched)
+    day = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    st.t(HISTORY_DDL)
     sql = "UPDATE papers SET citation_count = ?, influential_citations = ? WHERE arxiv_id = ?"
     for i in range(0, len(changes), 500):
+        batch = changes[i:i + 500]
+        # One transaction per batch: a history row without its update would be
+        # counted again by the next run, and an update without its row is lost.
         st.t_many([{"sql": sql, "args": [{"type": "integer", "value": str(c)},
                                          {"type": "integer", "value": str(f)},
-                                         {"type": "text", "value": a}]} for a, c, f in changes[i:i + 500]])
+                                         {"type": "text", "value": a}]} for a, c, f in batch]
+                  + [history_insert(history_rows(current, batch, day))])
     found = sum(1 for v in fetched.values() if v)
-    return {"papers": len(ids), "found": found, "changed": len(changes)}
+    return {"papers": len(ids), "found": found, "changed": len(changes), "history_rows": len(changes)}
 
 
 def licence_coverage(codes: list[str | None]) -> dict:

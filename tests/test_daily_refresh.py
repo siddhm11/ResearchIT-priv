@@ -35,6 +35,66 @@ def test_only_changed_known_counts_are_written():
     assert dr.changed_counts(current, fetched) == [("b", 12, 2)]
 
 
+def test_history_rows_keep_the_count_being_overwritten():
+    current = {"a": (5, 1), "b": (0, 0)}
+    assert dr.history_rows(current, [("b", 12, 2)], "2026-10-24") == [("b", "2026-10-24", 0, 12, 0, 2)]
+
+
+def _run(conn, stmt):
+    conn.execute(stmt["sql"], [int(a["value"]) if a["type"] == "integer" else a["value"]
+                               for a in stmt.get("args", [])])
+
+
+def test_history_upsert_spans_the_whole_day_and_sums_to_the_growth():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute(dr.HISTORY_DDL)
+    _run(conn, dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2), ("c", "2026-10-24", 3, 4, 0, 0)]))
+    _run(conn, dr.history_insert([("b", "2026-10-24", 12, 15, 2, 3)]))     # second run, same day
+    _run(conn, dr.history_insert([("b", "2026-10-25", 15, 16, 3, 3)]))
+    assert conn.execute("SELECT citations_before, citations FROM citation_history "
+                        "WHERE arxiv_id = 'b' ORDER BY checked_on").fetchall() == [(0, 15), (15, 16)]
+    gain = conn.execute("SELECT SUM(citations - citations_before) FROM citation_history "
+                        "WHERE arxiv_id = 'b'").fetchone()[0]
+    assert gain == 16
+
+
+def _run_batch(conn, batch):
+    """What Turso does with a Hrana batch: a step runs only if its condition holds."""
+    import sqlite3
+    ok = []
+
+    def holds(cond):
+        if cond is None:
+            return True
+        if cond["type"] == "ok":
+            return ok[cond["step"]]
+        if cond["type"] == "not":
+            return not holds(cond["cond"])
+        raise ValueError(cond)
+
+    for step in batch["steps"]:
+        ran = holds(step.get("condition"))
+        if ran:
+            try:
+                _run(conn, step["stmt"])
+            except sqlite3.Error:
+                ran = False
+        ok.append(ran)
+
+
+def test_a_failed_statement_rolls_back_the_whole_batch():
+    import sqlite3
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.execute(dr.HISTORY_DDL)
+    row = dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2)])
+    _run_batch(conn, dr.tx_batch([row, {"sql": "UPDATE no_such_table SET x = 1"}]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 0
+    assert not conn.in_transaction
+    _run_batch(conn, dr.tx_batch([row]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 1
+
+
 def test_verify_counts_catches_mismatches():
     before = {"recent_points": 100, "turso_rows": 1000, "turso_max_rowid": 1000}
     ok = {"recent_points": 150, "turso_rows": 1050, "turso_max_rowid": 1050}
