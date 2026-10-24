@@ -17,16 +17,19 @@ Stages, each with a check that fails the run
 --------------------------------------------
   1. preflight  credentials, both stores reachable, recent-shard size under
                 --max-recent-points, baseline counts
-  2. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1);
+  2. hf_daily   the last two weeks of Hugging Face Daily Papers lists, with
+                each paper's upvotes as of today, into hf_daily_papers and
+                hf_upvote_history (reported, never fails the run)
+  3. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1);
                 re-run once if its coverage check reports a gap (exit 3)
-  3. citations  Semantic Scholar counts for papers from the last 3 months;
+  4. citations  Semantic Scholar counts for papers from the last 3 months;
                 only changed rows are written
-  4. verify     new Qdrant points == new Turso rows == papers the ingest
+  5. verify     new Qdrant points == new Turso rows == papers the ingest
                 reported; sampled new vectors are 1024-dim unit vectors and
                 their Turso rows are complete
-  5. licences   how many new papers have a `paper_licences` row, and how many
+  6. licences   how many new papers have a `paper_licences` row, and how many
                 of those may show figures (reported, never fails the run)
-  6. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
+  7. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
 
 Re-running is always safe: the ingest skips papers already stored and point
 ids are derived from the arXiv id, so overlapping runs cannot collide.
@@ -34,7 +37,8 @@ ids are derived from the arXiv id, so overlapping runs cannot collide.
 Usage
 -----
     python scripts/daily_refresh.py                 # the daily run
-    python scripts/daily_refresh.py --dry-run       # stages 1 and 5 only
+    python scripts/daily_refresh.py --dry-run       # stages 1 and 6 only
+    python scripts/daily_refresh.py --hf-only --hf-days 182   # backfill the history
 """
 from __future__ import annotations
 
@@ -56,7 +60,7 @@ import httpx
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-from app import licences  # noqa: E402  (standard library only)
+from app import hf_papers_svc, licences  # noqa: E402  (standard library and httpx only)
 
 REQUIRED_ENV = ("QDRANT_RECENT_URL", "QDRANT_RECENT_API_KEY", "TURSO_URL", "TURSO_DB_TOKEN")
 COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
@@ -186,6 +190,92 @@ def history_insert(rows: list[tuple]) -> dict:
     return {"sql": sql, "args": args}
 
 
+# Hugging Face Daily Papers history. The trending shelf reads only the current
+# lists, whose upvote counts are overwritten as they grow, so how fast a paper
+# rose and which topics gained papers week on week were never kept. Each run
+# records the last HF_DAYS lists: one row per paper (what it is, the day it was
+# listed) and one per paper per day checked (its counts that day). Upvotes
+# arrive mostly in a paper's first days on the list, so two weeks of daily
+# checks cover its rise (doc 06, 2026-10-24).
+HF_DAYS = 14
+HF_PAPERS_DDL = ("CREATE TABLE IF NOT EXISTS hf_daily_papers ("
+                 "arxiv_id TEXT PRIMARY KEY, listed_on TEXT NOT NULL, title TEXT NOT NULL, "
+                 "keywords TEXT NOT NULL, summary TEXT NOT NULL, github_repo TEXT NOT NULL, "
+                 "project_page TEXT NOT NULL, first_seen TEXT NOT NULL)")
+HF_HISTORY_DDL = ("CREATE TABLE IF NOT EXISTS hf_upvote_history ("
+                  "arxiv_id TEXT NOT NULL, checked_on TEXT NOT NULL, upvotes INTEGER NOT NULL, "
+                  "comments INTEGER NOT NULL, github_stars INTEGER NOT NULL, "
+                  "day_rank INTEGER NOT NULL, day_size INTEGER NOT NULL, "
+                  "PRIMARY KEY (arxiv_id, checked_on))")
+
+
+def _count(v: object) -> int:
+    return v if type(v) is int and v >= 0 else 0
+
+
+def hf_rows(payload: object, listed_on: str, checked_on: str) -> tuple[list[tuple], list[tuple]]:
+    """(paper rows, history rows) from one day's Daily Papers list.
+
+    Records without a valid arXiv id or title are skipped and a version suffix
+    is dropped. day_rank is 1 for the day's most upvoted paper; ties keep the
+    list's order."""
+    if not isinstance(payload, list):
+        raise ValueError("expected a Daily Papers list")
+    seen: set[str] = set()
+    recs = []
+    for rec in payload:
+        paper = rec.get("paper") if isinstance(rec, dict) else None
+        if not isinstance(paper, dict):
+            continue
+        aid, title = paper.get("id"), paper.get("title")
+        if (not isinstance(aid, str) or not hf_papers_svc._ID.fullmatch(aid)
+                or not isinstance(title, str) or not title.strip()):
+            continue
+        aid = re.sub(r"v\d+$", "", aid)
+        if aid in seen:
+            continue
+        seen.add(aid)
+        keywords = [k.strip() for k in paper.get("ai_keywords") or [] if isinstance(k, str) and k.strip()]
+        summary = paper.get("ai_summary") if isinstance(paper.get("ai_summary"), str) else ""
+        page = paper.get("projectPage") if isinstance(paper.get("projectPage"), str) else ""
+        recs.append({"id": aid, "title": " ".join(title.split())[:500], "keywords": keywords[:20],
+                     "summary": summary.strip()[:600], "github": hf_papers_svc.github_repo(paper.get("githubRepo")),
+                     "page": page[:300] if page.startswith("https://") else "",
+                     "upvotes": _count(paper.get("upvotes")), "comments": _count(rec.get("numComments")),
+                     "stars": _count(paper.get("githubStars"))})
+    order = sorted(range(len(recs)), key=lambda i: -recs[i]["upvotes"])
+    rank = {i: r + 1 for r, i in enumerate(order)}
+    papers = [(r["id"], listed_on, r["title"], json.dumps(r["keywords"]), r["summary"], r["github"],
+               r["page"], checked_on) for r in recs]
+    history = [(r["id"], checked_on, r["upvotes"], r["comments"], r["stars"], rank[i], len(recs))
+               for i, r in enumerate(recs)]
+    return papers, history
+
+
+def upsert(head: str, rows: list[tuple], conflict: str) -> dict:
+    """One multi-row INSERT: `head` names the table and columns, `conflict` is
+    its ON CONFLICT clause."""
+    marks = "(" + ", ".join("?" * len(rows[0])) + ")"
+    args = [{"type": "integer" if isinstance(v, int) else "text", "value": str(v)}
+            for row in rows for v in row]
+    return {"sql": f"{head} VALUES {', '.join([marks] * len(rows))} {conflict}", "args": args}
+
+
+def hf_statements(papers: list[tuple], history: list[tuple]) -> list[dict]:
+    """A paper keeps the day it was first listed and first seen; its counts are
+    the latest of the day, so a second run on one day overwrites the first."""
+    return [upsert("INSERT INTO hf_daily_papers (arxiv_id, listed_on, title, keywords, summary, "
+                   "github_repo, project_page, first_seen)", papers,
+                   "ON CONFLICT (arxiv_id) DO UPDATE SET title = excluded.title, "
+                   "keywords = excluded.keywords, summary = excluded.summary, "
+                   "github_repo = excluded.github_repo, project_page = excluded.project_page"),
+            upsert("INSERT INTO hf_upvote_history (arxiv_id, checked_on, upvotes, comments, "
+                   "github_stars, day_rank, day_size)", history,
+                   "ON CONFLICT (arxiv_id, checked_on) DO UPDATE SET upvotes = excluded.upvotes, "
+                   "comments = excluded.comments, github_stars = excluded.github_stars, "
+                   "day_rank = excluded.day_rank, day_size = excluded.day_size")]
+
+
 def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str]:
     problems = []
     dq = after["recent_points"] - before["recent_points"]
@@ -266,6 +356,58 @@ def stage_citations(st: Stores, prefix: str) -> dict:
     return {"papers": len(ids), "found": found, "changed": len(changes), "history_rows": len(changes)}
 
 
+def _hf_list(client: httpx.Client, day: str, page_size: int = 100) -> list:
+    """One day's whole list. The API returns at most 100 a page, most upvoted
+    first; 29 Sep 2026 had 109."""
+    records: list = []
+    for page in range(5):
+        r = client.get(hf_papers_svc.ENDPOINT, params={"date": day, "limit": page_size, "p": page})
+        r.raise_for_status()
+        part = r.json()
+        if not isinstance(part, list):
+            raise ValueError("expected a Daily Papers list")
+        records += part
+        if len(part) < page_size:
+            break
+    return records
+
+
+def stage_hf_daily(st: Stores, today: dt.date, days: int = HF_DAYS,
+                   client: httpx.Client | None = None) -> dict:
+    """Record the last `days` Daily Papers lists as checked today.
+
+    Never fails the run: the history is a side record, and a day that fails
+    only leaves a gap that the next run's two-week window refills."""
+    out: dict = {"days": days, "lists": 0, "empty": 0, "papers": 0, "failed": []}
+    try:
+        st.t(HF_PAPERS_DDL)
+        st.t(HF_HISTORY_DDL)
+    except (RuntimeError, httpx.HTTPError) as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:200]
+        return out
+    checked_on = today.isoformat()
+    own = client is None
+    client = client or httpx.Client(timeout=30)
+    try:
+        for i in range(days):
+            day = (today - dt.timedelta(days=i)).isoformat()
+            try:
+                papers, history = hf_rows(_hf_list(client, day), day, checked_on)
+                if not papers:
+                    out["empty"] += 1        # weekends and holidays have no list
+                    continue
+                st.t_many(hf_statements(papers, history))
+                out["lists"] += 1
+                out["papers"] += len(papers)
+            except (httpx.HTTPError, ValueError, RuntimeError) as e:
+                out["failed"].append(day)
+                print(f"[daily] Hugging Face list {day} failed: {type(e).__name__}: {e}"[:200])
+    finally:
+        if own:
+            client.close()
+    return out
+
+
 def licence_coverage(codes: list[str | None]) -> dict:
     """One code per new paper; None or "" when it has no licence row."""
     known = [c for c in codes if c]
@@ -325,6 +467,10 @@ def main() -> int:
                     help="fail the run if one ingest attempt takes longer")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-citations", action="store_true")
+    ap.add_argument("--hf-days", type=int, default=HF_DAYS,
+                    help="Daily Papers lists to record, today included")
+    ap.add_argument("--skip-hf", action="store_true")
+    ap.add_argument("--hf-only", action="store_true", help="record the lists, then stop")
     args = ap.parse_args()
 
     summary: dict = {"started": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
@@ -343,6 +489,14 @@ def main() -> int:
         return _finish(summary, 4)
     if args.dry_run:
         summary["dry_run"] = True
+        return _finish(summary, 0)
+
+    # Before the ingest, so a failed ingest cannot cost a day of history.
+    if not args.skip_hf:
+        t0 = time.time()
+        summary["hf_daily"] = stage_hf_daily(st, today, args.hf_days)
+        summary["hf_daily"]["minutes"] = round((time.time() - t0) / 60, 1)
+    if args.hf_only:
         return _finish(summary, 0)
 
     t0 = time.time()

@@ -158,3 +158,87 @@ def test_licence_coverage_counts_new_papers_with_a_licence(monkeypatch):
     assert got["new_papers"] == 5 and got["with_licence"] == 4 and got["with_licence_share"] == 0.8
     assert got["open"] == 3 and got["allow_figures"] == 2 and got["allow_figures_share"] == 0.4
     assert dr.licence_coverage([])["with_licence_share"] is None      # a quiet day is not an error
+
+
+def _hf_record(aid, upvotes, title="A paper", **paper):
+    return {"numComments": 2, "paper": {"id": aid, "title": title, "upvotes": upvotes, **paper}}
+
+
+def test_hf_rows_rank_by_upvotes_and_drop_bad_records():
+    payload = [_hf_record("2610.00001v2", 5, ai_keywords=[" video world models ", "", 3],
+                          githubRepo="https://github.com/a/b", githubStars=40, projectPage="javascript:x"),
+               _hf_record("2610.00002", 90, title="  Two\n lines  ", ai_summary="One line.",
+                          projectPage="https://example.org"),
+               _hf_record("2610.00001", 7),                      # same paper, another version
+               _hf_record("not-an-id", 50), {"paper": "broken"}, _hf_record("2610.00003", "many")]
+    papers, history = dr.hf_rows(payload, "2026-10-22", "2026-10-24")
+    assert [p[0] for p in papers] == ["2610.00001", "2610.00002", "2610.00003"]
+    assert papers[0][3] == '["video world models"]' and papers[0][5] == "https://github.com/a/b"
+    assert papers[0][6] == "" and papers[1][6] == "https://example.org"
+    assert papers[1][2] == "Two lines" and papers[1][4] == "One line."
+    assert [(h[2], h[5], h[6]) for h in history] == [(5, 2, 3), (90, 1, 3), (0, 3, 3)]
+    assert history[0][4] == 40 and history[0][3] == 2
+
+
+def test_hf_history_keeps_the_first_listing_and_the_latest_count_of_the_day():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute(dr.HF_PAPERS_DDL)
+    conn.execute(dr.HF_HISTORY_DDL)
+
+    def record(listed_on, checked_on, upvotes):
+        papers, history = dr.hf_rows([_hf_record("2610.00001", upvotes)], listed_on, checked_on)
+        for stmt in dr.hf_statements(papers, history):
+            _run(conn, stmt)
+
+    record("2026-10-22", "2026-10-22", 10)
+    record("2026-10-22", "2026-10-22", 25)      # a second run the same day
+    record("2026-10-23", "2026-10-23", 60)      # listed again the next day: keeps the first
+    assert conn.execute("SELECT listed_on, first_seen FROM hf_daily_papers").fetchall() == [
+        ("2026-10-22", "2026-10-22")]
+    assert conn.execute("SELECT checked_on, upvotes FROM hf_upvote_history ORDER BY checked_on").fetchall() == [
+        ("2026-10-22", 25), ("2026-10-23", 60)]
+
+
+def test_hf_stage_skips_a_failed_day_and_never_fails_the_run():
+    import sqlite3
+    import httpx
+
+    conn = sqlite3.connect(":memory:")
+
+    class FakeStores:
+        def t(self, sql, args=()):
+            conn.execute(sql, args)
+            return []
+
+        def t_many(self, stmts):
+            for s in stmts:
+                _run(conn, s)
+
+    def handler(request):
+        day = request.url.params["date"]
+        assert request.url.params["limit"] == "100"
+        if request.url.params["p"] != "0":
+            return httpx.Response(200, json=[])
+        if day == "2026-10-23":
+            return httpx.Response(503)
+        if day == "2026-10-22":
+            return httpx.Response(200, json=[])                 # a quiet day
+        return httpx.Response(200, json=[_hf_record("2610.00001", 12), _hf_record("2610.00002", 30)])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    got = dr.stage_hf_daily(FakeStores(), dt.date(2026, 10, 24), days=3, client=client)
+    assert got == {"days": 3, "lists": 1, "empty": 1, "papers": 2, "failed": ["2026-10-23"]}
+    assert conn.execute("SELECT arxiv_id, day_rank FROM hf_upvote_history ORDER BY day_rank").fetchall() == [
+        ("2610.00002", 1), ("2610.00001", 2)]
+
+
+def test_hf_list_pages_past_the_hundred_paper_limit():
+    import httpx
+
+    def handler(request):
+        page = int(request.url.params["p"])
+        return httpx.Response(200, json=[_hf_record(f"2609.{page}{i:04d}", 1) for i in range([3, 1, 0][page])])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert len(dr._hf_list(client, "2026-09-29", page_size=3)) == 4
