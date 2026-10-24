@@ -153,10 +153,13 @@ def display_name(phrase: str, titles: list[str]) -> str:
     forms = Counter(m.group(0) for t in titles for m in pat.finditer(t))
     if not forms:
         return phrase[:1].upper() + phrase[1:]
-    # A topic reads as a plural ("Robots"): take it whenever titles use it at
-    # least half as often as the most common form.
+    # A topic reads as a plural ("Robots"). A one-word name takes it when titles
+    # use it a tenth as often as the commonest form: "robot" is mostly an
+    # adjective there (70 to 12 on 24 Oct), while "memories" (7 to 220) is not
+    # how the field names its topic. A longer name needs half as often.
     top, n = forms.most_common(1)[0]
-    plural = [(c, f) for f, c in forms.items() if f.lower() != phrase and f.lower().endswith("s") and 2 * c >= n]
+    floor = max(1, math.ceil(n / 10)) if " " not in phrase else (n + 1) // 2
+    plural = [(c, f) for f, c in forms.items() if f.lower() != phrase and f.lower().endswith("s") and c >= floor]
     form = max(plural)[1] if plural else top
     return form[:1].upper() + form[1:]
 
