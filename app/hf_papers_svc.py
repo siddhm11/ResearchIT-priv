@@ -97,7 +97,26 @@ async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = No
     """
     if date is not None and not _DATE.fullmatch(date):
         raise ValueError("date must be YYYY-MM-DD")
-    params = {"date": date} if date else None
+    payload: list = []
+    for page in range(MAX_PAGES):
+        params = {"limit": PAGE_SIZE, "p": page, **({"date": date} if date else {})}
+        part = await _get_list(client, params)
+        payload += part
+        if len(part) < PAGE_SIZE:
+            break
+    snapshot = normalize_snapshot(payload, now or datetime.now(timezone.utc))
+    snapshot["code"] = _code_links(payload)
+    snapshot["extra"] = _extras(payload)
+    return snapshot
+
+
+# The API serves at most 100 papers a page, most upvoted first; without a limit
+# it stops at 50, which cut 8 papers from 22 Oct 2026's 58.
+PAGE_SIZE = 100
+MAX_PAGES = 5
+
+
+async def _get_list(client: httpx.AsyncClient, params: dict) -> list:
     async with client.stream("GET", ENDPOINT, params=params, timeout=15) as response:
         response.raise_for_status()
         body = bytearray()
@@ -106,10 +125,28 @@ async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = No
             if len(body) > 4_000_000:
                 raise ValueError("Daily Papers response exceeds 4 MB")
     import json
-    payload = json.loads(body)
-    snapshot = normalize_snapshot(payload, now or datetime.now(timezone.utc))
-    snapshot["code"] = _code_links(payload)
-    return snapshot
+    part = json.loads(body)
+    if not isinstance(part, list):
+        raise ValueError("Expected a Daily Papers list")
+    return part
+
+
+def _extras(payload: list) -> dict[str, dict]:
+    """What each record says beyond the paper itself: Hugging Face's keywords
+    and one-line summary, and its comment count."""
+    out: dict[str, dict] = {}
+    for record in payload:
+        paper = record.get("paper") if isinstance(record, dict) else None
+        if not isinstance(paper, dict) or not isinstance(paper.get("id"), str):
+            continue
+        keywords = [k.strip() for k in paper.get("ai_keywords") or [] if isinstance(k, str) and k.strip()]
+        summary = paper.get("ai_summary")
+        comments = record.get("numComments")
+        out[re.sub(r"v\d+$", "", paper["id"])] = {
+            "keywords": keywords[:12],
+            "summary": summary.strip()[:400] if isinstance(summary, str) else "",
+            "comments": comments if type(comments) is int and comments >= 0 else 0}
+    return out
 
 
 def _code_links(payload: list) -> dict[str, tuple[str, int]]:

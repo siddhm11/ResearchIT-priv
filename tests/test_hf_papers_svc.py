@@ -66,3 +66,16 @@ async def test_fetch_for_a_date_keeps_code_links():
 async def test_fetch_rejects_a_malformed_date():
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _:httpx.Response(200,json=[]))) as c:
         with pytest.raises(ValueError): await fetch_snapshot(c,now=NOW,date='24/09/2026')
+
+async def test_fetch_pages_past_a_full_page_and_keeps_keywords_and_summary(monkeypatch):
+    import app.hf_papers_svc as svc
+    monkeypatch.setattr(svc, 'PAGE_SIZE', 2)
+    pages = {0: [row('2610.00001', ai_keywords=[' world models ', 3], ai_summary=' One line. '), row('2610.00002')],
+             1: [row('2610.00003')]}
+    def handle(req):
+        assert req.url.params['limit'] == '2'
+        return httpx.Response(200, json=pages.get(int(req.url.params['p']), []))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as c:
+        s = await fetch_snapshot(c, now=NOW, date='2026-10-22')
+    assert [p['arxiv_id'] for p in s['papers']] == ['2610.00001', '2610.00002', '2610.00003']
+    assert s['extra']['2610.00001'] == {'keywords': ['world models'], 'summary': 'One line.', 'comments': 0}
