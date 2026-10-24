@@ -18,7 +18,9 @@ import uuid
 from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import HTMLResponse
 
-from app import db, errors, features, trending_shelf
+from datetime import date as Date
+
+from app import db, errors, features, trending_shelf, trending_topics
 from app import user_state as us
 from app.config import COOKIE_NAME
 from app.routers import recommendations
@@ -47,6 +49,9 @@ async def get_trending_shelf(
     papers = await trending_shelf.shelf_for(user_id, exclude, labels=_feed_labels(after, user_id))
     if not papers:
         return HTMLResponse("")
+    page = features.visible(trending_topics.SWITCH, request)
+    if page:
+        _add_topics(papers)
 
     query_id = str(uuid.uuid4())
     for position, p in enumerate(papers):
@@ -67,7 +72,83 @@ async def get_trending_shelf(
         errors.report("trending", "shelf exposure write failed", e)
     return templates.TemplateResponse(request, "partials/trending_shelf.html",
                                       {"papers": papers, "query_id": query_id,
-                                       "source": trending_shelf.SOURCE})
+                                       "source": trending_shelf.SOURCE, "trending_page": page})
+
+
+def _add_topics(papers: list[dict]) -> None:
+    """The rising topic each paper belongs to, if any (trending_topics.topic_line)."""
+    for p in papers:
+        line = trending_topics.topic_line(p["arxiv_id"])
+        if line:
+            line["since_label"] = f"{Date.fromisoformat(line['since']):%B}"
+        p["topic"] = line
+
+
+# ── /trending: the week's papers and the rising topics ───────────────────────
+
+PAGE_SOURCE = "trending_page"
+PAGE_FOR_YOU = 9
+PAGE_TOP = 10
+SPARK_W, SPARK_H = 120, 32
+
+
+def _spark(rolling: list[float], top: float) -> str:
+    """SVG polyline points for a topic's weekly share, on one scale for the page."""
+    n = max(len(rolling) - 1, 1)
+    return " ".join(f"{i * SPARK_W / n:.1f},{SPARK_H - 2 - v / top * (SPARK_H - 4):.1f}"
+                    for i, v in enumerate(rolling))
+
+
+def _topic_view(t: dict, top: float) -> dict:
+    return {"id": t["id"], "name": t["name"], "also": t["also"], "papers": t["papers"],
+            "from": t["from_share"], "to": t["to_share"], "spark": _spark(t["rolling"], top),
+            "top": t["top"]}
+
+
+@router.get("/trending", response_class=HTMLResponse)
+async def trending_page(
+    request: Request,
+    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    if not features.visible(trending_topics.SWITCH, request):
+        return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
+    decided: set[str] = set()
+    for_you: list[dict] = []
+    if user_id:
+        await us.ensure_loaded(user_id)
+        decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)}
+        # Not the shelf's "shown is shown": this page lists the whole week, so
+        # only papers the reader saved or turned down are left out.
+        for_you = await trending_shelf.shelf_for(user_id, decided, size=PAGE_FOR_YOU)
+    shown = {p["arxiv_id"] for p in for_you}
+    top = trending_shelf.week_top(PAGE_TOP, exclude=decided | shown)
+    _add_topics(for_you + top)
+
+    rising, cooling = trending_topics.rising(), trending_topics.cooling()
+    scale = max([v for t in rising + cooling for v in t["rolling"]] or [0.01])
+    query_id = str(uuid.uuid4())
+    sections = (("for_you", for_you, "trending_page_interests_v1"),
+                ("top", top, "trending_page_top_v1"))
+    exposures, position = [], 0
+    for _name, papers, policy in sections:
+        for p in papers:
+            p.update(query_id=query_id, position=position, propensity=1.0, policy_id=policy,
+                     ranker_version=policy, candidate_source=trending_shelf.CANDIDATE_SOURCE,
+                     cluster_id=(p.get("interest") or {}).get("cluster_idx"))
+            exposures.append({"user_id": user_id, "paper_id": p["arxiv_id"], "query_id": query_id,
+                              "position": position, "tier": None, "candidate_source": p["candidate_source"],
+                              "cluster_id": p["cluster_id"], "propensity": 1.0, "policy_id": policy})
+            position += 1
+    if user_id and exposures:
+        try:
+            await db.record_exposures(exposures)
+        except Exception as e:  # pragma: no cover - analytics must not cost the page
+            errors.report("trending", "page exposure write failed", e)
+    return templates.TemplateResponse(request, "trending.html", {
+        "for_you": for_you, "top": top, "query_id": query_id, "source": PAGE_SOURCE,
+        "rising": [_topic_view(t, scale) for t in rising],
+        "cooling": [_topic_view(t, scale) for t in cooling],
+        "basis": trending_topics.coverage(), "spark_w": SPARK_W, "spark_h": SPARK_H})
 
 
 def _feed_labels(after: str, user_id: str) -> dict[int, tuple[str, int]]:

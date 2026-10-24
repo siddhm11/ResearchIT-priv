@@ -464,7 +464,7 @@ def vector_cache_stats() -> dict:
     }
 
 
-async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
+async def get_paper_vectors(arxiv_ids: list[str], remember: bool = True) -> dict[str, np.ndarray]:
     """
     Fetch BGE-M3 embedding vectors for papers from Qdrant.
     Returns {arxiv_id: float32 array} for papers found.
@@ -475,7 +475,9 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
     Cached in-process by arxiv_id; only un-cached IDs hit Qdrant. The
     Qdrant retrieve() that pulls the actual stored vectors is the
     single most expensive call in the pipeline (BQ -> disk read), so
-    absorbing repeats here is a big win.
+    absorbing repeats here is a big win. `remember=False` reads the cache
+    but does not fill it: a once-a-day bulk read (trending_topics, ~5,200
+    papers) would otherwise push the feed's working set out of a 25K cache.
 
     Used by:
       - EWMA profile updates on save (events.py)
@@ -526,7 +528,8 @@ async def get_paper_vectors(arxiv_ids: list[str]) -> dict[str, np.ndarray]:
                 # an array on a hit would be a latent type bug.
                 vec = np.asarray(_dequantize(vec), dtype=np.float32)
                 result[aid] = vec
-                _vec_cache_put(aid, vec)
+                if remember:
+                    _vec_cache_put(aid, vec)
     return result
 
 

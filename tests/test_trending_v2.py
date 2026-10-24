@@ -14,8 +14,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app import hybrid_search_svc as hs, trending_shelf as ts, turso_svc
+from app import hybrid_search_svc as hs, trending_shelf as ts, trending_topics as tt, turso_svc
 from app.templates_env import _short_count, templates
+from tests.test_trending_shelf import HF, client, shelf_world  # noqa: F401  (fixture)
 
 
 # ── Why it is trending ───────────────────────────────────────────────────────
@@ -89,3 +90,24 @@ def test_search_tags_only_what_the_step_up_moved():
     on = search_html({"trending": moved})
     assert on.count('class="trend-tag"') == 1 and "Most upvoted of 92 papers on 30 Sep" in on
     assert "trend-tag" not in search_html({"trending_shadow": moved}), "shadow mode changes nothing on screen"
+
+
+# ── The shelf's topic line ───────────────────────────────────────────────────
+
+@pytest.fixture
+def topics(monkeypatch):
+    monkeypatch.setattr(tt, "_state", {**tt._state, "first_week": "2026-04-27", "topic_of": {aid: 5 for aid in HF},
+                                       "topics": [{"id": 5, "name": "Agent Harnesses", "q": 0.01, "slope": 0.5,
+                                                   "from_share": 0.006, "to_share": 0.026}]})
+
+
+async def test_shelf_names_the_rising_topic_only_with_the_page_on(shelf_world, topics, monkeypatch):
+    monkeypatch.setenv("TRENDING_PAGE", "on")
+    async with client() as c:
+        on = (await c.get("/api/trending-shelf")).text
+    assert "Rising topic: <b>Agent Harnesses</b>" in on and "0.6% → 2.6% of the lists since April" in on
+    assert 'href="/trending"' in on
+    monkeypatch.setenv("TRENDING_PAGE", "off")
+    async with client() as c:
+        off = (await c.get("/api/trending-shelf")).text
+    assert "Rising topic" not in off and 'href="/trending"' not in off
