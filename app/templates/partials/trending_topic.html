@@ -1,0 +1,22 @@
+{#
+  One rising or cooling topic on /trending. Expects `t` (routers/trending.py
+  _topic_view), `query_id`, `spark_w`, `spark_h`. The line is the topic's share
+  of each week's list, averaged over four weeks, on one scale for the page.
+#}
+<li class="topic-row" id="topic-{{ t.id }}">
+  <div class="topic-head">
+    <h3 class="topic-name">{{ t.name }}</h3>
+    <span class="topic-delta">{{ "%.1f" | format(t["from"] * 100) }}% → {{ "%.1f" | format(t["to"] * 100) }}%</span>
+    <svg class="topic-spark" viewBox="0 0 {{ spark_w }} {{ spark_h }}" width="{{ spark_w }}" height="{{ spark_h }}"
+         role="img" aria-label="Share of each week's list, from {{ "%.1f" | format(t["from"] * 100) }}% to {{ "%.1f" | format(t["to"] * 100) }}%">
+      <polyline points="{{ t.spark }}"/>
+    </svg>
+  </div>
+  {% if t.also %}<p class="topic-also">Also: {{ t.also | join(", ") }} · {{ t.papers }} papers</p>{% endif %}
+  <ul class="topic-papers">
+    {% for p in t.top %}
+      <li><a href="/p/{{ p.arxiv_id }}?qid={{ query_id }}&amp;sf=trending_page&amp;src=hf_daily&amp;prop=1.0&amp;pol=trending_page_topics_v1">{{ p.title }}</a>
+        <span class="muted">▲ {{ p.upvotes }}</span></li>
+    {% endfor %}
+  </ul>
+</li>

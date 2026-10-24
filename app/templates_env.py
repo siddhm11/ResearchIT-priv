@@ -253,12 +253,28 @@ def _commafy(value) -> str:
         return ""
 
 
+def _short_count(value) -> str:
+    """5742 -> '5.7k', 113000 -> '113k', 950 -> '950'. '' for anything non-numeric."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if n < 1000:
+        return str(n)
+    if n < 10_000:
+        return f"{n / 1000:.1f}".rstrip("0").rstrip(".") + "k"
+    if n < 1_000_000:
+        return f"{n // 1000}k"
+    return f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
+
+
 templates.env.filters["tojson_parse"] = _tojson_parse
 templates.env.filters["lead"] = _lead
 templates.env.filters["lead_rest"] = _lead_rest
 templates.env.filters["cat_class"] = _cat_class
 templates.env.filters["why_shown"] = _why_shown
 templates.env.filters["commafy"] = _commafy
+templates.env.filters["short_count"] = _short_count
 templates.env.filters["match_pct"] = _match_pct
 templates.env.filters["is_truncated"] = _is_truncated
 

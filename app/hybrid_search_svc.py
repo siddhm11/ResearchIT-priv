@@ -40,6 +40,24 @@ from app import features
 
 REWRITE_KEYWORDS_SWITCH = "SEARCH_REWRITE_KEYWORDS"
 
+# Trending papers jump the line, for a few days. A paper in the top quarter of
+# this week's Hugging Face Daily Papers that the search already found (top
+# TREND_POOL after fusion) may take one of the last TREND_AUDITIONS places the
+# cross-encoder scores. If the cross-encoder then rates it at least
+# TREND_MIN_RELEVANCE of the best score, it gains up to TREND_BOOST of the best
+# score, in full for its first three days on the list and fading to nothing a
+# week after (trending_shelf.freshness). At most TREND_MAX_PROMOTED papers per
+# search. Search results are cached for everyone, so the switch has no preview:
+# off, shadow (measure what would move, change nothing) or on (doc 06,
+# 2026-10-24).
+TRENDING_SWITCH = "SEARCH_TRENDING"
+TREND_MIN_STRENGTH = 0.75
+TREND_BOOST = 0.25           # x the best score; citations get at most 0.2
+TREND_MIN_RELEVANCE = 0.5
+TREND_POOL = 50
+TREND_AUDITIONS = 2
+TREND_MAX_PROMOTED = 2
+
 async def search(
     query: str,
     limit: int = 10,
@@ -237,11 +255,22 @@ async def search(
     # ── Step 4.5: BGE Cross-Encoder Reranking ──────────────────────────
     t0_bge = time.perf_counter()
     bge_time_ms = 0
+    trend_mode = features.mode(TRENDING_SWITCH)
+    trend: dict = {}
+    if trend_mode in ("shadow", "on"):
+        from app import trending_shelf
+        trend = {a: t for a, t in trending_shelf.trending_now().items()
+                 if t["strength"] >= TREND_MIN_STRENGTH}
 
     if fused and config.SEARCH_BGE_RERANK:
         top_n = min(len(fused), rerank_depth())
         search_meta["rerank_depth"] = top_n
         top_candidates = fused[:top_n]
+        if trend:
+            extra = [it for it in fused[top_n:TREND_POOL] if it["arxiv_id"] in trend][:TREND_AUDITIONS]
+            search_meta["trend_auditions"] = len(extra)
+            if extra and trend_mode == "on":
+                top_candidates = fused[:top_n - len(extra)] + extra
         top_ids = [item["arxiv_id"] for item in top_candidates]
 
         try:
@@ -296,7 +325,7 @@ async def search(
             # looked at.  Dropping the tail keeps every remaining score on one
             # comparable scale.
             scored = [
-                it for it in fused[:top_n] if it["arxiv_id"] in bge_scores_by_id
+                it for it in top_candidates if it["arxiv_id"] in bge_scores_by_id
             ]
             if scored:
                 for item in scored:
@@ -316,8 +345,15 @@ async def search(
     t0_rerank = time.perf_counter()
     rerank_timings: dict = {}
     ranked = await _title_match_rerank(
-        fused, query, top_n_for_boost=50, timings=rerank_timings
+        fused, query, top_n_for_boost=50, timings=rerank_timings,
+        trend=trend, apply_trend=trend_mode == "on",
     )
+    moved = {it["arxiv_id"]: {"from": it["trend_from"], "to": it["trend_to"],
+                              "facts": trend[it["arxiv_id"]]["facts"]}
+             for it in ranked if it.get("trend_boost") and it["trend_to"] < limit}
+    if moved:
+        search_meta["trending" if trend_mode == "on" else "trending_shadow"] = moved
+        runtime_stats.count(f"search_trend_{trend_mode}")
     rerank_total = int((time.perf_counter() - t0_rerank) * 1000)
     search_meta["rerank_time_ms"] = rerank_total
     # Sub-timings come back via the timings dict.  They used to be stashed on
@@ -541,6 +577,8 @@ async def _title_match_rerank(
     user_query: str,
     top_n_for_boost: int = 50,
     timings: dict | None = None,
+    trend: dict | None = None,
+    apply_trend: bool = False,
 ) -> list[dict]:
     """
     Boost candidates by title overlap + citation popularity.
@@ -555,7 +593,12 @@ async def _title_match_rerank(
        overlap is low but the paper is obviously important.
 
     The final score is:
-      final = rrf_score + max_rrf * (title_boost + citation_boost)
+      final = rrf_score + max_rrf * (title_boost + citation_boost [+ trend_boost])
+
+    3. Trend boost (temporary, see TRENDING_SWITCH): papers in `trend` that are
+       at least TREND_MIN_RELEVANCE of the best score. Each records where it
+       stood without it (`trend_from`) and with it (`trend_to`); it joins the
+       score only when `apply_trend`.
 
     Safe under partial Turso failure: papers with missing metadata get
     boost=0 and rank by RRF alone.
@@ -600,7 +643,31 @@ async def _title_match_rerank(
         c_boost = _compute_citation_boost(citations.get(aid, 0))
         item["title_boost"] = t_boost
         item["citation_boost"] = c_boost
+        item["trend_boost"] = _trend_boost((trend or {}).get(aid), item["rrf_score"], max_rrf)
         item["final_score"] = item["rrf_score"] + max_rrf * (t_boost + c_boost)
 
+    boosted = sorted((it for it in fused if it["trend_boost"]), key=lambda it: -it["trend_boost"])
+    for it in boosted[TREND_MAX_PROMOTED:]:
+        it["trend_boost"] = 0.0
     fused.sort(key=lambda x: x["final_score"], reverse=True)
+    if boosted:
+        for pos, it in enumerate(fused):
+            it["trend_from"] = pos
+        with_trend = sorted(fused, key=lambda x: x["final_score"] + max_rrf * x["trend_boost"], reverse=True)
+        for pos, it in enumerate(with_trend):
+            it["trend_to"] = pos
+        if apply_trend:
+            for it in fused:
+                it["final_score"] += max_rrf * it["trend_boost"]
+            fused = with_trend
     return fused
+
+
+def _trend_boost(info: dict | None, score: float, best: float) -> float:
+    """Up to TREND_BOOST for the week's most upvoted paper, half of it at the
+    top-quarter line, times how fresh it still is; 0 unless the paper already
+    scores TREND_MIN_RELEVANCE of the best."""
+    if not info or best <= 0 or score < TREND_MIN_RELEVANCE * best:
+        return 0.0
+    above = (info["strength"] - TREND_MIN_STRENGTH) / (1 - TREND_MIN_STRENGTH)
+    return TREND_BOOST * (0.5 + 0.5 * min(max(above, 0.0), 1.0)) * info["fresh"]

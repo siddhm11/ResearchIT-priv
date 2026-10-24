@@ -2066,3 +2066,43 @@ a.src:hover { text-decoration: underline; }
 .shelf-actions { margin-top: auto; }
 .shelf-card.is-leaving { opacity: .35; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .shelf-card { transition: none; } }
+/* Why it is trending (trending_card.html): counts from the lists, then the
+   rising topic, then Hugging Face's own summary, labelled as theirs. */
+.shelf-why { margin: 0; font-family: var(--font-mono); font-size: .72rem; line-height: 1.45;
+  color: var(--text); font-variant-numeric: tabular-nums; }
+.shelf-topic { margin: 0; font-size: .78rem; line-height: 1.4; color: var(--text-2); }
+.shelf-topic b { color: var(--accent); font-weight: 650; }
+.shelf-sum { margin: 0; font-size: .8rem; line-height: 1.45; color: var(--text-2);
+  border-left: 2px solid var(--border); padding-left: .55rem;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.shelf-sum span { display: block; font-family: var(--font-mono); font-size: .62rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3); }
+.shelf-more { margin-left: auto; font-family: var(--font-mono); font-size: .72rem; color: var(--accent);
+  text-decoration: none; }
+.shelf-more:hover { text-decoration: underline; }
+
+/* /trending: rising and cooling topics, each with its weekly share line. */
+.trending-page { display: flex; flex-direction: column; gap: 1.6rem; }
+.trending-page .issue + .topics-block, .trending-page .issue + .shelf { border-top: 0; padding-top: 0; }
+.topics-block { display: flex; flex-direction: column; gap: .7rem; padding-top: .85rem;
+  border-top: 2px solid var(--rule); min-width: 0; }
+.topic-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
+.topic-row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .9rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.topic-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .8rem; }
+.topic-name { margin: 0; font-family: var(--font-read); font-size: 1.04rem; font-weight: 650; }
+.topic-delta { font-family: var(--font-mono); font-size: .78rem; color: var(--accent);
+  font-variant-numeric: tabular-nums; }
+#tp-cooling ~ .topic-list .topic-delta { color: var(--danger); }
+.topic-spark { margin-left: auto; max-width: 100%; height: auto; }
+.topic-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+#tp-cooling ~ .topic-list .topic-spark polyline { stroke: var(--danger); }
+.topic-also { margin: 0; font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); }
+.topic-papers { margin: 0; padding-left: 1.1rem; display: grid; gap: .25rem; font-size: .88rem; }
+.topic-papers a { color: var(--text); text-decoration: none; }
+.topic-papers a:hover { color: var(--accent); }
+.trending-method { max-width: 40rem; }
+
+/* A search result that stepped up because it is trending (SEARCH_TRENDING=on). */
+.trend-tag { align-self: flex-start; font-family: var(--font-mono); font-size: .7rem; color: var(--accent);
+  background: var(--accent-bg); border: 1px solid var(--accent-br); border-radius: 999px; padding: .05rem .5rem; }

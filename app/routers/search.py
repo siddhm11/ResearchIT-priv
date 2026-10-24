@@ -110,6 +110,11 @@ async def search(
         p["position"] = idx
         p["propensity"] = 1.0  # search is deterministic
         p["policy_id"] = "search_v2_independent_lexical"
+    # Papers the temporary trending step-up moved into view (SEARCH_TRENDING=on)
+    # say so, with the strongest count behind it. Shadow mode tags nothing.
+    for p in papers:
+        moved = (search_meta.get("trending") or {}).get(p.get("arxiv_id"))
+        p["trending"] = {"fact": (moved.get("facts") or [""])[0]} if moved else None
 
     # A small figure beside each result that already has one saved (switch
     # SEARCH_FIGURES; local reads only, order and instrumentation untouched),

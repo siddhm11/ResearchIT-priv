@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{#
+  /trending (app/routers/trending.py): this week's Hugging Face Daily Papers in
+  the reader's interests, the week's most upvoted, and the topics whose share
+  of the lists has really moved over 26 weeks (app/trending_topics.py). Every
+  number on it is a count from the lists; the footnote says how the topics
+  were found, so a reader can judge them.
+#}
+{% block title %}Trending on Hugging Face — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed trending-page">
+  <header class="issue">
+    <div class="issue-kicker">Hugging Face Daily Papers</div>
+    <h1 class="issue-title">Trending this week</h1>
+    <p class="muted">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
+  </header>
+
+  {% if for_you %}
+  <section class="shelf" aria-labelledby="tp-for-you">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-for-you">In your interests</h2>
+      <span class="shelf-note">This week's lists, closest to what you save</span>
+    </header>
+    <ol class="shelf-row">
+      {% for paper in for_you %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  <section class="topics-block" aria-labelledby="tp-rising">
+    <h2 class="shelf-title" id="tp-rising">Rising topics</h2>
+    {% if rising %}
+      <ol class="topic-list">
+        {% for t in rising %}{% include "partials/trending_topic.html" %}{% endfor %}
+      </ol>
+    {% elif basis.computed_at %}
+      <p class="muted">No topic has risen clearly enough over the last {{ basis.weeks }} weeks to name.</p>
+    {% elif basis.failed %}
+      <p class="muted">Topics can't be worked out right now. The papers below are still this week's.</p>
+    {% else %}
+      <p class="muted">Topics are being worked out. They appear here a minute or so after the site starts.</p>
+    {% endif %}
+  </section>
+
+  {% if cooling %}
+  <section class="topics-block" aria-labelledby="tp-cooling">
+    <h2 class="shelf-title" id="tp-cooling">Cooling</h2>
+    <ol class="topic-list">
+      {% for t in cooling %}{% include "partials/trending_topic.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if top %}
+  <section class="shelf" aria-labelledby="tp-top">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-top">Most upvoted this week</h2>
+      <span class="shelf-note">Across all topics</span>
+    </header>
+    <ol class="shelf-row">
+      {% for paper in top %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if basis.computed_at %}
+  <p class="small muted trending-method">
+    How topics are found: the {{ basis.papers | commafy }} papers on Hugging Face's lists over the last
+    {{ basis.weeks }} weeks are grouped by meaning, and each group's share of every week's list is followed.
+    A topic shows here only if its trend beats the same trend with every paper's week shuffled 2,000 times
+    (after correcting for checking many topics at once), and only under a name that at least 30% of its papers use.
+    Shares, not counts, because the lists ran from about 100 to 400 papers a week.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

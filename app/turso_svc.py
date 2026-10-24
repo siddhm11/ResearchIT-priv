@@ -575,3 +575,50 @@ async def fetch_fresh_by_categories(categories: set[str], limit: int = 10) -> li
         for p in papers:
             _cache_put(p["arxiv_id"], p)
     return papers
+
+
+# ── Hugging Face Daily Papers history (scripts/daily_refresh.py writes it) ───
+
+_HF_DAILY_SQL = (
+    "SELECT h.arxiv_id, h.listed_on, h.title, h.keywords, h.summary, h.github_repo, "
+    "u.upvotes, u.github_stars FROM hf_daily_papers h "
+    "LEFT JOIN hf_upvote_history u ON u.arxiv_id = h.arxiv_id AND u.checked_on = "
+    "(SELECT MAX(checked_on) FROM hf_upvote_history v WHERE v.arxiv_id = h.arxiv_id) "
+    "WHERE h.listed_on >= ? ORDER BY h.listed_on")
+
+
+async def fetch_hf_daily(since: str, timeout: float = 30) -> list[dict]:
+    """Every paper the daily job recorded from Daily Papers lists dated `since`
+    (YYYY-MM-DD) or later, with its newest upvote and star counts.
+
+    Raises on failure: the caller keeps what it had rather than treating an
+    outage as an empty history.
+    """
+    url, token = config.TURSO_URL, config.TURSO_DB_TOKEN
+    if not url or not token:
+        raise RuntimeError("TURSO_URL or TURSO_DB_TOKEN not configured")
+    url = url.rstrip("/").replace("libsql://", "https://", 1).replace("http://", "https://", 1)
+    resp = await http_client.get_client().post(
+        f"{url}/v2/pipeline", timeout=timeout,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"requests": [{"type": "execute", "stmt": {"sql": _HF_DAILY_SQL,
+                                                        "args": [{"type": "text", "value": since}]}},
+                           {"type": "close"}]})
+    resp.raise_for_status()
+    res = resp.json()["results"][0]
+    if res.get("type") == "error":
+        raise RuntimeError(str(res.get("error"))[:200])
+    result = res["response"]["result"]
+    cols = [c["name"] for c in result["cols"]]
+    out = []
+    for row in result["rows"]:
+        r = {c: (cell.get("value") if cell.get("type") != "null" else None) for c, cell in zip(cols, row)}
+        try:
+            keywords = json.loads(r["keywords"] or "[]")
+        except ValueError:
+            keywords = []
+        out.append({"arxiv_id": r["arxiv_id"], "listed_on": r["listed_on"], "title": r["title"] or "",
+                    "keywords": [k for k in keywords if isinstance(k, str)], "summary": r["summary"] or "",
+                    "github": r["github_repo"] or "", "upvotes": int(r["upvotes"] or 0),
+                    "stars": int(r["github_stars"] or 0)})
+    return out
