@@ -2080,3 +2080,7 @@ a.src:hover { text-decoration: underline; }
 .shelf-more { margin-left: auto; font-family: var(--font-mono); font-size: .72rem; color: var(--accent);
   text-decoration: none; }
 .shelf-more:hover { text-decoration: underline; }
+
+/* A search result that stepped up because it is trending (SEARCH_TRENDING=on). */
+.trend-tag { align-self: flex-start; font-family: var(--font-mono); font-size: .7rem; color: var(--accent);
+  background: var(--accent-bg); border: 1px solid var(--accent-br); border-radius: 999px; padding: .05rem .5rem; }

@@ -110,6 +110,9 @@
   #}
   {% set thumb = paper.card_figure if paper.card_figure is defined else none %}
   {% if thumb %}<div class="card-split"><div class="card-main">{% endif %}
+  {% if paper.trending %}
+    <span class="trend-tag">Trending on Hugging Face{% if paper.trending.fact %} · {{ paper.trending.fact }}{% endif %}</span>
+  {% endif %}
   <a class="card-title"
      href="/p/{{ paper.arxiv_id }}{% if _q %}?{{ _q | join('&') }}{% endif %}">{{ paper.title }}</a>
 
