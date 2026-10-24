@@ -2066,3 +2066,17 @@ a.src:hover { text-decoration: underline; }
 .shelf-actions { margin-top: auto; }
 .shelf-card.is-leaving { opacity: .35; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .shelf-card { transition: none; } }
+/* Why it is trending (trending_card.html): counts from the lists, then the
+   rising topic, then Hugging Face's own summary, labelled as theirs. */
+.shelf-why { margin: 0; font-family: var(--font-mono); font-size: .72rem; line-height: 1.45;
+  color: var(--text); font-variant-numeric: tabular-nums; }
+.shelf-topic { margin: 0; font-size: .78rem; line-height: 1.4; color: var(--text-2); }
+.shelf-topic b { color: var(--accent); font-weight: 650; }
+.shelf-sum { margin: 0; font-size: .8rem; line-height: 1.45; color: var(--text-2);
+  border-left: 2px solid var(--border); padding-left: .55rem;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.shelf-sum span { display: block; font-family: var(--font-mono); font-size: .62rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3); }
+.shelf-more { margin-left: auto; font-family: var(--font-mono); font-size: .72rem; color: var(--accent);
+  text-decoration: none; }
+.shelf-more:hover { text-decoration: underline; }

@@ -26,6 +26,7 @@ import asyncio
 import json
 import math
 import os
+from bisect import bisect_left
 from collections import Counter
 from datetime import date as Date, datetime, timedelta, timezone
 
@@ -36,11 +37,13 @@ from app import db, features, hf_papers_svc, http_client, qdrant_svc
 from app.recommend.labels import cluster_tone, label_clusters
 
 SWITCH = "TRENDING_SHELF"
+SEARCH_SWITCH = "SEARCH_TRENDING"   # hybrid_search_svc reads the same lists
 POLICY_ID = "trending_shelf_v1"
 SOURCE = "trending"
 CANDIDATE_SOURCE = "hf_daily"
 
 DAYS = 7                    # Daily Papers lists kept, today included
+FRESH_DAYS = 3              # days a paper counts fully as trending in search
 SHELF_SIZE = 6
 SHELF_AFTER_CARD = 4      # page 1 shows this many feed cards before the shelf
 PER_INTEREST = 2            # floor on each interest's share of the shelf
@@ -89,16 +92,18 @@ async def refresh(client: httpx.AsyncClient | None = None, today: Date | None = 
             print(f"[trending_shelf] Daily Papers {day} failed: {type(e).__name__}")
             failed.append(day)
             continue
-        for p in snap["papers"]:
-            votes = p["upvotes"] or 0
-            prev = papers.get(p["arxiv_id"])
-            if prev is None or votes > prev["upvotes"]:
-                papers[p["arxiv_id"]] = {"arxiv_id": p["arxiv_id"], "title": p["title"],
-                                         "upvotes": votes, "published_at": p["published_at"],
-                                         "listed_on": day}
+        extra = snap.get("extra") or {}
+        listed = [p for p in snap["papers"] if p["arxiv_id"] not in papers]
+        listed.sort(key=lambda p: -(p["upvotes"] or 0))
+        for rank, p in enumerate(listed, start=1):
+            papers[p["arxiv_id"]] = {"arxiv_id": p["arxiv_id"], "title": p["title"],
+                                     "upvotes": p["upvotes"] or 0, "published_at": p["published_at"],
+                                     "listed_on": day, "day_rank": rank, "day_size": len(listed),
+                                     **extra.get(p["arxiv_id"], {"keywords": [], "summary": "", "comments": 0})}
         code.update(snap.get("code") or {})
     if len(failed) == DAYS:
         raise RuntimeError("no Daily Papers list could be fetched")
+    _place_in_week(papers)
     vectors = await qdrant_svc.get_paper_vectors(list(papers))
     _state.update(papers=papers, vectors=vectors, code=code, days=DAYS - len(failed),
                   failed_days=failed, error=None,
@@ -119,7 +124,7 @@ async def _loop() -> None:
 
 async def start() -> None:
     global _task
-    if not features.active(SWITCH) or _task is not None:
+    if not (features.active(SWITCH) or features.active(SEARCH_SWITCH)) or _task is not None:
         return
     _state["scheduler"] = "starting"
     _task = asyncio.create_task(_loop(), name="trending-shelf")
@@ -144,6 +149,62 @@ def stats() -> dict:
             "refreshed_at": _state["refreshed_at"], "error": _state["error"]}
 
 
+# ── Why a paper is trending (pure) ───────────────────────────────────────────
+#
+# Every claim is a count read off Hugging Face's own lists, never a model's
+# opinion: where the paper placed on the day it was listed, and how its upvotes
+# compare with every other paper of the week. Upvotes arrive in a paper's first
+# day or two on the list (measured on 26 weeks, 24 Oct 2026), so "this week" is
+# the window in which a trend still means something.
+
+def _place_in_week(papers: dict[str, dict]) -> None:
+    """Each paper's share of the week's papers it has more upvotes than."""
+    votes = sorted(p["upvotes"] for p in papers.values())
+    n = len(votes)
+    for p in papers.values():
+        below = bisect_left(votes, p["upvotes"])
+        p["week_size"] = n
+        p["week_percentile"] = below / max(n - 1, 1)
+
+
+def trend_facts(p: dict) -> list[str]:
+    """Short, checkable reasons this paper is trending, strongest first."""
+    day = Date.fromisoformat(p["listed_on"])
+    when = f"{day.day} {day:%b}"
+    facts = []
+    rank, size = p.get("day_rank") or 0, p.get("day_size") or 0
+    if rank == 1 and size > 1:
+        facts.append(f"Most upvoted of {size} papers on {when}")
+    elif rank and size:
+        facts.append(f"#{rank} of {size} papers on {when}")
+    top = 1 - p.get("week_percentile", 0)
+    if p.get("week_size", 0) >= 20 and top <= 0.25:
+        pct = max(1, math.ceil(top * 100))
+        facts.append(f"top {pct}% of this week's {p['week_size']}")
+    return facts
+
+
+def freshness(listed_on: str, today: Date) -> float:
+    """1 for a paper's first FRESH_DAYS days on the list, then down to 0 at DAYS."""
+    age = (today - Date.fromisoformat(listed_on)).days
+    if age < FRESH_DAYS:
+        return 1.0
+    return max(0.0, 1 - (age - FRESH_DAYS + 1) / (DAYS - FRESH_DAYS + 1))
+
+
+def trending_now(today: Date | None = None) -> dict[str, dict]:
+    """The week's papers for search's temporary boost: each with its place in the
+    week (`strength`, 0 to 1), how fresh it still is (`fresh`) and its facts."""
+    today = today or datetime.now(timezone.utc).date()
+    out = {}
+    for aid, p in _state["papers"].items():
+        fresh = freshness(p["listed_on"], today)
+        if fresh > 0:
+            out[aid] = {"strength": p.get("week_percentile", 0.0), "fresh": fresh,
+                        "upvotes": p["upvotes"], "facts": trend_facts(p)}
+    return out
+
+
 # ── Ranking (pure) ───────────────────────────────────────────────────────────
 
 def _unit(v) -> np.ndarray:
@@ -158,7 +219,7 @@ def interest_bar(member_fits: list[float]) -> float:
 
 
 def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: float,
-         exclude: set[str]) -> list[dict]:
+         exclude: set[str], size: int = SHELF_SIZE) -> list[dict]:
     """The shelf for one reader, best first, or [] when too little is on-topic.
 
     `interests` carry a unit `medoid` vector, `cluster_idx`, `label`, `tone`.
@@ -184,17 +245,17 @@ def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: floa
         scored.append({**p, "fit": round(fit, 4), "score": score, "interest": interests[k]})
     scored.sort(key=lambda s: -s["score"])
 
-    cap = max(PER_INTEREST, math.ceil(SHELF_SIZE / len(interests)))
+    cap = max(PER_INTEREST, math.ceil(size / len(interests)))
     taken, per = [], Counter()
     for s in scored:
         if per[s["interest"]["cluster_idx"]] < cap:
             taken.append(s)
             per[s["interest"]["cluster_idx"]] += 1
-        if len(taken) == SHELF_SIZE:
+        if len(taken) == size:
             break
-    if len(taken) < SHELF_SIZE:
+    if len(taken) < size:
         chosen = {s["arxiv_id"] for s in taken}
-        taken += [s for s in scored if s["arxiv_id"] not in chosen][:SHELF_SIZE - len(taken)]
+        taken += [s for s in scored if s["arxiv_id"] not in chosen][:size - len(taken)]
         taken.sort(key=lambda s: -s["score"])
     return taken if len(taken) >= MIN_SHOWN else []
 
@@ -225,7 +286,8 @@ async def reader_interests(user_id: str) -> tuple[list[dict], float]:
 
 
 async def shelf_for(user_id: str, exclude: set[str],
-                    labels: dict[int, tuple[str, int]] | None = None) -> list[dict]:
+                    labels: dict[int, tuple[str, int]] | None = None,
+                    size: int = SHELF_SIZE) -> list[dict]:
     """`labels` ({cluster_idx: (name, tone)}) are the names on the feed page
     the shelf sits on; they win over names worked out here."""
     if not _state["papers"]:
@@ -234,10 +296,21 @@ async def shelf_for(user_id: str, exclude: set[str],
     for i in interests:
         if labels and i["cluster_idx"] in labels:
             i["label"], i["tone"] = labels[i["cluster_idx"]]
-    picked = rank(list(_state["papers"].values()), _state["vectors"], interests, bar, exclude)
-    for p in picked:
-        repo = _state["code"].get(p["arxiv_id"])
-        p["github"], p["stars"] = (repo if repo else ("", 0))
-        listed = Date.fromisoformat(p["listed_on"])
-        p["listed_label"] = f"{listed.day} {listed:%b}"
-    return picked
+    picked = rank(list(_state["papers"].values()), _state["vectors"], interests, bar, exclude, size)
+    return [_for_card(p) for p in picked]
+
+
+def week_top(n: int = 10, exclude: set[str] = frozenset()) -> list[dict]:
+    """The week's most upvoted papers, for everyone (the /trending page)."""
+    papers = sorted((p for a, p in _state["papers"].items() if a not in exclude),
+                    key=lambda p: (-p["upvotes"], p["arxiv_id"]))
+    return [_for_card(dict(p)) for p in papers[:n]]
+
+
+def _for_card(p: dict) -> dict:
+    repo = _state["code"].get(p["arxiv_id"])
+    p["github"], p["stars"] = (repo if repo else ("", 0))
+    listed = Date.fromisoformat(p["listed_on"])
+    p["listed_label"] = f"{listed.day} {listed:%b}"
+    p["facts"] = trend_facts(p)
+    return p
