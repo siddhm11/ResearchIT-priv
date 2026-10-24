@@ -105,10 +105,18 @@ class Stores:
         if errs:
             raise RuntimeError(str(errs[0])[:300])
 
-    def counts(self) -> dict:
-        tmax, tcnt = self.t("SELECT MAX(rowid), COUNT(*) FROM papers")[0]
-        return {"recent_points": self.q(f"/collections/{COLLECTION}/points/count", {"exact": True})["count"],
-                "turso_rows": int(tcnt), "turso_max_rowid": int(tmax)}
+    def counts(self, since_rowid: int | None = None) -> dict:
+        """Qdrant's recent points and Turso's highest rowid, plus the rows above
+        `since_rowid` when given. Never COUNT(*) over the whole table: that reads
+        all ~2M rows, twice a run, against a free plan of 500M reads a month
+        (Turso blocked every read on 2026-10-24). Counting only the rows a run
+        added reads about a thousand."""
+        out = {"recent_points": self.q(f"/collections/{COLLECTION}/points/count", {"exact": True})["count"],
+               "turso_max_rowid": int(self.t("SELECT MAX(rowid) FROM papers")[0][0] or 0)}
+        if since_rowid is not None:
+            out["turso_new_rows"] = int(self.t("SELECT COUNT(*) FROM papers WHERE rowid > ?",
+                                               (since_rowid,))[0][0])
+        return out
 
 
 # ── pure helpers (unit-tested) ───────────────────────────────────────────────
@@ -277,14 +285,17 @@ def hf_statements(papers: list[tuple], history: list[tuple]) -> list[dict]:
 
 
 def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str]:
+    """`after` carries turso_new_rows: the rows above before's highest rowid.
+    A paper written twice (INSERT OR REPLACE moves it to a new rowid) adds a row
+    there but no Qdrant point, so the first check catches it."""
     problems = []
     dq = after["recent_points"] - before["recent_points"]
-    dt_rows = after["turso_rows"] - before["turso_rows"]
+    dt_rows = after["turso_new_rows"]
     if dq != dt_rows:
         problems.append(f"new Qdrant points ({dq}) != new Turso rows ({dt_rows})")
     if ingest_new is not None and dt_rows != ingest_new:
         problems.append(f"new Turso rows ({dt_rows}) != papers the ingest reported ({ingest_new})")
-    if after["turso_max_rowid"] != after["turso_rows"]:
+    if after["turso_max_rowid"] - before["turso_max_rowid"] != dt_rows:
         problems.append("Turso rowids are no longer contiguous (a row was deleted or replaced)")
     return problems
 
@@ -508,7 +519,7 @@ def main() -> int:
         summary["citations"] = stage_citations(st, recent_prefix(today, args.citation_months))
         summary["citations"]["minutes"] = round((time.time() - t0) / 60, 1)
 
-    after = st.counts()
+    after = st.counts(since_rowid=before["turso_max_rowid"])
     summary["after"] = after
     summary["licences"] = stage_licences(st, before["turso_max_rowid"])
     problems = verify_counts(before, after, ingest_new) + stage_sample_new(st, before["turso_max_rowid"])
