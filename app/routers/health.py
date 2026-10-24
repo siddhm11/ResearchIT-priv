@@ -443,6 +443,13 @@ async def healthz_deep():
                     },
                 )
                 resp.raise_for_status()
+                # Turso answers HTTP 200 with the error inside the result, so a
+                # status check alone reported "ok" all through the 2026-10-24
+                # read block ("BLOCKED: SQL read operations are forbidden").
+                first = (resp.json().get("results") or [{}])[0]
+                if first.get("type") == "error":
+                    err = first.get("error") or {}
+                    raise RuntimeError(f"{err.get('code', 'ERROR')}: {err.get('message', '')}"[:200])
             results["services"]["turso"] = {
                 "status": "ok",
                 "time_ms": int((time.perf_counter() - t0) * 1000),

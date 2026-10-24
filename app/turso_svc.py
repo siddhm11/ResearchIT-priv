@@ -336,6 +336,24 @@ def _to_paper_dict(row: dict) -> dict | None:
 
 # ── Phase 5: Trending papers for cold-start fallback ──────────────────────────
 
+_WARNED: set[str] = set()
+
+
+def _scan_fallback_allowed() -> bool:
+    """The Turso fallback below reads every row of `papers` (~2M), and Turso's
+    free plan allows 500M reads a month. Local servers run without the sidecar
+    unless told otherwise, and each new reader's starter feed then scanned Turso:
+    one of the reasons it blocked all reads on 2026-10-24. So the scan runs only
+    on the Space (SPACE_ID is set there), where it means the sidecar failed to
+    download, or when TURSO_SCAN_FALLBACK=on."""
+    import os
+    flag = os.getenv("TURSO_SCAN_FALLBACK", "").strip().lower()
+    if flag in ("on", "1", "true", "yes"):
+        return True
+    if flag in ("off", "0", "false", "no"):
+        return False
+    return bool(os.getenv("SPACE_ID"))
+
 async def fetch_trending_by_categories(
     categories: set[str], limit: int = 10
 ) -> list[dict]:
@@ -396,6 +414,12 @@ async def fetch_trending_by_categories(
     url = config.TURSO_URL
     token = config.TURSO_DB_TOKEN
     if not url or not token:
+        return []
+    if not _scan_fallback_allowed():
+        if "scan" not in _WARNED:
+            _WARNED.add("scan")
+            print("[turso] no sidecar: the starter feed's Turso fallback is a ~2M-row scan, skipped "
+                  "outside the Space. Set METADATA_SIDECAR_PATH, or TURSO_SCAN_FALLBACK=on to allow it.")
         return []
 
     cat_list = list(categories)
