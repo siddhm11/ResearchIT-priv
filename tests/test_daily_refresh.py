@@ -96,12 +96,38 @@ def test_a_failed_statement_rolls_back_the_whole_batch():
 
 
 def test_verify_counts_catches_mismatches():
-    before = {"recent_points": 100, "turso_rows": 1000, "turso_max_rowid": 1000}
-    ok = {"recent_points": 150, "turso_rows": 1050, "turso_max_rowid": 1050}
+    before = {"recent_points": 100, "turso_max_rowid": 1000}
+    ok = {"recent_points": 150, "turso_max_rowid": 1050, "turso_new_rows": 50}
     assert dr.verify_counts(before, ok, 50) == []
     assert "Qdrant" in dr.verify_counts(before, {**ok, "recent_points": 149}, 50)[0]
     assert "reported" in dr.verify_counts(before, ok, 49)[0]
     assert "contiguous" in dr.verify_counts(before, {**ok, "turso_max_rowid": 1051}, 50)[0]
+    # A paper written twice moves to a new rowid: a Turso row with no Qdrant point.
+    replaced = {"recent_points": 150, "turso_max_rowid": 1051, "turso_new_rows": 51}
+    assert "Qdrant" in dr.verify_counts(before, replaced, 50)[0]
+
+
+def test_counts_never_scan_the_whole_papers_table():
+    """COUNT(*) over papers reads ~2M rows on Turso's metered free plan; only the
+    highest rowid and the rows above a given one may be read."""
+    sent = []
+
+    class Fake(dr.Stores):
+        def __init__(self):
+            pass
+
+        def q(self, path, body=None):
+            return {"count": 7}
+
+        def t(self, sql, args=()):
+            sent.append((sql, tuple(args)))
+            return [[1000]] if "MAX(rowid)" in sql else [[3]]
+
+    st = Fake()
+    assert st.counts() == {"recent_points": 7, "turso_max_rowid": 1000}
+    assert st.counts(since_rowid=997)["turso_new_rows"] == 3
+    whole = [sql for sql, args in sent if "COUNT(*)" in sql and "WHERE rowid >" not in sql]
+    assert not whole, whole
 
 
 def test_workflow_is_gated_serialised_and_passes_every_required_secret():
