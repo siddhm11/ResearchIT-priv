@@ -1027,3 +1027,18 @@ trending stays a labelled extra and is judged by saves and reads. After the 24 O
 **Action items:** `TRENDING_PAGE=preview`, then `on`. `SEARCH_TRENDING=shadow` for 7 days, compare
 `search_meta.trending_shadow` moves with graded relevance, then `on` only if relevance holds.
 After 7 days of `hf_upvote_history`, add momentum facts ("+120 upvotes since yesterday").
+
+### 2026-10-24 — Trending v2 deployed; the search step-up goes straight to on
+**Decision:** Deployed a572e3d with `TRENDING_PAGE=on` and `SEARCH_TRENDING=on`, skipping the planned
+week of shadow. The tag also marks a trending paper the step-up applies to that already ranked where
+it is: it states a fact about the result, not that the result moved.
+**Supersedes:** the 2026-10-24 action item "`SEARCH_TRENDING=shadow` for 7 days".
+**Rationale:** Replayed in shadow on the production stores and keyword index: all 84 distinct logged
+searches (20–24 Oct) and 15 written on this week's trending subjects. No result changed order in any
+of the 99. Four results would carry the tag, each already at #1 to #3 and on topic (StreamEval for
+"evaluating streaming video generation"); the two trending papers that auditioned into the
+cross-encoder both stayed out, below half the best score. Shadow mode records nothing that on mode
+does not (one counter, `search_trend_<mode>`), so a week of it would not have taught more.
+**Action items:** Watch `search_trend_on` in /healthz/runtime against searches. If the step-up proves
+too timid to ever move a paper (likely, on this evidence), measure looser settings (3 auditions, half →
+0.4 of the best score) on the replay before changing them.
