@@ -2083,6 +2083,7 @@ a.src:hover { text-decoration: underline; }
 
 /* /trending: rising and cooling topics, each with its weekly share line. */
 .trending-page { display: flex; flex-direction: column; gap: 1.6rem; }
+.trending-page .issue + .topics-block, .trending-page .issue + .shelf { border-top: 0; padding-top: 0; }
 .topics-block { display: flex; flex-direction: column; gap: .7rem; padding-top: .85rem;
   border-top: 2px solid var(--rule); min-width: 0; }
 .topic-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }

@@ -88,7 +88,7 @@ def _add_topics(papers: list[dict]) -> None:
 
 PAGE_SOURCE = "trending_page"
 PAGE_FOR_YOU = 9
-PAGE_TOP = 10
+PAGE_TOP = 9                # three full rows of the wide grid
 SPARK_W, SPARK_H = 120, 32
 
 
