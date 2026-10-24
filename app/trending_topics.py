@@ -298,7 +298,7 @@ def topic_line(arxiv_id: str) -> dict | None:
 def coverage() -> dict:
     """What the topics were computed from, for the page's footnote."""
     return {"first_week": _state["first_week"], "weeks": _state["weeks"], "papers": _state["papers"],
-            "computed_at": _state["computed_at"]}
+            "computed_at": _state["computed_at"], "failed": bool(_state["error"])}
 
 
 def stats() -> dict:

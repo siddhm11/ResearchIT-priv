@@ -219,3 +219,12 @@ async def test_page_shows_named_rising_topics_the_week_and_logs_exposures(page_w
             "SELECT paper_id, policy_id FROM feed_exposures WHERE user_id = ? ORDER BY id", (READER,))).fetchall()
     assert [r[0] for r in rows] == ["2610.00001", "2610.00002", "2610.00003"]
     assert {r[1] for r in rows} == {"trending_page_top_v1"}
+
+
+async def test_page_says_when_topics_failed(page_world, monkeypatch):
+    monkeypatch.setattr(tt, "_state", {**tt._state, "topics": [], "computed_at": None,
+                                       "error": "RuntimeError: Turso down"})
+    async with client() as c:
+        r = await c.get("/trending")
+    assert r.status_code == 200 and "Topics can't be worked out right now" in r.text
+    assert "Most upvoted this week" in r.text, "the week's papers do not depend on the topics"

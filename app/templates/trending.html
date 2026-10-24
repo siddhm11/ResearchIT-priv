@@ -35,6 +35,8 @@
       </ol>
     {% elif basis.computed_at %}
       <p class="muted">No topic has risen clearly enough over the last {{ basis.weeks }} weeks to name.</p>
+    {% elif basis.failed %}
+      <p class="muted">Topics can't be worked out right now. The papers below are still this week's.</p>
     {% else %}
       <p class="muted">Topics are being worked out. They appear here a minute or so after the site starts.</p>
     {% endif %}
