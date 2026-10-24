@@ -997,3 +997,33 @@ hyphenated terms (neutral), and topping up a short every-word list with any-word
 points keyword-only, but its extra RRF votes pushed the DPO paper out of the top 10).
 **Action items:** Set `SEARCH_REWRITE_KEYWORDS=on` on the Space; watch search_log for rewritten
 queries.
+
+### 2026-10-24 — Trending v2: why a paper trends, rising topics, a few days' step-up in search
+**Decision:** Three additions to Hugging Face Daily Papers, each behind its own switch.
+(1) Every trending card says why in counts from the lists only: its place on its day ("#1 of 92
+papers on 30 Sep") and, when in the top quarter of a week of 20 or more, its place in the week
+("top 1% of this week's 404"); Hugging Face's one-line summary is shown labelled as theirs;
+comment counts are never shown. (2) Topics (switch `TRENDING_PAGE`, page `/trending`): once a day
+the last 26 weeks of stored lists (`hf_daily_papers`) are clustered as §3.3 clusters a reader's
+saves (Ward on L2-normalised vectors, K = 24, medoids, Hungarian-matched ids). A topic is rising or
+cooling only when the slope of its weekly *share* beats the same slope with every paper's week
+shuffled 2,000 times, Benjamini–Hochberg q < 0.05, and it is shown only under a phrase from its
+papers' titles, keywords and summaries that at least 30% of them carry; no model names topics.
+(3) Search (switch `SEARCH_TRENDING`, off / shadow / on): a top-quarter paper of this week that
+retrieval already found in its first 50 may take one of 2 extra cross-encoder places; if it scores
+at least half the best, it gains up to 0.25 × the best score, full for 3 days on the list and gone
+at 7, at most 2 papers per search, and the moved result is tagged "Trending on Hugging Face".
+**Supersedes:** nothing; the 2026-10-23 shelf entry stands, and the feed's quota and served order
+are untouched (the step-up applies to search only).
+**Rationale:** Measured on 26 weeks (5,198 papers, 24 Oct): lists ran from 101 to 404 papers a
+week and upvotes are heavy-tailed (median 13, p99 271), so only relative places mean the same thing
+every week; comments carry no signal (median 2, nearly every paper has one); stars track upvotes
+weakly (rank correlation 0.27). "Last 4 weeks against before" is near chance (5 topics past two
+standard errors at K = 40 where shuffled weeks give 1.7, up to 4), while the 26-week slope test
+holds at K = 24 and 40. Hugging Face's own keywords name a topic badly (top three cover a median
+21% of it). Social explanations raise trying but not liking (Sharma & Cosley, WWW 2013), so
+trending stays a labelled extra and is judged by saves and reads. After the 24 Oct re-harvest,
+99–100% of the lists' papers have vectors in the corpus.
+**Action items:** `TRENDING_PAGE=preview`, then `on`. `SEARCH_TRENDING=shadow` for 7 days, compare
+`search_meta.trending_shadow` moves with graded relevance, then `on` only if relevance holds.
+After 7 days of `hf_upvote_history`, add momentum facts ("+120 upvotes since yesterday").
