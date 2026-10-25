@@ -337,6 +337,37 @@ def drop_none(values: dict) -> dict:
 
 templates.env.filters["drop_none"] = drop_none
 
+
+def short_name(title: str | None, words: int = 6) -> str:
+    """What a paper calls itself, for a card with no figure: the name before
+    the colon ("WeVisOne-VL: Unified ..." -> "WeVisOne-VL") when it is short,
+    otherwise the title's first `words` words ("" with words=0, for a card
+    whose title already shows in full beside it)."""
+    title = " ".join((title or "").split())
+    head, sep, _ = title.partition(":")
+    if sep and 0 < len(head) <= 32:
+        return head
+    parts = title.split()
+    return " ".join(parts[:words]) + (" …" if len(parts) > words > 0 else "")
+
+
+def byline(paper: dict) -> str:
+    """Who a trending paper is from: the organisation it was submitted under on
+    Hugging Face, else its first author ("Liang et al.")."""
+    if paper.get("org"):
+        return paper["org"]
+    authors = _tojson_parse(paper.get("authors") or "[]") or []
+    if not authors and paper.get("authors"):
+        raw = paper["authors"]
+        authors = [a.strip() for a in raw.split(";" if ";" in raw else ",") if a.strip()]
+    if not authors:
+        return ""
+    return f"{authors[0]} et al." if len(authors) > 1 else authors[0]
+
+
+templates.env.filters["short_name"] = short_name
+templates.env.filters["byline"] = byline
+
 # Figure thumbnails: URLs that pass the licence and path checks, and the credit
 # line every displayed figure carries (app/routers/figures.py).
 from app.routers.figures import figure_credit, figure_url  # noqa: E402

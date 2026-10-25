@@ -205,7 +205,7 @@ async def test_page_shows_named_rising_topics_the_week_and_logs_exposures(page_w
         r = await c.get("/trending")
     assert r.status_code == 200
     html = r.text
-    assert "Rising topics" in html and "Robots" in html and "2.0% → 5.7%" in html
+    assert "What's moving" in html and "Robots" in html and "2.0% → 5.7%" in html
     assert "Also: manipulation, embodied" in html and "Has GPT-6-Astra" in html
     assert html.count('class="topic-row topic-row--') == 1, "an unnamed topic is never shown"
     assert "Most upvoted this week" in html and "Most upvoted of 58 papers on 22 Oct" in html
@@ -247,6 +247,7 @@ async def test_page_shows_each_chosen_area_with_its_count_and_top_papers(page_wo
     assert html.index('id="tp-rising"') < start, "topics come before the area rows"
     assert "2610.00001" in robotics and "2610.00002" in robotics and "2610.00003" not in robotics
     top = html[html.index('id="tp-top"'):]
+    top = top[:top.index("</section>")]
     assert "2610.00003" in top and "2610.00001" not in top, "no paper twice on the page"
     import aiosqlite
     async with aiosqlite.connect(db.DB_PATH) as conn:

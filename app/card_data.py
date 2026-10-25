@@ -55,13 +55,35 @@ async def enrich(papers: list[dict], request=None) -> list[dict]:
         p["card_plain"] = plain.get(keys.get(aid, ""))
         p["card_code"] = ({"repo": source.code_repo, "stars": source.code_stars}
                           if source is not None and source.code_repo else None)
-        p["card_figure"] = None
-        if show_figures and source is not None:
-            for n, f in enumerate(source.figures):
-                url = figure_url(source, n)
-                if url:
-                    p["card_figure"] = {"url": url, "w": f.get("w"), "h": f.get("h"),
-                                        "label": f.get("label") or "", "caption": f.get("caption") or "",
-                                        "credit": figure_credit(p, source)}
-                    break
+        p["card_figure"] = first_figure(p, source) if show_figures else None
     return out
+
+
+def first_figure(paper: dict, source) -> dict | None:
+    """The first saved figure of `source` that may be shown, as a card shows it."""
+    if source is None:
+        return None
+    for n, f in enumerate(source.figures):
+        url = figure_url(source, n)
+        if url:
+            return {"url": url, "w": f.get("w"), "h": f.get("h"),
+                    "label": f.get("label") or "", "caption": f.get("caption") or "",
+                    "credit": figure_credit(paper, source)}
+    return None
+
+
+async def add_figures(papers: list[dict], request=None) -> None:
+    """Set card_figure on each paper in place, from saved sources only (the
+    trending cards, which build their own dicts). Never raises: on any failure
+    every card goes without a figure."""
+    for p in papers:
+        p["card_figure"] = None
+    if not papers or not features.visible("FIGURES", request):
+        return
+    try:
+        sources = await paper_source_svc.get_many([p["arxiv_id"] for p in papers if p.get("arxiv_id")])
+    except Exception as e:
+        errors.report("card_data", "trending card figures failed", e)
+        return
+    for p in papers:
+        p["card_figure"] = first_figure(p, sources.get(p.get("arxiv_id")))

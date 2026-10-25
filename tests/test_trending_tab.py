@@ -127,7 +127,8 @@ async def test_steady_topics_show_as_steady_and_never_as_moving(tab_world):
     assert steady.index("Diffusion") < steady.index("Speech"), "biggest share first"
     assert "5.1% · 1 in 20" in steady and "→" not in steady, "no then-and-now for a steady topic"
     assert "1 in 83 → 1 in 26 papers" in html, "moving topics in plain numbers too"
-    assert html.count('class="topic-row topic-row--') == 4, "the unnamed topic stays out"
+    assert html.count('class="topic-row topic-row--') + html.count('class="steady-row"') == 4, \
+        "the unnamed topic stays out"
     assert '<a href="/trending/topics/3">Diffusion</a>' in html
 
 

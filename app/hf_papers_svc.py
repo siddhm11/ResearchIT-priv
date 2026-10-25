@@ -133,7 +133,9 @@ async def _get_list(client: httpx.AsyncClient, params: dict) -> list:
 
 def _extras(payload: list) -> dict[str, dict]:
     """What each record says beyond the paper itself: Hugging Face's keywords
-    and one-line summary, and its comment count."""
+    and one-line summary, its comment count, and the organisation the paper
+    was submitted under (its display name; the avatar would be a third-party
+    image)."""
     out: dict[str, dict] = {}
     for record in payload:
         paper = record.get("paper") if isinstance(record, dict) else None
@@ -142,10 +144,13 @@ def _extras(payload: list) -> dict[str, dict]:
         keywords = [k.strip() for k in paper.get("ai_keywords") or [] if isinstance(k, str) and k.strip()]
         summary = paper.get("ai_summary")
         comments = record.get("numComments")
+        org = paper.get("organization") or record.get("organization")
+        org = (org.get("fullname") or org.get("name")) if isinstance(org, dict) else None
         out[re.sub(r"v\d+$", "", paper["id"])] = {
             "keywords": keywords[:12],
             "summary": summary.strip()[:400] if isinstance(summary, str) else "",
-            "comments": comments if type(comments) is int and comments >= 0 else 0}
+            "comments": comments if type(comments) is int and comments >= 0 else 0,
+            "org": org.strip()[:60] if isinstance(org, str) else ""}
     return out
 
 

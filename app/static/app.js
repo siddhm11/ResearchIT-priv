@@ -474,6 +474,25 @@
     if (img.complete && img.naturalWidth === 0) hideFigure(img);
   });
 
+  /* ── Trending card figures ──
+     The plate shimmers until its image paints, then the image fades in; one
+     that fails shows the paper's name instead, so the card keeps its shape.
+     Load and error do not bubble, hence the capture phase. Images that
+     settled before this script ran, or came in with the shelf from htmx's
+     cache, are swept up by markFigs. */
+  function markFig(img) {
+    var box = img && img.closest && img.closest('.tc-fig, .tp-thumb');
+    if (box && img.complete) box.classList.add(img.naturalWidth > 0 ? 'is-loaded' : 'is-failed');
+  }
+  function markFigs(root) {
+    (root || document).querySelectorAll('.tc-fig img, .tp-thumb img').forEach(markFig);
+  }
+  ['load', 'error'].forEach(function (type) {
+    document.addEventListener(type, function (e) { if (e.target.tagName === 'IMG') markFig(e.target); }, true);
+  });
+  markFigs();
+  document.body.addEventListener('htmx:afterSwap', function (e) { markFigs(e.target && e.target.parentNode || document); });
+
   /* ── Wide feed (FEED_WIDE): two columns, rail, filter, layout logging ──
      The feed stays one list in served order; each card spans grid rows to
      its height so the two columns pack without reordering anything. */

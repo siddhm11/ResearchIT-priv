@@ -1,29 +1,37 @@
 {#
-  One topic on /trending: rising, cooling or steady (`t.label`). Expects `t`
-  (routers/trending.py _topic_view), `query_id`, `spark_w`, `spark_h`. The line
-  is the topic's share of each week's list, averaged over four weeks, on one
-  scale for the page. A steady topic shows its share now and no "then → now",
-  since the test found no trend to report.
+  One rising or cooling topic on /trending (steady ones are rows of the page's
+  table). Expects `t` (routers/trending.py _topic_view), `query_id`, `since`,
+  `spark_w`, `spark_h`. The line is the topic's share of each week's list,
+  averaged over four weeks, on one scale for the page, labelled at both ends.
+  Its top papers carry a small figure when one is saved (card_data.add_figures),
+  with the credit in the tooltip like search thumbnails.
 #}
 <li class="topic-row topic-row--{{ t.label }}" id="topic-{{ t.id }}">
   <div class="topic-head">
     <h3 class="topic-name"><a href="/trending/topics/{{ t.id }}">{{ t.name }}</a></h3>
-    {% if t.label == "steady" %}
-      <span class="topic-delta" title="Share of the lists now; no trend the test can stand behind">{{ "%.1f" | format(t["to"] * 100) }}% · {{ t["to"] | one_in }}</span>
-    {% else %}
-      <span class="topic-delta">{{ "%.1f" | format(t["from"] * 100) }}% → {{ "%.1f" | format(t["to"] * 100) }}%</span>
-      <span class="topic-plain">{{ t["from"] | one_in }} → {{ t["to"] | one_in }} papers</span>
-    {% endif %}
-    <svg class="topic-spark" viewBox="0 0 {{ spark_w }} {{ spark_h }}" width="{{ spark_w }}" height="{{ spark_h }}"
-         role="img" aria-label="Share of each week's list, from {{ "%.1f" | format(t["from"] * 100) }}% to {{ "%.1f" | format(t["to"] * 100) }}%">
+    <span class="topic-badge">{% if t.label == "rising" %}↑ Rising{% else %}↓ Cooling{% endif %}</span>
+  </div>
+  <p class="topic-delta-line"><span class="topic-delta">{{ "%.1f" | format(t["from"] * 100) }}% → {{ "%.1f" | format(t["to"] * 100) }}%</span>
+    <span class="topic-plain">{{ t["from"] | one_in }} → {{ t["to"] | one_in }} papers</span></p>
+  <figure class="topic-chart-sm">
+    <svg viewBox="0 0 {{ spark_w }} {{ spark_h }}" preserveAspectRatio="none" role="img"
+         aria-label="Share of each week's list, from {{ "%.1f" | format(t["from"] * 100) }}% to {{ "%.1f" | format(t["to"] * 100) }}%">
       <polyline points="{{ t.spark }}"/>
     </svg>
-  </div>
-  {% if t.also %}<p class="topic-also">Also: {{ t.also | join(", ") }} · {{ t.papers }} papers</p>{% endif %}
-  <ul class="topic-papers">
+    <figcaption><span>{{ since }}</span><span>now</span></figcaption>
+  </figure>
+  <ul class="topic-papers topic-papers--thumbs">
     {% for p in t.top %}
-      <li><a href="/p/{{ p.arxiv_id }}?qid={{ query_id }}&amp;sf=trending_page&amp;src=hf_daily&amp;prop=1.0&amp;pol=trending_page_topics_v1">{{ p.title }}</a>
-        <span class="muted">▲ {{ p.upvotes }}</span></li>
+      {% set href = "/p/" ~ p.arxiv_id ~ "?qid=" ~ query_id ~ "&sf=trending_page&src=hf_daily&prop=1.0&pol=trending_page_topics_v1" %}
+      <li>
+        <a class="tp-thumb{% if not p.card_figure %} is-bare{% endif %}" href="{{ href }}" tabindex="-1" aria-hidden="true"
+           {% if p.card_figure %}title="{{ p.card_figure.label }}{% if p.card_figure.label %} · {% endif %}{{ p.card_figure.credit }}"{% endif %}>
+          {% if p.card_figure %}<img src="{{ p.card_figure.url }}" alt="" loading="lazy" decoding="async">{% endif %}
+          <span class="tc-cover"><span class="tc-cover-name">{{ p.title | short_name }}</span></span>
+        </a>
+        <span class="tp-text"><a href="{{ href }}">{{ p.title }}</a> <span class="muted">▲ {{ p.upvotes }}</span></span>
+      </li>
     {% endfor %}
   </ul>
+  {% if t.also %}<p class="topic-also">Also: {{ t.also | join(", ") }} · {{ t.papers }} papers</p>{% endif %}
 </li>

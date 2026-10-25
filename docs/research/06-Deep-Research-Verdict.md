@@ -1083,3 +1083,24 @@ The shelf and topic pages take no feed slot, so §3.1 is untouched.
 the retrieval a followed topic would use; judge it there first. The proposed follow seeds the feed
 the way following a collection already does, by saving a few of the topic's papers through the
 ordinary save path, which needs no quota change (to be decided).
+
+### 2026-10-25 — Trending cards show the paper's first figure; /trending puts papers before topics
+**Decision:** Trending cards (shelf, /trending, topic pages) open on the paper's first figure from our
+own reader (`paper_source_svc` + `/fig`, with its credit line), never Hugging Face's media or
+thumbnails. Each refresh of the lists queues the week's unread papers for that reader, most upvoted
+first (`trending_shelf.warm_figures`, at most 200 per refresh), and the moving topics' top papers too.
+A paper with no figure yet shows its name or its upvotes on a cover the same shape. /trending runs
+68 rem wide and orders: your interests, the week's most upvoted (the top one wide, then 9),
+rising/cooling topics with labelled lines and small figures, your areas, steady topics as table rows,
+and the method folded.
+**Supersedes:** the /trending layout in the 2026-10-25 "Trending becomes a main tab" entry (topics
+first); the page's top grows from 9 to 10.
+**Rationale:** Of the week's 312 Daily Papers on 25 Oct, 112 (36%) had any Hugging Face media and 73
+of those were MP4; their thumbnail is the PDF's first page. Our reader had a figure for 179 of 187
+papers it had read, served from our origin with licence credit. Logged out, the first paper card sat
+about 3,300 px down the live page behind 16 topic boxes. The shelf still takes no feed slot (§3.1).
+**Action items:** Reading runs at about one paper a minute (arXiv's crawl delay); the first deploy
+queued 211 never-read papers, after which about 60 a day join. `paper_sources` is replicated, so a
+deploy keeps what was read, but thumbnail files are not: queue read papers whose file is gone so the
+first viewer after a deploy doesn't wait. Prefer a wide figure over a logo. Compare save rates per
+trending policy id over two weeks.
