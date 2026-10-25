@@ -2,16 +2,19 @@
   "Trending in your interests" (app/trending_shelf.py), swapped in for the
   placeholder after the fourth card of the feed's first page.
 
+  When nothing fits the reader, the week's most upvoted under "Trending this
+  week" (personal is false), so the shelf does not vanish.
+
   A shelf, not feed cards: these papers hold no slot of any interest's quota,
   so they sit in one labelled block the reader can tell apart from the feed.
   One row that scrolls sideways on a phone; it wraps to a grid on wide screens.
-  Each card says which interest it matched and why it is trending
+  Each card says which interest or chosen area it matched and why it is trending
   (partials/trending_card.html), which is the whole reason it is here, so it
   carries no "Why this?".
 #}
 <section class="shelf" aria-labelledby="shelf-title-{{ query_id[:8] }}">
   <header class="shelf-head">
-    <h2 class="shelf-title" id="shelf-title-{{ query_id[:8] }}">Trending in your interests</h2>
+    <h2 class="shelf-title" id="shelf-title-{{ query_id[:8] }}">{% if personal %}Trending in your interests{% else %}Trending this week{% endif %}</h2>
     <span class="shelf-note">Upvoted on Hugging Face Daily Papers this week</span>
     {% if trending_page %}<a class="shelf-more" href="/trending">Rising topics →</a>{% endif %}
   </header>

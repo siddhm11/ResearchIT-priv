@@ -2,10 +2,11 @@
 GET /api/trending-shelf: the "Trending in your interests" shelf (app/trending_shelf.py).
 
 Requested by the feed's first page once its cards are in, so the feed never
-waits on it. Answers with an empty body whenever there is nothing to show: the
-switch is off for this request, the reader has no interests yet, or fewer than
-MIN_SHOWN papers clear their bar. htmx swaps the placeholder for that empty
-body, so the shelf leaves no trace.
+waits on it. The shelf is there whenever the week has papers: papers close to
+the reader's saves or listed in their chosen areas, then, for a reader nothing
+fits, the week's most upvoted under "Trending this week" (doc 06, 2026-10-25).
+It answers with an empty body only when the switch is off for this request or
+no list could be fetched; htmx then swaps the placeholder for nothing.
 
 A ranked surface like the feed, so it follows CLAUDE.md §3.11: one query_id per
 shelf, propensity 1.0 (the ranking is deterministic) and its own policy_id, on
@@ -38,17 +39,24 @@ async def get_trending_shelf(
     if not user_id or not features.visible(trending_shelf.SWITCH, request):
         return HTMLResponse("")
     await us.ensure_loaded(user_id)
-    # The feed's own exclusions: decided papers, and anything already shown,
-    # which includes the page this shelf sits on (its impressions are written
-    # before the page is returned).
+    # Never: papers the reader decided on, and the feed page this shelf sits on.
     exclude = us.all_seen(user_id) | {r["paper_id"] for r in await db.get_current_feedback(user_id)}
+    entry = recommendations._cache_get(after) if after else None
+    if entry and entry.get("user_id") == user_id:
+        exclude |= set(entry.get("emitted") or ())
+    # Shown before: after everything new, but still on the shelf. Leaving them
+    # out emptied it for a reader who had seen the few that fit (25 Oct: 7 of
+    # 312 fitted two saves, the first shelf showed 6, the next had 1 and hid).
     try:
-        exclude |= await db.get_impressed_ids(user_id)
+        seen = await db.get_impressed_ids(user_id)
     except Exception as e:  # pragma: no cover - defensive
         errors.report("trending", "impression lookup failed", e)
-    papers = await trending_shelf.shelf_for(user_id, exclude, labels=_feed_labels(after, user_id))
+        seen = set()
+    papers = await trending_shelf.shelf_for(user_id, exclude, labels=_feed_labels(after, user_id),
+                                            seen=seen, fallback=True)
     if not papers:
         return HTMLResponse("")
+    personal = any(p.get("interest") for p in papers)
     page = features.visible(trending_topics.SWITCH, request)
     if page:
         _add_topics(papers)
@@ -58,7 +66,7 @@ async def get_trending_shelf(
         p.update(query_id=query_id, position=position, propensity=1.0,
                  policy_id=trending_shelf.POLICY_ID, ranker_version=trending_shelf.POLICY_ID,
                  candidate_source=trending_shelf.CANDIDATE_SOURCE,
-                 cluster_id=p["interest"]["cluster_idx"])
+                 cluster_id=(p.get("interest") or {}).get("cluster_idx"))
     ids = [p["arxiv_id"] for p in papers]
     try:
         # Shown is shown: the feed won't repeat these, and the next shelf moves on.
@@ -71,7 +79,7 @@ async def get_trending_shelf(
     except Exception as e:  # pragma: no cover - analytics must not cost the shelf
         errors.report("trending", "shelf exposure write failed", e)
     return templates.TemplateResponse(request, "partials/trending_shelf.html",
-                                      {"papers": papers, "query_id": query_id,
+                                      {"papers": papers, "query_id": query_id, "personal": personal,
                                        "source": trending_shelf.SOURCE, "trending_page": page})
 
 
@@ -88,6 +96,7 @@ def _add_topics(papers: list[dict]) -> None:
 
 PAGE_SOURCE = "trending_page"
 PAGE_FOR_YOU = 9
+PAGE_PER_AREA = 3
 PAGE_TOP = 9                # three full rows of the wide grid
 SPARK_W, SPARK_H = 120, 32
 
@@ -114,20 +123,27 @@ async def trending_page(
         return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
     decided: set[str] = set()
     for_you: list[dict] = []
+    areas: list[dict] = []
     if user_id:
         await us.ensure_loaded(user_id)
         decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)}
         # Not the shelf's "shown is shown": this page lists the whole week, so
         # only papers the reader saved or turned down are left out.
         for_you = await trending_shelf.shelf_for(user_id, decided, size=PAGE_FOR_YOU)
-    shown = {p["arxiv_id"] for p in for_you}
+        # Each area the reader picked: how many of the week's papers it has, and
+        # its most upvoted ones not already above.
+        areas = trending_shelf.by_area(await trending_shelf.reader_areas(user_id),
+                                       exclude=decided | {p["arxiv_id"] for p in for_you},
+                                       n=PAGE_PER_AREA)
+    shown = {p["arxiv_id"] for p in for_you} | {p["arxiv_id"] for a in areas for p in a["papers"]}
     top = trending_shelf.week_top(PAGE_TOP, exclude=decided | shown)
-    _add_topics(for_you + top)
+    _add_topics(for_you + [p for a in areas for p in a["papers"]] + top)
 
     rising, cooling = trending_topics.rising(), trending_topics.cooling()
     scale = max([v for t in rising + cooling for v in t["rolling"]] or [0.01])
     query_id = str(uuid.uuid4())
     sections = (("for_you", for_you, "trending_page_interests_v1"),
+                *((f"area_{a['area']}", a["papers"], "trending_page_areas_v1") for a in areas),
                 ("top", top, "trending_page_top_v1"))
     exposures, position = [], 0
     for _name, papers, policy in sections:
@@ -145,7 +161,7 @@ async def trending_page(
         except Exception as e:  # pragma: no cover - analytics must not cost the page
             errors.report("trending", "page exposure write failed", e)
     return templates.TemplateResponse(request, "trending.html", {
-        "for_you": for_you, "top": top, "query_id": query_id, "source": PAGE_SOURCE,
+        "for_you": for_you, "areas": areas, "top": top, "query_id": query_id, "source": PAGE_SOURCE,
         "rising": [_topic_view(t, scale) for t in rising],
         "cooling": [_topic_view(t, scale) for t in cooling],
         "basis": trending_topics.coverage(), "spark_w": SPARK_W, "spark_h": SPARK_H})

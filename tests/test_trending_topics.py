@@ -228,3 +228,26 @@ async def test_page_says_when_topics_failed(page_world, monkeypatch):
         r = await c.get("/trending")
     assert r.status_code == 200 and "Topics can't be worked out right now" in r.text
     assert "Most upvoted this week" in r.text, "the week's papers do not depend on the topics"
+
+
+async def test_page_shows_each_chosen_area_with_its_count_and_top_papers(page_world):
+    """A reader's areas show without any saves, weekends included: the week's
+    lists stay in place until new ones arrive (doc 06, 2026-10-25)."""
+    await db.save_onboarding_categories(READER, ["robotics", "se"])
+    cats = {"2610.00001": ["cs.RO"], "2610.00002": ["cs.CV", "cs.RO"], "2610.00003": ["cs.LG"]}
+    for aid, c in cats.items():
+        ts._state["papers"][aid]["categories"] = c
+    async with client() as c:
+        html = (await c.get("/trending")).text
+    assert 'id="tp-area-robotics"' in html and "2 papers on this week's lists" in html
+    assert 'id="tp-area-se"' not in html, "an area with no papers this week is left out"
+    robotics = html[html.index('id="tp-area-robotics"'):html.index('id="tp-rising"')]
+    assert "2610.00001" in robotics and "2610.00002" in robotics and "2610.00003" not in robotics
+    top = html[html.index('id="tp-top"'):]
+    assert "2610.00003" in top and "2610.00001" not in top, "no paper twice on the page"
+    import aiosqlite
+    async with aiosqlite.connect(db.DB_PATH) as conn:
+        rows = await (await conn.execute(
+            "SELECT paper_id, policy_id FROM feed_exposures WHERE user_id = ? ORDER BY id", (READER,))).fetchall()
+    assert rows == [("2610.00001", "trending_page_areas_v1"), ("2610.00002", "trending_page_areas_v1"),
+                    ("2610.00003", "trending_page_top_v1")]

@@ -19,13 +19,27 @@
   <section class="shelf" aria-labelledby="tp-for-you">
     <header class="shelf-head">
       <h2 class="shelf-title" id="tp-for-you">In your interests</h2>
-      <span class="shelf-note">This week's lists, closest to what you save</span>
+      <span class="shelf-note">This week's lists, closest to what you save and in the areas you picked</span>
     </header>
     <ol class="shelf-row">
       {% for paper in for_you %}{% include "partials/trending_card.html" %}{% endfor %}
     </ol>
   </section>
   {% endif %}
+
+  {% for area in areas %}
+  <section class="shelf" aria-labelledby="tp-area-{{ area.area }}">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-area-{{ area.area }}">{{ area.label }}</h2>
+      <span class="shelf-note">{{ area.count }} paper{% if area.count != 1 %}s{% endif %} on this week's lists</span>
+    </header>
+    {% if area.papers %}
+    <ol class="shelf-row">
+      {% for paper in area.papers %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+    {% endif %}
+  </section>
+  {% endfor %}
 
   <section class="topics-block" aria-labelledby="tp-rising">
     <h2 class="shelf-title" id="tp-rising">Rising topics</h2>
