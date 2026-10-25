@@ -140,13 +140,30 @@ async def fetch_metadata_batch(arxiv_ids: list[str]) -> dict[str, dict]:
 
 
 async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict]:
-    """Network fetch for IDs we don't already have cached."""
-    url = config.TURSO_URL
-    token = config.TURSO_DB_TOKEN
+    """Network fetch for IDs we don't already have cached.
 
-    if not url or not token:
+    Tries the primary, then the mirror if the primary is blocked or down
+    (app/turso_remotes.py). With no mirror this is one attempt, as before.
+    """
+    from app import turso_remotes
+    targets = turso_remotes.read_order()
+    if not targets:
         print("[turso] TURSO_URL or TURSO_DB_TOKEN not configured, skipping")
         return {}
+    for i, target in enumerate(targets):
+        last = i == len(targets) - 1
+        got = await _fetch_metadata_from(target, arxiv_ids, report=last)
+        if got is not None:
+            turso_remotes.recovered(target)
+            return got
+    return {}
+
+
+async def _fetch_metadata_from(target, arxiv_ids: list[str], report: bool) -> dict[str, dict] | None:
+    """One remote's answer, or None when it had an outage (the caller tries the
+    next). Any other failure returns {}, as before."""
+    from app import turso_remotes
+    url, token = target.url, target.token
 
     # Build parameterised query with placeholders
     placeholders = ", ".join(["?" for _ in arxiv_ids])
@@ -192,6 +209,10 @@ async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict
         )
         resp.raise_for_status()
     except Exception as e:
+        if turso_remotes.is_outage_exception(e):
+            turso_remotes.bench(target, f"{type(e).__name__}: {e}")
+            if not report:
+                return None
         errors.report("turso", "metadata request failed", e)
         return {}
 
@@ -208,6 +229,11 @@ async def _fetch_metadata_batch_uncached(arxiv_ids: list[str]) -> dict[str, dict
         execute_result = results[0]
         if execute_result.get("type") == "error":
             print(f"[turso] Query error: {execute_result.get('error')}")
+            # HTTP 200 with BLOCKED inside: the 2026-10-24 read block.
+            if turso_remotes.is_outage_error(execute_result.get("error")):
+                turso_remotes.bench(target, str(execute_result.get("error")))
+                if not report:
+                    return None
             return {}
 
         response = execute_result.get("response", {})
@@ -618,21 +644,21 @@ async def fetch_hf_daily(since: str, timeout: float = 30) -> list[dict]:
     Raises on failure: the caller keeps what it had rather than treating an
     outage as an empty history.
     """
-    url, token = config.TURSO_URL, config.TURSO_DB_TOKEN
-    if not url or not token:
+    from app import turso_remotes
+    targets = turso_remotes.read_order()
+    if not targets:
         raise RuntimeError("TURSO_URL or TURSO_DB_TOKEN not configured")
-    url = url.rstrip("/").replace("libsql://", "https://", 1).replace("http://", "https://", 1)
-    resp = await http_client.get_client().post(
-        f"{url}/v2/pipeline", timeout=timeout,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"requests": [{"type": "execute", "stmt": {"sql": _HF_DAILY_SQL,
-                                                        "args": [{"type": "text", "value": since}]}},
-                           {"type": "close"}]})
-    resp.raise_for_status()
-    res = resp.json()["results"][0]
-    if res.get("type") == "error":
-        raise RuntimeError(str(res.get("error"))[:200])
-    result = res["response"]["result"]
+    for i, target in enumerate(targets):
+        try:
+            result = await _hf_daily_from(target, since, timeout)
+        except Exception as e:
+            # On an outage try the mirror; anything else is the same everywhere.
+            if i == len(targets) - 1 or not turso_remotes.is_outage_exception(e):
+                raise
+            turso_remotes.bench(target, str(e))
+            continue
+        turso_remotes.recovered(target)
+        break
     cols = [c["name"] for c in result["cols"]]
     out = []
     for row in result["rows"]:
@@ -646,3 +672,19 @@ async def fetch_hf_daily(since: str, timeout: float = 30) -> list[dict]:
                     "github": r["github_repo"] or "", "upvotes": int(r["upvotes"] or 0),
                     "stars": int(r["github_stars"] or 0)})
     return out
+
+
+async def _hf_daily_from(target, since: str, timeout: float) -> dict:
+    from app import turso_remotes
+    resp = await http_client.get_client().post(
+        f"{target.url}/v2/pipeline", timeout=timeout,
+        headers={"Authorization": f"Bearer {target.token}", "Content-Type": "application/json"},
+        json={"requests": [{"type": "execute", "stmt": {"sql": _HF_DAILY_SQL,
+                                                        "args": [{"type": "text", "value": since}]}},
+                           {"type": "close"}]})
+    resp.raise_for_status()
+    res = resp.json()["results"][0]
+    if res.get("type") == "error":
+        raise turso_remotes.TursoError(str(res.get("error"))[:200],
+                                       turso_remotes.is_outage_error(res.get("error")))
+    return res["response"]["result"]

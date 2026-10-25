@@ -84,6 +84,16 @@ PREVIEW_TOKEN = os.getenv("PREVIEW_TOKEN", "").strip()
 TURSO_URL = os.getenv("TURSO_URL", "").strip()
 TURSO_DB_TOKEN = os.getenv("TURSO_DB_TOKEN", "").strip()
 
+# A second Turso database, on another account, that holds the same data
+# (app/turso_remotes.py). User data is pushed to both; reads move to the mirror
+# while the primary is blocked or down. Empty means no mirror: one database,
+# exactly as before. Set it only once the two hold the same rows
+# (scripts/turso_catchup.py), or the mirror starts from a gap.
+TURSO_MIRROR_URL = os.getenv("TURSO_MIRROR_URL", "").strip()
+TURSO_MIRROR_DB_TOKEN = os.getenv("TURSO_MIRROR_DB_TOKEN", "").strip()
+# How long reads stay on the mirror after the primary fails, before trying it again.
+TURSO_FAILOVER_S = int(os.getenv("TURSO_FAILOVER_S", "600"))
+
 
 
 # ── Qdrant vector encoding ────────────────────────────────────────────────────

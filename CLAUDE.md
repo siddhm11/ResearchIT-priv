@@ -495,7 +495,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. |
+| Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. Optional Turso mirror on a second account (`TURSO_MIRROR_URL`): pushed to both, reads fail over (doc 06, 2026-10-25). |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
