@@ -55,6 +55,16 @@ from app import config
 # /search            BGE-M3 encode + Qdrant fanout + cross-encoder + Groq rewrite
 # /api/search/summary  a Groq completion per call, the most quota-hungry path
 # /api/recommendations K medoid queries + rerank; paginates, so it needs headroom
+# /api/space/search  the 3D map's search: the same pipeline as /search, Groq
+#                    rewrite included, and open while SPACE_SERVICE_TOKEN is unset
+# /api/space         the map's cheap vector reads (locate, similarity, neighbours)
+#
+# The map calls /api/space from its own server and forwards no visitor address,
+# so its readers share the limit of whichever address that server calls from.
+# Hence /api/space/search matches /search and the cheap reads get four times
+# that. These limits cap bursts from one address, not a day's Groq use; the
+# token is what keeps strangers out. Rules are tried in order, so the specific
+# path comes before its prefix.
 #
 # Everything else is unlimited, deliberately. /healthz/* must stay reachable or
 # the keepalive workflow starts failing, and "/" is cheap and is what any
@@ -68,6 +78,8 @@ LIMITS: dict[str, tuple[int, int]] = {
     # cached figure is a file read; fetching from arXiv has its own pacer.
     "/fig": (600, 60),
     "/api/ui-event": (60, 60),
+    "/api/space/search": (30, 60),
+    "/api/space": (120, 60),
 }
 
 # Bound the memory. Each key holds at most `max requests` timestamps, so the
