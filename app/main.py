@@ -105,6 +105,8 @@ async def lifespan(app: FastAPI):
         await analytics.stop()
         await abstract_svc.stop()
         await paper_source_svc.stop()
+        from app import llm_router
+        await llm_router.aclose()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:

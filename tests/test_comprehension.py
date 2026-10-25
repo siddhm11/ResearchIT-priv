@@ -199,3 +199,25 @@ def test_the_paper_page_does_not_wait_on_generation():
     tpl = pathlib.Path("app/templates/paper.html").read_text()
     assert 'hx-get="/api/papers/{{ paper.arxiv_id }}/explain"' in tpl
     assert 'hx-trigger="load"' in tpl
+
+
+def test_fallback_explanation_is_cached_under_actual_model(monkeypatch):
+    from app import config, llm_router
+    import asyncio
+
+    monkeypatch.setattr(config, "GROQ_FAILOVER_ENABLED", True)
+    monkeypatch.setattr(config, "GROQ_MODEL_ORDER_JSON", "")
+    result = llm_router.Generation("success", "A fallback explanation.", llm_router.DEFAULT_MODELS[1])
+    with patch.object(turso_svc, "fetch_metadata_batch", side_effect=_meta), \
+         patch.object(groq_svc, "explain_paper_result", return_value=result) as generate:
+        with TestClient(app) as c:
+            assert "fallback explanation" in c.get("/api/papers/1706.03762/explain").text
+            assert "fallback explanation" in c.get("/api/papers/1706.03762/explain").text
+        generate.assert_awaited_once()
+
+    fallback_key = groq_svc.explain_cache_key(
+        PAPER["arxiv_id"], PAPER["abstract"], title=PAPER["title"], model=result.model)
+    qwen_key = groq_svc.explain_cache_key(
+        PAPER["arxiv_id"], PAPER["abstract"], title=PAPER["title"], model=llm_router.DEFAULT_MODELS[0])
+    assert asyncio.run(db.get_explanation(fallback_key)) == result.text
+    assert asyncio.run(db.get_explanation(qwen_key)) is None

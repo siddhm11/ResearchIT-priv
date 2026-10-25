@@ -96,6 +96,41 @@ without evidence that those signals improve relevance.
 
 See DISCOVERY-PLAN.md for validation and remaining release gates.
 
+## Groq failover implementation — 2026-10-26 (not deployed)
+
+`GROQ_FAILOVER_ENABLED=1` opts selected `GROQ_FAILOVER_TASKS` into
+`app/llm_router.py`. Defaults inherit the first two `GROQ_MODELS`: Qwen 3.8
+27B followed by GPT-OSS 20B, preserving the recorded October 4 comparison.
+That measurement has not been repeated for this release. Configuration accepts
+one or two supported models per task and up to 16 named credential references.
+Missing/duplicate secrets are omitted; unknown quota membership is grouped
+conservatively. Invalid configuration degrades without exposing secret values.
+
+The router tries eligible keys on one model before the next. Invalid keys,
+permissions, quota/account failures, retirement, and transient failures are
+scoped separately. Provider-reported cooldowns and one-at-a-time recovery
+probes prevent repeated failed requests. Queuing and all attempts share a
+2s/4s/8s generation deadline for rewrite/summary/explain; SDK retries are off.
+Concurrency is four total, one per credential. State is process-local and
+resets on restart. No proactive token-quota reservation is implemented yet.
+
+`groq_svc.py` retains the original query or omits optional generated content on
+failure, preserves abstention, and escapes summary HTML. Explanation requests
+share concurrent generation; cancellation of the last waiter stops it. The
+paper route caches by input, prompt version, and actual producing model, and
+can reuse an accepted fallback's cached explanation. The cache now includes
+title, so old cache entries are naturally bypassed. Async clients close during
+lifespan shutdown. Other tasks and deployments with the flag off retain the
+existing single-key model chain. AI usage logging and rate-limit windows are
+preserved, as are full-abstract repair and redesigned explanation rendering.
+Briefing and Ask remain on their existing `app/llm.py` path.
+
+Only one local key is configured. The live catalog probe failed with
+`APIConnectionError` and no HTTP response; no new completion or quality comparison
+ran. Configuration and deployment have not been enabled or changed. See
+[LLM-FAILOVER-PLAN.md](LLM-FAILOVER-PLAN.md) for the staged rollout, diagnostics,
+test record, preview-model caveat, and remaining validation.
+
 ## Recommendation audit — 2026-09-25
 
 A read-only Hugging Face Daily Papers adapter now exists in
