@@ -35,6 +35,10 @@
   see the first chunk of the list, without being able to trigger the loading of
   new content".
 #}
+{#- New readers (saves not grouped yet) see the trending shelf before the feed. -#}
+{% if shelf_first %}
+  <div class="shelf-slot shelf-slot--first" hx-get="/api/trending-shelf?after={{ query_id }}&amp;first=1" hx-trigger="load" hx-swap="outerHTML"></div>
+{% endif %}
 {% for paper in papers %}
   {% set source = "recommendation" %}
   {% set position = paper.position %}

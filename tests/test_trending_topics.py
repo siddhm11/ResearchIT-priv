@@ -126,7 +126,7 @@ def test_topic_line_only_for_named_rising_topics(monkeypatch):
               {"id": 9, "name": "Speech", "q": 0.01, "slope": -0.4, "from_share": 0.3, "to_share": 0.1}]
     monkeypatch.setattr(tt, "_state", {**tt._state, "topics": topics, "first_week": "2026-04-27",
                                        "topic_of": {"a": 7, "b": 8, "c": 9}})
-    assert tt.topic_line("a") == {"name": "Robots", "from": 0.1, "to": 0.5, "since": "2026-04-27"}
+    assert tt.topic_line("a") == {"id": 7, "name": "Robots", "from": 0.1, "to": 0.5, "since": "2026-04-27"}
     assert tt.topic_line("b") is None and tt.topic_line("c") is None and tt.topic_line("zz") is None
     assert [t["id"] for t in tt.rising()] == [7] and [t["id"] for t in tt.cooling()] == [9]
 
@@ -207,10 +207,11 @@ async def test_page_shows_named_rising_topics_the_week_and_logs_exposures(page_w
     html = r.text
     assert "Rising topics" in html and "Robots" in html and "2.0% → 5.7%" in html
     assert "Also: manipulation, embodied" in html and "Has GPT-6-Astra" in html
-    assert html.count('class="topic-row"') == 1, "an unnamed topic is never shown"
+    assert html.count('class="topic-row topic-row--') == 1, "an unnamed topic is never shown"
     assert "Most upvoted this week" in html and "Most upvoted of 58 papers on 22 Oct" in html
     assert "#2 of 58 papers on 22 Oct" in html
-    assert "Rising topic: <b>Robots</b>" in html, "a paper in a rising topic says so"
+    assert 'Rising topic: <a href="/trending/topics/3"><b>Robots</b></a>' in html, \
+        "a paper in a rising topic says so, and links to the topic"
     assert "★ 5.7k" in html and "Hugging Face summary" in html
     assert "pol=trending_page_top_v1" in html and "shuffled 2,000 times" in html
     import aiosqlite
@@ -241,7 +242,9 @@ async def test_page_shows_each_chosen_area_with_its_count_and_top_papers(page_wo
         html = (await c.get("/trending")).text
     assert 'id="tp-area-robotics"' in html and "2 papers on this week's lists" in html
     assert 'id="tp-area-se"' not in html, "an area with no papers this week is left out"
-    robotics = html[html.index('id="tp-area-robotics"'):html.index('id="tp-rising"')]
+    start = html.index('id="tp-area-robotics"')
+    robotics = html[start:html.index("</section>", start)]
+    assert html.index('id="tp-rising"') < start, "topics come before the area rows"
     assert "2610.00001" in robotics and "2610.00002" in robotics and "2610.00003" not in robotics
     top = html[html.index('id="tp-top"'):]
     assert "2610.00003" in top and "2610.00001" not in top, "no paper twice on the page"

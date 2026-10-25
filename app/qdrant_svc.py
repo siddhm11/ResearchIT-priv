@@ -630,6 +630,28 @@ async def search_by_vector_with_scores(
     return _merge_by_score(lists, limit)
 
 
+async def search_recent(
+    query_vector: list[float],
+    limit: int = 20,
+    exclude_ids: set[str] | None = None,
+) -> list[dict]:
+    """Nearest papers in the recent shard only (papers since June 2025), as
+    {'arxiv_id', 'score'} best first. For "recent work like this" lists, where
+    a 2017 classic would be the wrong answer. Without a recent shard configured
+    it searches every shard instead."""
+    if not config.qdrant_recent_configured():
+        return await search_by_vector_with_scores(query_vector, limit=limit, exclude_ids=exclude_ids)
+    exclude = exclude_ids or set()
+    with use_backend("recent"):
+        points = await _in_executor(_run_vector_search, query_vector, limit + len(exclude), False)
+    out = []
+    for r in points or []:
+        aid = (r.payload or {}).get("arxiv_id")
+        if aid and aid not in exclude and all(o["arxiv_id"] != aid for o in out):
+            out.append({"arxiv_id": aid, "score": float(r.score)})
+    return out[:limit]
+
+
 def _run_vector_search(
     query_vector: list[float], limit: int, with_vectors: bool = False,
 ) -> list:

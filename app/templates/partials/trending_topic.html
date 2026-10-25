@@ -1,12 +1,19 @@
 {#
-  One rising or cooling topic on /trending. Expects `t` (routers/trending.py
-  _topic_view), `query_id`, `spark_w`, `spark_h`. The line is the topic's share
-  of each week's list, averaged over four weeks, on one scale for the page.
+  One topic on /trending: rising, cooling or steady (`t.label`). Expects `t`
+  (routers/trending.py _topic_view), `query_id`, `spark_w`, `spark_h`. The line
+  is the topic's share of each week's list, averaged over four weeks, on one
+  scale for the page. A steady topic shows its share now and no "then → now",
+  since the test found no trend to report.
 #}
-<li class="topic-row" id="topic-{{ t.id }}">
+<li class="topic-row topic-row--{{ t.label }}" id="topic-{{ t.id }}">
   <div class="topic-head">
-    <h3 class="topic-name">{{ t.name }}</h3>
-    <span class="topic-delta">{{ "%.1f" | format(t["from"] * 100) }}% → {{ "%.1f" | format(t["to"] * 100) }}%</span>
+    <h3 class="topic-name"><a href="/trending/topics/{{ t.id }}">{{ t.name }}</a></h3>
+    {% if t.label == "steady" %}
+      <span class="topic-delta" title="Share of the lists now; no trend the test can stand behind">{{ "%.1f" | format(t["to"] * 100) }}% · {{ t["to"] | one_in }}</span>
+    {% else %}
+      <span class="topic-delta">{{ "%.1f" | format(t["from"] * 100) }}% → {{ "%.1f" | format(t["to"] * 100) }}%</span>
+      <span class="topic-plain">{{ t["from"] | one_in }} → {{ t["to"] | one_in }} papers</span>
+    {% endif %}
     <svg class="topic-spark" viewBox="0 0 {{ spark_w }} {{ spark_h }}" width="{{ spark_w }}" height="{{ spark_h }}"
          role="img" aria-label="Share of each week's list, from {{ "%.1f" | format(t["from"] * 100) }}% to {{ "%.1f" | format(t["to"] * 100) }}%">
       <polyline points="{{ t.spark }}"/>

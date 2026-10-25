@@ -375,6 +375,27 @@ async def shelf_for(user_id: str, exclude: set[str],
     return [_for_card(p) for p in picked]
 
 
+def window(today: Date | None = None) -> dict | None:
+    """Which lists the week's papers come from, in words, for the page header:
+    {"label": "19–23 Oct", "next": "Mon 26 Oct" or None}. "next" is set at
+    weekends, when no list arrives until Monday, so the page can say so instead
+    of looking stale."""
+    days = sorted({p["listed_on"] for p in _state["papers"].values()})
+    if not days:
+        return None
+    first, last = Date.fromisoformat(days[0]), Date.fromisoformat(days[-1])
+    if first.month == last.month:
+        label = f"{first.day}–{last.day} {last:%b}" if first != last else f"{last.day} {last:%b}"
+    else:
+        label = f"{first.day} {first:%b} – {last.day} {last:%b}"
+    today = today or datetime.now(timezone.utc).date()
+    nxt = None
+    if today.weekday() >= 5:
+        monday = today + timedelta(days=7 - today.weekday())
+        nxt = f"{monday:%a} {monday.day} {monday:%b}"
+    return {"label": label, "next": nxt}
+
+
 def week_top(n: int = 10, exclude: set[str] = frozenset(), seen: set[str] = frozenset()) -> list[dict]:
     """The week's most upvoted papers, for everyone (the /trending page). Papers
     in `seen` come after the rest."""

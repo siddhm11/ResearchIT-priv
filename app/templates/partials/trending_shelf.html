@@ -14,9 +14,9 @@
 #}
 <section class="shelf" aria-labelledby="shelf-title-{{ query_id[:8] }}">
   <header class="shelf-head">
-    <h2 class="shelf-title" id="shelf-title-{{ query_id[:8] }}">{% if personal %}Trending in your interests{% else %}Trending this week{% endif %}</h2>
-    <span class="shelf-note">Upvoted on Hugging Face Daily Papers this week</span>
-    {% if trending_page %}<a class="shelf-more" href="/trending">Rising topics →</a>{% endif %}
+    <h2 class="shelf-title" id="shelf-title-{{ query_id[:8] }}">{% if kind == "interests" %}Trending in your interests{% elif kind == "areas" %}Trending in your areas{% else %}Trending this week{% endif %}</h2>
+    <span class="shelf-note">{% if first %}What researchers upvoted this week. Your feed below learns from what you save.{% else %}Upvoted on Hugging Face Daily Papers this week{% endif %}</span>
+    {% if trending_page %}<a class="shelf-more" href="/trending">All of Trending →</a>{% endif %}
   </header>
   <ol class="shelf-row">
     {% for paper in papers %}

@@ -105,7 +105,7 @@ async def test_shelf_names_the_rising_topic_only_with_the_page_on(shelf_world, t
     monkeypatch.setenv("TRENDING_PAGE", "on")
     async with client() as c:
         on = (await c.get("/api/trending-shelf")).text
-    assert "Rising topic: <b>Agent Harnesses</b>" in on and "0.6% → 2.6% of the lists since April" in on
+    assert "<b>Agent Harnesses</b></a>" in on and "0.6% → 2.6% of the lists since April" in on
     assert 'href="/trending"' in on
     monkeypatch.setenv("TRENDING_PAGE", "off")
     async with client() as c:

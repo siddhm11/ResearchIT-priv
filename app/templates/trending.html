@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {#
-  /trending (app/routers/trending.py): this week's Hugging Face Daily Papers in
-  the reader's interests, the week's most upvoted, and the topics whose share
-  of the lists has really moved over 26 weeks (app/trending_topics.py). Every
+  /trending, the Trending tab (app/routers/trending.py): which week's lists it
+  shows, a strip of moving topics and the reader's areas, this week's Hugging
+  Face Daily Papers in the reader's interests and areas, the topics whose share
+  of the lists has really moved over 26 weeks (app/trending_topics.py), the
+  steady ones, and the week's most upvoted. Every
   number on it is a count from the lists; the footnote says how the topics
   were found, so a reader can judge them.
 #}
@@ -13,7 +15,20 @@
     <div class="issue-kicker">Hugging Face Daily Papers</div>
     <h1 class="issue-title">Trending this week</h1>
     <p class="muted">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
+    {% if window %}
+      <div class="issue-line trend-window">
+        <span>Lists of {{ window.label }}</span>
+        {% if window.next %}<span class="sep">·</span><span>next list {{ window.next }}</span>
+        {% else %}<span class="sep">·</span><span>checked every 3 hours</span>{% endif %}
+      </div>
+    {% endif %}
   </header>
+
+  {% if chips %}
+  <nav class="topic-chips" aria-label="Topics and your areas">
+    {% for c in chips %}<a class="tchip tchip--{{ c.kind }}" href="{{ c.href }}">{{ c.text }}{% if c.kind == "up" %} <span aria-label="rising">↑</span>{% elif c.kind == "down" %} <span aria-label="cooling">↓</span>{% endif %}</a>{% endfor %}
+  </nav>
+  {% endif %}
 
   {% if for_you %}
   <section class="shelf" aria-labelledby="tp-for-you">
@@ -26,20 +41,6 @@
     </ol>
   </section>
   {% endif %}
-
-  {% for area in areas %}
-  <section class="shelf" aria-labelledby="tp-area-{{ area.area }}">
-    <header class="shelf-head">
-      <h2 class="shelf-title" id="tp-area-{{ area.area }}">{{ area.label }}</h2>
-      <span class="shelf-note">{{ area.count }} paper{% if area.count != 1 %}s{% endif %} on this week's lists</span>
-    </header>
-    {% if area.papers %}
-    <ol class="shelf-row">
-      {% for paper in area.papers %}{% include "partials/trending_card.html" %}{% endfor %}
-    </ol>
-    {% endif %}
-  </section>
-  {% endfor %}
 
   <section class="topics-block" aria-labelledby="tp-rising">
     <h2 class="shelf-title" id="tp-rising">Rising topics</h2>
@@ -61,6 +62,30 @@
     <h2 class="shelf-title" id="tp-cooling">Cooling</h2>
     <ol class="topic-list">
       {% for t in cooling %}{% include "partials/trending_topic.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% for area in areas %}
+  <section class="shelf" aria-labelledby="tp-area-{{ area.area }}">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-area-{{ area.area }}">{{ area.label }}</h2>
+      <span class="shelf-note">{{ area.count }} paper{% if area.count != 1 %}s{% endif %} on this week's lists</span>
+    </header>
+    {% if area.papers %}
+    <ol class="shelf-row">
+      {% for paper in area.papers %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  {% if steady %}
+  <section class="topics-block" aria-labelledby="tp-steady">
+    <h2 class="shelf-title" id="tp-steady">Steady topics</h2>
+    <p class="small muted">Big groups on the lists whose share hasn't moved clearly over {{ basis.weeks }} weeks. Share of the last 4 weeks' papers.</p>
+    <ol class="topic-list">
+      {% for t in steady %}{% include "partials/trending_topic.html" %}{% endfor %}
     </ol>
   </section>
   {% endif %}
