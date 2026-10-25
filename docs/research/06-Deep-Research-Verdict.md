@@ -1042,3 +1042,22 @@ does not (one counter, `search_trend_<mode>`), so a week of it would not have ta
 **Action items:** Watch `search_trend_on` in /healthz/runtime against searches. If the step-up proves
 too timid to ever move a paper (likely, on this evidence), measure looser settings (3 auditions, half →
 0.4 of the best score) on the replay before changing them.
+
+### 2026-10-25 — The trending shelf is always there: chosen areas count, shown papers repeat last
+**Decision:** The "Trending in your interests" shelf shows on every feed tier, not only the
+clustered one. A Daily Paper qualifies by closeness to a saved interest (unchanged bar) or, failing
+that, by being listed in one of the reader's chosen areas (onboarding, /interests), scored at 0.50
+plus the upvote term, so saves lead and areas fill. Places go round the interests and areas, best
+first. Papers shown before (impressions, 7 days) no longer leave the shelf; they come after every
+unseen one. The papers of the feed page below stay excluded, as do saved and dismissed ones. When
+nothing qualifies, the shelf shows the week's most upvoted under "Trending this week". /trending adds,
+per chosen area, its count of the week's papers and its 3 most upvoted.
+**Supersedes:** the 2026-10-23 shelf rules "Tier 1 only", "no shelf below 3 on-topic papers" and
+"shown is shown".
+**Rationale:** On 25 Oct the owner, re-onboarded after the Turso switch with 2 saves and 6 areas, lost
+the shelf: 7 of the week's 312 papers fitted the two saves, the first shelf showed 6, the next had
+1 and hid, and it was a weekend, so no list arrived to refill it. The same week held 38 robotics, 118
+vision, 137 AI and 102 language papers by category: the areas a reader picks are enough to show what
+is trending in them, with no saves at all. The shelf is a separate block (it takes no feed slot), so
+the quota rules of §3.1 are untouched.
+**Action items:** Watch shelf saves against feed saves; if repeats draw no clicks, lower their share.

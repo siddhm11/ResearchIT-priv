@@ -17,6 +17,11 @@ Papers from 16-23 Oct were on-topic for the owner, and the feed's 60-paper pool
 held 1 of them. 379 of the 383 were already in the corpus with vectors, so
 nothing is embedded here; vectors come from Qdrant through the shared cache.
 
+Since 2026-10-25 (doc 06) it is there whenever the week has papers: a paper
+also qualifies by being listed in an area the reader picked, papers shown
+before fill places after new ones, and a reader nothing fits gets the week's
+most upvoted. It shows on every feed tier, not only the clustered one.
+
 Switch TRENDING_SHELF (app/features.py): off does nothing, shadow refreshes
 the papers but renders nothing, preview shows the owner, on shows everyone.
 """
@@ -33,7 +38,7 @@ from datetime import date as Date, datetime, timedelta, timezone
 import httpx
 import numpy as np
 
-from app import db, features, hf_papers_svc, http_client, qdrant_svc
+from app import config, db, features, hf_papers_svc, http_client, qdrant_svc, turso_svc
 from app.recommend.labels import cluster_tone, label_clusters
 
 SWITCH = "TRENDING_SHELF"
@@ -47,7 +52,7 @@ FRESH_DAYS = 3              # days a paper counts fully as trending in search
 SHELF_SIZE = 6
 SHELF_AFTER_CARD = 4      # page 1 shows this many feed cards before the shelf
 PER_INTEREST = 2            # floor on each interest's share of the shelf
-MIN_SHOWN = 3               # fewer than this and the shelf stays hidden
+MIN_SHOWN = 3               # fewer fit than this and the shelf shows the week's top instead
 
 # Each tenfold increase in upvotes is worth this much closeness, so popularity
 # breaks ties between similar papers without lifting a far one over a near one.
@@ -61,6 +66,13 @@ UPVOTE_WEIGHT = 0.07
 DEFAULT_BAR = 0.60
 BAR_MIN, BAR_MAX = 0.55, 0.70
 MIN_FITS_FOR_BAR = 4
+
+# A paper can also qualify by its arXiv categories alone, when it is listed in
+# one of the areas the reader picked (onboarding, /interests), so a reader with
+# few or no saves still gets a shelf (doc 06, 2026-10-25). Such a paper scores
+# this much before upvotes: below any interest fit that clears the bar (0.55 at
+# the lowest), so saves lead and the areas fill the places they leave.
+AREA_SCORE = 0.50
 
 _state: dict = {"papers": {}, "vectors": {}, "code": {}, "refreshed_at": None,
                 "days": 0, "failed_days": [], "error": None, "scheduler": "off"}
@@ -105,6 +117,15 @@ async def refresh(client: httpx.AsyncClient | None = None, today: Date | None = 
         raise RuntimeError("no Daily Papers list could be fetched")
     _place_in_week(papers)
     vectors = await qdrant_svc.get_paper_vectors(list(papers))
+    # Categories for matching the reader's areas: sidecar first, Turso for the
+    # newest papers, a few hundred ids by key. Without them only saves match.
+    try:
+        meta = await turso_svc.fetch_metadata_batch(list(papers))
+    except Exception as e:  # pragma: no cover - fetch_metadata_batch reports and returns {}
+        print(f"[trending_shelf] categories unavailable: {type(e).__name__}")
+        meta = {}
+    for aid, p in papers.items():
+        p["categories"] = ((meta.get(aid) or {}).get("arxiv_categories") or "").split()
     _state.update(papers=papers, vectors=vectors, code=code, days=DAYS - len(failed),
                   failed_days=failed, error=None,
                   refreshed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
@@ -218,46 +239,83 @@ def interest_bar(member_fits: list[float]) -> float:
     return float(min(max(np.percentile(member_fits, 25), BAR_MIN), BAR_MAX))
 
 
-def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: float,
-         exclude: set[str], size: int = SHELF_SIZE) -> list[dict]:
-    """The shelf for one reader, best first, or [] when too little is on-topic.
+def area_groups(keys: list[str], first_tone: int = 0) -> list[dict]:
+    """The reader's chosen areas (CATEGORY_GROUPS keys) as shelf groups."""
+    out = []
+    for key in keys:
+        grp = config.CATEGORY_GROUPS.get(key)
+        if grp:
+            out.append({"cluster_idx": None, "area": key, "codes": frozenset(grp["arxiv"]),
+                        "label": grp["name"], "tone": cluster_tone(first_tone + len(out))})
+    return out
 
-    `interests` carry a unit `medoid` vector, `cluster_idx`, `label`, `tone`.
-    Each paper belongs to its closest interest. Every interest gets up to
-    max(PER_INTEREST, ceil(SHELF_SIZE / K)) places first, so a dominant interest
-    cannot fill the shelf, then any places left go to the next best overall.
+
+def _area_of(categories: list[str], areas: list[dict]) -> dict | None:
+    """The area a paper belongs to: by its primary category, else any it lists."""
+    if not categories:
+        return None
+    for a in areas:
+        if categories[0] in a["codes"]:
+            return a
+    listed = set(categories)
+    return next((a for a in areas if listed & a["codes"]), None)
+
+
+def _round_robin(pool: list[dict], n: int) -> list[dict]:
+    """Up to n of `pool` (best first), one per group in turn, best group first,
+    so no interest or area takes the shelf while another has papers."""
+    groups: dict[int, list[dict]] = {}
+    for s in pool:
+        groups.setdefault(id(s["interest"]), []).append(s)
+    queues = sorted(groups.values(), key=lambda g: -g[0]["score"])
+    taken: list[dict] = []
+    while len(taken) < n and any(queues):
+        for q in queues:
+            if q and len(taken) < n:
+                taken.append(q.pop(0))
+    return taken
+
+
+def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: float,
+         exclude: set[str], size: int = SHELF_SIZE, areas: list[dict] = (),
+         seen: set[str] = frozenset()) -> list[dict]:
+    """The shelf for one reader, best first, or [] when fewer than MIN_SHOWN qualify.
+
+    A paper qualifies by closeness to one of the reader's saved interests (its
+    medoid, at `bar` or above) or, failing that, by being listed in one of the
+    reader's chosen `areas`. `interests` carry a unit `medoid`, `cluster_idx`,
+    `label`, `tone`. Places go round the interests and areas, so a dominant
+    interest or a big area cannot fill the shelf. `exclude` is never shown;
+    papers in `seen` (shown before) come after every unseen one, filling places
+    rather than leaving the shelf empty for a reader who has seen the week's
+    best already.
     """
-    if not interests:
+    if not interests and not areas:
         return []
-    medoids = np.stack([_unit(i["medoid"]) for i in interests])
+    medoids = np.stack([_unit(i["medoid"]) for i in interests]) if interests else None
     scored = []
     for p in candidates:
         aid = p["arxiv_id"]
+        if aid in exclude:
+            continue
+        votes = UPVOTE_WEIGHT * math.log10(max(p.get("upvotes") or 0, 1))
         vec = vectors.get(aid)
-        if aid in exclude or vec is None:
-            continue
-        sims = medoids @ _unit(vec)
-        k = int(np.argmax(sims))
-        fit = float(sims[k])
-        if fit < bar:
-            continue
-        score = fit + UPVOTE_WEIGHT * math.log10(max(p.get("upvotes") or 0, 1))
-        scored.append({**p, "fit": round(fit, 4), "score": score, "interest": interests[k]})
+        if medoids is not None and vec is not None:
+            sims = medoids @ _unit(vec)
+            k = int(np.argmax(sims))
+            fit = float(sims[k])
+            if fit >= bar:
+                scored.append({**p, "fit": round(fit, 4), "score": fit + votes, "interest": interests[k]})
+                continue
+        area = _area_of(p.get("categories") or [], list(areas))
+        if area is not None:
+            scored.append({**p, "fit": None, "score": AREA_SCORE + votes, "interest": area})
+    if len(scored) < MIN_SHOWN:
+        return []
     scored.sort(key=lambda s: -s["score"])
-
-    cap = max(PER_INTEREST, math.ceil(size / len(interests)))
-    taken, per = [], Counter()
-    for s in scored:
-        if per[s["interest"]["cluster_idx"]] < cap:
-            taken.append(s)
-            per[s["interest"]["cluster_idx"]] += 1
-        if len(taken) == size:
-            break
-    if len(taken) < size:
-        chosen = {s["arxiv_id"] for s in taken}
-        taken += [s for s in scored if s["arxiv_id"] not in chosen][:size - len(taken)]
-        taken.sort(key=lambda s: -s["score"])
-    return taken if len(taken) >= MIN_SHOWN else []
+    fresh = _round_robin([s for s in scored if s["arxiv_id"] not in seen], size)
+    again = _round_robin([s for s in scored if s["arxiv_id"] in seen], size - len(fresh))
+    return sorted(fresh, key=lambda s: -s["score"]) + sorted(again, key=lambda s: -s["score"])
 
 
 # ── One reader ───────────────────────────────────────────────────────────────
@@ -285,26 +343,59 @@ async def reader_interests(user_id: str) -> tuple[list[dict], float]:
     return interests, interest_bar(fits)
 
 
+async def reader_areas(user_id: str) -> list[str]:
+    """The areas the reader picked (CATEGORY_GROUPS keys), in their order."""
+    state = await db.get_onboarding_state(user_id)
+    return [k for k in (state or {}).get("selected_categories") or [] if isinstance(k, str)]
+
+
 async def shelf_for(user_id: str, exclude: set[str],
                     labels: dict[int, tuple[str, int]] | None = None,
-                    size: int = SHELF_SIZE) -> list[dict]:
+                    size: int = SHELF_SIZE, seen: set[str] = frozenset(),
+                    fallback: bool = False) -> list[dict]:
     """`labels` ({cluster_idx: (name, tone)}) are the names on the feed page
-    the shelf sits on; they win over names worked out here."""
+    the shelf sits on; they win over names worked out here.
+
+    With `fallback`, a reader nothing qualifies for gets the week's most
+    upvoted instead (cards without an `interest`), so the shelf is there
+    whenever the week has papers: weekends and readers without saves included.
+    """
     if not _state["papers"]:
         return []
     interests, bar = await reader_interests(user_id)
     for i in interests:
         if labels and i["cluster_idx"] in labels:
             i["label"], i["tone"] = labels[i["cluster_idx"]]
-    picked = rank(list(_state["papers"].values()), _state["vectors"], interests, bar, exclude, size)
+    first_tone = 1 + max((i["cluster_idx"] for i in interests), default=-1)
+    areas = area_groups(await reader_areas(user_id), first_tone)
+    picked = rank(list(_state["papers"].values()), _state["vectors"], interests, bar, exclude,
+                  size, areas=areas, seen=seen)
+    if not picked and fallback:
+        return week_top(size, exclude=exclude, seen=seen)
     return [_for_card(p) for p in picked]
 
 
-def week_top(n: int = 10, exclude: set[str] = frozenset()) -> list[dict]:
-    """The week's most upvoted papers, for everyone (the /trending page)."""
+def week_top(n: int = 10, exclude: set[str] = frozenset(), seen: set[str] = frozenset()) -> list[dict]:
+    """The week's most upvoted papers, for everyone (the /trending page). Papers
+    in `seen` come after the rest."""
     papers = sorted((p for a, p in _state["papers"].items() if a not in exclude),
-                    key=lambda p: (-p["upvotes"], p["arxiv_id"]))
+                    key=lambda p: (p["arxiv_id"] in seen, -p["upvotes"], p["arxiv_id"]))
     return [_for_card(dict(p)) for p in papers[:n]]
+
+
+def by_area(keys: list[str], exclude: set[str] = frozenset(), n: int = 3) -> list[dict]:
+    """For each chosen area, how many of the week's papers are listed in it and
+    its n most upvoted (the /trending page). Areas with none are left out."""
+    out = []
+    for g in area_groups(keys):
+        mine = [p for p in _state["papers"].values() if set(p.get("categories") or ()) & g["codes"]]
+        if not mine:
+            continue
+        best = sorted((p for p in mine if p["arxiv_id"] not in exclude),
+                      key=lambda p: (-p["upvotes"], p["arxiv_id"]))[:n]
+        out.append({"area": g["area"], "label": g["label"], "count": len(mine),
+                    "papers": [_for_card(dict(p)) for p in best]})
+    return out
 
 
 def _for_card(p: dict) -> dict:

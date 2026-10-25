@@ -1,10 +1,12 @@
 """The "Trending in your interests" shelf (app/trending_shelf.py, /api/trending-shelf).
 
-What it must guarantee: only papers close to one of the reader's interests,
-no interest filling the shelf alone, nothing the reader decided on or already
-saw, the §3.11 fields on every card and in the exposure log, and no shelf at
-all when the switch is off or too little qualifies. The feed's first page gets
-a placeholder after its fourth card, and only in the clustered tier.
+What it must guarantee: papers close to one of the reader's interests or listed
+in an area they picked, no interest or area filling the shelf alone, nothing
+the reader decided on or that is on the feed page below, papers shown before
+only after every new one, the §3.11 fields on every card and in the exposure
+log, the week's most upvoted when nothing fits, and no shelf at all only when
+the switch is off. The feed's first page gets a placeholder after its fourth
+card, on every tier (doc 06, 2026-10-25).
 """
 import re
 from unittest.mock import AsyncMock
@@ -37,9 +39,9 @@ def interests(*axes):
     return [{"cluster_idx": i, "medoid": unit(a), "label": f"topic {i}", "tone": i} for i, a in enumerate(axes)]
 
 
-def paper(aid, votes=0, day="2026-10-22"):
+def paper(aid, votes=0, day="2026-10-22", cats=()):
     return {"arxiv_id": aid, "title": "Paper " + aid, "upvotes": votes,
-            "published_at": "2026-10-20T00:00:00+00:00", "listed_on": day}
+            "published_at": "2026-10-20T00:00:00+00:00", "listed_on": day, "categories": list(cats)}
 
 
 # ── Ranking ──────────────────────────────────────────────────────────────────
@@ -81,6 +83,47 @@ def test_too_little_on_topic_shows_no_shelf():
     assert ts.rank(cands, vecs, interests(0), bar=0.60, exclude=set()) == []
 
 
+def test_chosen_areas_alone_fill_the_shelf_one_area_at_a_time():
+    areas = ts.area_groups(["robotics", "cv", "se"])
+    cands = ([paper(f"r{i}", votes=50 - i, cats=["cs.RO"]) for i in range(5)]
+             + [paper(f"v{i}", votes=900 - i, cats=["cs.CV", "cs.RO"]) for i in range(5)]   # primary wins
+             + [paper("s0", votes=1, cats=["cs.LG", "cs.SE"])]                              # listed counts too
+             + [paper("x", votes=999, cats=["hep-th"])])                                    # in no chosen area
+    got = ts.rank(cands, {}, [], bar=0.60, exclude=set(), areas=areas)
+    # Round the areas, best first (vision's 900 upvotes, robotics, then software
+    # engineering's one paper), until six; then best first for display.
+    assert [p["arxiv_id"] for p in got] == ["v0", "v1", "v2", "r0", "r1", "s0"]
+    assert [p["interest"]["label"] for p in got][-1] == "Software Engineering"
+
+
+def test_a_saved_interest_claims_a_paper_before_its_area_does():
+    areas = ts.area_groups(["robotics"], first_tone=1)
+    cands = [paper("a", cats=["cs.RO"]), paper("b", cats=["cs.RO"]), paper("c", cats=["cs.RO"])]
+    vecs = {"a": near(0, .80, 1)}
+    got = {p["arxiv_id"]: p for p in ts.rank(cands, vecs, interests(0), bar=0.60, exclude=set(), areas=areas)}
+    assert got["a"]["interest"]["cluster_idx"] == 0 and got["a"]["fit"] == pytest.approx(0.80, abs=1e-3)
+    assert got["b"]["interest"]["label"] == "Robotics" and got["b"]["fit"] is None
+    assert got["a"]["score"] > got["b"]["score"], "a save-close paper ranks above an area-only one"
+
+
+def test_papers_shown_before_fill_places_after_every_new_one():
+    cands = [paper(f"a{i}", votes=100 - i) for i in range(8)]
+    vecs = {f"a{i}": near(0, .80, i) for i in range(8)}
+    got = [p["arxiv_id"] for p in ts.rank(cands, vecs, interests(0), bar=0.60, exclude=set(),
+                                           seen={"a0", "a1", "a2", "a3", "a4"})]
+    assert got == ["a5", "a6", "a7", "a0", "a1", "a2"]
+
+
+def test_week_by_area_counts_every_listed_paper():
+    state = {"papers": {"r": paper("r", 9, cats=["cs.RO"]), "v": paper("v", 5, cats=["cs.CV", "cs.RO"]),
+                        "m": paper("m", 7, cats=["cs.LG"])}, "code": {}, "vectors": {}}
+    import unittest.mock as um
+    with um.patch.object(ts, "_state", {**ts._state, **state}):
+        rows = ts.by_area(["robotics", "se", "ml"], exclude={"r"})
+    assert [(r["label"], r["count"], [p["arxiv_id"] for p in r["papers"]]) for r in rows] == [
+        ("Robotics", 2, ["v"]), ("Machine Learning", 1, ["m"])]
+
+
 # ── Refresh ──────────────────────────────────────────────────────────────────
 
 async def test_refresh_keeps_the_best_upvotes_skips_a_bad_day_and_survives_an_outage(monkeypatch):
@@ -98,10 +141,13 @@ async def test_refresh_keeps_the_best_upvotes_skips_a_bad_day_and_survives_an_ou
 
     monkeypatch.setattr(hf_papers_svc, "fetch_snapshot", fetch)
     monkeypatch.setattr(qdrant_svc, "get_paper_vectors", AsyncMock(return_value={"2610.00001": unit(0)}))
+    monkeypatch.setattr(turso_svc, "fetch_metadata_batch", AsyncMock(
+        return_value={"2610.00001": {"arxiv_id": "2610.00001", "arxiv_categories": "cs.RO cs.LG"}}))
     monkeypatch.setattr(ts, "_state", dict(ts._state))
     stats = await ts.refresh(client=object(), today=date(2026, 10, 23))
     assert len(calls) == ts.DAYS and stats["days"] == ts.DAYS - 1 and stats["failed_days"] == ["2026-10-21"]
     assert ts._state["papers"]["2610.00001"]["upvotes"] == 40
+    assert ts._state["papers"]["2610.00001"]["categories"] == ["cs.RO", "cs.LG"]
     assert stats["with_vectors"] == 1
 
     async def down(client, *, now=None, date=None):
@@ -171,14 +217,36 @@ async def test_shelf_carries_attribution_logs_exposures_and_moves_on(shelf_world
             "SELECT paper_id, policy_id, propensity, candidate_source FROM feed_exposures ORDER BY id")).fetchall()
     assert [r[0] for r in rows[:ts.SHELF_SIZE]] == shown
     assert {(r[1], r[2], r[3]) for r in rows} == {("trending_shelf_v1", 1.0, "hf_daily")}
-    assert not set(shelf_ids(second)) & set(shown), "a paper already shown is not shown again"
+    again = shelf_ids(second)
+    fresh = [a for a in again if a not in shown]
+    assert len(again) == ts.SHELF_SIZE and fresh, "the next shelf moves on, and stays full"
+    assert again[:len(fresh)] == fresh, "papers already shown come after every new one"
 
 
-async def test_reader_without_interests_gets_no_shelf(shelf_world):
+async def test_a_reader_with_areas_but_no_saves_gets_a_shelf_in_those_areas(shelf_world):
+    await db.save_user_clusters(READER, [])
+    await db.save_onboarding_categories(READER, ["robotics"])
+    for i, aid in enumerate(HF):
+        ts._state["papers"][aid]["categories"] = ["cs.RO"] if i < 4 else ["cs.CV"]
+    async with client() as c:
+        r = await c.get("/api/trending-shelf")
+    assert "Trending in your interests" in r.text and "Robotics" in r.text
+    assert set(shelf_ids(r)) == set(HF[:4])
+
+
+async def test_a_reader_nothing_fits_gets_the_weeks_top_not_nothing(shelf_world):
     await db.save_user_clusters(READER, [])
     async with client() as c:
         r = await c.get("/api/trending-shelf")
-    assert r.text == ""
+    assert "Trending this week" in r.text
+    assert shelf_ids(r) == [HF[i] for i in range(11, 5, -1)], "most upvoted first"
+
+
+async def test_the_shelf_never_repeats_the_feed_page_below_it(shelf_world):
+    recs._cache_put("page-q", {"user_id": READER, "tags": {}, "emitted": set(HF[6:])})
+    async with client() as c:
+        r = await c.get("/api/trending-shelf?after=page-q")
+    assert shelf_ids(r) and not set(shelf_ids(r)) & set(HF[6:])
 
 
 # ── Placement in the feed ────────────────────────────────────────────────────
@@ -226,7 +294,7 @@ async def test_feed_places_the_shelf_after_the_fourth_card(feed_world, monkeypat
     assert "shelf-slot" not in page2, "only the first page carries the shelf"
 
 
-async def test_no_placeholder_with_the_switch_off_or_outside_the_clustered_tier(feed_world, monkeypatch):
+async def test_placeholder_on_every_tier_and_none_with_the_switch_off(feed_world, monkeypatch):
     monkeypatch.setenv("TRENDING_SHELF", "off")
     async with client() as c:
         assert "shelf-slot" not in (await c.get("/api/recommendations")).text
@@ -234,7 +302,7 @@ async def test_no_placeholder_with_the_switch_off_or_outside_the_clustered_tier(
     monkeypatch.setattr(recs, "_multi_interest_recommend", AsyncMock(return_value=([], [], {}, 0, {})))
     recs._FEED_CACHE.clear()
     async with client() as c:
-        assert "shelf-slot" not in (await c.get("/api/recommendations")).text
+        assert "shelf-slot" in (await c.get("/api/recommendations")).text, "not only the clustered tier"
 
 
 async def test_shelf_uses_the_interest_names_of_its_feed_page(shelf_world):

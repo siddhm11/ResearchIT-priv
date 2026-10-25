@@ -403,9 +403,10 @@ async def _serve_recommendations(
     if page == 1:
         ctx["interests"] = _feed_interests(entry)
         ctx["strength"] = _profile_strength(entry, len(state.positive_list))
-        # The trending shelf needs saved interests, which only Tier 1 has. It
-        # loads after this page arrives, so it never adds to the feed's wait.
-        if _serving_tier(entry) == 1 and features.visible(trending_shelf.SWITCH, request):
+        # The trending shelf, on every tier: it matches saves and the areas the
+        # reader picked, and falls back to the week's top (doc 06, 2026-10-25).
+        # It loads after this page arrives, so it never adds to the feed's wait.
+        if features.visible(trending_shelf.SWITCH, request):
             ctx["shelf_after"] = trending_shelf.SHELF_AFTER_CARD
 
     resp = _with_cookie(templates.TemplateResponse(request, template, ctx))
