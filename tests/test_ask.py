@@ -221,6 +221,40 @@ def test_a_suggested_question_is_answered_once_then_cached(world):
     assert len(calls) == 1 and "<question>What are the limitations?</question>" in calls[0]
 
 
+def test_an_answer_from_the_abstract_alone_is_not_cached_while_the_paper_s_text_is_missing(world, monkeypatch):
+    """After a deploy the replicated paper_sources row is back but the local text
+    is not; a suggested answer written then must not be served to everyone."""
+    async def wipe():
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            await conn.execute("DELETE FROM paper_paragraphs")
+            await conn.execute("DELETE FROM paper_fulltext")
+            await conn.commit()
+
+    asyncio.run(wipe())
+    fetches = []
+
+    async def arxiv_unreachable(arxiv_id, **kw):
+        fetches.append(kw)
+        return await paper_source_svc.get(arxiv_id)
+
+    monkeypatch.setattr(paper_source_svc, "ensure", arxiv_unreachable)
+    calls = []
+
+    def counting(system, user):
+        calls.append(user)
+        return answer_from("S6")(system, user)
+
+    llm.fake_reply(counting, counting, counting)
+    post({"key": "limits", "q": "ignored"})
+    post({"key": "limits", "q": "ignored"}, cookie="reader-2")
+    assert len(calls) == 2 and fetches == [{"need_text": True}] * 2       # asked to fetch, not cached
+    assert '<passage anchor="S' not in calls[0]                           # the abstract alone
+    asyncio.run(paper_source_svc._save_parsed(PARSED, None))             # the text is back
+    post({"key": "limits", "q": "ignored"}, cookie="reader-3")
+    post({"key": "limits", "q": "ignored"}, cookie="reader-4")
+    assert len(calls) == 3 and '<passage anchor="S6' in calls[2]          # answered from the paper, then cached
+
+
 def test_a_figure_question_s_text_comes_from_the_server_not_the_form(world):
     prompts = []
 

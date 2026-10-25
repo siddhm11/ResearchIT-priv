@@ -355,3 +355,33 @@ def test_html_links_only_take_safe_anchors():
     src = pss.Source(arxiv_id="2609.31507", status="ok", version="v1")
     assert src.html_url("S3.SS2") == "https://arxiv.org/html/2609.31507v1#S3.SS2"
     assert src.html_url('"><script>') == "https://arxiv.org/html/2609.31507v1"
+
+
+# ── local text after a deploy ────────────────────────────────────────────────
+
+async def _wipe_local_text():
+    """A fresh container: paper_sources comes back from Turso, the local text does not."""
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute("DELETE FROM paper_paragraphs")
+        await conn.execute("DELETE FROM paper_fulltext")
+        await conn.commit()
+
+
+async def test_a_saved_paper_without_its_local_text_is_fetched_again_only_when_text_is_needed(fake_arxiv):
+    await pss.ensure("2609.31507")
+    await _wipe_local_text()
+    assert (await pss.ensure("2609.31507")).ok and len(fake_arxiv["requests"]) == 1     # figures need only the row
+    assert not await pss.has_text("2609.31507")
+    src = await pss.ensure("2609.31507", need_text=True)
+    assert src.ok and await pss.has_text("2609.31507") and await pss.paragraphs("2609.31507")
+    assert len(fake_arxiv["requests"]) == 2
+    await pss.ensure("2609.31507", need_text=True)
+    assert len(fake_arxiv["requests"]) == 2                                             # the text is here: no fetch
+
+
+async def test_opening_a_paper_brings_its_text_back(fake_arxiv):
+    await pss.ensure("2609.31507")
+    await _wipe_local_text()
+    pss.schedule("2609.31507")
+    await asyncio.gather(*list(pss._get_state().tasks))
+    assert await pss.has_text("2609.31507") and len(fake_arxiv["requests"]) == 2

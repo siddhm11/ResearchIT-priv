@@ -38,6 +38,7 @@ TOTAL_CHARS = 16_000
 # apart; a reader who'd wait past the endpoint's budget sees it next visit.
 MIN_CALL_INTERVAL_S = float(__import__("os").getenv("BRIEFING_MIN_INTERVAL_S", "8"))
 RETRY_FAILED_S = 24 * 3600
+MIN_PASSAGES = 3
 
 _INTRO = re.compile(r"\bintroduction\b", re.I)
 _KEY_SECTIONS = re.compile(
@@ -239,29 +240,69 @@ def verify(data: dict | None, passages: list[dict]) -> tuple[str, dict]:
 
 # ── cache ────────────────────────────────────────────────────────────────────
 
-def cache_key(arxiv_id: str, version: str) -> str:
+def cache_key(arxiv_id: str, version: str, prompt_version: str = "") -> str:
+    """This paper, this arXiv version, this prompt.
+
+    The parser version and the model are left out: a briefing cites arXiv's own
+    anchors on a fixed version (Source.html_url), so neither changes what a
+    stored briefing says, and keying on them threw good briefings away."""
     h = hashlib.sha256()
-    for part in (arxiv_id, version, str(arxiv_html.PARSER_VERSION), PROMPT_VERSION,
-                 llm._provider(), llm.configured_model()):
+    for part in (arxiv_id, version, prompt_version or PROMPT_VERSION):
         h.update(part.encode())
         h.update(b"\x00")
     return h.hexdigest()
 
 
-async def cached(arxiv_id: str, version: str) -> tuple[str, dict] | None:
-    """(status, briefing) for the current key, or None if never generated (or due a retry)."""
+def _legacy_keys(arxiv_id: str, version: str) -> list[str]:
+    """Keys of briefings stored before 2026-10-21, which also held the parser
+    version and the configured model (tried with today's provider and model)."""
+    keys = []
+    for parser in range(1, arxiv_html.PARSER_VERSION + 1):
+        h = hashlib.sha256()
+        for part in (arxiv_id, version, str(parser), PROMPT_VERSION, llm._provider(), llm.configured_model()):
+            h.update(part.encode())
+            h.update(b"\x00")
+        keys.append(h.hexdigest())
+    return keys
+
+
+async def cached(arxiv_id: str, version: str, n_paragraphs: int = 0) -> tuple[str, dict] | None:
+    """(status, briefing) for this paper version, or None when one should be generated.
+
+    A good briefing is never replaced by a worse one. A good one under today's
+    prompt is served as is; one under an older prompt is served while today's
+    attempt came out worse. A "too few passages" row is ignored when the source
+    records enough paragraphs: that was this container missing the text, not a
+    thin paper. A failed row is retried after RETRY_FAILED_S.
+    """
+    current = cache_key(arxiv_id, version)
     async with aiosqlite.connect(config.DB_PATH) as conn:
         cur = await conn.execute(
-            "SELECT status, briefing_json, "
+            "SELECT DISTINCT prompt_version FROM paper_briefings WHERE arxiv_id = ?", (arxiv_id,))
+        prompts = [r[0] for r in await cur.fetchall() if r[0]]
+        keys = list({current, *(cache_key(arxiv_id, version, p) for p in prompts),
+                     *_legacy_keys(arxiv_id, version)})
+        cur = await conn.execute(
+            "SELECT cache_key, status, briefing_json, prompt_version, "
             "CAST(strftime('%s', 'now') - strftime('%s', created_at) AS INTEGER) "
-            "FROM paper_briefings WHERE cache_key = ?", (cache_key(arxiv_id, version),))
-        row = await cur.fetchone()
+            f"FROM paper_briefings WHERE cache_key IN ({', '.join('?' * len(keys))}) ORDER BY id DESC", keys)
+        rows = await cur.fetchall()
+    good = [r for r in rows if r[1] == "ok"]
+    good_now = [r for r in good if r[3] == PROMPT_VERSION]
+    if good_now:
+        return "ok", json.loads(good_now[0][2] or "{}")
+    row = next((r for r in rows if r[0] == current), None)
     if row is None:
         return None
-    status, blob, age = row
+    _key, status, blob, _prompt, age = row
+    briefing = json.loads(blob or "{}")
     if status == "failed" and (age or 0) > RETRY_FAILED_S:
         return None
-    return status, json.loads(blob or "{}")
+    if briefing.get("error") == "too few passages" and n_paragraphs >= MIN_PASSAGES:
+        return None
+    if good:                                    # today's prompt did worse than an older one
+        return "ok", json.loads(good[0][2] or "{}")
+    return status, briefing
 
 
 async def _store(arxiv_id: str, version: str, status: str, briefing: dict, model: str) -> None:
@@ -295,13 +336,18 @@ async def _paced_call(system: str, user: str, arxiv_id: str | None = None):
 
 
 async def _generate(arxiv_id: str, title: str, abstract: str) -> tuple[str, dict]:
-    source = await paper_source_svc.ensure(arxiv_id)
+    source = await paper_source_svc.ensure(arxiv_id, need_text=True)
     if source is None or not source.ok:
         return "insufficient", {"error": "no full text"}
     paragraphs = await paper_source_svc.paragraphs(arxiv_id)
     full = await paper_source_svc.fulltext(arxiv_id)
     passages = select_passages(abstract or (full or {}).get("abstract", ""), paragraphs, full)
-    if len(passages) < 3:
+    if len(passages) < MIN_PASSAGES:
+        if source.n_paragraphs >= MIN_PASSAGES:
+            # The paper has the text but this container couldn't get it back
+            # (arXiv refused, or the breaker is open). Not the paper's fault, so
+            # nothing is stored and a later visit tries again.
+            return "insufficient", {"error": "full text unavailable"}
         await _store(arxiv_id, source.version, "insufficient", {"error": "too few passages"}, "")
         return "insufficient", {}
     data, call = await _paced_call(SYSTEM, build_prompt(title, passages), arxiv_id)
@@ -322,7 +368,7 @@ async def get_or_generate(arxiv_id: str, title: str, abstract: str) -> tuple[str
     """Cached briefing, or a new one; concurrent callers share one generation."""
     source = await paper_source_svc.get(arxiv_id)
     if source is not None and source.ok:
-        hit = await cached(arxiv_id, source.version)
+        hit = await cached(arxiv_id, source.version, source.n_paragraphs)
         if hit is not None:
             ai_usage.count("briefing", "cache_hit")
             return hit
@@ -338,8 +384,15 @@ async def get_or_generate(arxiv_id: str, title: str, abstract: str) -> tuple[str
                 status, briefing = "failed", {}
             finally:
                 _in_flight.pop(key, None)
-            busy = str(briefing.get("error", "")).startswith("model ")
-            ai_usage.count("briefing", "busy" if busy else status)
+            error = str(briefing.get("error", ""))
+            ai_usage.count("briefing", "busy" if error.startswith("model ") else
+                           "no_text" if error == "full text unavailable" else status)
+            if status != "ok":
+                # A worse attempt never replaces a good briefing of this version.
+                src = await paper_source_svc.get(arxiv_id)
+                better = await cached(arxiv_id, src.version, src.n_paragraphs) if src and src.ok else None
+                if better is not None and better[0] == "ok":
+                    status, briefing = better
             ai_usage.count("briefing", "points_dropped", len(briefing.get("dropped") or []))
             return status, briefing
         fut = asyncio.ensure_future(run())
