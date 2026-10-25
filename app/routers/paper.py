@@ -27,6 +27,7 @@ import asyncio
 import re
 import time
 import uuid
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import APIRouter, Cookie, Form, Query, Request
 from fastapi.responses import HTMLResponse
@@ -218,7 +219,7 @@ async def paper_page(
     template = "paper.html"
     if features.visible("PAPER_PAGE_V2", request):
         template = "paper_v2.html"
-        context.update(await _v2_context(paper, related, request, came_from_feed=bool(qid)))
+        context.update(await _v2_context(paper, related, request, back=back_link(request, sf, qid)))
     resp = templates.TemplateResponse(request, template, context)
     resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
@@ -231,8 +232,40 @@ async def paper_page(
     return resp
 
 
+# Pages a paper can be opened from, by path, with the back link's label.
+_BACK_PAGES = {"/": "Your feed", "/search": "Search results", "/saved": "Saved papers",
+               "/history": "Recently opened", "/collections": "Collections"}
+_BACK_PATH = re.compile(r"/collections/[a-z0-9-]{1,80}|/p/\d{4}\.\d{4,5}")
+
+
+def back_link(request: Request, sf: str, qid: str) -> dict | None:
+    """The paper page's link back: the page the reader came from.
+
+    The browser sends the full same-origin address as Referer (the policy set in
+    app/main.py), so a search keeps its query. Only known pages are linked, and a
+    search keeps only its `q`. Without a usable Referer, the surface the click
+    carried decides; a visit from outside (a shared link) gets no link.
+    """
+    ref = urlsplit(request.headers.get("referer") or "")
+    if ref.hostname and ref.hostname == request.url.hostname:
+        if ref.path == "/search":
+            q = parse_qs(ref.query).get("q", [""])[0].strip()
+            return {"label": "Search results" if q else "Search",
+                    "href": "/search" + (f"?{urlencode({'q': q})}" if q else "")}
+        if ref.path in _BACK_PAGES:
+            return {"label": _BACK_PAGES[ref.path], "href": ref.path}
+        if _BACK_PATH.fullmatch(ref.path):
+            return {"label": "Collection" if ref.path.startswith("/collections/") else "Previous paper",
+                    "href": ref.path}
+    if sf == "search":
+        return {"label": "Search", "href": "/search"}
+    if qid:
+        return {"label": "Your feed", "href": "/"}
+    return None
+
+
 async def _v2_context(paper: dict, related: list[dict], request: Request,
-                      *, came_from_feed: bool) -> dict:
+                      *, back: dict | None) -> dict:
     """What the redesigned page adds, from local reads only (never arXiv)."""
     arxiv_id = paper["arxiv_id"]
     source = None
@@ -291,7 +324,7 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
         "figures": figures,
         "credit": figure_credit(paper, source) if source else "",
         "outline": outline,
-        "back_to_feed": came_from_feed,
+        "back": back,
         "ask_visible": ask_visible,
         "briefing_visible": briefing_visible,
     }

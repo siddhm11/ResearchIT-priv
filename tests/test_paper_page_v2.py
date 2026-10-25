@@ -8,6 +8,7 @@ client is replaced by one that fails the test on any request.
 """
 import asyncio
 import json
+import re
 from unittest.mock import patch
 
 import aiosqlite
@@ -182,9 +183,38 @@ def test_captions_are_escaped(page, monkeypatch):
     assert "<img src=x onerror" not in html
 
 
-def test_the_back_link_appears_only_when_coming_from_the_feed(page):
-    assert "← Your feed" not in get("/p/2609.31507").text
-    assert "← Your feed" in get("/p/2609.31507?qid=q1&sf=recommendation&pos=0").text
+def back_link(path, referer=None):
+    with TestClient(app) as c:
+        html = c.get(path, headers={"referer": referer} if referer else {}).text
+    m = re.search(r'<a href="([^"]*)" class="back-link">← ([^<]*)</a>', html)
+    return (m.group(2), m.group(1)) if m else None
+
+
+@pytest.mark.parametrize("path,referer,expected", [
+    # Opened from a search: back to that search, query and all (reported 2026-10-21:
+    # the link said "← Your feed" and went to /).
+    ("/p/2609.31507?qid=q1&sf=search&pos=0", "http://testserver/search?q=drone+navigation&lay=wide",
+     ("Search results", "/search?q=drone+navigation")),
+    ("/p/2609.31507?qid=q1&sf=search&pos=0", None, ("Search", "/search")),
+    ("/p/2609.31507?qid=q1&sf=recommendation&pos=0", "http://testserver/", ("Your feed", "/")),
+    ("/p/2609.31507?qid=q1&sf=recommendation&pos=0", None, ("Your feed", "/")),
+    ("/p/2609.31507", "http://testserver/saved", ("Saved papers", "/saved")),
+    ("/p/2609.31507", "http://testserver/history", ("Recently opened", "/history")),
+    ("/p/2609.31507", "http://testserver/collections/llm-agents", ("Collection", "/collections/llm-agents")),
+    ("/p/2609.31507", "http://testserver/p/2609.00001", ("Previous paper", "/p/2609.00001")),
+    # Only our own known pages are linked; anything else falls back to the surface.
+    ("/p/2609.31507?qid=q1&sf=recommendation", "https://elsewhere.example/search?q=x", ("Your feed", "/")),
+    ("/p/2609.31507", "http://testserver/admin/ai", None),
+    ("/p/2609.31507", None, None),                                   # a shared link
+])
+def test_the_back_link_returns_to_where_the_reader_came_from(page, path, referer, expected):
+    assert back_link(path, referer) == expected
+
+
+def test_a_query_in_the_back_link_is_encoded(page):
+    label, href = back_link("/p/2609.31507?qid=q1&sf=search",
+                            "http://testserver/search?q=%3Cscript%3Ealert(1)%3C/script%3E")
+    assert href == "/search?q=%3Cscript%3Ealert%281%29%3C%2Fscript%3E" and label == "Search results"
 
 
 def test_saves_from_the_new_page_carry_the_paper_page_surface(page):

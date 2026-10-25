@@ -109,7 +109,9 @@ async def search(
                                    search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
                                    features.has_preview(request))
 
-    if request.headers.get("HX-Request"):
+    # htmx restoring a page it has no snapshot of asks with HX-Request too, and
+    # swaps the answer in as the whole body, so it gets the whole page.
+    if request.headers.get("HX-Request") and not request.headers.get("HX-History-Restore-Request"):
         resp = templates.TemplateResponse(
             request,
             "partials/search_results.html",

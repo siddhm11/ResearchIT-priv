@@ -59,7 +59,7 @@
   </aside>
 
   <article class="px-main paper">
-    {% if back_to_feed %}<a href="/" class="back-link">← Your feed</a>{% endif %}
+    {% if back %}<a href="{{ back.href }}" class="back-link">← {{ back.label }}</a>{% endif %}
 
     <div class="card-rule">
       {% if paper.category %}<span class="cat {{ paper.category | cat_class }}">{{ paper.category }}</span>{% endif %}
