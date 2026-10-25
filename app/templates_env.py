@@ -313,6 +313,18 @@ from app import features  # noqa: E402
 
 templates.env.globals["feature_visible"] = features.visible
 
+
+def one_in(share: float) -> str:
+    """A share as people read it: 0.055 -> "1 in 18". Trending topics show both."""
+    try:
+        share = float(share)
+    except (TypeError, ValueError):
+        return ""
+    return f"1 in {round(1 / share):,}" if share > 0 else "none"
+
+
+templates.env.filters["one_in"] = one_in
+
 # Figure thumbnails: URLs that pass the licence and path checks, and the credit
 # line every displayed figure carries (app/routers/figures.py).
 from app.routers.figures import figure_credit, figure_url  # noqa: E402

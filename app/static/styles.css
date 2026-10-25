@@ -2106,3 +2106,55 @@ a.src:hover { text-decoration: underline; }
 /* A search result that stepped up because it is trending (SEARCH_TRENDING=on). */
 .trend-tag { align-self: flex-start; font-family: var(--font-mono); font-size: .7rem; color: var(--accent);
   background: var(--accent-bg); border: 1px solid var(--accent-br); border-radius: 999px; padding: .05rem .5rem; }
+
+/* The Trending tab (doc 06, 2026-10-25): which week, a strip of topics and
+   areas, steady topics beside the moving ones, and a page per topic. Steady
+   topics take neutral ink so they never read as moving. */
+.trend-window { margin-top: .2rem; }
+.topic-chips { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .2rem; scrollbar-width: thin; }
+.tchip { flex: none; display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+  font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 999px; padding: .3rem .7rem; }
+.tchip:hover { border-color: var(--accent); color: var(--accent); }
+.tchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tchip--up { color: var(--accent); border-color: var(--accent-br); background: var(--accent-bg); }
+.tchip--down { color: var(--danger); border-color: var(--danger-bg); }
+.tchip--area { background: var(--surface-2); color: var(--text-2); }
+.topic-name a { color: inherit; text-decoration: none; }
+.topic-name a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.topic-name a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.topic-plain { font-family: var(--font-mono); font-size: .72rem; color: var(--text-3); }
+.topic-row--cooling .topic-delta { color: var(--danger); }
+.topic-row--cooling .topic-spark polyline { stroke: var(--danger); }
+.topic-row--steady .topic-delta { color: var(--text-2); }
+.topic-row--steady .topic-spark polyline { stroke: var(--text-3); }
+
+.library-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .4rem; }
+.library-tab { font-size: .88rem; font-weight: 600; color: var(--text-3); text-decoration: none;
+  padding: .45rem .75rem; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.library-tab:hover { color: var(--text); }
+.library-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+.library-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.topic-page .back-link { align-self: flex-start; }
+.chip-label { font-family: var(--font-mono); font-size: .7rem; font-weight: 650; letter-spacing: .05em;
+  text-transform: uppercase; border-radius: 3px; padding: .12rem .4rem; }
+.chip-label--rising { color: var(--accent); background: var(--accent-bg); }
+.chip-label--cooling { color: var(--danger); background: var(--danger-bg); }
+.chip-label--steady { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border-2); }
+.topic-chart { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .9rem .6rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.topic-chart svg { width: 100%; height: 7.5rem; display: block; }
+.topic-chart .axis { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.topic-chart .line { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.topic-chart .line--cooling { stroke: var(--danger); }
+.topic-chart .line--steady { stroke: var(--text-3); }
+.topic-chart-axis { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: .68rem; color: var(--text-3); }
+.topic-best { margin: 0; padding-left: 1.3rem; display: grid; gap: .35rem; font-size: .9rem; }
+.topic-best a { color: var(--text); text-decoration: none; }
+.topic-best a:hover { color: var(--accent); }
+.shelf-topic a { color: inherit; text-decoration: none; }
+.shelf-topic a:hover b { text-decoration: underline; text-underline-offset: 3px; }
+.shelf-topic a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

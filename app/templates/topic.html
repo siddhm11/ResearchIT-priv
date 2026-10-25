@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{#
+  /trending/topics/<id> (app/routers/trending.py topic_page): one topic.
+
+  What it is (name, its other phrases, size, its 26-week line and what the test
+  says about it), its papers on this week's lists, its most upvoted over the
+  26 weeks, recent arXiv papers closest to it that never reached the lists, and
+  the topics nearest to it. The last list is vector search, not the lists, and
+  it says so: the same seam the collection pages keep between curated and
+  matched papers.
+
+  Every paper link carries the page's query_id, position, propensity and
+  policy_id (CLAUDE.md §3.11).
+#}
+{% block title %}{{ t.name }} — Trending — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed trending-page topic-page">
+  <header class="issue">
+    <a href="/trending" class="back-link">← Trending</a>
+    <div class="issue-kicker">Topic on Hugging Face Daily Papers</div>
+    <h1 class="issue-title">{{ t.name }}</h1>
+    <div class="issue-line">
+      <span class="chip-label chip-label--{{ label }}">{{ label | capitalize }}</span>
+      <span class="sep">·</span>
+      {% if label == "steady" %}
+        <span>{{ "%.1f" | format(t.to_share * 100) }}% of the lists, {{ t.to_share | one_in }} papers</span>
+      {% else %}
+        <span>{{ t.from_share | one_in }} → {{ t.to_share | one_in }} papers on the lists</span>
+      {% endif %}
+      <span class="sep">·</span>
+      <span>{{ t.papers }} papers in {{ basis.weeks }} weeks</span>
+    </div>
+    {% if t.also %}<p class="topic-also">Also: {{ t.also | join(", ") }}</p>{% endif %}
+  </header>
+
+  <figure class="topic-chart">
+    <svg viewBox="0 0 {{ big_w }} {{ big_h }}" preserveAspectRatio="none" role="img"
+         aria-label="{{ t.name }}: share of each week's list since {{ since }}, from {{ '%.1f' | format(t.from_share * 100) }}% to {{ '%.1f' | format(t.to_share * 100) }}%">
+      <line x1="0" y1="{{ big_h - 1 }}" x2="{{ big_w }}" y2="{{ big_h - 1 }}" class="axis"></line>
+      <polyline points="{{ spark }}" class="line line--{{ label }}"></polyline>
+    </svg>
+    <figcaption class="topic-chart-axis">
+      <span>{{ since }}</span>
+      <span>Share of each week's list, 4-week average · from {{ "%.1f" | format(t.from_share * 100) }}% to {{ "%.1f" | format(t.to_share * 100) }}%</span>
+      <span>now</span>
+    </figcaption>
+  </figure>
+
+  {% if week %}
+  <section class="shelf" aria-labelledby="tp-week">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-week">On this week's lists</h2>
+      <span class="shelf-note">Most upvoted first</span>
+    </header>
+    <ol class="shelf-row">
+      {% for paper in week %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if best %}
+  <section class="topics-block" aria-labelledby="tp-best">
+    <h2 class="shelf-title" id="tp-best">Most upvoted in {{ basis.weeks }} weeks</h2>
+    <ol class="topic-best">
+      {% for p in best %}
+        <li><a href="/p/{{ p.arxiv_id }}?qid={{ p.query_id }}&amp;sf={{ source }}&amp;pos={{ p.position }}&amp;src={{ p.candidate_source }}&amp;prop={{ p.propensity }}&amp;pol={{ p.policy_id }}">{{ p.title }}</a>
+          <span class="muted">▲ {{ p.upvotes }}{% if p.listed_label %} · {{ p.listed_label }}{% endif %}</span></li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if more %}
+  <section class="topics-block" aria-labelledby="tp-more">
+    <div class="sec-head sec-head--sub">
+      <h2 class="shelf-title" id="tp-more">Recent arXiv papers like this</h2>
+      <span class="sec-note">Closest by meaning, since June 2025, not on the lists</span>
+    </div>
+    <div class="feed">
+      {% for paper in more %}
+        {% set position = paper.position %}
+        {% include "partials/paper_card.html" %}
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if related %}
+  <section class="topics-block" aria-labelledby="tp-related">
+    <h2 class="shelf-title" id="tp-related">Nearby topics</h2>
+    <nav class="topic-chips" aria-labelledby="tp-related">
+      {% for r in related %}<a class="tchip" href="/trending/topics/{{ r.id }}">{{ r.name }}</a>{% endfor %}
+    </nav>
+  </section>
+  {% endif %}
+
+  <p class="small muted trending-method">
+    Topics come from the {{ basis.papers | commafy }} papers on Hugging Face's lists over the last {{ basis.weeks }} weeks,
+    grouped by meaning. "Rising" and "cooling" mean the topic's share of the lists moved more than the same
+    papers with their weeks shuffled 2,000 times; "steady" means it didn't.
+  </p>
+</div>
+{% endblock %}

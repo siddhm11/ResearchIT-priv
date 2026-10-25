@@ -24,7 +24,7 @@
     <p class="shelf-why">{{ paper.facts[:2] | join(" · ") }}</p>
   {% endif %}
   {% if paper.topic %}
-    <p class="shelf-topic">Rising topic: <b>{{ paper.topic.name }}</b>,
+    <p class="shelf-topic">Rising topic: {% if paper.topic.id is not none %}<a href="/trending/topics/{{ paper.topic.id }}"><b>{{ paper.topic.name }}</b></a>{% else %}<b>{{ paper.topic.name }}</b>{% endif %},
       {{ "%.1f" | format(paper.topic["from"] * 100) }}% → {{ "%.1f" | format(paper.topic["to"] * 100) }}% of the lists since {{ paper.topic.since_label }}</p>
   {% endif %}
   {% if paper.summary %}

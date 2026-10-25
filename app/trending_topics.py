@@ -54,6 +54,7 @@ NAME_COVERAGE = 0.30
 ALSO_TERMS = 3
 MIN_PAPERS = 500            # fewer stored papers than this and nothing is computed
 TOP_PAPERS = 3
+BEST_PAPERS = 10            # a topic's own page lists this many of its most upvoted
 VECTOR_BATCH = 500
 
 _state: dict = {"topics": [], "topic_of": {}, "computed_at": None, "papers": 0,
@@ -244,7 +245,8 @@ def compute(rows: list[dict], vectors: dict, previous: list[dict] | None = None,
         clusters.append(InterestCluster(cluster_idx=t, medoid_paper_id=rows[medoid]["arxiv_id"],
                                         medoid_embedding=X[medoid], paper_ids=[r["arxiv_id"] for r in members],
                                         importance=float(len(idx))))
-        top = sorted(members, key=lambda r: -r["upvotes"])[:TOP_PAPERS]
+        best = sorted(members, key=lambda r: (-r["upvotes"], r["arxiv_id"]))[:BEST_PAPERS]
+        top = best[:TOP_PAPERS]
         rolling = [float(shares[t, max(0, i - EDGE_WEEKS + 1):i + 1].mean()) for i in range(w)]
         topics.append({
             "name": display_name(name, [r["title"] for r in members]) if name else None,
@@ -253,7 +255,9 @@ def compute(rows: list[dict], vectors: dict, previous: list[dict] | None = None,
             "slope": float(slopes[t]), "q": float(q[t]),
             "from_share": float(shares[t, :EDGE_WEEKS].mean()), "to_share": float(shares[t, -EDGE_WEEKS:].mean()),
             "rolling": rolling,
-            "top": [{"arxiv_id": r["arxiv_id"], "title": r["title"], "upvotes": r["upvotes"]} for r in top]})
+            "top": [{"arxiv_id": r["arxiv_id"], "title": r["title"], "upvotes": r["upvotes"]} for r in top],
+            "best": [{"arxiv_id": r["arxiv_id"], "title": r["title"], "upvotes": r["upvotes"],
+                      "listed_on": r["listed_on"]} for r in best]})
 
     stable = stabilize_cluster_ids(clusters, previous_clusters(previous)) if previous else clusters
     for c, topic in zip(stable, topics):
@@ -285,12 +289,69 @@ def cooling() -> list[dict]:
     return sorted((t for t in _state["topics"] if is_trend(t) and t["slope"] < 0), key=lambda t: t["slope"])
 
 
+def steady() -> list[dict]:
+    """Named topics with no trend the test can stand behind, biggest share first.
+    Shown as "steady": real groups of papers, with no claim that they move."""
+    return sorted((t for t in _state["topics"] if t["name"] is not None and not is_trend(t)),
+                  key=lambda t: -t["to_share"])
+
+
+def label(t: dict) -> str:
+    """"rising", "cooling" or "steady": what the page may say about a named topic."""
+    if not is_trend(t):
+        return "steady"
+    return "rising" if t["slope"] > 0 else "cooling"
+
+
+def get(topic_id: int) -> dict | None:
+    """A named topic by id, or None (unnamed topics are never shown)."""
+    return next((t for t in _state["topics"] if t["id"] == topic_id and t["name"] is not None), None)
+
+
+def _unit(v) -> np.ndarray:
+    v = np.asarray(v, dtype=np.float32)
+    return v / (np.linalg.norm(v) + 1e-10)
+
+
+def related(topic: dict, n: int = 4) -> list[dict]:
+    """The named topics nearest to `topic` by meaning (their middle papers)."""
+    if topic.get("_medoid") is None:
+        return []
+    me = _unit(topic["_medoid"])
+    others = [(float(_unit(t["_medoid"]) @ me), t) for t in _state["topics"]
+              if t["id"] != topic["id"] and t["name"] is not None and t.get("_medoid") is not None]
+    return [t for _s, t in sorted(others, key=lambda x: -x[0])[:n]]
+
+
+def nearest(vector) -> dict | None:
+    """The topic whose middle paper is closest to `vector`, named or not.
+
+    Labels a paper the daily grouping has not seen (listed since, or never on
+    the lists) without grouping again: 24 dot products. Ward groups are not
+    exactly the regions around their middle papers, so this is the best guess
+    for one paper, not a re-run of the grouping."""
+    meds = [t for t in _state["topics"] if t.get("_medoid") is not None]
+    if vector is None or not meds:
+        return None
+    v = _unit(vector)
+    return max(meds, key=lambda t: float(_unit(t["_medoid"]) @ v))
+
+
+def topic_of(arxiv_id: str, vector=None) -> int | None:
+    """The topic id of a paper: from the daily grouping, else its nearest topic."""
+    tid = _state["topic_of"].get(arxiv_id)
+    if tid is not None:
+        return tid
+    t = nearest(vector)
+    return t["id"] if t else None
+
+
 def topic_line(arxiv_id: str) -> dict | None:
     """The rising topic a paper belongs to, for the card's topic line, or None."""
     tid = _state["topic_of"].get(arxiv_id)
     for t in rising():
         if t["id"] == tid:
-            return {"name": t["name"], "from": t["from_share"], "to": t["to_share"],
+            return {"id": t["id"], "name": t["name"], "from": t["from_share"], "to": t["to_share"],
                     "since": _state["first_week"]}
     return None
 

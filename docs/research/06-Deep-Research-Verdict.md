@@ -1061,3 +1061,25 @@ vision, 137 AI and 102 language papers by category: the areas a reader picks are
 is trending in them, with no saves at all. The shelf is a separate block (it takes no feed slot), so
 the quota rules of §3.1 are untouched.
 **Action items:** Watch shelf saves against feed saves; if repeats draw no clicks, lower their share.
+
+### 2026-10-25 — Trending becomes a main tab; new readers see trending in their areas first
+**Decision:** With `TRENDING_PAGE` visible, the top and bottom bars read Feed · Trending · Search ·
+Library, and Collections moves inside Library (Saved · Collections · Recent). /trending names the
+lists it shows, leads with chips for moving topics and the reader's areas, gives shares in plain
+numbers as well as percentages, and lists named topics that fail the trend test as "Steady" with their
+current share, never as moving. Each named topic has a page (/trending/topics/<id>) with its line,
+this week's papers, its most upvoted, recent arXiv papers nearest its middle paper (vector search on
+the recent shard, labelled as not from the lists) and its nearest topics. A reader with fewer than 5
+saves sees the trending shelf above the first feed card, titled for their areas; later it stays after
+the fourth card. New visitors still start at onboarding.
+**Supersedes:** the shelf placement in the 2026-10-23 entry for readers with fewer than 5 saves.
+**Rationale:** The owner's call after the Trending Tab Plan (claude.ai/artifact/GLTUJffFW1UBejaypZYhHq):
+onboarding explains the areas and stays first; trending in those areas is the first thing the feed
+shows, then the feed itself. YouTube closed its single global Trending page in July 2025 after five
+years of falling use; trending cut by topic and woven into personal pages is what lasts. Showing the
+10 steady topics beside the 5 tested ones triples what there is to explore without claiming a trend.
+The shelf and topic pages take no feed slot, so §3.1 is untouched.
+**Action items:** Following a topic is not built. The topic page's "recent arXiv papers like this" is
+the retrieval a followed topic would use; judge it there first. The proposed follow seeds the feed
+the way following a collection already does, by saving a few of the topic's papers through the
+ordinary save path, which needs no quota change (to be decided).

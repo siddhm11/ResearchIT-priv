@@ -230,7 +230,7 @@ async def test_a_reader_with_areas_but_no_saves_gets_a_shelf_in_those_areas(shel
         ts._state["papers"][aid]["categories"] = ["cs.RO"] if i < 4 else ["cs.CV"]
     async with client() as c:
         r = await c.get("/api/trending-shelf")
-    assert "Trending in your interests" in r.text and "Robotics" in r.text
+    assert "Trending in your areas" in r.text and "Robotics" in r.text
     assert set(shelf_ids(r)) == set(HF[:4])
 
 
@@ -281,7 +281,26 @@ async def feed_world(monkeypatch):
     recs._FEED_CACHE.clear()
 
 
+async def test_a_new_reader_sees_the_shelf_before_the_feed(feed_world, monkeypatch):
+    """Fewer than 5 saves (straight out of onboarding): trending in their areas
+    first, then the feed (doc 06, 2026-10-25)."""
+    monkeypatch.setenv("TRENDING_SHELF", "on")
+    async with client() as c:
+        page1 = (await c.get("/api/recommendations")).text
+    slot = page1.index('class="shelf-slot shelf-slot--first"')
+    assert slot < page1.index('data-arxiv-id="') and "first=1" in page1
+
+
+async def test_the_first_shelf_says_what_it_is_for(shelf_world):
+    async with client() as c:
+        r = await c.get("/api/trending-shelf?first=1")
+    assert "Your feed below learns from what you save." in r.text
+
+
 async def test_feed_places_the_shelf_after_the_fourth_card(feed_world, monkeypatch):
+    for pid in ("2601.00004", "2601.00005"):           # 5 saves: grouped into interests
+        await db.log_interaction(READER, pid, "save")
+    us._cache.clear()
     monkeypatch.setenv("TRENDING_SHELF", "on")
     async with client() as c:
         page1 = (await c.get("/api/recommendations")).text

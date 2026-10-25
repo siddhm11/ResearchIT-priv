@@ -1,0 +1,12 @@
+{#
+  Library's own tabs: Saved, Collections, Recent. Collections moved here when
+  Trending took its place in the main bar (doc 06, 2026-10-25); without the
+  Trending tab, Collections is in the main bar and this shows Saved and Recent.
+  Expects `library_tab` ("saved", "collections" or "recent").
+#}
+{% set trending_tab = feature_visible("TRENDING_PAGE", request) %}
+<nav class="library-tabs" aria-label="Library">
+  <a href="/saved" class="library-tab" {% if library_tab == "saved" %}aria-current="page"{% endif %}>Saved</a>
+  {% if trending_tab %}<a href="/collections" class="library-tab" {% if library_tab == "collections" %}aria-current="page"{% endif %}>Collections</a>{% endif %}
+  <a href="/history" class="library-tab" {% if library_tab == "recent" %}aria-current="page"{% endif %}>Recent</a>
+</nav>

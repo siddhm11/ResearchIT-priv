@@ -406,8 +406,15 @@ async def _serve_recommendations(
         # The trending shelf, on every tier: it matches saves and the areas the
         # reader picked, and falls back to the week's top (doc 06, 2026-10-25).
         # It loads after this page arrives, so it never adds to the feed's wait.
+        # A reader whose saves are not grouped yet (fewer than 5, often straight
+        # out of onboarding) sees it first: what is trending in the areas they
+        # just picked, then the feed. Later it sits after the fourth card. It
+        # is a separate block either way, so the feed's served order is the same.
         if features.visible(trending_shelf.SWITCH, request):
-            ctx["shelf_after"] = trending_shelf.SHELF_AFTER_CARD
+            if len(state.positive_list) < MIN_PAPERS_FOR_CLUSTERING:
+                ctx["shelf_first"] = True
+            else:
+                ctx["shelf_after"] = trending_shelf.SHELF_AFTER_CARD
 
     resp = _with_cookie(templates.TemplateResponse(request, template, ctx))
     # What the reader waits for. A first page's request_ms includes the build

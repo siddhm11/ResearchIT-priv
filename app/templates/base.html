@@ -71,6 +71,12 @@
 </head>
 <body{% block body_class %}{% endblock %}>
   {% set path = request.url.path if request else '/' %}
+  {#- Trending has its own tab when its page is on (doc 06, 2026-10-25); Collections
+      then lives inside Library, beside Saved and Recent. With the page off the
+      bar keeps Collections, so it never links to a page that isn't there. -#}
+  {% set trending_tab = feature_visible("TRENDING_PAGE", request) %}
+  {% set library_path = path.startswith('/saved') or path.startswith('/history')
+                        or (trending_tab and path.startswith('/collections')) %}
 
   <a class="skip-link" href="#main">Skip to content</a>
 
@@ -90,9 +96,13 @@
 
         <nav class="nav" aria-label="Main">
           <a href="/" class="nav-link" {% if path == '/' %}aria-current="page"{% endif %}>Feed</a>
+          {% if trending_tab %}
+          <a href="/trending" class="nav-link" {% if path.startswith('/trending') %}aria-current="page"{% endif %}>Trending</a>
+          {% else %}
           <a href="/collections" class="nav-link" {% if path.startswith('/collections') %}aria-current="page"{% endif %}>Collections</a>
+          {% endif %}
           <a href="/search" class="nav-link" {% if path.startswith('/search') %}aria-current="page"{% endif %}>Search</a>
-          <a href="/saved" class="nav-link" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>Library</a>
+          <a href="/saved" class="nav-link" {% if library_path %}aria-current="page"{% endif %}>Library</a>
           {% if space_app_url %}
           {# New tab on purpose: the map is a WebGL scene that streams in over a
              few seconds, and losing the current feed to go look at it would be a
@@ -134,6 +144,17 @@
       </svg>
       <span>Feed</span>
     </a>
+    {% if trending_tab %}
+    <a href="/trending" class="botnav-item" {% if path.startswith('/trending') %}aria-current="page"{% endif %}>
+      {# A line that climbs: a topic's share of the lists going up. #}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3.5 17.5 9 12l3.5 3.5L20 8" />
+        <path d="M15 8h5v5" opacity=".55" />
+      </svg>
+      <span>Trending</span>
+    </a>
+    {% else %}
     <a href="/collections" class="botnav-item" {% if path.startswith('/collections') %}aria-current="page"{% endif %}>
       {# Stacked layers: a set of things gathered, distinct from the single
          bookmark used for Library. #}
@@ -145,6 +166,7 @@
       </svg>
       <span>Collections</span>
     </a>
+    {% endif %}
     <a href="/search" class="botnav-item" {% if path.startswith('/search') %}aria-current="page"{% endif %}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -152,7 +174,7 @@
       </svg>
       <span>Search</span>
     </a>
-    <a href="/saved" class="botnav-item" {% if path.startswith('/saved') %}aria-current="page"{% endif %}>
+    <a href="/saved" class="botnav-item" {% if library_path %}aria-current="page"{% endif %}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z" />
