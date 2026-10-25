@@ -325,6 +325,18 @@ def one_in(share: float) -> str:
 
 templates.env.filters["one_in"] = one_in
 
+
+def drop_none(values: dict) -> dict:
+    """A dict without its None values, for form fields sent by htmx (hx-vals).
+
+    htmx sends JSON null as the text "null", which no handler can read as a
+    number; a field left out takes the handler's own default instead. app.js
+    already leaves nulls out of the forms it builds (payloadFor)."""
+    return {k: v for k, v in values.items() if v is not None}
+
+
+templates.env.filters["drop_none"] = drop_none
+
 # Figure thumbnails: URLs that pass the licence and path checks, and the credit
 # line every displayed figure carries (app/routers/figures.py).
 from app.routers.figures import figure_credit, figure_url  # noqa: E402
