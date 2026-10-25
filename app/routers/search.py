@@ -128,7 +128,7 @@ async def search(
         resp = templates.TemplateResponse(
             request,
             "partials/search_results.html",
-            {"papers": papers, "query": q, "search_meta": search_meta},
+            {"papers": papers, "query": q, "search_meta": search_meta, "heading_oob": True},
         )
     else:
         resp = templates.TemplateResponse(

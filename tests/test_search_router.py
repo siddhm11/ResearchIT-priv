@@ -216,6 +216,24 @@ def test_search_htmx_partial_with_hybrid(client, monkeypatch):
     assert "HTMX Test Paper" in resp.text
 
 
+def test_a_search_from_the_box_also_replaces_the_heading_and_title(client, monkeypatch):
+    """The box swaps in only #search-results, so the answer carries the heading
+    and the title too; otherwise they keep naming the page's first query."""
+    import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
+
+    monkeypatch.setattr(hs, "search", AsyncMock(return_value=([], {})))
+    monkeypatch.setattr(turso, "fetch_metadata_batch", AsyncMock(return_value={}))
+    with patch("app.arxiv_svc.search", AsyncMock(return_value=[])):
+        frag = client.get("/search?q=graph+%3Cneural%3E+nets", headers={"HX-Request": "true"}).text
+        page = client.get("/search?q=graph+%3Cneural%3E+nets").text
+
+    assert '<h1 class="issue-title" id="search-title" hx-swap-oob="true">graph &lt;neural&gt; nets</h1>' in frag
+    assert "<title>graph &lt;neural&gt; nets — Search — ResearchIT</title>" in frag
+    # The whole page has one heading, swapped by nothing.
+    assert page.count('id="search-title"') == 1 and "hx-swap-oob" not in page
+
+
 def test_search_empty_query_no_hybrid_call(client, monkeypatch):
     """
     Empty query should NOT trigger hybrid search at all —

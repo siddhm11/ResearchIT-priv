@@ -1,4 +1,14 @@
 {# Search result list. #}
+{#
+  A search from the box swaps in only this list, so the heading and the tab
+  title above it would still name the query the page was opened with. The
+  answer to that search carries both: htmx swaps the heading by its id and
+  sets the document title from the <title>.
+#}
+{% if heading_oob %}
+  <title>{% if query %}{{ query }} — Search{% else %}Search{% endif %} — ResearchIT</title>
+  <h1 class="issue-title" id="search-title" hx-swap-oob="true">{% if query %}{{ query }}{% else %}Search{% endif %}</h1>
+{% endif %}
 {% if papers %}
   <div class="stack stack-4"{% if search_meta and search_meta.cached %} data-cached{% endif %}>
 
