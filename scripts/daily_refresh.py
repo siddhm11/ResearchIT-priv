@@ -29,7 +29,12 @@ Stages, each with a check that fails the run
                 their Turso rows are complete
   6. licences   how many new papers have a `paper_licences` row, and how many
                 of those may show figures (reported, never fails the run)
-  7. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
+  7. mirror     when TURSO_MIRROR_URL and TURSO_MIRROR_DB_TOKEN are set, copy
+                what this run wrote to the primary onto the mirror database
+                (scripts/turso_copy.py): new papers with their rowids, licences,
+                citation changes, Hugging Face lists. A mirror that is not equal
+                afterwards fails the run; the next run fills what it missed
+  8. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
 
 Re-running is always safe: the ingest skips papers already stored and point
 ids are derived from the arXiv id, so overlapping runs cannot collide.
@@ -419,6 +424,30 @@ def stage_hf_daily(st: Stores, today: dt.date, days: int = HF_DAYS,
     return out
 
 
+def _load(name: str):
+    spec = importlib.util.spec_from_file_location(name, HERE / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def stage_mirror(st: Stores) -> dict:
+    """Copy this run's writes to the mirror database. Off without its two
+    secrets; reported, and any problem fails the run (the primary is already
+    written, so a re-run only repeats the copy)."""
+    url, token = os.getenv("TURSO_MIRROR_URL", ""), os.getenv("TURSO_MIRROR_DB_TOKEN", "")
+    if not (url and token):
+        return {"skipped": "TURSO_MIRROR_URL / TURSO_MIRROR_DB_TOKEN not set"}
+    tc = _load("turso_copy")
+    src = tc.Db("primary", st.turl, st.ttok, st.http)
+    dst = tc.Db("mirror", url, token, st.http)
+    ddl = [HISTORY_DDL, HF_PAPERS_DDL, HF_HISTORY_DDL, _load("ingest_backends").LICENCE_DDL]
+    try:
+        return tc.mirror_daily(src, dst, ddl)
+    except (RuntimeError, httpx.HTTPError) as e:
+        return {"problems": [f"mirror: {type(e).__name__}: {e}"[:300]]}
+
+
 def licence_coverage(codes: list[str | None]) -> dict:
     """One code per new paper; None or "" when it has no licence row."""
     known = [c for c in codes if c]
@@ -523,6 +552,10 @@ def main() -> int:
     summary["after"] = after
     summary["licences"] = stage_licences(st, before["turso_max_rowid"])
     problems = verify_counts(before, after, ingest_new) + stage_sample_new(st, before["turso_max_rowid"])
+    t0 = time.time()
+    summary["mirror"] = stage_mirror(st)
+    summary["mirror"]["minutes"] = round((time.time() - t0) / 60, 1)
+    problems += [f"mirror: {p}" for p in summary["mirror"].get("problems", [])]
     summary["problems"] = problems
     return _finish(summary, 1 if problems else 0)
 
