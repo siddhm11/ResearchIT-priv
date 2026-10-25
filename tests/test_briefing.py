@@ -89,6 +89,66 @@ def test_passages_are_labelled_by_section_number():
     assert any(v == "§1" for a, v in labels.items() if a.startswith("S1.p"))
 
 
+def _paper(sections, paragraphs_per_section=3):
+    """Sections as (anchor, number, title); every section gets numbered paragraphs."""
+    full = {"sections": [{"anchor": a, "number": n, "title": t} for a, n, t in sections],
+            "figures": [{"anchor": "S1.F1", "caption": "Overview.", "label": "Figure 1"}], "tables": []}
+    paras = [{"anchor": f"{a}.p{i}", "section": a, "text": f"Text of {a} paragraph {i}."}
+             for a, _n, _t in sections for i in range(1, paragraphs_per_section + 1)]
+    return paras, full
+
+
+def test_sections_named_for_their_topic_are_sent():
+    """Production 2026-10-21: 2410.17725 (YOLOv11) was sent its introduction and
+    nothing of "Backbone", "Neck" or "Head", and the model declined it."""
+    paras, full = _paper([("S1", "1", "Introduction"), ("S2", "2", "Backbone"),
+                          ("S3", "3", "Neck"), ("S4", "4", "Head"), ("S5", "5", "Conclusion")])
+    anchors = [p["anchor"] for p in briefing_svc.select_passages("An abstract.", paras, full)]
+    assert {"S2.p1", "S3.p1", "S4.p1", "S5.p1"} <= set(anchors)
+
+
+def test_every_subsection_opens_before_any_section_runs_on():
+    """2608.11967 was sent its experimental setup but not "Main Result Analysis",
+    the next subsection, because each section gave only its first 3 paragraphs."""
+    paras, full = _paper([("S1", "1", "Introduction"), ("S4", "4", "Experiments"),
+                          ("S4.SS1", "4.1", "Setup"), ("S4.SS2", "4.2", "Main Results")], 6)
+    with patch.object(briefing_svc, "TOTAL_CHARS", 300):
+        anchors = [p["anchor"] for p in briefing_svc.select_passages("", paras, full)]
+    assert "S4.SS2.p1" in anchors and "S4.SS1.p4" not in anchors
+
+
+def test_related_work_is_never_sent_and_the_appendix_only_with_room_to_spare():
+    paras, full = _paper([("S1", "1", "Introduction"), ("S2", "2", "Related Work"),
+                          ("S3", "3", "Method"), ("A1", "Appendix A", "Datasets")])
+    anchors = [p["anchor"] for p in briefing_svc.select_passages("", paras, full)]
+    assert not any(a.startswith("S2.") for a in anchors)
+    assert "A1.p1" in anchors                          # room enough here
+    with patch.object(briefing_svc, "TOTAL_CHARS", 150):     # the body and caption fill it
+        anchors = [p["anchor"] for p in briefing_svc.select_passages("", paras, full)]
+    assert "S3.p3" in anchors and not any(a.startswith("A1.") for a in anchors)
+
+
+def test_passages_are_in_page_order_with_captions_last():
+    paras, full = _paper([("S1", "1", "Introduction"), ("S2", "2", "Model"), ("S3", "3", "Conclusion")])
+    anchors = [p["anchor"] for p in briefing_svc.select_passages("An abstract.", paras, full)]
+    assert anchors[0] == "abstract" and anchors[-1] == "S1.F1"
+    order = [p["anchor"] for p in paras]
+    assert [a for a in anchors if a in order] == sorted((a for a in anchors if a in order), key=order.index)
+
+
+def test_front_matter_before_the_first_section_is_not_sent():
+    paras, full = _paper([("S1", "1", "Introduction"), ("S2", "2", "Method")])
+    paras = [{"anchor": "p1", "section": "", "text": "1School of Computer Science, Peking University"}] + paras
+    anchors = [p["anchor"] for p in briefing_svc.select_passages("An abstract.", paras, full)]
+    assert "p1" not in anchors and "S2.p1" in anchors
+
+
+def test_a_paper_without_section_titles_sends_its_paragraphs_in_order():
+    paras = [{"anchor": f"p{i}", "section": "", "text": f"Paragraph {i}."} for i in range(20)]
+    anchors = [p["anchor"] for p in briefing_svc.select_passages("", paras, None)]
+    assert anchors == [f"p{i}" for i in range(20)]
+
+
 def test_the_prompt_holds_only_the_passages_with_escaped_anchors():
     prompt = briefing_svc.build_prompt("T", [{"anchor": 'x"><b', "text": "hello", "label": "x"}])
     assert prompt == '<title>T</title>\n<passage anchor="x&quot;>&lt;b">hello</passage>'
@@ -139,9 +199,21 @@ def test_an_anchor_that_was_not_sent_drops_the_point():
     assert status == "insufficient" and "not sent" in b["dropped"][0]["why"]
 
 
+def test_an_over_long_point_or_step_is_dropped_not_the_whole_reply():
+    status, b = briefing_svc.verify({
+        "things": [thing("118,494 tasks.", "In 18 cities.", "abstract"),
+                   thing("A long point.", "word " * 90, "abstract"),
+                   thing("Real flights improved.", "From 38.9% to 55.6%.", "S5.p1")],
+        "how": [{"name": "Collect", "text": "Gather images."}, {"name": "Explain", "text": "word " * 70}],
+        "use": "word " * 90}, PASSAGES)
+    assert status == "ok" and [t["lead"] for t in b["things"]] == ["118,494 tasks.", "Real flights improved."]
+    assert [s["name"] for s in b["how"]] == ["Collect"] and b["use"] == ""
+    assert [d["why"] for d in b["dropped"]] == ["too long"] * 3
+
+
 @pytest.mark.parametrize("bad", [
     {"things": [{"lead": "no anchor", "text": "x"}]},
-    {"things": [thing("x" * 200, "t", "abstract")]},
+    {"things": [thing("   ", "t", "abstract")]},
     {"things": ["just a string"]},
     {"things": [thing("ok.", "ok.", "abstract")], "how": [{"name": "n"}]},
 ])
@@ -275,20 +347,38 @@ async def test_a_parser_bump_keeps_the_briefing(fake, monkeypatch):
     assert len(prompts) == 1
 
 
-async def test_briefings_stored_under_the_old_key_are_still_found(fake):
-    await satnav_inputs()
-    src = await paper_source_svc.get(AID)
-    h = hashlib.sha256()                    # the key before 2026-10-21, written under parser 1
-    for part in (AID, src.version, "1", briefing_svc.PROMPT_VERSION, llm._provider(), llm.configured_model()):
+async def _store_under_the_old_key(src) -> None:
+    h = hashlib.sha256()                    # the key before 2026-10-21: parser 1, prompt b1
+    for part in (AID, src.version, "1", "b1", llm._provider(), llm.configured_model()):
         h.update(part.encode())
         h.update(b"\x00")
     async with aiosqlite.connect(config.DB_PATH) as conn:
         await conn.execute(
             "INSERT INTO paper_briefings (cache_key, arxiv_id, status, briefing_json, provider, model, "
-            "prompt_version) VALUES (?, ?, 'ok', ?, 'fake', 'fake', ?)",
-            (h.hexdigest(), AID, json.dumps({"things": [{"lead": "Old."}]}), briefing_svc.PROMPT_VERSION))
+            "prompt_version) VALUES (?, ?, 'ok', ?, 'fake', 'fake', 'b1')",
+            (h.hexdigest(), AID, json.dumps({"things": [{"lead": "Old."}]})))
         await conn.commit()
+
+
+async def test_briefings_stored_under_the_old_key_are_still_found(fake, monkeypatch):
+    await satnav_inputs()
+    src = await paper_source_svc.get(AID)
+    await _store_under_the_old_key(src)
+    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b1")
     assert await briefing_svc.cached(AID, src.version, src.n_paragraphs) == ("ok", {"things": [{"lead": "Old."}]})
+
+
+async def test_an_old_key_briefing_outlives_a_worse_attempt_under_a_new_prompt(fake):
+    """The legacy keys were all written under b1: built with today's prompt
+    version they would match nothing once the prompt changed."""
+    await satnav_inputs()
+    src = await paper_source_svc.get(AID)
+    await _store_under_the_old_key(src)
+    assert briefing_svc.PROMPT_VERSION != "b1"
+    assert await briefing_svc.cached(AID, src.version, src.n_paragraphs) is None     # today's prompt asks again
+    llm.fake_reply(lambda system, user: json.dumps({"insufficient": True}))
+    assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == (
+        "ok", {"things": [{"lead": "Old."}]})
 
 
 async def test_a_briefing_of_another_paper_version_is_not_served(fake):
@@ -302,7 +392,7 @@ async def test_a_worse_attempt_never_replaces_a_good_briefing(fake, monkeypatch)
     llm.fake_reply(counted(prompts))
     good = await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract)
     assert good[0] == "ok"
-    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b2")                  # a new prompt asks again...
+    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b3")                  # a new prompt asks again...
     llm.fake_reply(counted(prompts, lambda system, user: json.dumps({"insufficient": True})))
     assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == good   # ...and does worse
     assert await briefing_svc.get_or_generate(AID, PARSED.title, PARSED.abstract) == good
@@ -311,7 +401,7 @@ async def test_a_worse_attempt_never_replaces_a_good_briefing(fake, monkeypatch)
 
 async def test_a_new_prompt_version_means_a_new_cache_key(monkeypatch):
     before = briefing_svc.cache_key(AID, "v1")
-    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b2")
+    monkeypatch.setattr(briefing_svc, "PROMPT_VERSION", "b3")
     assert briefing_svc.cache_key(AID, "v1") != before
 
 
