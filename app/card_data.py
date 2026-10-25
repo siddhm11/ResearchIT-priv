@@ -42,9 +42,12 @@ async def enrich(papers: list[dict], request=None) -> list[dict]:
         out = [dict(p) for p in await abstract_svc.overlay(out)]
         ids = [p["arxiv_id"] for p in out if p.get("arxiv_id")]
         sources = await paper_source_svc.get_many(ids)
-        keys = {p["arxiv_id"]: groq_svc.explain_cache_key(p["arxiv_id"], p.get("abstract") or "")
+        # One key per model allowed to have written it (a failover fallback too).
+        models = groq_svc.explanation_models()
+        keys = {p["arxiv_id"]: [groq_svc.explain_cache_key(p["arxiv_id"], p.get("abstract") or "", model=m)
+                                for m in models]
                 for p in out if p.get("arxiv_id")}
-        plain = await _cached_explanations(list(keys.values()))
+        plain = await _cached_explanations([k for ks in keys.values() for k in ks])
         show_figures = features.visible("FIGURES", request)
     except Exception as e:                      # a plain card beats a broken feed
         errors.report("card_data", "enriching feed cards failed", e)
@@ -52,7 +55,7 @@ async def enrich(papers: list[dict], request=None) -> list[dict]:
     for p in out:
         aid = p.get("arxiv_id")
         source = sources.get(aid)
-        p["card_plain"] = plain.get(keys.get(aid, ""))
+        p["card_plain"] = next((plain[k] for k in keys.get(aid, ()) if k in plain), None)
         p["card_code"] = ({"repo": source.code_repo, "stars": source.code_stars}
                           if source is not None and source.code_repo else None)
         p["card_figure"] = first_figure(p, source) if show_figures else None

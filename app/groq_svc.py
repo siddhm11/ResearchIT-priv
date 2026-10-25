@@ -16,7 +16,40 @@ import threading
 import time
 from typing import NamedTuple
 
-from app import config
+from app import config, llm_router
+
+def _failover_enabled(task: str) -> bool:
+    return config.GROQ_FAILOVER_ENABLED and task in config.GROQ_FAILOVER_TASKS
+
+
+async def _routed(task: str, messages: list[dict], *, subject: str | None = None) -> llm_router.Generation:
+    """The feature flag controls all network failover, never retrieval behavior."""
+    def valid(text: str) -> bool:
+        # rewrite() applies the direct path's own checks to what comes back.
+        if task == "rewrite":
+            return len(text) <= 200 and "\n" not in text
+        return len(text) <= 2400
+
+    try:
+        result = await llm_router.get_router().complete(
+            task, messages, llm_router.configured_models(task), valid)
+    except ValueError:
+        result = llm_router.Generation("configuration_error")
+    print(f"[groq_svc] task={task} outcome={result.outcome} model={result.model} "
+          f"attempts={result.attempts} elapsed_ms={result.elapsed_ms} tokens={result.total_tokens}")
+    from app import ai_usage
+    completion = (Completion(result.text or "", result.model, False,
+                             result.tokens_in, result.tokens_out,
+                             llm_router.configured_models(task).index(result.model))
+                  if result.model else None)
+    feature = {"rewrite": "search_rewrite", "summary": "search_overview", "explain": "explain"}[task]
+    await ai_usage.log_call(feature, completion, latency_ms=result.elapsed_ms,
+                            status="ok" if result.outcome == "success" else "unavailable",
+                            chars_in=sum(len(m.get("content", "")) for m in messages), subject=subject)
+    if task == "explain":
+        _count("explain", "written" if result.text else "declined")
+    return result
+
 
 # ── Client singleton ─────────────────────────────────────────────────────────
 
@@ -452,6 +485,18 @@ async def rewrite(query: str) -> str:
         _count("search_rewrite", "skipped")
         return query
 
+    if _failover_enabled("rewrite"):
+        result = await _routed("rewrite", [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": query},
+        ], subject=ai_usage_query(query))
+        rewritten = _clean(result.text or "").strip('"').strip("'").strip()
+        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
+            _count("search_rewrite", "discarded")
+            return query
+        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
+        return rewritten
+
     client = _get_client()
     if client is None:
         return query  # No API key configured — skip
@@ -525,15 +570,20 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     if not papers or len(papers) < 2:
         return None
         
-    client = _get_client()
-    if client is None:
+    client = None if _failover_enabled("summary") else _get_client()
+    if client is None and not _failover_enabled("summary"):
         return None
-        
+
     prompt = _summary_prompt(query, papers)
 
     try:
-        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt),
-                                   subject=ai_usage_query(query))
+        if _failover_enabled("summary"):
+            generated = await _routed("summary", [{"role": "user", "content": prompt}],
+                                      subject=ai_usage_query(query))
+            result = Completion(_clean(generated.text or ""), generated.model or "", False)
+        else:
+            result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt),
+                                       subject=ai_usage_query(query))
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
@@ -609,14 +659,16 @@ def explain_model() -> str:
     return config.GROQ_MODELS[0] if config.GROQ_MODELS else ""
 
 
-def explain_cache_key(arxiv_id: str, abstract: str) -> str:
+def explain_cache_key(arxiv_id: str, abstract: str, *, model: str | None = None) -> str:
     """Content-addressed, per doc 07 §A.4.
 
     Keyed on the abstract TEXT rather than just the id, so the 500-char stored
     truncation and a later backfilled full abstract are different cache
     entries — otherwise repairing the corpus would silently keep serving
     explanations generated from stumps. The prompt version and model are in the
-    key for the same reason.
+    key for the same reason. For the head of the chain the key is unchanged
+    since 2026-10-04, so explanations already cached (and the feed cards that
+    only read them, card_data) keep finding each other.
     """
     import hashlib
     h = hashlib.sha256()
@@ -626,12 +678,58 @@ def explain_cache_key(arxiv_id: str, abstract: str) -> str:
     h.update(b"\x00")
     h.update(_EXPLAIN_PROMPT_VERSION.encode())
     h.update(b"\x00")
-    h.update(explain_model().encode())
+    h.update((model or explain_model()).encode())
     return h.hexdigest()
+
+
+def explanation_models() -> tuple[str, ...]:
+    """Only currently accepted producing models may be read from cache."""
+    if not _failover_enabled("explain"):
+        return (explain_model(),)
+    try:
+        return llm_router.configured_models("explain")
+    except ValueError:
+        return ()
+
+
+_explanation_tasks: dict[tuple[str, str], tuple[asyncio.Task, int]] = {}
+
+
+async def explain_paper_result(title: str, abstract: str, arxiv_id: str | None = None) -> llm_router.Generation:
+    """Carry actual model provenance; share concurrent work for identical input."""
+    if not _failover_enabled("explain"):
+        text = await explain_paper(title, abstract, arxiv_id)
+        return llm_router.Generation("success" if text else "unavailable", text, explain_model())
+    if not abstract or len(abstract.strip()) < 120:
+        return llm_router.Generation("abstained")
+    identity = (title, abstract)
+    if identity not in _explanation_tasks:
+        prompt = f"<title>{title.strip()}</title>\n<abstract>{abstract.strip()}</abstract>"
+        task = asyncio.create_task(_routed("explain", [
+            {"role": "system", "content": _EXPLAIN_SYSTEM},
+            {"role": "user", "content": prompt},
+        ], subject=arxiv_id))
+        _explanation_tasks[identity] = (task, 0)
+    task, count = _explanation_tasks[identity]
+    _explanation_tasks[identity] = (task, count + 1)
+    try:
+        return await asyncio.shield(task)
+    finally:
+        _, count = _explanation_tasks[identity]
+        if count == 1:
+            del _explanation_tasks[identity]
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        else:
+            _explanation_tasks[identity] = (task, count - 1)
 
 
 async def explain_paper(title: str, abstract: str, arxiv_id: str | None = None) -> str | None:
     """Three plain sentences, or None when it cannot be done honestly."""
+    if _failover_enabled("explain"):
+        result = await explain_paper_result(title, abstract, arxiv_id)
+        return result.text
     if not abstract or len(abstract.strip()) < 120:
         return None
     client = _get_client()

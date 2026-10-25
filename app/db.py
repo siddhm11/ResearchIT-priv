@@ -177,7 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_expo_user_time
 -- repo content (data/collections/*.json); this is the user-data half.
 -- Generated plain-language explanations, content-addressed (doc 07 §A.4).
 --
--- Keyed on a hash of (arxiv_id, abstract, prompt_version, model) rather than on
+-- Keyed on a hash of (arxiv_id, abstract, prompt_version, actual model) rather than on
 -- arxiv_id, so a backfilled full abstract is a different entry and cannot keep
 -- serving an explanation generated from a 500-char stump. Shared across users,
 -- not per-user: the explanation is a property of the paper.

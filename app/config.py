@@ -336,6 +336,12 @@ GROQ_MODELS = [
 GROQ_REQUESTS_PER_DAY = int(os.getenv("GROQ_REQUESTS_PER_DAY", "1000"))
 GROQ_TOKENS_PER_DAY = int(os.getenv("GROQ_TOKENS_PER_DAY", "200000"))
 GROQ_TOKENS_PER_MINUTE = int(os.getenv("GROQ_TOKENS_PER_MINUTE", "8000"))
+# Staged rollout: verify route access and task quality before enabling.
+GROQ_FAILOVER_ENABLED = os.getenv("GROQ_FAILOVER_ENABLED", "0").lower() in {"1", "true", "on"}
+GROQ_FAILOVER_TASKS = frozenset(filter(None, (
+    task.strip() for task in os.getenv("GROQ_FAILOVER_TASKS", "rewrite,summary,explain").split(","))))
+GROQ_KEY_POOL_JSON = os.getenv("GROQ_KEY_POOL_JSON", "")
+GROQ_MODEL_ORDER_JSON = os.getenv("GROQ_MODEL_ORDER_JSON", "")
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")

@@ -199,3 +199,48 @@ def test_the_paper_page_does_not_wait_on_generation():
     tpl = pathlib.Path("app/templates/paper.html").read_text()
     assert 'hx-get="/api/papers/{{ paper.arxiv_id }}/explain"' in tpl
     assert 'hx-trigger="load"' in tpl
+
+
+def test_fallback_explanation_is_cached_under_actual_model(monkeypatch):
+    from app import config, llm_router
+    import asyncio
+
+    monkeypatch.setattr(config, "GROQ_FAILOVER_ENABLED", True)
+    monkeypatch.setattr(config, "GROQ_MODEL_ORDER_JSON", "")
+    result = llm_router.Generation("success", "A fallback explanation.", llm_router.DEFAULT_MODELS[1])
+    with patch.object(turso_svc, "fetch_metadata_batch", side_effect=_meta), \
+         patch.object(groq_svc, "explain_paper_result", return_value=result) as generate:
+        with TestClient(app) as c:
+            assert "fallback explanation" in c.get("/api/papers/1706.03762/explain").text
+            assert "fallback explanation" in c.get("/api/papers/1706.03762/explain").text
+        generate.assert_awaited_once()
+
+    fallback_key = groq_svc.explain_cache_key(
+        PAPER["arxiv_id"], PAPER["abstract"], model=result.model)
+    qwen_key = groq_svc.explain_cache_key(
+        PAPER["arxiv_id"], PAPER["abstract"], model=llm_router.DEFAULT_MODELS[0])
+    assert asyncio.run(db.get_explanation(fallback_key)) == result.text
+    assert asyncio.run(db.get_explanation(qwen_key)) is None
+
+
+def test_feed_cards_find_the_explanation_the_paper_page_wrote(monkeypatch):
+    """The paper page writes explanations and feed cards only read them, so
+    both must build the same key, with failover off and with it on."""
+    import asyncio
+    from app import card_data, config, llm_router
+
+    for enabled, model, text in ((False, groq_svc.explain_model(), "Plain words."),
+                                 (True, llm_router.DEFAULT_MODELS[1], "Fallback words.")):
+        monkeypatch.setattr(config, "GROQ_FAILOVER_ENABLED", enabled)
+        result = llm_router.Generation("success", text, model)
+        paper = dict(PAPER, abstract=PAPER["abstract"] + (" again" if enabled else ""))
+
+        async def meta(ids, paper=paper):
+            return {paper["arxiv_id"]: paper}
+
+        with patch.object(turso_svc, "fetch_metadata_batch", side_effect=meta), \
+             patch.object(groq_svc, "explain_paper_result", return_value=result):
+            with TestClient(app) as c:
+                assert text in c.get(f"/api/papers/{paper['arxiv_id']}/explain").text
+        (card,) = asyncio.run(card_data.enrich([paper]))
+        assert card["card_plain"] == text
