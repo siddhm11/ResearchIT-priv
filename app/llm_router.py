@@ -153,7 +153,6 @@ class Router:
         self.header_observer = header_observer
         self.clients = {}
         self.gates: dict[tuple, Gate] = {}
-        self.inflight: set[str] = set()
         self.changed = asyncio.Event()
         self.capacity = asyncio.Semaphore(max_inflight)
         self.cursor = 0
@@ -194,20 +193,21 @@ class Router:
                 gates = [self.gates[s] for s in scopes if s in self.gates]
                 if any(g.until > self.clock() for g in gates):
                     continue
-                if key.alias in self.inflight or any(g.probing for g in gates):
+                # A key takes concurrent requests (Groq counts requests and
+                # tokens per minute); only a recovering scope is held to one.
+                if any(g.probing for g in gates):
                     waiting = True
                     continue
                 probes = [g for g in gates if g.until > 0]
                 for gate in probes:
                     gate.probing = True
-                self.inflight.add(key.alias)
                 self.cursor = (index + 1) % len(self.credentials)
                 snapshot = [(s, self.gates[s], self.gates[s].failures, self.gates[s].until)
                             for s in scopes if s in self.gates]
                 return key, probes, snapshot, self.failure_epoch
             if not waiting:
                 return None
-            # Busy healthy keys must not demote Qwen merely due to local load.
+            # Wait for a probe's verdict rather than demote Qwen.
             await self.changed.wait()
 
     def _failure(self, exc: Exception, key: Credential, model: str) -> str:
@@ -310,7 +310,6 @@ class Router:
                                     return result(outcome)
                                 continue
                             finally:
-                                self.inflight.discard(key.alias)
                                 for gate in probes:
                                     gate.probing = False
                                 self.changed.set()

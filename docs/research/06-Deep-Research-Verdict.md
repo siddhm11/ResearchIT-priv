@@ -1105,7 +1105,7 @@ deploy keeps what was read, but thumbnail files are not: queue read papers whose
 first viewer after a deploy doesn't wait. Prefer a wide figure over a logo. Compare save rates per
 trending policy id over two weeks.
 
-### 2026-10-26 — Qwen-first Groq credential failover (opt-in, not deployed)
+### 2026-10-26 — Qwen-first Groq credential failover (opt-in, off by default)
 
 **Decision:** Preserve model preference while failing over credentials: attempt
 eligible keys on Qwen before the next configured model. Scope failures to the
@@ -1117,18 +1117,21 @@ explanations remain optional and honor abstention.
 **Implementation:** `app/llm_router.py`, opt-in service wrappers, task-scoped
 rollout flags, cancellation and concurrency bounds, actual-model explanation
 cache attribution, and a sanitized access-check CLI. Default-off preserves the
-legacy route. Cache identity now includes title as well as abstract, prompt,
-and actual model. Retrieval, EWMA, quotas, and scoring are unchanged.
+legacy route. Cache identity is abstract, prompt and actual model; for the head
+of the chain it is the old key, so cached explanations and feed cards keep
+working. A key takes concurrent requests; only a recovering scope is held to
+one probe. Retrieval, EWMA, quotas, and scoring are unchanged.
 
-**Integration:** Built on cached main `cf44d2646e`, preserving its October 4
-model comparison and default Qwen -> GPT-OSS 20B preference (the first two
-`GROQ_MODELS`). AI usage logging, full-abstract repair, and redesigned paper
-rendering remain in place. The old working branch's 120B-first proposal is
-superseded by that recorded evidence.
+**Integration:** Built on the stack the Space runs (`456f47b`), preserving the
+October 4 model comparison and default Qwen -> GPT-OSS 20B preference (the
+first two `GROQ_MODELS`), and the rewriter's reply guard. AI usage logging,
+full-abstract repair, and redesigned paper rendering remain in place. The old
+working branch's 120B-first proposal is superseded by that recorded evidence.
 
 **Limits:** The historical ranking has not been remeasured. Qwen's preview
-status and this account's access must be checked before enabling. One local key was
-found; the catalog probe failed before an HTTP response. Token pre-reservation,
+status must be watched. A live check with the one local key passed on both
+models (Qwen 192 ms, GPT-OSS 20B 474 ms). Keys in one Groq organization share
+its limits, so rotation adds quota only across organizations. Token pre-reservation,
 aggregated health counters, distributed coordination, and quality evaluation
 remain pending. [The failover plan](../LLM-FAILOVER-PLAN.md) contains the
 implementation checkpoint and release sequence.

@@ -375,7 +375,7 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     cached = None
     try:
         for model in groq_svc.explanation_models():
-            key = groq_svc.explain_cache_key(arxiv_id, abstract, title=title, model=model)
+            key = groq_svc.explain_cache_key(arxiv_id, abstract, model=model)
             cached = await db.get_explanation(key)
             if cached is not None:
                 break
@@ -390,7 +390,7 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
         text = generated.text
         if text and generated.model:
             try:
-                key = groq_svc.explain_cache_key(arxiv_id, abstract, title=title, model=generated.model)
+                key = groq_svc.explain_cache_key(arxiv_id, abstract, model=generated.model)
                 await db.save_explanation(key, arxiv_id, text, generated.model)
             except Exception as e:
                 print(f"[paper] explanation cache write failed: {e}")

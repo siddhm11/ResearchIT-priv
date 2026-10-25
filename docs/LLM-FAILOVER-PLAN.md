@@ -1,16 +1,17 @@
 # Qwen key rotation and model fallback plan
 
-Date: 2026-10-26. Status: first opt-in implementation validated locally;
-disabled by default, live access/quality validation and deployment pending.
+Date: 2026-10-26. Status: implemented behind `GROQ_FAILOVER_ENABLED` (off by
+default); live access checked with one key; task-quality comparison, backup
+keys and the canary are pending.
 Scope confirmed by the user: Qwen text generation through Groq, not embeddings.
 
-Release integration: prepared against cached `origin/main` at `cf44d2646e` in
-an isolated checkout. The initial working branch was older than main. Main
-already has a single-key model chain and an October 4 model comparison;
-this integration preserves them and adds credential rotation. The first two
-`GROQ_MODELS` supply the new router's default order, currently Qwen then
-GPT-OSS 20B. The earlier 120B-first proposal below has been superseded.
-A fresh remote fetch/push was blocked by GitHub DNS resolution in this session.
+Release integration: first prepared against `origin/main` `cf44d2646e`, then
+rebuilt on the stack the Space runs (`456f47b`, fix/space-rate-limit), whose
+rewriter has the reply guard (`_reads_like_a_reply`) and the long-query fix.
+The existing single-key model chain and the October 4 model comparison are
+kept; this adds credential rotation. The first two `GROQ_MODELS` supply the
+router's default order, currently Qwen then GPT-OSS 20B. The earlier
+120B-first proposal below has been superseded.
 
 ## Implementation checkpoint and immediate actions
 
@@ -20,13 +21,14 @@ bounded in-flight requests, model-specific parameters, all three callers,
 actual-model cache attribution, shared concurrent explanation generation,
 output escaping, and sanitized diagnostics. No dependency was added.
 
-One distinct Groq credential was found locally. Organization/project membership
-is unknown. A live catalog probe failed with `APIConnectionError`, without an
-HTTP status; no completion was sent. This does not prove the key is invalid or
-that either model is available. Local credentials and deployment settings were
-not modified. The new flag remains off.
+One distinct Groq credential is configured locally; its organization/project
+membership is unknown. On 2026-10-26 `scripts/check_groq_routes.py --probe
+--complete` with that key listed both models and completed on each with the
+router's exact request parameters: Qwen 3.8 27B in 192 ms (19 tokens), GPT-OSS
+20B in 474 ms (93 tokens). That is an access and parameter check, not a
+quality result. Local credentials and deployment settings were not modified.
 
-The next release steps are (the code is prepared; publication is still blocked):
+The next release steps are:
 
 1. Add backup secrets through the deployment's secret store, using names such
    as `GROQ_API_KEY_2`. Configure their non-secret references and real quota
@@ -95,9 +97,10 @@ replacement/revocation remains a separate operational activity.
   cancellation deadline including queuing and transport.
 - Failures return the original search query or omit the generated section.
   Preserve these caller contracts and the existing academic-query skip.
-- The previous explanation cache used a fixed model identity. The new cache
-  includes title and actual model; old entries are left intact but do not
-  collide with new entries.
+- The explanation cache key gains the actual producing model. For the head of
+  the chain it is byte-for-byte the old key, so cached explanations stay valid
+  and feed cards (`card_data.enrich`, which only reads) find what the paper
+  page writes. A fallback's explanation is stored and read under its own model.
 
 ## Model choice and availability gate
 
@@ -254,7 +257,7 @@ and permanent credential errors use their own policies above.
 - Return an internal result containing text, requested/actual model, credential
   alias, outcome, attempts, latency, and usage. Public wrappers can retain their
   existing return types, but the explanation route must receive provenance.
-- Key explanation cache entries by input content (including title), prompt
+- Key explanation cache entries by input content, prompt
   version, and **actual** producing model. At lookup check accepted models in
   priority order; a valid cached fallback may be reused without another API call.
   Store fallback output under the fallback identity, never under Qwen. Changing
@@ -319,53 +322,35 @@ and permanent credential errors use their own policies above.
 - Invalid payloads and `INSUFFICIENT` are terminal; malformed output follows the
   explicit quality-failure policy without marking credentials invalid.
 - Cached fallback output records its real model, reuses correctly, and cannot
-  collide with Qwen output or a changed title/abstract/prompt.
+  collide with Qwen output or a changed abstract/prompt.
 - Missing keys/SDK, complete provider outage, and exhausted time budgets preserve
   original search and empty optional sections without request errors or secret logs.
 
-## Local validation record — 2026-10-26
+## Validation record — 2026-10-26
 
-Final focused router/service/cache regression tests passed (86 passed, one
-skipped), including provider reset timing. Compilation and `git diff --check`
-passed. Before that final quota-reset refinement, the full non-live/non-browser
-suite passed 767 tests, with four skips and 27
-deselections, using:
+The first build (on `main` `cf44d2646e`, 1,427 tests passed) was reviewed
+before release and four defects were fixed on the rebuilt branch:
 
-```bash
-METADATA_SIDECAR_PATH=/tmp/researchit-no-sidecar.sqlite \
-  .venv/bin/python -m pytest tests/ -q -m 'not live and not browser' \
-  --deselect tests/test_net_deadline.py::test_deadline_interrupts_a_read_the_socket_timeout_would_allow
-```
+| Defect | Effect | Fix |
+|---|---|---|
+| Title added to the explanation cache key | With the flag **off**, every cached explanation missed once after deploy (a Groq call each), and feed cards, which read the old key, never showed an explanation written after it | Title removed; the head-of-chain key is the old key. Test pins the legacy hash and runs paper page -> feed card with the flag off and on |
+| One request in flight per key | With one key, all Groq traffic was serialised: a 2 s rewrite queued behind an 8 s explanation and came back unrewritten | Keys take concurrent requests; only a recovering scope is held to one probe |
+| Routed rewrite skipped the reply guard | A rewrite that answers the reader ("I'm doing well, thank you!") would be searched | The routed path applies the direct path's checks |
+| Routed rewrite capped at 8 words | A 9-12 word rewrite the direct path accepts sent a second call to GPT-OSS | Same acceptance as the direct path |
 
-The socket test was attempted in the first full run and failed during setup
-because localhost binding is prohibited here. Four existing hybrid-search
-tests initially picked up real FTS results from the local sidecar despite
-mocking retrieval; the isolated run above excludes that corpus. User storage
-is isolated by existing test fixtures and Turso replication is disabled.
+On the rebuilt branch the non-live, non-browser suite passed **1,553 tests**
+(4 skipped, 67 deselected), with
+`METADATA_SIDECAR_PATH=/tmp/researchit-no-sidecar.sqlite` so the local
+sidecar's FTS can't answer mocked searches. The live access check is recorded
+above.
 
-Live catalog probing failed with `APIConnectionError` and no HTTP status.
-No completion, quality evaluation, production enablement, or deployment was
-performed. This is local correctness evidence, not a provider availability
-or model-quality result.
+Known differences when enabled, to watch in the canary: routed calls use their
+own caps (rewrite 80, summary 220, explanation 280 tokens against 60, 150 and
+220 on the direct path) and temperature 0.2 for all three; a reply cut off at
+the cap moves to the next model instead of being trimmed.
 
-
-## Release integration validation
-
-The release candidate is based on cached main `cf44d2646e`, not the older
-`feat/oai-daily-harvest` working branch. Main's model ranking, single-key chain,
-AI usage logging, rate-limit windows, full-abstract repair, and redesigned
-paper routes are preserved. The new router defaults to the first two
-`GROQ_MODELS` (Qwen followed by GPT-OSS 20B).
-
-Against that integrated tree, the non-live/non-browser suite passed **1,427
-tests**, with four skips and 64 deselections including the localhost socket
-test prohibited by this environment. After the final usage-counter adjustment,
-the focused router/model-chain/usage/cache/health suites passed **131 tests**,
-with one skip. The real Groq SDK was exercised through an HTTP mock transport
-to verify request options, async response parsing, and rate-limit headers.
-No live Groq availability or deployment success is claimed.
-
-GitHub DNS lookup failed during the remote check. Publication and production
-activation remain pending. The default-off flag is retained; after publication
-and successful live route validation, set `GROQ_FAILOVER_ENABLED=1` and start
-with `GROQ_FAILOVER_TASKS=explain` before expanding to summary and rewrite.
+Activation: add a backup key as a Space secret, map real organizations in
+`GROQ_KEY_POOL_JSON`, then set `GROQ_FAILOVER_ENABLED=1` with
+`GROQ_FAILOVER_TASKS=explain` before adding summary and rewrite. Keys in one
+Groq organization share its rate limits, so a second key in the same
+organization adds redundancy against a revoked key, not quota.

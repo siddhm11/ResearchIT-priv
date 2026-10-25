@@ -25,8 +25,9 @@ def _failover_enabled(task: str) -> bool:
 async def _routed(task: str, messages: list[dict], *, subject: str | None = None) -> llm_router.Generation:
     """The feature flag controls all network failover, never retrieval behavior."""
     def valid(text: str) -> bool:
+        # rewrite() applies the direct path's own checks to what comes back.
         if task == "rewrite":
-            return len(text) <= 200 and len(text.split()) <= 8 and "\n" not in text
+            return len(text) <= 200 and "\n" not in text
         return len(text) <= 2400
 
     try:
@@ -490,9 +491,11 @@ async def rewrite(query: str) -> str:
             {"role": "user", "content": query},
         ], subject=ai_usage_query(query))
         rewritten = _clean(result.text or "").strip('"').strip("'").strip()
-        _count("search_rewrite", "discarded" if not rewritten else
-               "unchanged" if rewritten.lower() == query.lower() else "rewritten")
-        return rewritten or query
+        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
+            _count("search_rewrite", "discarded")
+            return query
+        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
+        return rewritten
 
     client = _get_client()
     if client is None:
@@ -656,15 +659,16 @@ def explain_model() -> str:
     return config.GROQ_MODELS[0] if config.GROQ_MODELS else ""
 
 
-def explain_cache_key(arxiv_id: str, abstract: str, *, title: str = "",
-                      model: str | None = None) -> str:
+def explain_cache_key(arxiv_id: str, abstract: str, *, model: str | None = None) -> str:
     """Content-addressed, per doc 07 §A.4.
 
     Keyed on the abstract TEXT rather than just the id, so the 500-char stored
     truncation and a later backfilled full abstract are different cache
     entries — otherwise repairing the corpus would silently keep serving
     explanations generated from stumps. The prompt version and model are in the
-    key for the same reason.
+    key for the same reason. For the head of the chain the key is unchanged
+    since 2026-10-04, so explanations already cached (and the feed cards that
+    only read them, card_data) keep finding each other.
     """
     import hashlib
     h = hashlib.sha256()
@@ -675,8 +679,6 @@ def explain_cache_key(arxiv_id: str, abstract: str, *, title: str = "",
     h.update(_EXPLAIN_PROMPT_VERSION.encode())
     h.update(b"\x00")
     h.update((model or explain_model()).encode())
-    h.update(b"\x00")
-    h.update(title.encode())
     return h.hexdigest()
 
 

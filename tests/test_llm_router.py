@@ -151,7 +151,6 @@ async def test_total_deadline_cancels_transport_and_releases_capacity():
     router = lr.Router(keys(), hanging)
     result = await complete(router, budget=.02)
     assert result.outcome == "deadline_exhausted" and cancelled.is_set()
-    assert not router.inflight
     assert not router.gates  # caller deadline is not a credential failure
 
 
@@ -170,7 +169,8 @@ async def test_deadline_includes_capacity_queue():
     first.cancel()
     with pytest.raises(asyncio.CancelledError):
         await first
-    assert not router.inflight
+    router.transport = Script([answer()])
+    assert (await complete(router, budget=.5)).outcome == "success"  # capacity released
 
 
 async def test_only_one_recovery_probe_and_busy_qwen_not_demoted():
@@ -303,10 +303,16 @@ async def test_explanation_singleflight_survives_one_cancelled_waiter(monkeypatc
     assert not groq_svc._explanation_tasks
 
 
-def test_cache_identity_includes_title_and_actual_model():
-    key = groq_svc.explain_cache_key("id", "abstract", title="t", model=QWEN)
-    assert key != groq_svc.explain_cache_key("id", "abstract", title="changed", model=QWEN)
-    assert key != groq_svc.explain_cache_key("id", "abstract", title="t", model=FALLBACK)
+def test_cache_identity_follows_actual_model_and_keeps_written_keys():
+    """Explanations already cached stay readable: shipping the router must not
+    send every paper back to Groq, nor hide them from feed cards."""
+    import hashlib
+    legacy = hashlib.sha256(b"\x00".join([
+        b"id", b"abstract", groq_svc._EXPLAIN_PROMPT_VERSION.encode(),
+        groq_svc.explain_model().encode()])).hexdigest()
+    assert groq_svc.explain_cache_key("id", "abstract") == legacy
+    assert groq_svc.explain_cache_key("id", "abstract", model=groq_svc.explain_model()) == legacy
+    assert groq_svc.explain_cache_key("id", "abstract", model=FALLBACK) != legacy
 
 
 async def test_no_keys_and_zero_budget_make_no_requests():
@@ -439,3 +445,50 @@ async def test_real_sdk_raw_response_preserves_rate_headers(monkeypatch):
     assert result.text == "OK" and result.tokens_in == 10 and result.tokens_out == 2
     assert headers[0][1]["x-ratelimit-remaining-tokens"] == "7900"
     assert requests[0]["reasoning_effort"] == "none"
+
+
+async def test_one_key_serves_concurrent_requests():
+    """Groq limits a key by requests and tokens per minute, not connections.
+    Holding a key to one request at a time queued a 2 s rewrite behind an
+    8 s explanation and returned the reader's query unrewritten."""
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def transport(key, model, task, *args):
+        if task == "explain":
+            started.set()
+            await release.wait()
+        return answer("short rewrite")
+
+    router = lr.Router(keys()[:1], transport)
+    slow = asyncio.create_task(router.complete("explain", [], (QWEN, FALLBACK), bool))
+    await started.wait()
+    fast = await router.complete("rewrite", [], (QWEN, FALLBACK), bool, budget=.5)
+    assert fast.outcome == "success" and fast.model == QWEN
+    release.set()
+    assert (await slow).outcome == "success"
+
+
+async def test_routed_rewrite_is_checked_like_the_direct_one(monkeypatch):
+    """A rewrite that answers the reader is thrown away on either path."""
+    monkeypatch.setattr(config, "GROQ_FAILOVER_ENABLED", True)
+    monkeypatch.setattr(config, "GROQ_FAILOVER_TASKS", frozenset({"rewrite"}))
+    reply = lr.Generation("success", "I'm doing well, thank you! How can I help?", QWEN)
+    monkeypatch.setattr(groq_svc, "_routed", AsyncMock(return_value=reply))
+    assert await groq_svc.rewrite("hi how are you") == "hi how are you"
+
+
+async def test_routed_rewrite_accepts_what_the_direct_path_accepts(monkeypatch):
+    """Nine words is a usable rewrite on the direct path; failover must not
+    spend a second model's call on it."""
+    monkeypatch.setattr(config, "GROQ_FAILOVER_ENABLED", True)
+    monkeypatch.setattr(config, "GROQ_FAILOVER_TASKS", frozenset({"rewrite"}))
+    nine = "retrieval augmented generation hallucination mitigation grounding factual consistency methods"
+    calls = []
+
+    async def transport(key, model, task, *args):
+        calls.append(model)
+        return answer(nine)
+
+    monkeypatch.setattr(lr, "_router", lr.Router(keys()[:1], transport))
+    assert await groq_svc.rewrite("how do i stop a rag system from making things up") == nine
+    assert calls == [QWEN]
