@@ -111,7 +111,8 @@ async def refresh(client: httpx.AsyncClient | None = None, today: Date | None = 
             papers[p["arxiv_id"]] = {"arxiv_id": p["arxiv_id"], "title": p["title"],
                                      "upvotes": p["upvotes"] or 0, "published_at": p["published_at"],
                                      "listed_on": day, "day_rank": rank, "day_size": len(listed),
-                                     **extra.get(p["arxiv_id"], {"keywords": [], "summary": "", "comments": 0})}
+                                     **extra.get(p["arxiv_id"], {"keywords": [], "summary": "", "comments": 0,
+                                                                         "org": ""})}
         code.update(snap.get("code") or {})
     if len(failed) == DAYS:
         raise RuntimeError("no Daily Papers list could be fetched")
@@ -125,11 +126,35 @@ async def refresh(client: httpx.AsyncClient | None = None, today: Date | None = 
         print(f"[trending_shelf] categories unavailable: {type(e).__name__}")
         meta = {}
     for aid, p in papers.items():
-        p["categories"] = ((meta.get(aid) or {}).get("arxiv_categories") or "").split()
+        m = meta.get(aid) or {}
+        p["categories"] = (m.get("arxiv_categories") or "").split()
+        # For the figure credit line (card_data.first_figure).
+        p["authors"], p["year"] = m.get("authors") or "", m.get("year") or (p.get("published_at") or "")[:4]
     _state.update(papers=papers, vectors=vectors, code=code, days=DAYS - len(failed),
                   failed_days=failed, error=None,
                   refreshed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    await warm_figures(sorted(papers, key=lambda a: -papers[a]["upvotes"]))
     return stats()
+
+
+WARM_MAX = 200              # papers queued for a figure per refresh, most upvoted first
+
+
+async def warm_figures(arxiv_ids: list[str]) -> int:
+    """Queue the papers no figure has been looked for yet with figure_prewarm,
+    so trending cards have one. About 60 papers join the lists a day. After a
+    deploy (the container's disk starts empty) the week's 300 take about five
+    hours at arXiv's crawl delay (about one paper a minute, measured 25 Oct),
+    most upvoted first, so the top of /trending fills within minutes. Never
+    raises: cards without a figure still work."""
+    from app import figure_prewarm, paper_source_svc
+    try:
+        saved = await paper_source_svc.get_many(arxiv_ids)
+        todo = [a for a in arxiv_ids if a not in saved or paper_source_svc.needs_fetch(saved[a])]
+        return figure_prewarm.enqueue(todo[:WARM_MAX])
+    except Exception as e:  # pragma: no cover - the lists matter more than their pictures
+        print(f"[trending_shelf] figure warm-up not queued: {type(e).__name__}")
+        return 0
 
 
 async def _loop() -> None:

@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 
 from datetime import date as Date
 
-from app import db, errors, features, qdrant_svc, runtime_stats, trending_shelf, trending_topics
+from app import card_data, db, errors, features, qdrant_svc, runtime_stats, trending_shelf, trending_topics
 from app import user_state as us
 from app.config import COOKIE_NAME
 from app.routers import recommendations
@@ -85,6 +85,7 @@ async def get_trending_shelf(
             for p in papers])
     except Exception as e:  # pragma: no cover - analytics must not cost the shelf
         errors.report("trending", "shelf exposure write failed", e)
+    await card_data.add_figures(papers, request)
     runtime_stats.record("trending_shelf", {"request_ms": int((time.perf_counter() - t0) * 1000)})
     return templates.TemplateResponse(request, "partials/trending_shelf.html",
                                       {"papers": papers, "query_id": query_id, "kind": kind,
@@ -106,7 +107,7 @@ def _add_topics(papers: list[dict]) -> None:
 PAGE_SOURCE = "trending_page"
 PAGE_FOR_YOU = 9
 PAGE_PER_AREA = 3
-PAGE_TOP = 9                # three full rows of the wide grid
+PAGE_TOP = 10               # the lead, then three full rows of the grid
 SPARK_W, SPARK_H = 120, 32
 
 
@@ -120,7 +121,8 @@ def _spark(rolling: list[float], top: float) -> str:
 def _topic_view(t: dict, top: float) -> dict:
     return {"id": t["id"], "name": t["name"], "also": t["also"], "papers": t["papers"],
             "from": t["from_share"], "to": t["to_share"], "spark": _spark(t["rolling"], top),
-            "top": t["top"], "label": trending_topics.label(t)}
+            # Copies: these dicts live in the shared topic state, and figures are per request.
+            "top": [dict(p) for p in t["top"]], "label": trending_topics.label(t)}
 
 
 def _chips(rising: list[dict], cooling: list[dict], areas: list[dict]) -> list[dict]:
@@ -178,14 +180,17 @@ async def trending_page(
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
             errors.report("trending", "page exposure write failed", e)
+    moving = [_topic_view(t, scale) for t in rising + cooling]
+    await card_data.add_figures([p for _n, papers, _p in sections for p in papers]
+                                + [p for t in moving for p in t["top"]], request)
     runtime_stats.record("trending_page", {"request_ms": int((time.perf_counter() - t0) * 1000)})
     return templates.TemplateResponse(request, "trending.html", {
         "for_you": for_you, "areas": areas, "top": top, "query_id": query_id, "source": PAGE_SOURCE,
-        "rising": [_topic_view(t, scale) for t in rising],
-        "cooling": [_topic_view(t, scale) for t in cooling],
+        "rising": moving[:len(rising)], "cooling": moving[len(rising):],
         "steady": [_topic_view(t, scale) for t in steady],
         "chips": _chips(rising, cooling, areas), "window": trending_shelf.window(),
-        "basis": trending_topics.coverage(), "spark_w": SPARK_W, "spark_h": SPARK_H})
+        "basis": trending_topics.coverage(), "since": _day_label(trending_topics.coverage().get("first_week")),
+        "spark_w": SPARK_W, "spark_h": SPARK_H})
 
 
 # ── /trending/topics/<id>: one topic ─────────────────────────────────────────
@@ -292,6 +297,7 @@ async def topic_page(
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
             errors.report("trending", "topic exposure write failed", e)
+    await card_data.add_figures(week, request)
     basis = trending_topics.coverage()
     runtime_stats.record("trending_topic", {"request_ms": int((time.perf_counter() - t0) * 1000),
                                             "more_ms": more_ms})

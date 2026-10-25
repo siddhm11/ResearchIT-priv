@@ -1,6 +1,14 @@
 {#
-  One trending paper (the shelf, and the /trending page). Expects `paper` and
-  `source`.
+  One trending paper (the shelf, the /trending page and topic pages). Expects
+  `paper` and `source`; `lead` makes it the wide first card of /trending.
+
+  On top, the paper's first figure (card_data.add_figures: saved figures only,
+  so the card never waits on arXiv) with the credit every shown figure
+  carries. While it loads, the plate shimmers; when a paper has no figure yet
+  or it fails (app.js), the plate shows the paper's name ("WeVisOne-VL") or,
+  for a title with no name to it, its upvotes, so a row of cards keeps one
+  shape without repeating the title. trending_shelf.warm_figures queues the week's
+  papers so most have one within hours of reaching the lists.
 
   It says why the paper is here in counts a reader can check on its Hugging
   Face page (trending_shelf.trend_facts): where it placed on its day and in its
@@ -15,31 +23,52 @@
 {% set _q = ["qid=" ~ paper.query_id, "sf=" ~ source, "pos=" ~ paper.position,
              "src=" ~ paper.candidate_source, "prop=" ~ paper.propensity,
              "pol=" ~ paper.policy_id] %}
-<li class="shelf-card">
-  {% if paper.interest and paper.interest.label %}
-    <span class="interest tone-{{ paper.interest.tone }}">{{ paper.interest.label }}</span>
-  {% endif %}
-  <a class="shelf-paper" href="/p/{{ paper.arxiv_id }}?{{ _q | join('&') }}">{{ paper.title }}</a>
-  {% if paper.facts %}
-    <p class="shelf-why">{{ paper.facts[:2] | join(" · ") }}</p>
-  {% endif %}
-  {% if paper.topic %}
-    <p class="shelf-topic">Rising topic: {% if paper.topic.id is not none %}<a href="/trending/topics/{{ paper.topic.id }}"><b>{{ paper.topic.name }}</b></a>{% else %}<b>{{ paper.topic.name }}</b>{% endif %},
-      {{ "%.1f" | format(paper.topic["from"] * 100) }}% → {{ "%.1f" | format(paper.topic["to"] * 100) }}% of the lists since {{ paper.topic.since_label }}</p>
-  {% endif %}
-  {% if paper.summary %}
-    <p class="shelf-sum"><span>Hugging Face summary</span>{{ paper.summary }}</p>
-  {% endif %}
-  <span class="shelf-meta">
-    <a class="shelf-votes" href="https://huggingface.co/papers/{{ paper.arxiv_id }}"
-       target="_blank" rel="noopener"
-       aria-label="{{ paper.upvotes }} upvotes on Hugging Face">▲ {{ paper.upvotes }}</a>
-    {% if not paper.facts %}<span>listed {{ paper.listed_label }}</span>{% endif %}
-    {% if paper.github %}
-      <a class="code-chip" href="{{ paper.github }}" target="_blank" rel="noopener">Code{% if paper.stars %} <span class="st">★ {{ paper.stars | short_count }}</span>{% endif %}</a>
+{% set href = "/p/" ~ paper.arxiv_id ~ "?" ~ (_q | join('&')) %}
+{% set f = paper.card_figure %}
+{% set by = paper | byline %}
+<li class="shelf-card tc{% if lead %} tc--lead{% endif %}">
+  <div class="tc-media">
+    <a class="tc-fig{% if not f %} is-bare{% endif %}" href="{{ href }}{% if f %}#sec-fig{% endif %}" tabindex="-1" aria-hidden="true">
+      {% if f %}
+        <img src="{{ f.url }}" alt="" loading="{{ 'eager' if lead else 'lazy' }}" decoding="async"
+             {% if f.w and f.h %}width="{{ f.w }}" height="{{ f.h }}"{% endif %}>
+      {% endif %}
+      {% set name = paper.title | short_name(0) %}
+      <span class="tc-cover">
+        <span class="tc-cover-k">{{ by or "Hugging Face Daily Papers" }}</span>
+        {% if name %}<span class="tc-cover-name">{{ name }}</span>
+        {% else %}<span class="tc-cover-name">▲ {{ paper.upvotes }}</span><span class="tc-cover-k">upvotes on Hugging Face</span>{% endif %}
+      </span>
+    </a>
+    {% if f %}<p class="tc-credit">{% if f.label %}{{ f.label }} · {% endif %}{{ f.credit }}</p>{% endif %}
+  </div>
+  <div class="tc-body">
+    {% if paper.interest and paper.interest.label %}
+      <span class="interest tone-{{ paper.interest.tone }}">{{ paper.interest.label }}</span>
     {% endif %}
-  </span>
-  <div class="card-actions shelf-actions" id="actions-{{ paper.arxiv_id }}">
-    {% include "partials/action_buttons.html" %}
+    {% if by %}<p class="tc-by">{{ by }}</p>{% endif %}
+    <a class="shelf-paper" href="{{ href }}" title="{{ paper.title }}">{{ paper.title }}</a>
+    {% if paper.facts %}
+      <p class="shelf-why">{{ paper.facts[:2] | join(" · ") }}</p>
+    {% endif %}
+    {% if paper.topic %}
+      <p class="shelf-topic">Rising topic: {% if paper.topic.id is not none %}<a href="/trending/topics/{{ paper.topic.id }}"><b>{{ paper.topic.name }}</b></a>{% else %}<b>{{ paper.topic.name }}</b>{% endif %},
+        {{ "%.1f" | format(paper.topic["from"] * 100) }}% → {{ "%.1f" | format(paper.topic["to"] * 100) }}% of the lists since {{ paper.topic.since_label }}</p>
+    {% endif %}
+    {% if paper.summary %}
+      <p class="shelf-sum"><span>Hugging Face summary</span>{{ paper.summary }}</p>
+    {% endif %}
+    <span class="shelf-meta">
+      <a class="shelf-votes" href="https://huggingface.co/papers/{{ paper.arxiv_id }}"
+         target="_blank" rel="noopener"
+         aria-label="{{ paper.upvotes }} upvotes on Hugging Face">▲ {{ paper.upvotes }}</a>
+      {% if not paper.facts %}<span>listed {{ paper.listed_label }}</span>{% endif %}
+      {% if paper.github %}
+        <a class="code-chip" href="{{ paper.github }}" target="_blank" rel="noopener">Code{% if paper.stars %} <span class="st">★ {{ paper.stars | short_count }}</span>{% endif %}</a>
+      {% endif %}
+    </span>
+    <div class="card-actions shelf-actions" id="actions-{{ paper.arxiv_id }}">
+      {% include "partials/action_buttons.html" %}
+    </div>
   </div>
 </li>

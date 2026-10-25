@@ -191,7 +191,8 @@ async def shelf_world(monkeypatch):
 
 
 def shelf_ids(response) -> list[str]:
-    return re.findall(r'href="/p/([0-9.]+)\?qid=', response.text)
+    # Each card links its figure and its title to the paper: one id per card.
+    return list(dict.fromkeys(re.findall(r'href="/p/([0-9.]+)\?qid=', response.text)))
 
 
 async def test_switch_off_renders_nothing(shelf_world, monkeypatch):

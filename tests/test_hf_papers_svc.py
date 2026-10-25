@@ -78,4 +78,5 @@ async def test_fetch_pages_past_a_full_page_and_keeps_keywords_and_summary(monke
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as c:
         s = await fetch_snapshot(c, now=NOW, date='2026-10-22')
     assert [p['arxiv_id'] for p in s['papers']] == ['2610.00001', '2610.00002', '2610.00003']
-    assert s['extra']['2610.00001'] == {'keywords': ['world models'], 'summary': 'One line.', 'comments': 0}
+    assert s['extra']['2610.00001'] == {'keywords': ['world models'], 'summary': 'One line.', 'comments': 0,
+                                         'org': ''}

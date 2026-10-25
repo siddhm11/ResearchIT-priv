@@ -383,6 +383,9 @@ async def refresh(today: Date | None = None) -> dict:
     _state.update(result, error=None, computed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     print(f"[trending_topics] {result['papers']} papers, {len(result['topics'])} topics, "
           f"{len(rising())} rising, {len(cooling())} cooling")
+    # /trending shows the moving topics' top papers with their figures.
+    from app import trending_shelf
+    await trending_shelf.warm_figures([p["arxiv_id"] for t in rising() + cooling() for p in t["top"]])
     return stats()
 
 
