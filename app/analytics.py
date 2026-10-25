@@ -121,8 +121,9 @@ async def housekeep() -> None:
         return
     try:
         # turso_sync only pushes new rows; text cleared from old ones must be
-        # cleared there too, or a restore would bring it back.
-        await turso_sync._execute([{"sql": s} for s in sql], timeout=60)
+        # cleared there too, or a restore would bring it back. On the mirror
+        # as well, or a restore from it would.
+        await turso_sync.write_all([{"sql": s} for s in sql], timeout=60)
     except Exception as e:
         errors.report("analytics", "clearing old search text in Turso failed", e)
 

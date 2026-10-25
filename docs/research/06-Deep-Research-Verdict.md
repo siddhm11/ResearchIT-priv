@@ -1042,3 +1042,25 @@ does not (one counter, `search_trend_<mode>`), so a week of it would not have ta
 **Action items:** Watch `search_trend_on` in /healthz/runtime against searches. If the step-up proves
 too timid to ever move a paper (likely, on this evidence), measure looser settings (3 auditions, half →
 0.4 of the best score) on the replay before changing them.
+
+### 2026-10-25 — Two Turso databases with the same data: a primary and a mirror
+**Decision:** Turso runs as a primary plus an optional mirror on a second account
+(`TURSO_MIRROR_URL`, `TURSO_MIRROR_DB_TOKEN`). User data and the replicated caches are pushed to
+both, each remote with its own watermark. A boot restores each table from whichever remote is
+furthest ahead and reserves local ids above the highest id either holds. App reads (paper details
+on a sidecar miss, Daily Papers history, the figure warm-up) move to the mirror for
+`TURSO_FAILOVER_S` (600 s) after the primary returns BLOCKED, 5xx, 401/403/429 or a timeout. The
+daily job copies its papers, licences, citation changes and Hugging Face lists to the mirror after
+each run. Without the two variables, everything behaves exactly as it did before.
+**Supersedes:** the 2026-10-25 plan to keep the first database only as an idle archive after a
+one-time copy.
+**Rationale:** On 2026-10-24 the free plan's 500M monthly reads ran out and Turso refused every read
+until the next month; a restart in that window would have booted with empty user tables. A second
+account has its own quota. Same provider and region, so this covers one account blocked, suspended
+or unreachable, not a Turso-wide outage, and a bad write reaches both. Mirroring through the existing
+watermark push needs no change to the app's write paths. The Starter-feed scan fallback stays on
+the primary only: it reads ~2M rows and would spend the mirror's quota the same way.
+**Action items:** After the first database's reads return (expected 1 Nov), run
+`scripts/turso_catchup.py` both ways, check it reports both equal, then set the two mirror secrets
+on the Space and in GitHub and restart once. Watch `/healthz/deep` `turso_mirror` and
+`/healthz/runtime` `turso_sync.remotes.*.held`.

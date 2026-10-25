@@ -28,6 +28,21 @@ cost is a bounded loss window equal to the sync interval.
 
 Only user data is replicated. paper_metadata and paper_qdrant_map are caches
 rebuildable from Turso and Qdrant, so copying them would waste quota.
+
+With a mirror (TURSO_MIRROR_URL, see app/turso_remotes.py)
+-----------------------------------------------------------
+    boot   ask every remote how far each table goes (one MAX per table, one
+           request per remote) and restore each empty table from the remote
+           that is furthest ahead, falling back to the other if that fails
+    sync   push to every remote, each with its own watermark. A remote that is
+           down keeps its watermark and catches up when it answers again; it
+           never holds up the other.
+    guard  a remote that could not be asked at boot is asked at its first push.
+           If it holds rows newer than anything this container saw, pushing
+           there could overwrite them (the same id collision restore() guards
+           against), so that table is held back from that remote and listed in
+           status()["remotes"][name]["held"].
+Without a mirror none of this runs: one remote, the code path as before.
 """
 from __future__ import annotations
 
@@ -41,12 +56,29 @@ import httpx
 
 from app import config
 from app import http_client
+from app import turso_remotes
+from app.turso_remotes import Remote
 
 SYNC_INTERVAL = int(__import__("os").getenv("TURSO_SYNC_INTERVAL", "60"))
 
 # Tables this container must not push, because its restore did not complete
 # and pushing would overwrite remote rows it never saw. See restore().
 _no_push: set[str] = set()
+
+# Mirror mode only (more than one remote). Per table: the newest watermark value
+# this container knew at boot, restored or reserved. A remote holding anything
+# newer holds rows this container never saw.
+_seen: dict[str, object] = {}
+# remote name -> tables whose watermark on that remote is settled for this boot.
+_ready: dict[str, set[str]] = {}
+# remote name -> tables not pushed there, because it holds rows we never saw.
+_held: dict[str, set[str]] = {}
+# table -> remote it was restored from.
+_restored_from: dict[str, str] = {}
+# remotes whose schema has been ensured this boot.
+_schema_ok: set[str] = set()
+# remote name -> outcome of the last push to it.
+_remote_last: dict[str, dict] = {}
 
 # local table -> (remote table, watermark column, primary key columns)
 #
@@ -347,24 +379,73 @@ def _uncell(c):
 
 
 async def _execute(stmts: list[dict], timeout: int = 60) -> list[list[list]]:
-    """Run statements in one round trip. Returns rows per statement."""
+    """Run statements on the primary in one round trip. Returns rows per statement."""
+    return await _post(_url(), config.TURSO_DB_TOKEN, stmts, timeout)
+
+
+async def _run(remote: Remote, stmts: list[dict], timeout: int = 60) -> list[list[list]]:
+    """Run statements on one remote. The primary goes through _execute, so code
+    and tests that know only _execute keep seeing every primary call."""
+    if remote.name == "primary":
+        return await _execute(stmts, timeout=timeout)
+    return await _post(remote.url, remote.token, stmts, timeout)
+
+
+async def read(stmts: list[dict], timeout: int = 60) -> list[list[list]]:
+    """A read that moves to the mirror while the primary is blocked or down.
+
+    Only outages move it (turso_remotes.is_outage_exception); an error in the
+    SQL itself is raised at once, since the mirror would fail the same way.
+    """
+    last: Exception | None = None
+    for r in turso_remotes.read_order():
+        try:
+            out = await _run(r, stmts, timeout)
+        except Exception as e:
+            if not turso_remotes.is_outage_exception(e):
+                raise
+            turso_remotes.bench(r, str(e))
+            last = e
+            continue
+        turso_remotes.recovered(r)
+        return out
+    if last is not None:
+        raise last
+    raise RuntimeError("TURSO_URL or TURSO_DB_TOKEN not configured")
+
+
+async def write_all(stmts: list[dict], timeout: int = 60) -> None:
+    """Run a write on every remote, for in-place changes the watermark push can't
+    carry (analytics.housekeep clearing old search text). A mirror failure is
+    logged, not raised: the primary's outcome is the caller's."""
+    await _execute(stmts, timeout=timeout)
+    for r in turso_remotes.remotes()[1:]:
+        try:
+            await _run(r, stmts, timeout)
+        except Exception as e:
+            print(f"[turso_sync] write to {r.name} failed: {str(e)[:150]}")
+
+
+async def _post(base: str, token: str, stmts: list[dict], timeout: int) -> list[list[list]]:
     payload = {"requests": [{"type": "execute", "stmt": s} for s in stmts]
                            + [{"type": "close"}]}
     # Shared pooled client — see app/http_client.py. The replication loop runs
     # every 60s, so it was re-handshaking TLS on a timer for its whole lifetime.
     r = await http_client.get_client().post(
-        f"{_url()}/v2/pipeline", json=payload, timeout=timeout,
-        headers={"Authorization": f"Bearer {config.TURSO_DB_TOKEN}",
+        f"{base}/v2/pipeline", json=payload, timeout=timeout,
+        headers={"Authorization": f"Bearer {token}",
                  "Content-Type": "application/json"})
     if r.status_code >= 400:
         # Surface the body. Turso returns the actual reason there, and
         # raise_for_status() alone gives a bare status with no diagnosis.
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text[:300]}")
+        raise turso_remotes.TursoError(f"HTTP {r.status_code}: {r.text[:300]}",
+                                       turso_remotes.is_outage_status(r.status_code))
     data = r.json()
     out = []
     for res in data.get("results", []):
         if res.get("type") == "error":
-            raise RuntimeError(str(res.get("error"))[:250])
+            raise turso_remotes.TursoError(str(res.get("error"))[:250],
+                                           turso_remotes.is_outage_error(res.get("error")))
         resp = res.get("response", {})
         if resp.get("type") != "execute":
             continue
@@ -375,17 +456,38 @@ async def _execute(stmts: list[dict], timeout: int = 60) -> list[list[list]]:
 
 # ── Watermarks ───────────────────────────────────────────────────────────────
 
-async def _get_wm(conn, table: str) -> str | None:
+def _wm_key(table: str, remote: str) -> str:
+    # The primary keeps the key it always had.
+    return f"wm:{table}" if remote == "primary" else f"wm@{remote}:{table}"
+
+
+async def _get_wm(conn, table: str, remote: str = "primary") -> str | None:
     cur = await conn.execute(
-        "SELECT value FROM sync_state WHERE key = ?", (f"wm:{table}",))
+        "SELECT value FROM sync_state WHERE key = ?", (_wm_key(table, remote),))
     row = await cur.fetchone()
     return row[0] if row else None
 
 
-async def _set_wm(conn, table: str, value) -> None:
+async def _set_wm(conn, table: str, value, remote: str = "primary") -> None:
     await conn.execute(
         "INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)",
-        (f"wm:{table}", str(value)))
+        (_wm_key(table, remote), str(value)))
+
+
+async def _clear_wm(conn, table: str, remote: str) -> None:
+    await conn.execute("DELETE FROM sync_state WHERE key = ?", (_wm_key(table, remote),))
+
+
+def _wm_value(spec: dict, v):
+    """A watermark as stored remotely or locally, in a form that compares right."""
+    if v is None:
+        return None
+    return int(v) if spec["wm_kind"] == "int" else str(v)
+
+
+async def _local_max(conn, local: str, spec: dict):
+    cur = await conn.execute(f"SELECT MAX({spec['watermark']}) FROM {local}")
+    return _wm_value(spec, (await cur.fetchone())[0])
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -407,14 +509,16 @@ REMOTE_COLUMNS = [
 ]
 
 
-async def ensure_remote_schema() -> None:
-    await _execute([{"sql": d} for d in REMOTE_DDL])
+async def ensure_remote_schema(remote: Remote | None = None) -> None:
+    remote = remote or Remote("primary", "", "")
+    await _run(remote, [{"sql": d} for d in REMOTE_DDL])
     for table, column, kind in REMOTE_COLUMNS:
         try:
-            await _execute([{"sql": f"ALTER TABLE {table} ADD COLUMN {column} {kind}"}])
+            await _run(remote, [{"sql": f"ALTER TABLE {table} ADD COLUMN {column} {kind}"}])
         except Exception as e:
             if "duplicate column" not in str(e).lower():
                 raise
+    _schema_ok.add(remote.name)
 
 
 async def _reserve_id_space(conn, local: str, spec: dict) -> bool:
@@ -448,38 +552,43 @@ async def _reserve_id_space(conn, local: str, spec: dict) -> bool:
 
     if remote_max is None:
         return True                     # remote is empty; nothing to collide with
+    return await _reserve_above(conn, local, int(remote_max))
 
+
+async def _reserve_above(conn, local: str, top: int) -> bool:
+    """Make every new local id in `local` greater than `top`."""
     try:
         # sqlite_sequence only exists once an AUTOINCREMENT table has taken a
         # row, so both statements are guarded rather than assumed.
         await conn.execute(
             "INSERT INTO sqlite_sequence (name, seq) SELECT ?, ? "
             "WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = ?)",
-            (local, int(remote_max), local))
+            (local, top, local))
         await conn.execute(
             "UPDATE sqlite_sequence SET seq = ? WHERE name = ? AND seq < ?",
-            (int(remote_max), local, int(remote_max)))
+            (top, local, top))
         await conn.commit()
     except Exception as e:
         print(f"[turso_sync] {local}: could not reserve id space ({str(e)[:80]})")
         return False
 
-    print(f"[turso_sync] {local}: local ids now start above {remote_max}")
+    print(f"[turso_sync] {local}: local ids now start above {top}")
     return True
 
 
-async def _fetch_remote(spec: dict, cols: str) -> list[list]:
+async def _fetch_remote(spec: dict, cols: str, remote: Remote | None = None) -> list[list]:
     """Every remote row of one table: one query, or pages of RESTORE_PAGE by id.
 
     Pages are gathered before anything is written, so a failure partway leaves
     the local table empty and the caller's failure handling applies unchanged.
     """
+    remote = remote or Remote("primary", "", "")
     if not spec.get("paged"):
-        return (await _execute([{"sql": f"SELECT {cols} FROM {spec['remote']}"}]))[0]
+        return (await _run(remote, [{"sql": f"SELECT {cols} FROM {spec['remote']}"}]))[0]
     rows: list[list] = []
     last = 0
     while True:
-        page = (await _execute([{
+        page = (await _run(remote, [{
             "sql": (f"SELECT {cols} FROM {spec['remote']} WHERE id > ? "
                     f"ORDER BY id LIMIT {RESTORE_PAGE}"),
             "args": [_cell(last)],
@@ -490,12 +599,52 @@ async def _fetch_remote(spec: dict, cols: str) -> list[list]:
         last = int(page[-1][spec["cols"].index("id")])
 
 
+async def _remote_maxima(rs: list[Remote], tables: list[str]) -> dict[str, dict[str, object]]:
+    """{remote: {table: MAX(watermark) or None}}, one request per remote, both at
+    once. A remote that cannot answer is left out."""
+    if not tables:
+        return {}
+    stmts = [{"sql": f"SELECT MAX({TABLES[t]['watermark']}) FROM {TABLES[t]['remote']}"}
+             for t in tables]
+    answers = await asyncio.gather(*(_run(r, stmts) for r in rs), return_exceptions=True)
+    out: dict[str, dict[str, object]] = {}
+    for r, ans in zip(rs, answers):
+        if isinstance(ans, BaseException):
+            print(f"[turso_sync] {r.name}: cannot read how far each table goes ({str(ans)[:120]})")
+            continue
+        out[r.name] = {t: _wm_value(TABLES[t], res[0][0] if res and res[0] else None)
+                       for t, res in zip(tables, ans)}
+    return out
+
+
+def _restore_order(rs: list[Remote], maxima: dict, table: str) -> list[Remote]:
+    """Furthest-ahead first; on a tie the primary. Remotes that could not say
+    how far they go come last, tried only if every other fetch fails."""
+    known = [r for r in rs if r.name in maxima]
+    unknown = [r for r in rs if r.name not in maxima]
+    kind = TABLES[table]["wm_kind"]
+    floor = 0 if kind == "int" else ""
+    known.sort(key=lambda r: (maxima[r.name][table] is not None,
+                              maxima[r.name][table] if maxima[r.name][table] is not None else floor),
+               reverse=True)       # sort is stable, so ties keep the primary first
+    return known + unknown
+
+
+def _newer(spec: dict, a, b) -> bool:
+    """a is newer than b (None is older than anything)."""
+    if a is None:
+        return False
+    return b is None or a > b
+
+
 async def restore() -> dict:
     """Pull user data from Turso into the local DB.
 
     Only fills tables that are locally EMPTY. A container that already has data
     is never clobbered, so this is safe to run on every boot.
     """
+    if turso_remotes.has_mirror():
+        return await _restore_mirrored()
     restored = {}
     _no_push.clear()
     async with aiosqlite.connect(config.DB_PATH) as conn:
@@ -543,9 +692,172 @@ async def restore() -> dict:
     return restored
 
 
+async def _restore_mirrored() -> dict:
+    """restore() with a mirror. Each empty table comes from the remote that is
+    furthest ahead, and every remote that answered has its watermark settled
+    here: one that is behind gets the rows it lacks from the next pushes.
+
+    Ids: local ids for an id table are reserved above the highest id ANY
+    remote reported, not just the source's, so a row this container creates can
+    never land on a row another remote already holds under that id.
+    """
+    restored = {}
+    rs = turso_remotes.remotes()
+    for s in (_no_push, _seen, _ready, _held, _restored_from):
+        s.clear()
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute(_LOCAL_STATE_DDL)
+        await conn.commit()
+        empty = []
+        for local, spec in TABLES.items():
+            cur = await conn.execute(f"SELECT COUNT(*) FROM {local}")
+            if (await cur.fetchone())[0]:
+                # A warm container keeps its watermarks; a remote it has none
+                # for is settled at its first push (_settle).
+                _seen[local] = await _local_max(conn, local, spec)
+            else:
+                empty.append(local)
+        maxima = await _remote_maxima(rs, empty)
+
+        for local in empty:
+            spec = TABLES[local]
+            is_int = spec["wm_kind"] == "int"
+            cols = ", ".join(spec["cols"])
+            rows, source = None, None
+            for r in _restore_order(rs, maxima, local):
+                try:
+                    rows = await _fetch_remote(spec, cols, r)
+                    source = r
+                    break
+                except Exception as e:
+                    print(f"[turso_sync] restore {local} from {r.name} failed: {str(e)[:120]}")
+            known = [m[local] for m in maxima.values() if m.get(local) is not None]
+
+            if source is None:
+                # Nothing restored. An id table can still replicate new rows if
+                # some remote said how high its ids go; anything else cannot
+                # tell our rows from remote rows (see restore()).
+                if not (is_int and maxima):
+                    _no_push.add(local)
+                    continue
+                top = max(known, default=None)
+                if top is not None and not await _reserve_above(conn, local, top):
+                    _no_push.add(local)
+                    continue
+                _seen[local] = top
+                for name, m in maxima.items():
+                    await _settle_known(conn, name, local, spec, m[local], top)
+                continue
+
+            if rows:
+                ph = ", ".join("?" * len(spec["cols"]))
+                await conn.executemany(
+                    f"INSERT OR REPLACE INTO {local} ({cols}) VALUES ({ph})", rows)
+                restored[local] = len(rows)
+                _restored_from[local] = source.name
+            hi = await _local_max(conn, local, spec)
+            seen = hi
+            if is_int:
+                top = max(known + ([hi] if hi is not None else []), default=None)
+                if top is not None and (hi is None or top > hi):
+                    if not await _reserve_above(conn, local, top):
+                        _no_push.add(local)
+                        continue
+                seen = top
+            _seen[local] = seen
+
+            # The source now matches local: restored rows must not go back.
+            if hi is None:
+                await _clear_wm(conn, local, source.name)
+            else:
+                await _set_wm(conn, local, hi, source.name)
+            _ready.setdefault(source.name, set()).add(local)
+            for name, m in maxima.items():
+                if name != source.name:
+                    await _settle_known(conn, name, local, spec, m[local], seen)
+        await conn.commit()
+    if restored:
+        print(f"[turso_sync] restored from Turso: "
+              f"{ {t: f'{n} from {_restored_from[t]}' for t, n in restored.items()} }")
+    return restored
+
+
+async def _settle_known(conn, remote: str, local: str, spec: dict, remote_max, seen) -> None:
+    """Set `remote`'s watermark for `local` from how far it said it goes.
+
+    Behind or level: push from where it stops, so it gets what it lacks.
+    Ahead, on an id table: its extra ids are below our reserved range, so new
+    rows can't collide; push from where it stops (it gets only new rows).
+    Ahead, on a timestamp table: it holds versions newer than ours, and pushing
+    could overwrite them with older ones, so hold the table back from it.
+    """
+    if spec["wm_kind"] != "int" and _newer(spec, remote_max, seen):
+        _held.setdefault(remote, set()).add(local)
+        print(f"[turso_sync] {local}: {remote} holds newer rows than this container restored; "
+              f"not pushing it there")
+        return
+    if remote_max is None:
+        await _clear_wm(conn, local, remote)
+    else:
+        await _set_wm(conn, local, remote_max, remote)
+    _ready.setdefault(remote, set()).add(local)
+
+
+async def _settle(conn, r: Remote, local: str, spec: dict) -> bool:
+    """First push of `local` to a remote that was not asked at boot. Returns
+    whether to push. Raises if the remote can't answer (retried next tick)."""
+    if await _get_wm(conn, local, r.name) is not None:
+        _ready.setdefault(r.name, set()).add(local)
+        return True
+    res = await _run(r, [{"sql": f"SELECT MAX({spec['watermark']}) FROM {spec['remote']}"}])
+    remote_max = _wm_value(spec, res[0][0][0] if res and res[0] else None)
+    seen = _seen.get(local)
+    if _newer(spec, remote_max, seen):
+        # On an id table too: ids above what we saw may be ones we hand out.
+        _held.setdefault(r.name, set()).add(local)
+        print(f"[turso_sync] {local}: {r.name} holds rows this container never saw "
+              f"({remote_max} > {seen}); not pushing it there")
+        return False
+    if remote_max is not None:
+        await _set_wm(conn, local, remote_max, r.name)
+    _ready.setdefault(r.name, set()).add(local)
+    return True
+
+
+async def _push_table(conn, r: Remote, local: str, spec: dict) -> int:
+    """Push one batch of rows newer than `r`'s watermark. Returns rows pushed."""
+    wm_col, kind = spec["watermark"], spec["wm_kind"]
+    wm = await _get_wm(conn, local, r.name)
+    if wm is None:
+        where, args = "", ()
+    else:
+        where = f"WHERE {wm_col} > ?"
+        args = (int(wm),) if kind == "int" else (wm,)
+    cols = ", ".join(spec["cols"])
+    cur = await conn.execute(
+        f"SELECT {cols} FROM {local} {where} ORDER BY {wm_col} LIMIT 500", args)
+    rows = await cur.fetchall()
+    if not rows:
+        return 0
+
+    ph = ", ".join("?" * len(spec["cols"]))
+    stmts = [{
+        "sql": f"INSERT OR REPLACE INTO {spec['remote']} ({cols}) VALUES ({ph})",
+        "args": [_cell(v) for v in row],
+    } for row in rows]
+    await _run(r, stmts, timeout=120)
+
+    wm_idx = spec["cols"].index(wm_col)
+    await _set_wm(conn, local, rows[-1][wm_idx], r.name)
+    return len(rows)
+
+
 async def sync_once() -> dict:
     """Push rows newer than the watermark. Returns {table: count}."""
+    if turso_remotes.has_mirror():
+        return await _sync_mirrored()
     pushed = {}
+    primary = Remote("primary", "", "")
     async with aiosqlite.connect(config.DB_PATH) as conn:
         await conn.execute(_LOCAL_STATE_DDL)
         await conn.commit()
@@ -554,31 +866,55 @@ async def sync_once() -> dict:
                 # Restore failed and the id range could not be reserved, so we
                 # cannot tell our rows from rows already on the server.
                 continue
-            wm_col, kind = spec["watermark"], spec["wm_kind"]
-            wm = await _get_wm(conn, local)
-            if wm is None:
-                where, args = "", ()
-            else:
-                where = f"WHERE {wm_col} > ?"
-                args = (int(wm),) if kind == "int" else (wm,)
-            cols = ", ".join(spec["cols"])
-            cur = await conn.execute(
-                f"SELECT {cols} FROM {local} {where} ORDER BY {wm_col} LIMIT 500", args)
-            rows = await cur.fetchall()
-            if not rows:
-                continue
-
-            ph = ", ".join("?" * len(spec["cols"]))
-            stmts = [{
-                "sql": f"INSERT OR REPLACE INTO {spec['remote']} ({cols}) VALUES ({ph})",
-                "args": [_cell(v) for v in row],
-            } for row in rows]
-            await _execute(stmts, timeout=120)
-
-            wm_idx = spec["cols"].index(wm_col)
-            await _set_wm(conn, local, rows[-1][wm_idx])
-            pushed[local] = len(rows)
+            n = await _push_table(conn, primary, local, spec)
+            if n:
+                pushed[local] = n
         await conn.commit()
+    return pushed
+
+
+async def _sync_mirrored() -> dict:
+    """sync_once() with a mirror: each remote in turn, each from its own
+    watermark. One remote failing never holds up the other; a primary failure
+    is still raised, after the mirror's turn, so the loop reports it."""
+    pushed: dict[str, int] = {}
+    primary_error: Exception | None = None
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        await conn.execute(_LOCAL_STATE_DDL)
+        await conn.commit()
+        for r in turso_remotes.remotes():
+            n_pushed = 0
+            try:
+                if r.name not in _schema_ok:
+                    await ensure_remote_schema(r)
+                for local, spec in TABLES.items():
+                    if local in _no_push or local in _held.get(r.name, ()):
+                        continue
+                    if local not in _ready.get(r.name, ()):
+                        cur = await conn.execute(f"SELECT 1 FROM {local} LIMIT 1")
+                        if await cur.fetchone() is None:
+                            continue        # nothing to push yet; settle later
+                        if not await _settle(conn, r, local, spec):
+                            continue
+                    n = await _push_table(conn, r, local, spec)
+                    if n:
+                        n_pushed += n
+                        pushed[local if r.name == "primary" else f"{local}@{r.name}"] = n
+            except Exception as e:
+                _remote_last[r.name] = {"ok": False, "at": time.time(), "pushed": n_pushed,
+                                        "error": str(e)[:200]}
+                if r.name == "primary":
+                    primary_error = e
+                else:
+                    print(f"[turso_sync] push to {r.name} failed (will retry): {str(e)[:150]}")
+            else:
+                _remote_last[r.name] = {"ok": True, "at": time.time(), "pushed": n_pushed,
+                                        "error": None}
+            # Each watermark was set only after its batch landed, so keeping
+            # them is right even when a later batch failed.
+            await conn.commit()
+    if primary_error is not None:
+        raise primary_error
     return pushed
 
 
@@ -605,13 +941,27 @@ async def start() -> None:
         print("[turso_sync] TURSO not configured — user data stays ephemeral")
         return
     try:
-        await ensure_remote_schema()
+        if turso_remotes.has_mirror():
+            # Either remote is enough to start: restore takes the one that
+            # answers, and the other is caught up when it does.
+            reachable = []
+            for r in turso_remotes.remotes():
+                try:
+                    await ensure_remote_schema(r)
+                    reachable.append(r.name)
+                except Exception as e:
+                    print(f"[turso_sync] {r.name} schema check failed: {str(e)[:120]}")
+            if not reachable:
+                raise RuntimeError("no Turso remote answered")
+        else:
+            await ensure_remote_schema()
         await restore()
     except Exception as e:
         print(f"[turso_sync] startup failed ({str(e)[:150]}) — continuing without sync")
         return
     _task = asyncio.create_task(_loop())
-    print(f"[turso_sync] active, every {SYNC_INTERVAL}s")
+    names = "+".join(r.name for r in turso_remotes.remotes())
+    print(f"[turso_sync] active ({names}), every {SYNC_INTERVAL}s")
 
 
 async def stop() -> None:
@@ -645,4 +995,13 @@ def status() -> dict:
         # overwrite remote rows it never saw. Writes are still safe locally,
         # but they are not backed up — worth alerting on.
         "not_replicating": sorted(_no_push),
+        # Mirror mode only: each remote's last push, and tables held back from
+        # it because it holds rows this container never saw. A held table needs
+        # a person: scripts/turso_catchup.py compares the two.
+        "remotes": {
+            r.name: {**_remote_last.get(r.name, {}), "held": sorted(_held.get(r.name, ()))}
+            for r in turso_remotes.remotes()
+        } if turso_remotes.has_mirror() else {},
+        "restored_from": dict(_restored_from),
+        "reads": turso_remotes.status(),
     }

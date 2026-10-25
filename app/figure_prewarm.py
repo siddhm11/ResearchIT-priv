@@ -115,17 +115,17 @@ async def recent_ids(days: int = 2) -> list[tuple[str, str]]:
     """[(arxiv_id, licence code)] for the newest papers Turso dates in the last `days` days."""
     if not (config.TURSO_URL and config.TURSO_DB_TOKEN):
         return []
-    from app.turso_sync import _execute
+    from app.turso_sync import read      # moves to the mirror while the primary is blocked
     since = f"date('now', '-{int(days)} day')"
     newest = f"p.rowid > (SELECT MAX(rowid) FROM papers) - {RECENT_ROWS}"
     try:
-        rows = (await _execute([{"sql": (
+        rows = (await read([{"sql": (
             "SELECT p.arxiv_id, COALESCE(l.licence, '') FROM papers p "
             "LEFT JOIN paper_licences l ON l.arxiv_id = p.arxiv_id "
             f"WHERE {newest} AND p.update_date >= {since}")}]))[0]
     except Exception:
         # paper_licences arrives with the daily harvest; without it, no order.
-        rows = (await _execute([{"sql": f"SELECT arxiv_id, '' FROM papers p WHERE {newest} "
+        rows = (await read([{"sql": f"SELECT arxiv_id, '' FROM papers p WHERE {newest} "
                                         f"AND update_date >= {since}"}]))[0]
     return [(str(a), str(c or "")) for a, c in rows]
 

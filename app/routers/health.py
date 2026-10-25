@@ -13,7 +13,7 @@ import json
 import time
 from fastapi import APIRouter, Request
 from app.recommend import reranker as _rr
-from app import config, qdrant_svc, trending_shelf, trending_topics
+from app import config, qdrant_svc, trending_shelf, trending_topics, turso_sync
 
 router = APIRouter()
 
@@ -66,6 +66,9 @@ async def healthz_runtime():
         "vector_cache": qdrant_svc.vector_cache_stats(),
         "trending_shelf": trending_shelf.stats(),
         "trending_topics": trending_topics.stats(),
+        # User-data replication: each Turso remote's last push, held tables,
+        # where the boot restored from, and where reads go.
+        "turso_sync": turso_sync.status(),
         "timings": runtime_stats.timings(),
         "counters": runtime_stats.counters(),
         "sidecar_warmup": local_meta.warmup_status(),
@@ -423,16 +426,18 @@ async def healthz_deep():
             "time_ms": int((time.perf_counter() - t0) * 1000),
         }
 
-    # ── Ping Turso ───────────────────────────────────────────────────────
-    t0 = time.perf_counter()
-    try:
-        if config.TURSO_URL and config.TURSO_DB_TOKEN:
+    # ── Ping Turso (and the mirror, when there is one) ───────────────────
+    from app import turso_remotes
+
+    async def _ping_turso(url: str, token: str) -> dict:
+        t0 = time.perf_counter()
+        try:
             import httpx
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
-                    f"{config.TURSO_URL}/v2/pipeline",
+                    f"{url}/v2/pipeline",
                     headers={
-                        "Authorization": f"Bearer {config.TURSO_DB_TOKEN}",
+                        "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                     },
                     json={
@@ -450,21 +455,23 @@ async def healthz_deep():
                 if first.get("type") == "error":
                     err = first.get("error") or {}
                     raise RuntimeError(f"{err.get('code', 'ERROR')}: {err.get('message', '')}"[:200])
-            results["services"]["turso"] = {
-                "status": "ok",
-                "time_ms": int((time.perf_counter() - t0) * 1000),
-            }
-        else:
-            results["services"]["turso"] = {
-                "status": "skipped",
-                "reason": "TURSO_URL or TURSO_DB_TOKEN not configured",
-                "time_ms": 0,
-            }
-    except Exception as e:
+            return {"status": "ok", "time_ms": int((time.perf_counter() - t0) * 1000)}
+        except Exception as e:
+            return {"status": "error", "error": str(e),
+                    "time_ms": int((time.perf_counter() - t0) * 1000)}
+
+    if config.TURSO_URL and config.TURSO_DB_TOKEN:
+        results["services"]["turso"] = await _ping_turso(config.TURSO_URL, config.TURSO_DB_TOKEN)
+        mirror = turso_remotes.remotes()[1:]
+        if mirror:
+            results["services"]["turso_mirror"] = await _ping_turso(mirror[0].url, mirror[0].token)
+            # Which database reads go to right now, and why.
+            results["services"]["turso"]["reads"] = turso_remotes.status()
+    else:
         results["services"]["turso"] = {
-            "status": "error",
-            "error": str(e),
-            "time_ms": int((time.perf_counter() - t0) * 1000),
+            "status": "skipped",
+            "reason": "TURSO_URL or TURSO_DB_TOKEN not configured",
+            "time_ms": 0,
         }
 
     # ── Local metadata sidecar ───────────────────────────────────────────
