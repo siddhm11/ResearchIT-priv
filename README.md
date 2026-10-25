@@ -134,9 +134,16 @@ See [.env.example](.env.example) and [app/config.py](app/config.py).
 | `TURSO_SYNC_DISABLED`, `DB_PATH` | Isolate local development and scratch storage |
 | `ZILLIZ_URI`, `ZILLIZ_TOKEN` | Learned sparse fallback |
 | `GROQ_API_KEY` | Optional rewriting, summaries, and explanations |
+| `GROQ_FAILOVER_ENABLED`, `GROQ_FAILOVER_TASKS` | Opt-in Qwen-first routing; disabled by default; task list supports staged rollout |
+| `GROQ_KEY_POOL_JSON`, `GROQ_MODEL_ORDER_JSON` | Named credential references/quota groups and ordered models per task |
 | `RERANKER_MODE` | `heuristic` (default), `lightgbm`, or `auto` |
 | `SEARCH_BGE_RERANK`, `SEARCH_RERANK_TOP_N` | Search cross-encoder flag and depth |
 | `MAP_QDRANT_*`, `SPACE_APP_URL`, `SPACE_SERVICE_TOKEN` | Optional companion map |
+
+See the [Groq failover plan](docs/LLM-FAILOVER-PLAN.md) for configuration,
+access-check commands, current implementation limits, and release gates.
+`scripts/check_groq_routes.py` prints a credential-safe inventory; live catalog
+and completion checks require explicit `--probe` and `--complete` options.
 
 ## Tests and evaluation
 

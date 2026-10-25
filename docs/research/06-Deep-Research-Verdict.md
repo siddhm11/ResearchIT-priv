@@ -1104,3 +1104,31 @@ queued 211 never-read papers, after which about 60 a day join. `paper_sources` i
 deploy keeps what was read, but thumbnail files are not: queue read papers whose file is gone so the
 first viewer after a deploy doesn't wait. Prefer a wide figure over a logo. Compare save rates per
 trending policy id over two weeks.
+
+### 2026-10-26 — Qwen-first Groq credential failover (opt-in, not deployed)
+
+**Decision:** Preserve model preference while failing over credentials: attempt
+eligible keys on Qwen before the next configured model. Scope failures to the
+credential, shared quota/permission group, model, or provider rather than blindly
+sweeping every key. One total generation deadline and disabled SDK retries bound
+latency. Rewrites preserve the original query on exhaustion; summaries and
+explanations remain optional and honor abstention.
+
+**Implementation:** `app/llm_router.py`, opt-in service wrappers, task-scoped
+rollout flags, cancellation and concurrency bounds, actual-model explanation
+cache attribution, and a sanitized access-check CLI. Default-off preserves the
+legacy route. Cache identity now includes title as well as abstract, prompt,
+and actual model. Retrieval, EWMA, quotas, and scoring are unchanged.
+
+**Integration:** Built on cached main `cf44d2646e`, preserving its October 4
+model comparison and default Qwen -> GPT-OSS 20B preference (the first two
+`GROQ_MODELS`). AI usage logging, full-abstract repair, and redesigned paper
+rendering remain in place. The old working branch's 120B-first proposal is
+superseded by that recorded evidence.
+
+**Limits:** The historical ranking has not been remeasured. Qwen's preview
+status and this account's access must be checked before enabling. One local key was
+found; the catalog probe failed before an HTTP response. Token pre-reservation,
+aggregated health counters, distributed coordination, and quality evaluation
+remain pending. [The failover plan](../LLM-FAILOVER-PLAN.md) contains the
+implementation checkpoint and release sequence.
