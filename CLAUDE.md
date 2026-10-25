@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-10-19
+> **Last updated**: 2026-10-21
 
 ---
 
@@ -16,9 +16,9 @@ ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers wit
 |---|---|---|---|
 | a | `arxiv_dense_a` | 899,456 | `hnsw_on_disk: true` — the only one |
 | b | `arxiv_dense_b` | 697,131 | in RAM |
-| recent | `arxiv_recent` | 256,680 (2026-10-01) | fanout, `SEARCH_FANOUT_RECENT`; papers from 2025-06 on, new ones daily (PHASE7 §8) |
+| recent | `arxiv_recent` | 279,778 (2026-10-21) | fanout, `SEARCH_FANOUT_RECENT`; papers from 2025-06 on, new ones daily through arXiv OAI-PMH (PHASE7 §8) |
 
-In that recorded deployment all three were float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.9 GB SQLite metadata sidecar (1,853,777 rows + FTS5, newest 2026-09-29, as of 2026-10-01) is baked into the image; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
+In that recorded deployment all three were float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.9 GB SQLite metadata sidecar (1,853,777 rows + FTS5, newest 2026-09-29, as of 2026-10-01) is baked into the image, while Turso `papers` (1,876,875 rows, current to 2026-10-20 on 2026-10-21) gets new papers daily; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
 
 **Endgame:** an "Instagram for research" — multi-interest aware feed that surfaces relevant papers across a user's distinct research areas without collapsing toward a dominant interest.
 
@@ -78,6 +78,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 ### 3.1 Fusion
 
 - **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
+- **Search results are kept in memory for 10 minutes** (`app/search_cache.py`; 2 when a retrieval arm was missing). Callers get copies, so per-reader fields (saved, `query_id`, position) never reach the shared entry. A reader returning to the same cached results keeps their `query_id` and is not logged again (doc 06, 2026-10-21).
 - **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Zilliz is the fallback when FTS is unavailable and encoding succeeds. RRF fuses actual available result lists; do not confuse configured backends with successful retrieval.
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
@@ -170,6 +171,8 @@ Behavioral takes over once the user crosses **~10 saved papers**. Subject catego
 - **Background tasks must be strongly referenced.** asyncio holds only a weak reference; use `events._spawn`, not a bare `asyncio.create_task`.
 - **Never call `local_meta` directly from a coroutine.** It is synchronous sqlite3 over 2.7GB; wrap in `asyncio.to_thread`. Guarded by `tests/test_event_loop_blocking.py`.
 - **`get_paper_vectors` returns numpy arrays, not lists.** Test with `is None` — `if not vec` raises.
+- **A replicated row does not mean the local data is here.** `paper_sources` survives a deploy; the paper's full text and paragraphs do not. Use `paper_source_svc.has_text()` / `ensure(need_text=True)`, and never store a failure that only means this container lacked the text (doc 06, 2026-10-21).
+- **One URL, two bodies needs `Vary`.** A route that answers htmx with a fragment and a browser with a page must not let one be cached as the other: `app/main.py` adds `Vary: HX-Request` to every non-static response and `no-store` to fragments, and an `HX-History-Restore-Request` gets the whole page.
 
 ### 3.7 Negative signals
 
@@ -207,7 +210,7 @@ so id and list position diverge. Look up through a `{cluster_idx: cluster}` map.
 ### 3.11 Interaction instrumentation invariants (Phase 6.5)
 
 Ranked-surface interactions must preserve available **`query_id`**, **`propensity`**, and **`policy_id`**. Direct paper visits are `view` events without invented attribution; they do not contribute to ranked-click CTR or EWMA updates. These are required for Phase 7 evaluation:
-- `query_id` (UUID): links all papers in a single feed request for per-feed CTR.
+- `query_id` (UUID): links all papers in a single feed request for per-feed CTR. A reader returning to the same cached search results keeps the `query_id` they were first shown (`app/search_cache.py`).
 - `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
 
@@ -377,7 +380,7 @@ ResearchIT-Final/
 |   |-- 02-bme-arxiv-test.ipynb  # Search quality tests + BGE-M3 prototype
 |   |-- 03-check-search-bq-prm.ipynb  # BQ vs PRM quantization benchmark
 |
-|-- tests/                       # pytest suite: ~700 tests in 56 files (2026-09-28)
+|-- tests/                       # pytest suite: ~1,400 tests in 97 files (2026-10-21)
     |-- test_profiles.py         # EWMA profile tests (11)
     |-- test_clustering.py       # Ward clustering tests (10)
     |-- test_reranker_diversity.py # Reranker + MMR tests (13)
@@ -497,4 +500,4 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 
 ---
 
-*Last updated: 2026-10-19. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-10-21. Update this date when CLAUDE.md changes.*
