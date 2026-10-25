@@ -10,6 +10,8 @@
 # DAILY_REFRESH == "on" (Settings > Secrets and variables > Actions > Variables),
 # so merging this file runs nothing. It needs these repository secrets:
 #   QDRANT_RECENT_URL, QDRANT_RECENT_API_KEY, TURSO_URL, TURSO_DB_TOKEN, S2_API_KEY
+# and, to copy each run to the mirror database (doc 06, 2026-10-25), optionally
+#   TURSO_MIRROR_URL, TURSO_MIRROR_DB_TOKEN
 #
 # Timing: arXiv announces new papers around 00:00 UTC Sunday-Thursday. 02:30 UTC
 # gives the listing time to settle. The 3-day lookback makes a missed day, a
@@ -90,6 +92,8 @@ jobs:
           TURSO_URL: ${{ secrets.TURSO_URL }}
           TURSO_DB_TOKEN: ${{ secrets.TURSO_DB_TOKEN }}
           S2_API_KEY: ${{ secrets.S2_API_KEY }}
+          TURSO_MIRROR_URL: ${{ secrets.TURSO_MIRROR_URL }}
+          TURSO_MIRROR_DB_TOKEN: ${{ secrets.TURSO_MIRROR_DB_TOKEN }}
           INGEST_DEVICE: cpu
           TODAY: ${{ inputs.today }}     # through env, never pasted into the script
           INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '60' }}
