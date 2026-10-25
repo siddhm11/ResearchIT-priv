@@ -1099,6 +1099,8 @@ first); the page's top grows from 9 to 10.
 of those were MP4; their thumbnail is the PDF's first page. Our reader had a figure for 179 of 187
 papers it had read, served from our origin with licence credit. Logged out, the first paper card sat
 about 3,300 px down the live page behind 16 topic boxes. The shelf still takes no feed slot (§3.1).
-**Action items:** Papers read are recorded in the container only, so a deploy re-reads the week (about
-one paper a minute at arXiv's crawl delay, about 5 hours for 300): replicate `paper_sources` rows.
-Prefer a wide figure over a logo. Compare save rates per trending policy id over two weeks.
+**Action items:** Reading runs at about one paper a minute (arXiv's crawl delay); the first deploy
+queued 211 never-read papers, after which about 60 a day join. `paper_sources` is replicated, so a
+deploy keeps what was read, but thumbnail files are not: queue read papers whose file is gone so the
+first viewer after a deploy doesn't wait. Prefer a wide figure over a logo. Compare save rates per
+trending policy id over two weeks.

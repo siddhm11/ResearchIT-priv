@@ -142,10 +142,10 @@ WARM_MAX = 200              # papers queued for a figure per refresh, most upvot
 
 async def warm_figures(arxiv_ids: list[str]) -> int:
     """Queue the papers no figure has been looked for yet with figure_prewarm,
-    so trending cards have one. About 60 papers join the lists a day. After a
-    deploy (the container's disk starts empty) the week's 300 take about five
-    hours at arXiv's crawl delay (about one paper a minute, measured 25 Oct),
-    most upvoted first, so the top of /trending fills within minutes. Never
+    so trending cards have one. About 60 papers join the lists a day, read at
+    about one a minute (arXiv's crawl delay, measured 25 Oct), most upvoted
+    first. paper_sources is replicated, so a deploy keeps what was read; only
+    the thumbnail files go, and /fig remakes each on its first view. Never
     raises: cards without a figure still work."""
     from app import figure_prewarm, paper_source_svc
     try:
