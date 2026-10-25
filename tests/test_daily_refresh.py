@@ -35,13 +35,99 @@ def test_only_changed_known_counts_are_written():
     assert dr.changed_counts(current, fetched) == [("b", 12, 2)]
 
 
+def test_history_rows_keep_the_count_being_overwritten():
+    current = {"a": (5, 1), "b": (0, 0)}
+    assert dr.history_rows(current, [("b", 12, 2)], "2026-10-24") == [("b", "2026-10-24", 0, 12, 0, 2)]
+
+
+def _run(conn, stmt):
+    conn.execute(stmt["sql"], [int(a["value"]) if a["type"] == "integer" else a["value"]
+                               for a in stmt.get("args", [])])
+
+
+def test_history_upsert_spans_the_whole_day_and_sums_to_the_growth():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute(dr.HISTORY_DDL)
+    _run(conn, dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2), ("c", "2026-10-24", 3, 4, 0, 0)]))
+    _run(conn, dr.history_insert([("b", "2026-10-24", 12, 15, 2, 3)]))     # second run, same day
+    _run(conn, dr.history_insert([("b", "2026-10-25", 15, 16, 3, 3)]))
+    assert conn.execute("SELECT citations_before, citations FROM citation_history "
+                        "WHERE arxiv_id = 'b' ORDER BY checked_on").fetchall() == [(0, 15), (15, 16)]
+    gain = conn.execute("SELECT SUM(citations - citations_before) FROM citation_history "
+                        "WHERE arxiv_id = 'b'").fetchone()[0]
+    assert gain == 16
+
+
+def _run_batch(conn, batch):
+    """What Turso does with a Hrana batch: a step runs only if its condition holds."""
+    import sqlite3
+    ok = []
+
+    def holds(cond):
+        if cond is None:
+            return True
+        if cond["type"] == "ok":
+            return ok[cond["step"]]
+        if cond["type"] == "not":
+            return not holds(cond["cond"])
+        raise ValueError(cond)
+
+    for step in batch["steps"]:
+        ran = holds(step.get("condition"))
+        if ran:
+            try:
+                _run(conn, step["stmt"])
+            except sqlite3.Error:
+                ran = False
+        ok.append(ran)
+
+
+def test_a_failed_statement_rolls_back_the_whole_batch():
+    import sqlite3
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.execute(dr.HISTORY_DDL)
+    row = dr.history_insert([("b", "2026-10-24", 0, 12, 0, 2)])
+    _run_batch(conn, dr.tx_batch([row, {"sql": "UPDATE no_such_table SET x = 1"}]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 0
+    assert not conn.in_transaction
+    _run_batch(conn, dr.tx_batch([row]))
+    assert conn.execute("SELECT COUNT(*) FROM citation_history").fetchone()[0] == 1
+
+
 def test_verify_counts_catches_mismatches():
-    before = {"recent_points": 100, "turso_rows": 1000, "turso_max_rowid": 1000}
-    ok = {"recent_points": 150, "turso_rows": 1050, "turso_max_rowid": 1050}
+    before = {"recent_points": 100, "turso_max_rowid": 1000}
+    ok = {"recent_points": 150, "turso_max_rowid": 1050, "turso_new_rows": 50}
     assert dr.verify_counts(before, ok, 50) == []
     assert "Qdrant" in dr.verify_counts(before, {**ok, "recent_points": 149}, 50)[0]
     assert "reported" in dr.verify_counts(before, ok, 49)[0]
     assert "contiguous" in dr.verify_counts(before, {**ok, "turso_max_rowid": 1051}, 50)[0]
+    # A paper written twice moves to a new rowid: a Turso row with no Qdrant point.
+    replaced = {"recent_points": 150, "turso_max_rowid": 1051, "turso_new_rows": 51}
+    assert "Qdrant" in dr.verify_counts(before, replaced, 50)[0]
+
+
+def test_counts_never_scan_the_whole_papers_table():
+    """COUNT(*) over papers reads ~2M rows on Turso's metered free plan; only the
+    highest rowid and the rows above a given one may be read."""
+    sent = []
+
+    class Fake(dr.Stores):
+        def __init__(self):
+            pass
+
+        def q(self, path, body=None):
+            return {"count": 7}
+
+        def t(self, sql, args=()):
+            sent.append((sql, tuple(args)))
+            return [[1000]] if "MAX(rowid)" in sql else [[3]]
+
+    st = Fake()
+    assert st.counts() == {"recent_points": 7, "turso_max_rowid": 1000}
+    assert st.counts(since_rowid=997)["turso_new_rows"] == 3
+    whole = [sql for sql, args in sent if "COUNT(*)" in sql and "WHERE rowid >" not in sql]
+    assert not whole, whole
 
 
 def test_workflow_is_gated_serialised_and_passes_every_required_secret():
@@ -98,3 +184,87 @@ def test_licence_coverage_counts_new_papers_with_a_licence(monkeypatch):
     assert got["new_papers"] == 5 and got["with_licence"] == 4 and got["with_licence_share"] == 0.8
     assert got["open"] == 3 and got["allow_figures"] == 2 and got["allow_figures_share"] == 0.4
     assert dr.licence_coverage([])["with_licence_share"] is None      # a quiet day is not an error
+
+
+def _hf_record(aid, upvotes, title="A paper", **paper):
+    return {"numComments": 2, "paper": {"id": aid, "title": title, "upvotes": upvotes, **paper}}
+
+
+def test_hf_rows_rank_by_upvotes_and_drop_bad_records():
+    payload = [_hf_record("2610.00001v2", 5, ai_keywords=[" video world models ", "", 3],
+                          githubRepo="https://github.com/a/b", githubStars=40, projectPage="javascript:x"),
+               _hf_record("2610.00002", 90, title="  Two\n lines  ", ai_summary="One line.",
+                          projectPage="https://example.org"),
+               _hf_record("2610.00001", 7),                      # same paper, another version
+               _hf_record("not-an-id", 50), {"paper": "broken"}, _hf_record("2610.00003", "many")]
+    papers, history = dr.hf_rows(payload, "2026-10-22", "2026-10-24")
+    assert [p[0] for p in papers] == ["2610.00001", "2610.00002", "2610.00003"]
+    assert papers[0][3] == '["video world models"]' and papers[0][5] == "https://github.com/a/b"
+    assert papers[0][6] == "" and papers[1][6] == "https://example.org"
+    assert papers[1][2] == "Two lines" and papers[1][4] == "One line."
+    assert [(h[2], h[5], h[6]) for h in history] == [(5, 2, 3), (90, 1, 3), (0, 3, 3)]
+    assert history[0][4] == 40 and history[0][3] == 2
+
+
+def test_hf_history_keeps_the_first_listing_and_the_latest_count_of_the_day():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.execute(dr.HF_PAPERS_DDL)
+    conn.execute(dr.HF_HISTORY_DDL)
+
+    def record(listed_on, checked_on, upvotes):
+        papers, history = dr.hf_rows([_hf_record("2610.00001", upvotes)], listed_on, checked_on)
+        for stmt in dr.hf_statements(papers, history):
+            _run(conn, stmt)
+
+    record("2026-10-22", "2026-10-22", 10)
+    record("2026-10-22", "2026-10-22", 25)      # a second run the same day
+    record("2026-10-23", "2026-10-23", 60)      # listed again the next day: keeps the first
+    assert conn.execute("SELECT listed_on, first_seen FROM hf_daily_papers").fetchall() == [
+        ("2026-10-22", "2026-10-22")]
+    assert conn.execute("SELECT checked_on, upvotes FROM hf_upvote_history ORDER BY checked_on").fetchall() == [
+        ("2026-10-22", 25), ("2026-10-23", 60)]
+
+
+def test_hf_stage_skips_a_failed_day_and_never_fails_the_run():
+    import sqlite3
+    import httpx
+
+    conn = sqlite3.connect(":memory:")
+
+    class FakeStores:
+        def t(self, sql, args=()):
+            conn.execute(sql, args)
+            return []
+
+        def t_many(self, stmts):
+            for s in stmts:
+                _run(conn, s)
+
+    def handler(request):
+        day = request.url.params["date"]
+        assert request.url.params["limit"] == "100"
+        if request.url.params["p"] != "0":
+            return httpx.Response(200, json=[])
+        if day == "2026-10-23":
+            return httpx.Response(503)
+        if day == "2026-10-22":
+            return httpx.Response(200, json=[])                 # a quiet day
+        return httpx.Response(200, json=[_hf_record("2610.00001", 12), _hf_record("2610.00002", 30)])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    got = dr.stage_hf_daily(FakeStores(), dt.date(2026, 10, 24), days=3, client=client)
+    assert got == {"days": 3, "lists": 1, "empty": 1, "papers": 2, "failed": ["2026-10-23"]}
+    assert conn.execute("SELECT arxiv_id, day_rank FROM hf_upvote_history ORDER BY day_rank").fetchall() == [
+        ("2610.00002", 1), ("2610.00001", 2)]
+
+
+def test_hf_list_pages_past_the_hundred_paper_limit():
+    import httpx
+
+    def handler(request):
+        page = int(request.url.params["p"])
+        return httpx.Response(200, json=[_hf_record(f"2609.{page}{i:04d}", 1) for i in range([3, 1, 0][page])])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert len(dr._hf_list(client, "2026-09-29", page_size=3)) == 4
