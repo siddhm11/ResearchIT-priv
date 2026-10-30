@@ -56,6 +56,8 @@ def get_reranker():
             revision=config.RERANKER_REVISION,
         )
         print("[reranker_svc] Cross-encoder reranker model loaded successfully")
+        from app import model_trace
+        model_trace.trace_cross_encoder(_reranker)
         return _reranker
 
 

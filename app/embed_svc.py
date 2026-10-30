@@ -75,6 +75,8 @@ def get_model():
             device=config.BGE_M3_DEVICE,
         )
         print("[embed_svc] Model loaded successfully")
+        from app import model_trace
+        model_trace.trace_encoder(_model)
         return _model
 
 

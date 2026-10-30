@@ -96,7 +96,7 @@ def memory() -> dict:
 
 
 def models() -> dict:
-    from app import config, embed_svc, reranker_bge_svc
+    from app import config, embed_svc, model_trace, reranker_bge_svc
     try:
         import torch
         torch_threads = torch.get_num_threads()
@@ -111,4 +111,5 @@ def models() -> dict:
         "rerank_depth": {"base": config.SEARCH_RERANK_TOP_N,
                          "idle": config.SEARCH_RERANK_TOP_N_IDLE},
         "torch_threads": torch_threads,
+        "traced": model_trace.status(),
     }

@@ -27,6 +27,8 @@ from app.routers import (admin, search, events, recommendations, saved, onboardi
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app import compute_pool
+    compute_pool.configure_gil()
     await db.init_db()
 
     # Restore user data from Turso and start replicating.

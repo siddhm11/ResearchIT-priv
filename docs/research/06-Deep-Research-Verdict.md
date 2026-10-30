@@ -1135,3 +1135,34 @@ its limits, so rotation adds quota only across organizations. Token pre-reservat
 aggregated health counters, distributed coordination, and quality evaluation
 remain pending. [The failover plan](../LLM-FAILOVER-PLAN.md) contains the
 implementation checkpoint and release sequence.
+
+### 2026-10-30 — Search models run without holding the GIL (opt-in, off by default)
+
+**Decision:** Trace BGE-M3's transformer and the search cross-encoder with
+`torch.jit` at load, check the traced copy against the eager model on probe
+inputs, and serve with it (switch `SEARCH_MODEL_TRACE`: off, shadow, on).
+Shorten Python's GIL switch interval (`GIL_SWITCH_INTERVAL_MS`, 0 = Python's
+5 ms default; 0.5 recommended).
+
+**Rationale:** Every torch op called from Python retakes the GIL. While any
+other thread runs pure Python, each retake waits up to the switch interval,
+so a search stalled for seconds with the CPU idle (Space, 26 Oct: "bert
+paper" 9.3 s, encode 3.4 s, cross-encoder 4.8 s). Measured on the app's own
+search path with an arXiv HTML parse looping in the background: median
+11.0 s per search today, 0.37 s with both settings, 0.35-0.39 s with no
+background work; top-10 lists identical (20/20), traced outputs bit-identical
+(0.0 difference on 400 search pairs and 40 encodes). Compared on the same
+harness: the switch interval alone (0.1 ms: encode 2.5x, cross-encoder 1.7x
+slower than idle), parsing in a separate process (fixes only that one source;
+the Space's actual contender was never identified), and the models in their
+own process (equally fast, far more moving parts).
+
+**Supersedes:** nothing; scores, ranking and models are unchanged.
+
+**Action items:** `app/model_trace.py`; `compute_pool.configure_gil()` at
+startup; `/healthz/runtime` reports `models.traced` and
+`cpu.gil_switch_interval_ms`. Roll out with `SEARCH_MODEL_TRACE=shadow` first
+(confirms tracing passes on the Space), then `on` with
+`GIL_SWITCH_INTERVAL_MS=0.5`, and compare encode and cross-encoder p50/p95 on
+`/healthz/runtime` before and after. A trace that fails or differs falls back
+to the eager model.
