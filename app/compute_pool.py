@@ -29,6 +29,7 @@ import asyncio
 import contextvars
 import math
 import os
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -99,6 +100,15 @@ def configure_torch() -> int | None:
     return torch.get_num_threads()
 
 
+def configure_gil() -> float:
+    """Apply config.GIL_SWITCH_INTERVAL_MS (0 keeps Python's default). Returns
+    the interval in force, in ms. See app/model_trace.py for why it matters."""
+    if config.GIL_SWITCH_INTERVAL_MS > 0:
+        sys.setswitchinterval(config.GIL_SWITCH_INTERVAL_MS / 1000)
+        print(f"[compute_pool] GIL switch interval {config.GIL_SWITCH_INTERVAL_MS} ms")
+    return sys.getswitchinterval() * 1000
+
+
 def pending() -> int:
     """Inference jobs queued or running right now."""
     return _pending
@@ -135,4 +145,5 @@ def stats() -> dict:
         "torch_threads_target": TORCH_THREADS,
         "io_workers": config.IO_POOL_WORKERS,
         "inference_pending": _pending,
+        "gil_switch_interval_ms": round(sys.getswitchinterval() * 1000, 3),
     }
