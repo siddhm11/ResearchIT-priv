@@ -1166,3 +1166,47 @@ startup; `/healthz/runtime` reports `models.traced` and
 `GIL_SWITCH_INTERVAL_MS=0.5`, and compare encode and cross-encoder p50/p95 on
 `/healthz/runtime` before and after. A trace that fails or differs falls back
 to the eager model.
+
+### 2026-10-30 — A short search that names a paper shows that paper first (opt-in, off by default)
+
+**Decision:** For searches of up to 4 words, ask the primary Groq model
+(only the first of `GROQ_MODELS`) for the exact title of the paper the search
+names, in a call of its own alongside the rewrite. If that title matches a
+corpus title almost exactly (difflib >= 0.92; most cited on a tie), put the
+paper first and label it. Switch `SEARCH_NAMED_PAPER`: off, shadow (record
+in search meta, change nothing), on.
+
+**Rationale:** Famous papers are found by nickname ("resnet", "lora", "gpt-3
+paper"), but their titles rarely contain it and later papers that do fill
+every retrieval list: today 2 of 30 such originals reach page 1, and most are
+in none of the four top-60 lists. Measured 2026-10-30 against rule-built sets
+(Papers with Code method and dataset names by usage, LitSearch, a held-out
+tier never inspected while building):
+
+| | today #1 | with pin | another paper pinned | topic searches pinned |
+|---|---|---|---|---|
+| 302 named searches | 60 | 132 | 7 | — |
+| 140 held-out names | 47 | 64 | 6 (2 displaced a correct #1) | — |
+| 238 topic searches | — | — | — | 7, all the field's canonical paper |
+
+Alternatives on the same sets: a title-alias table without an LLM (+2 on the
+held-out names), folding the title into the rewrite call (no more papers
+found, but it changed a quarter of the rewrites), looser title matching (+3
+papers, 4 topic searches pinned to minor papers), and gpt-oss-20b as the
+answering model (pins a paper on 25% of topic searches, Qwen on 6%).
+
+The pre-registered limits (another paper pinned on at most 3% of named
+searches, topic searches pinned at most 5%) were missed narrowly: 4.3% on
+the held-out names and 5.0% on the topics. Most of those pins are a sibling
+paper (Llama 2 for "llama"); clearly wrong ones were "trpo" -> PPO and
+"deepmind control suite" -> DreamerV2. Shipping it is the owner's call on
+that trade.
+
+**Supersedes:** nothing; retrieval, fusion and reranking are unchanged. The
+pinned paper is added after them.
+
+**Action items:** `app/named_paper.py`, `groq_svc.name_paper` (feature
+`search_paper` in AI usage; query text expires with the other search
+features). One extra Qwen call per search of up to 4 words, ~60 tokens. Roll
+out `shadow`, watch `named_paper_*` counters and `named_paper_wait_ms` on
+`/healthz/runtime`, then `on`.

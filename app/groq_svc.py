@@ -320,10 +320,11 @@ def _trim_to_sentence(text: str) -> str:
 
 
 def _complete(client, messages: list[dict], *, temperature: float,
-              max_tokens: int, timeout: float) -> Completion:
+              max_tokens: int, timeout: float, models: int | None = None) -> Completion:
     """One chat completion from the first configured model that answers.
 
-    ``timeout`` is the budget for the whole call, failover included. Retired
+    ``timeout`` is the budget for the whole call, failover included. ``models``
+    limits it to the first that many configured models (None: all). Retired
     and rate-limited models are benched and skipped; any other failure raises,
     and every caller already degrades to its no-LLM path on an exception.
     """
@@ -331,7 +332,8 @@ def _complete(client, messages: list[dict], *, temperature: float,
 
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
-    for model in _ready_models():
+    allowed = config.GROQ_MODELS if models is None else config.GROQ_MODELS[:models]
+    for model in [m for m in _ready_models() if m in allowed]:
         remaining = deadline - time.monotonic()
         if remaining < _MIN_ATTEMPT_S:
             break
@@ -536,6 +538,61 @@ def _run_rewrite(client, query: str) -> Completion:
         temperature=0.1,
         max_tokens=60,
         timeout=2.0,  # Hard 2s timeout — search must not stall
+    )
+
+
+# ── Named paper: which paper does a short search mean? ───────────────────────
+# Searches like "resnet" or "lora paper" name one paper, but its title rarely
+# contains the name, and hundreds of later papers that do drown it out: on 30
+# such nicknames only 2 originals reached page 1. The model knows the title;
+# app/named_paper.py only pins a title it finds in the corpus. Prompt measured
+# 2026-10-30 (doc 06): unchanged wording keeps those measurements valid. Only
+# the first configured model is asked: on the same searches gpt-oss-20b named
+# a paper for 25% of topic searches ("object detection"), Qwen for 6%, so a
+# rate-limited Qwen means no pin rather than a worse one.
+_NAMED_PAPER_PROMPT = """Reply with the exact title of the one well-known research paper this search refers to, and nothing else.
+If it does not refer to one specific paper, reply NONE."""
+
+_TRAILING_CITATION = re.compile(r"\s*\((?:[^()]*\d{4}[^()]*|[^()]*et al[^()]*)\)\s*$")
+
+
+def _named_title(text: str) -> str | None:
+    """The title in a reply, or None for NONE / nothing usable."""
+    line = next((ln for ln in (text or "").splitlines() if ln.strip()), "").strip()
+    line = _TRAILING_CITATION.sub("", line).strip(" -*\"'`“”").rstrip(".").strip(" \"'`“”")
+    if not line or line.upper().startswith("NONE") or len(line) > 300:
+        return None
+    return line
+
+
+async def name_paper(query: str) -> str | None:
+    """Title of the paper a short search names, as the model recalls it, or None.
+
+    Never raises; any failure is None, and the search goes on without it.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        result = await _run_logged("search_paper", _run_name_paper, client, query,
+                                   chars_in=len(_NAMED_PAPER_PROMPT) + len(query),
+                                   subject=ai_usage_query(query))
+    except Exception as e:
+        print(f"[groq_svc] Named-paper lookup failed: {e}")
+        return None
+    title = None if result.truncated else _named_title(result.text)
+    _count("search_paper", "named" if title else "none")
+    return title
+
+
+def _run_name_paper(client, query: str) -> Completion:
+    return _complete(
+        client,
+        [{"role": "system", "content": _NAMED_PAPER_PROMPT}, {"role": "user", "content": query}],
+        temperature=0.1,
+        max_tokens=60,
+        timeout=1.5,
+        models=1,
     )
 
 

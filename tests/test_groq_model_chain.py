@@ -303,3 +303,14 @@ def test_a_429_still_records_the_window_it_ran_into():
     client = RawFakeClient({CHAIN[0]: limited, CHAIN[1]: _completion("ok")}, HEADERS)
     groq_svc._complete(client, [{"role": "user", "content": "q"}], temperature=0.1, max_tokens=60, timeout=5)
     assert groq_svc.windows()[CHAIN[0]]["tokens_left"] == 0
+
+
+def test_models_limit_stops_at_the_first_model():
+    """The named-paper lookup asks only the primary model: no fallback answer."""
+    err = _status_error(groq.RateLimitError, 429, "rate_limit_exceeded", headers={"retry-after": "42"})
+    client = FakeClient({CHAIN[0]: err, CHAIN[1]: _completion("fallback answer"),
+                         CHAIN[2]: _completion("unused")})
+    with pytest.raises(RuntimeError, match="no Groq model answered"):
+        groq_svc._complete(client, [{"role": "user", "content": "q"}], temperature=0.1,
+                           max_tokens=60, timeout=5.0, models=1)
+    assert [c["model"] for c in client.calls] == [CHAIN[0]]

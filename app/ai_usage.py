@@ -31,11 +31,11 @@ import aiosqlite
 
 from app import config, errors
 
-FEATURES = ("search_rewrite", "search_overview", "explain", "briefing", "ask")
+FEATURES = ("search_rewrite", "search_paper", "search_overview", "explain", "briefing", "ask")
 
 _COLUMNS = ("feature", "provider", "model", "chars_in", "chars_out", "usd_est", "latency_ms", "status",
             "tokens_in", "tokens_out", "model_rank", "truncated", "subject", "requests_left", "tokens_left")
-SEARCH_FEATURES = ("search_rewrite", "search_overview")
+SEARCH_FEATURES = ("search_rewrite", "search_paper", "search_overview")
 
 
 def query_subject(query: str | None) -> str | None:
@@ -215,7 +215,7 @@ async def summary(days: int = 14) -> dict:
 
 # ── the dashboard (/admin/ai) ────────────────────────────────────────────────
 
-LABELS = {"search_rewrite": "Search rewrite", "search_overview": "Search overview", "explain": "In plain terms",
+LABELS = {"search_rewrite": "Search rewrite", "search_paper": "Search: named paper", "search_overview": "Search overview", "explain": "In plain terms",
           "briefing": "Briefing", "ask": "Ask this paper"}
 # Features whose answers are cached, so a hit rate means something.
 CACHED = ("explain", "briefing", "ask")
@@ -226,7 +226,7 @@ METRIC_LABELS = {"written": "written", "declined": "declined", "trimmed": "trimm
                  "points_dropped": "points dropped", "answer": "answered", "unanswerable": "not in paper",
                  "nosupport": "unsupported", "cap": "reader at cap", "error": "error", "quotes_kept": "quotes kept",
                  "quotes_dropped": "quotes dropped", "cites_dropped": "cites dropped", "reported": "reported",
-                 "no_text": "full text unavailable"}
+                 "no_text": "full text unavailable", "named": "named a paper", "none": "named none"}
 
 
 def _pct(part: float, whole: float) -> int | None:
