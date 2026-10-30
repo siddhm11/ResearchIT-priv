@@ -115,6 +115,10 @@ async def search(
     for p in papers:
         moved = (search_meta.get("trending") or {}).get(p.get("arxiv_id"))
         p["trending"] = {"fact": (moved.get("facts") or [""])[0]} if moved else None
+    # The paper the search named, put first by app/named_paper.py, says why.
+    named = (search_meta.get("named_paper") or {}).get("arxiv_id")
+    for p in papers:
+        p["named_paper"] = bool(named) and p.get("arxiv_id") == named
 
     # A small figure beside each result that already has one saved (switch
     # SEARCH_FIGURES; local reads only, order and instrumentation untouched),

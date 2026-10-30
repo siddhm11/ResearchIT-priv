@@ -46,7 +46,7 @@ _EXPIRE = [
     "WHERE query IS NOT NULL AND created_at < datetime('now', '-{d} day')",
     "DELETE FROM search_overviews WHERE created_at < datetime('now', '-{d} day')",
     "UPDATE llm_calls SET subject = NULL WHERE subject IS NOT NULL "
-    "AND feature IN ('search_rewrite', 'search_overview') AND created_at < datetime('now', '-{d} day')",
+    "AND feature IN ('search_rewrite', 'search_paper', 'search_overview') AND created_at < datetime('now', '-{d} day')",
 ]
 
 

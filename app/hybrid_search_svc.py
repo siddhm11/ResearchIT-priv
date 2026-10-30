@@ -34,6 +34,7 @@ from app import groq_svc
 from app import turso_svc
 from app import arxiv_svc
 from app import features
+from app import named_paper
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -103,6 +104,13 @@ async def search(
     start_groq = time.perf_counter()
     rewrite_task = (
         asyncio.create_task(groq_svc.rewrite(query)) if use_rewrite else None
+    )
+    # Which paper a short search names ("resnet"), checked against the corpus
+    # (app/named_paper.py). Runs alongside everything below; collected before
+    # the final ordering.
+    named_task = (
+        asyncio.create_task(named_paper.resolve(query))
+        if use_rewrite and named_paper.wanted(query) else None
     )
 
     # ── Step 2: BGE-M3 encode the original AND rewrite ──────────────────
@@ -242,6 +250,8 @@ async def search(
     )
 
     if not valid_result_lists:
+        if named_task is not None:
+            named_task.cancel()
         return ([], search_meta) if return_meta else []
 
     # ── Step 4: RRF fusion across all result lists ──────────────────────
@@ -250,6 +260,8 @@ async def search(
     search_meta["rrf_time_ms"] = int((time.perf_counter() - t0_rrf) * 1000)
 
     if not fused:
+        if named_task is not None:
+            named_task.cancel()
         return ([], search_meta) if return_meta else []
 
     # ── Step 4.5: BGE Cross-Encoder Reranking ──────────────────────────
@@ -363,6 +375,19 @@ async def search(
     turso_boost_ms = rerank_timings.get("turso_boost_fetch_ms", 0)
     search_meta["turso_boost_fetch_ms"] = turso_boost_ms
     search_meta["rerank_compute_ms"] = max(0, rerank_total - turso_boost_ms)
+
+    # ── Step 5.5: the paper a short search names goes first ──────────────
+    t0_named = time.perf_counter()
+    named = await named_paper.collect(named_task, t_start)
+    if named_task is not None:
+        # Normally 0: the lookup finished during retrieval and reranking.
+        search_meta["named_paper_wait_ms"] = int((time.perf_counter() - t0_named) * 1000)
+    if named:
+        if features.mode(named_paper.SWITCH) == "on":
+            ranked = named_paper.pin(ranked, named)
+            search_meta["named_paper"] = named
+        else:
+            search_meta["named_paper_shadow"] = named
 
     # ── Step 6: Return top results ───────────────────────────────────────
     final_results = [item["arxiv_id"] for item in ranked[:limit]]
