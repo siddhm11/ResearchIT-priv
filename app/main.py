@@ -93,7 +93,8 @@ async def lifespan(app: FastAPI):
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
-    from app import ai_usage, analytics, figure_prewarm, trending_shelf, trending_topics
+    from app import ai_usage, analytics, figure_prewarm, keep_warm, trending_shelf, trending_topics
+    await keep_warm.start()
     await figure_prewarm.start()
     await trending_shelf.start()
     await trending_topics.start()
@@ -103,7 +104,8 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await app.state.discovery.stop()
-        from app import abstract_svc, figure_prewarm, paper_source_svc, trending_shelf, trending_topics
+        from app import abstract_svc, figure_prewarm, keep_warm, paper_source_svc, trending_shelf, trending_topics
+        await keep_warm.stop()
         await figure_prewarm.stop()
         await trending_shelf.stop()
         await trending_topics.stop()

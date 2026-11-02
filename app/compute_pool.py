@@ -22,6 +22,7 @@ Two pools now:
 
 `pending()` reports queued + running inference jobs; search uses it to rerank
 deeper when nobody else is waiting (see config.SEARCH_RERANK_TOP_N_IDLE).
+`idle_s()` is how long the models have gone unused; app/keep_warm.py uses it.
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ import math
 import os
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from app import config
@@ -81,6 +83,7 @@ _io = ThreadPoolExecutor(max_workers=config.IO_POOL_WORKERS, thread_name_prefix=
 
 _pending = 0
 _pending_lock = threading.Lock()
+_last_done = time.monotonic()
 _torch_configured = False
 
 
@@ -114,9 +117,14 @@ def pending() -> int:
     return _pending
 
 
+def idle_s() -> float:
+    """Seconds since the last inference job finished; 0 while one is queued or running."""
+    return 0.0 if _pending else time.monotonic() - _last_done
+
+
 async def run_inference(fn, *args):
     """Run a model forward pass on the inference pool."""
-    global _pending
+    global _pending, _last_done
     with _pending_lock:
         _pending += 1
     try:
@@ -125,6 +133,7 @@ async def run_inference(fn, *args):
     finally:
         with _pending_lock:
             _pending -= 1
+            _last_done = time.monotonic()
 
 
 async def run_io(fn, *args):
