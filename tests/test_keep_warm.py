@@ -46,7 +46,35 @@ def test_a_pass_reads_the_weights_even_when_the_text_is_cached(models):
     assert enc.calls == 1                       # a search for the same text is cached
     keep_warm._pass()
     keep_warm._pass()
-    assert (enc.calls, ce.calls) == (3, 2)
+    assert (enc.calls, ce.calls) == (3, 4)     # short and long abstracts: two batches a pass
+
+
+def test_the_rerank_looks_like_a_search_top_10():
+    long = [len(d) > reranker_bge_svc._LONG_PAIR_CHARS for d in keep_warm.DOCS]
+    assert len(long) == 10 and sum(long) == 5
+
+
+def test_every_page_of_every_weight_is_read_and_left_unchanged(monkeypatch):
+    torch = pytest.importorskip("torch")
+
+    class Holder:
+        def __init__(self, module):
+            self.model = module
+
+    enc = torch.nn.Sequential(torch.nn.Embedding(3000, 64), torch.nn.Linear(64, 64))
+    enc.register_buffer("position_ids", torch.arange(512))
+    ce = torch.nn.Linear(64, 1)
+    ce.extra = enc[1]                                     # shared with the encoder: counted once
+    before = [p.clone() for p in enc.parameters()]
+    monkeypatch.setattr(embed_svc, "_model", Holder(enc))
+    monkeypatch.setattr(reranker_bge_svc, "_reranker", Holder(ce))
+    size = sum(t.numel() * t.element_size() for t in [*enc.parameters(), *enc.buffers(), ce.weight, ce.bias])
+    assert keep_warm._touch() == size
+    assert all(torch.equal(a, b) for a, b in zip(before, enc.parameters()))
+
+
+def test_without_torch_models_nothing_is_touched(models):
+    assert keep_warm._touch() == 0
 
 
 def test_a_pass_never_loads_a_model(monkeypatch):
@@ -74,12 +102,18 @@ def test_due(monkeypatch, mode, idle, expected):
     assert keep_warm.due() is expected
 
 
-async def test_a_pass_with_many_faults_counts_as_cold(models, monkeypatch):
+async def test_a_pass_with_many_faults_counts_as_cold_after_the_first(models, monkeypatch):
+    monkeypatch.setitem(keep_warm._state, "passes", 0)
+    monkeypatch.setitem(keep_warm._state, "cold", 0)
     before = runtime_stats.counters().get("keep_warm_cold", 0)
-    monkeypatch.setattr(keep_warm, "_pass", lambda: {"encode_ms": 4100, "rerank_ms": 2300, "major_faults": 9000})
+    monkeypatch.setattr(keep_warm, "_pass", lambda: {"encode_ms": 4100, "rerank_ms": 2300, "touch_ms": 900,
+                                                     "weights_gb": 2.56, "major_faults": 9000})
+    await keep_warm.run_once()                  # the first pass reads the word tables in
+    assert runtime_stats.counters().get("keep_warm_cold", 0) == before
     out = await keep_warm.run_once()
     assert out["major_faults"] == 9000
     assert runtime_stats.counters()["keep_warm_cold"] == before + 1
+    assert keep_warm.status()["cold"] == 1
     assert keep_warm.status()["last_major_faults"] == 9000
     assert runtime_stats.timings()["keep_warm"]["encode_ms"]["max"] >= 4100
 
@@ -116,3 +150,21 @@ def test_memory_says_where_the_weights_went(monkeypatch):
     m = runtime_stats.memory()
     assert (m["rss_gb"], m["anon_gb"], m["file_gb"], m["swap_gb"]) == (0.45, 0.3, 0.15, 2.6)
     assert m["container_swap_gb"] == 2.7 and m["major_faults"] >= 0
+
+
+def test_memory_says_whether_the_machine_swaps_and_reclaims(monkeypatch):
+    files = {
+        "/proc/meminfo": "MemTotal:       263000000 kB\nSwapTotal:       8000000 kB\nSwapFree:        2500000 kB\n",
+        "/sys/fs/cgroup/memory.stat": "anon 450000000\nfile 90000000\nfile_mapped 40000000\n"
+                                      "workingset_refault_anon 120000\nworkingset_refault_file 880000\n"
+                                      "pgmajfault 51000\nslab 1000\n",
+        "/sys/fs/cgroup/memory.pressure": "some avg10=0.00 avg60=1.50 avg300=2.25 total=900\n"
+                                          "full avg10=0.00 avg60=0.40 avg300=0.75 total=300",
+    }
+    monkeypatch.setattr(runtime_stats, "_read", files.get)
+    m = runtime_stats.memory()
+    assert (m["host_total_swap_gb"], m["host_free_swap_gb"]) == (8.0, 2.5)
+    assert m["cgroup"] == {"anon_gb": 0.45, "page_cache_gb": 0.09, "mapped_gb": 0.04, "refaults_anon": 120000,
+                           "refaults_file": 880000, "major_faults": 51000}
+    assert (m["pressure_some_avg300"], m["pressure_full_avg300"]) == (2.25, 0.75)
+    assert m["memlock_limit_gb"] == "unlimited" or m["memlock_limit_gb"] >= 0

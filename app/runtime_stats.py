@@ -104,6 +104,48 @@ def memory() -> dict:
     swap = _read("/sys/fs/cgroup/memory.swap.current")
     if swap is not None:
         out["container_swap_gb"] = round(int(swap) / 1e9, 3)
+    out.update(_reclaim())
+    return out
+
+
+# memory.stat fields: what the container holds, and how often pages it had
+# lost were needed again (refaults) - the cost a quiet spell leaves behind.
+_CGROUP_STAT = {"anon": "anon_gb", "file": "page_cache_gb", "file_mapped": "mapped_gb",
+                "zswapped": "zswapped_gb", "workingset_refault_anon": "refaults_anon",
+                "workingset_refault_file": "refaults_file", "pgmajfault": "major_faults"}
+
+
+def _reclaim() -> dict:
+    """Whether the machine swaps and how hard it is reclaiming memory, for
+    app/keep_warm.py: swap on the host (/proc/meminfo inside a container shows
+    the host's), the container's memory.stat, the share of time its tasks
+    waited on memory (PSI, %, 5-minute average), and how much memory this
+    process may lock in RAM (mlock), the one way to keep pages there for good."""
+    out: dict = {}
+    meminfo = _read("/proc/meminfo")
+    if meminfo:
+        for line in meminfo.splitlines():
+            key, _, val = line.partition(":")
+            if key in ("SwapTotal", "SwapFree"):
+                out[f"host_{key[4:].lower()}_swap_gb"] = round(int(val.split()[0]) / 1e6, 3)
+    stat = _read("/sys/fs/cgroup/memory.stat")
+    if stat:
+        cg = {}
+        for line in stat.splitlines():
+            key, _, val = line.partition(" ")
+            if key in _CGROUP_STAT:
+                name = _CGROUP_STAT[key]
+                cg[name] = round(int(val) / 1e9, 3) if name.endswith("_gb") else int(val)
+        out["cgroup"] = cg
+    pressure = _read("/sys/fs/cgroup/memory.pressure")
+    if pressure:
+        for line in pressure.splitlines():
+            kind, _, rest = line.partition(" ")
+            fields = dict(f.split("=") for f in rest.split())
+            if "avg300" in fields:
+                out[f"pressure_{kind}_avg300"] = float(fields["avg300"])
+    soft, _hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+    out["memlock_limit_gb"] = "unlimited" if soft == resource.RLIM_INFINITY else round(soft / 1e9, 6)
     return out
 
 
