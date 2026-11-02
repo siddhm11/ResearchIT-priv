@@ -5,6 +5,9 @@ Measured on the Space: after a quiet spell the process held 0.45 GB (peak
 3.1 GB) and the next search took 9.9 s on the server (2026-11-02); 3.3 hours
 after the last search, one took 10.6 s end to end against 3-4 s warm, and the
 process grew from 1.0 to 2.4 GB while the weights were read back (2026-11-03).
+With nothing else running it then lost them again: 1.1 GB at 54 minutes and
+0.66 GB at 92, in sudden drops about half an hour apart, the container's
+memory falling with it. A pass every few idle minutes is well inside that.
 Nothing here unloads a model: the system took the memory back. It can do that
 in two ways, and the models are exposed to both (laptop, same library pins):
 
