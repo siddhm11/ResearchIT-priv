@@ -1224,9 +1224,16 @@ switch, none of them in the feed:
 * `HN_LASTING`: `/trending/lasting`, the papers HN keeps coming back to. A paper
   is listed when at least 3 people linked it in at least 3 separate months,
   where a month counts only when someone who had not linked it before did
-  ("new-voice months"). Two views, one per page: "Closest to you", ranked by
-  `trending_shelf.rank` with people on HN as the popularity term
-  (`votes_key="people"`), and the whole list in order, by area.
+  ("new-voice months"). The page offers the controls DAIR.AI's Hacker Papers
+  does, one list per page: views "Closest to you" (`trending_shelf.rank`
+  with people on HN as the popularity term, `votes_key="people"`), "Most
+  lasting", "Longest running", "Hidden gems", "Recently mentioned" and
+  "Saved"; sorts by newest, oldest, most people, most threads; filters by
+  the year a paper appeared and by five broad fields. A hidden gem is a
+  lasting paper cited 1 to 49 times and at least 2 years old (346 of 1,843;
+  a count of 0 is left out, since NeRF, DeepSeek-V3 and Gemini all read 0).
+  Each row carries a bar per year since 2007 and its eight most relevant
+  threads in date order.
 * `HN_FRESH`: "On Hacker News lately" on `/trending`: papers linked by at least
   2 people in the last 30 days, or submitted as a story that reached 20 points.
 
@@ -1260,7 +1267,8 @@ for cosmology.
 **Supersedes:** nothing. No feed slot, retrieval, fusion or reranking changes
 (§3.1, §3.4 untouched); the lists are separate ranked surfaces with their own
 §3.11 policy ids (`hn_lasting_for_you_v1`, `hn_lasting_list_v1`,
-`hn_fresh_page_v1`, candidate sources `hn_lasting`, `hn_fresh`). No LLM.
+`hn_lasting_{running,gems,recent,saved}_v1`, `hn_fresh_page_v1`, candidate
+sources `hn_lasting`, `hn_fresh`). No LLM.
 
 **Action items:** Turso tables `hn_mentions`, `hn_comments`, `hn_threads`,
 `hn_state` (daily job; one-off backfill `daily_refresh.py --hn-only --hn-since
