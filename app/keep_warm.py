@@ -32,9 +32,12 @@ INTERVAL_S without any model work, so a busy Space runs none. A search that
 arrives during one waits for it: 0.21 s on the laptop warm, which should be
 about 1 s on the Space (it runs these models about 4.5 times slower).
 
-Each pass records its times and the major page faults it caused. A warm pass
-causes almost none; a pass with many means the weights left RAM within the
-interval anyway, and /healthz/runtime counts those as keep_warm_cold.
+Each pass reads the weights first and counts the page faults that read
+causes, minor as well as major: a weight page still in RAM and mapped causes
+none, so a pass with many means the weights left RAM within the interval
+anyway, and /healthz/runtime counts those as keep_warm_cold. Major faults
+alone miss it on Linux, where read-ahead fetches many pages per fault: the
+Space's first pass read 1 GB of word tables from disk in 2 s with 17 of them.
 
 Modes: off; on.
 """
@@ -49,7 +52,7 @@ from app import compute_pool, embed_svc, errors, features, reranker_bge_svc, run
 
 SWITCH = "MODEL_KEEP_WARM"
 INTERVAL_S = int(os.getenv("MODEL_KEEP_WARM_INTERVAL_S", "120"))
-COLD_FAULTS = 256           # pages read back from disk or swap (1 MB) before a pass counts as cold
+COLD_FAULTS = 256           # weight pages mapped back in (1 MB) before a pass counts as cold
 TEXT = "keeping the search models in memory"
 _SENTENCE = ("We study how retrieval models rank scientific papers for a short query, "
              "comparing dense, lexical and cross-encoder scores on held-out searches. ")
@@ -61,13 +64,14 @@ PAGE = 4096
 
 _state: dict = {"scheduler": "off", "passes": 0, "cold": 0, "last_at": None,
                 "last_encode_ms": None, "last_rerank_ms": None, "last_touch_ms": None,
-                "last_major_faults": None, "weights_gb": None}
+                "last_touch_faults": None, "last_major_faults": None, "weights_gb": None}
 _task: asyncio.Task | None = None
 
 
-def _faults() -> int:
-    """Major page faults of the calling thread (Linux), else of the whole process."""
-    return resource.getrusage(getattr(resource, "RUSAGE_THREAD", resource.RUSAGE_SELF)).ru_majflt
+def _faults() -> tuple[int, int]:
+    """Major and minor page faults of the calling thread (Linux), else of the whole process."""
+    r = resource.getrusage(getattr(resource, "RUSAGE_THREAD", resource.RUSAGE_SELF))
+    return r.ru_majflt, r.ru_minflt
 
 
 def _weights() -> list:
@@ -99,21 +103,23 @@ def _touch() -> int:
 
 
 def _pass() -> dict:
-    """One encode, one top-10 rerank and a read of every weight page, on the
-    inference thread, for whichever model is loaded (never loads one)."""
-    f0, t0 = _faults(), time.perf_counter()
+    """A read of every weight page, one encode and one top-10 rerank, on the
+    inference thread, for whichever model is loaded (never loads one). The read
+    goes first, so its faults count every weight page that had left RAM before
+    the models' own allocations add any."""
+    (maj0, min0), t0 = _faults(), time.perf_counter()
+    covered = _touch()
+    (maj1, min1), t1 = _faults(), time.perf_counter()
     if embed_svc._model is not None:
         # Around the LRU cache: an answer from the cache would read no weights.
         embed_svc._encode_cached.__wrapped__(TEXT)
-    t1 = time.perf_counter()
+    t2 = time.perf_counter()
     if reranker_bge_svc._reranker is not None:
         reranker_bge_svc._score_in_length_groups(reranker_bge_svc._reranker, [[TEXT, d] for d in DOCS])
-    t2 = time.perf_counter()
-    covered = _touch()
     t3 = time.perf_counter()
-    return {"encode_ms": round((t1 - t0) * 1000), "rerank_ms": round((t2 - t1) * 1000),
-            "touch_ms": round((t3 - t2) * 1000), "weights_gb": round(covered / 1e9, 2),
-            "major_faults": _faults() - f0}
+    return {"touch_ms": round((t1 - t0) * 1000), "encode_ms": round((t2 - t1) * 1000),
+            "rerank_ms": round((t3 - t2) * 1000), "weights_gb": round(covered / 1e9, 2),
+            "touch_faults": (maj1 - maj0) + (min1 - min0), "major_faults": _faults()[0] - maj0}
 
 
 def due() -> bool:
@@ -129,16 +135,17 @@ async def run_once() -> dict | None:
     runtime_stats.record("keep_warm", {k: v for k, v in out.items() if k != "weights_gb"})
     runtime_stats.count("keep_warm_pass")
     # The first pass reads in the word-table rows no search has needed yet
-    # (laptop: 1 GB, 64,000 faults), which says nothing about reclaim.
+    # (1 GB: 64,000 faults on the laptop, 2 s on the Space), which says nothing
+    # about reclaim.
     first = _state["passes"] == 0
     _state["passes"] += 1
-    if out["major_faults"] >= COLD_FAULTS and not first:
+    if out["touch_faults"] >= COLD_FAULTS and not first:
         runtime_stats.count("keep_warm_cold")
         _state["cold"] += 1
     _state.update(last_at=time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()),
                   last_encode_ms=out["encode_ms"], last_rerank_ms=out["rerank_ms"],
-                  last_touch_ms=out["touch_ms"], last_major_faults=out["major_faults"],
-                  weights_gb=out["weights_gb"])
+                  last_touch_ms=out["touch_ms"], last_touch_faults=out["touch_faults"],
+                  last_major_faults=out["major_faults"], weights_gb=out["weights_gb"])
     return out
 
 

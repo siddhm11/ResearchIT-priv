@@ -107,15 +107,36 @@ async def test_a_pass_with_many_faults_counts_as_cold_after_the_first(models, mo
     monkeypatch.setitem(keep_warm._state, "cold", 0)
     before = runtime_stats.counters().get("keep_warm_cold", 0)
     monkeypatch.setattr(keep_warm, "_pass", lambda: {"encode_ms": 4100, "rerank_ms": 2300, "touch_ms": 900,
-                                                     "weights_gb": 2.56, "major_faults": 9000})
+                                                     "weights_gb": 2.56, "touch_faults": 9000, "major_faults": 17})
     await keep_warm.run_once()                  # the first pass reads the word tables in
     assert runtime_stats.counters().get("keep_warm_cold", 0) == before
     out = await keep_warm.run_once()
-    assert out["major_faults"] == 9000
+    assert out["touch_faults"] == 9000
     assert runtime_stats.counters()["keep_warm_cold"] == before + 1
     assert keep_warm.status()["cold"] == 1
-    assert keep_warm.status()["last_major_faults"] == 9000
+    assert keep_warm.status()["last_touch_faults"] == 9000
     assert runtime_stats.timings()["keep_warm"]["encode_ms"]["max"] >= 4100
+
+
+def test_only_the_weight_read_counts_toward_cold(models, monkeypatch):
+    # Read-ahead makes most of a cold read minor faults; the models' own
+    # allocations during the encode and rerank must not count.
+    faults = {"major": 0, "minor": 0}
+
+    def touch():
+        faults["major"] += 17
+        faults["minor"] += 250_000
+        return 2_560_000_000
+
+    def encode(text):
+        faults["minor"] += 5_000
+        return {}
+
+    monkeypatch.setattr(keep_warm, "_faults", lambda: (faults["major"], faults["minor"]))
+    monkeypatch.setattr(keep_warm, "_touch", touch)
+    monkeypatch.setattr(embed_svc._encode_cached, "__wrapped__", encode)
+    out = keep_warm._pass()
+    assert (out["touch_faults"], out["major_faults"], out["weights_gb"]) == (250_017, 17, 2.56)
 
 
 async def test_nothing_runs_without_models(monkeypatch):
