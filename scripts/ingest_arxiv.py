@@ -470,6 +470,13 @@ def turso_existing(url: str, token: str, ids: list[str]) -> set[str]:
     return {row[0].get("value") for row in rows if row[0].get("value")}
 
 
+
+def stamp(message: str) -> None:
+    """A progress line with its UTC time. The daily job captures this script's
+    output and prints it only at the end, so a line's own time is the only way
+    to tell afterwards where a slow or timed-out run spent its minutes."""
+    print(f"{time.strftime('%H:%M:%S', time.gmtime())} {message}", flush=True)
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--since", default="2025-06-01")
@@ -537,8 +544,12 @@ def main() -> int:
         have = turso_existing(turso_url, turso_tok, ids)
         todo = [p for p in papers if p["arxiv_id"] not in have]
         if todo:
+            t0 = time.time()
             vecs = encoder.encode([f"{p['title'][:256]} {p['abstract'][:1024]}" for p in todo])
+            t1 = time.time()
             upserter.upsert(todo, vecs)               # their licences ride in the same Turso batch
+            stamp(f"  page: {len(todo):,} new of {len(papers):,} stored "
+                  f"(encode {t1 - t0:.0f} s, write {time.time() - t1:.0f} s)")
         # Papers stored before licences were kept get theirs when OAI lists them again.
         upserter.write_licences([p for p in papers if p["arxiv_id"] in have])
         return len(todo)
@@ -555,10 +566,10 @@ def main() -> int:
         oai_until = (date.fromisoformat(args.until) - timedelta(days=1)).isoformat()
         first = date.fromisoformat(args.since).replace(day=1) - timedelta(days=1)
         seen_total, new_total = harvest(cats, args.since, oai_until, first.strftime("%y%m"), state,
-                                        handle_page, save_state, log=lambda m: print(m, flush=True))
+                                        handle_page, save_state, log=stamp)
     else:
         seen_total, new_total = walk(cats, args.since, args.until, state, handle_page, save_state,
-                                     limit=args.limit, log=lambda m: print(m, flush=True))
+                                     limit=args.limit, log=stamp)
 
     print(f"\ndone: examined {seen_total:,}, new {new_total:,} "
           f"in {(time.time()-t0)/60:.1f} min")

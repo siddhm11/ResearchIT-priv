@@ -145,7 +145,9 @@ def test_workflow_is_gated_serialised_and_passes_every_required_secret():
     assert "TODAY: ${{ inputs.today }}" in text and '${TODAY:+--today "$TODAY"}' in text
     assert "inputs.today }} \\" not in text
     # catch-up runs can raise the ingest limit; the job ceiling sits above it
-    assert "INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '60' }}" in text
+    # 60 failed on Mondays (31 Oct, 3 Nov); the input default and the scheduled run's agree.
+    assert "INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '150' }}" in text
+    assert re.search(r'(?m)^        description: "Fail the run if one ingest attempt[^"]*"\n        default: "150"$', text)
     assert '--ingest-timeout-min "$INGEST_TIMEOUT_MIN"' in text
     assert re.search(r"(?m)^    timeout-minutes: 300$", text)
 
