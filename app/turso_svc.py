@@ -646,3 +646,42 @@ async def fetch_hf_daily(since: str, timeout: float = 30) -> list[dict]:
                     "github": r["github_repo"] or "", "upvotes": int(r["upvotes"] or 0),
                     "stars": int(r["github_stars"] or 0)})
     return out
+
+
+# ── Hacker News mentions (scripts/hn_harvest.py writes them; app/hn_svc.py reads) ──
+
+async def query(sql: str, args: tuple = (), timeout: float = 30) -> list[dict]:
+    """Rows of one read-only statement, as dicts keyed by column name.
+
+    Raises on failure (not configured, HTTP error, an SQL error such as a
+    missing table), so a caller can keep what it had instead of mistaking an
+    outage for no data. Callers must bound what they read: page by rowid or
+    look up by key, never scan a big table (Turso blocked every read on
+    2026-10-24 after full scans used up the month's quota).
+    """
+    url, token = config.TURSO_URL, config.TURSO_DB_TOKEN
+    if not url or not token:
+        raise RuntimeError("TURSO_URL or TURSO_DB_TOKEN not configured")
+    url = url.rstrip("/").replace("libsql://", "https://", 1).replace("http://", "https://", 1)
+    stmt_args = [{"type": "integer", "value": str(a)} if isinstance(a, int) and not isinstance(a, bool)
+                 else {"type": "text", "value": str(a)} for a in args]
+    resp = await http_client.get_client().post(
+        f"{url}/v2/pipeline", timeout=timeout,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"requests": [{"type": "execute", "stmt": {"sql": sql, "args": stmt_args}},
+                           {"type": "close"}]})
+    resp.raise_for_status()
+    res = resp.json()["results"][0]
+    if res.get("type") == "error":
+        raise RuntimeError(str(res.get("error"))[:200])
+    result = res["response"]["result"]
+    cols = [c["name"] for c in result["cols"]]
+    out = []
+    for row in result["rows"]:
+        r = {}
+        for c, cell in zip(cols, row):
+            kind = cell.get("type")
+            v = cell.get("value")
+            r[c] = None if kind == "null" else int(v) if kind == "integer" else v
+        out.append(r)
+    return out

@@ -303,7 +303,7 @@ def _round_robin(pool: list[dict], n: int) -> list[dict]:
 
 def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: float,
          exclude: set[str], size: int = SHELF_SIZE, areas: list[dict] = (),
-         seen: set[str] = frozenset()) -> list[dict]:
+         seen: set[str] = frozenset(), votes_key: str = "upvotes") -> list[dict]:
     """The shelf for one reader, best first, or [] when fewer than MIN_SHOWN qualify.
 
     A paper qualifies by closeness to one of the reader's saved interests (its
@@ -313,7 +313,8 @@ def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: floa
     interest or a big area cannot fill the shelf. `exclude` is never shown;
     papers in `seen` (shown before) come after every unseen one, filling places
     rather than leaving the shelf empty for a reader who has seen the week's
-    best already.
+    best already. `votes_key` names the popularity count: Hugging Face upvotes
+    here, people on Hacker News for app/hn_svc.py's lists.
     """
     if not interests and not areas:
         return []
@@ -323,7 +324,7 @@ def rank(candidates: list[dict], vectors: dict, interests: list[dict], bar: floa
         aid = p["arxiv_id"]
         if aid in exclude:
             continue
-        votes = UPVOTE_WEIGHT * math.log10(max(p.get("upvotes") or 0, 1))
+        votes = UPVOTE_WEIGHT * math.log10(max(p.get(votes_key) or 0, 1))
         vec = vectors.get(aid)
         if medoids is not None and vec is not None:
             sims = medoids @ _unit(vec)
@@ -374,6 +375,19 @@ async def reader_areas(user_id: str) -> list[str]:
     return [k for k in (state or {}).get("selected_categories") or [] if isinstance(k, str)]
 
 
+async def reader_groups(user_id: str, labels: dict[int, tuple[str, int]] | None = None
+                        ) -> tuple[list[dict], float, list[dict]]:
+    """What rank() matches a reader by: their interests, their bar, and the
+    areas they picked, toned after the interests. `labels` override the
+    interests' names (see shelf_for)."""
+    interests, bar = await reader_interests(user_id)
+    for i in interests:
+        if labels and i["cluster_idx"] in labels:
+            i["label"], i["tone"] = labels[i["cluster_idx"]]
+    first_tone = 1 + max((i["cluster_idx"] for i in interests), default=-1)
+    return interests, bar, area_groups(await reader_areas(user_id), first_tone)
+
+
 async def shelf_for(user_id: str, exclude: set[str],
                     labels: dict[int, tuple[str, int]] | None = None,
                     size: int = SHELF_SIZE, seen: set[str] = frozenset(),
@@ -387,12 +401,7 @@ async def shelf_for(user_id: str, exclude: set[str],
     """
     if not _state["papers"]:
         return []
-    interests, bar = await reader_interests(user_id)
-    for i in interests:
-        if labels and i["cluster_idx"] in labels:
-            i["label"], i["tone"] = labels[i["cluster_idx"]]
-    first_tone = 1 + max((i["cluster_idx"] for i in interests), default=-1)
-    areas = area_groups(await reader_areas(user_id), first_tone)
+    interests, bar, areas = await reader_groups(user_id, labels)
     picked = rank(list(_state["papers"].values()), _state["vectors"], interests, bar, exclude,
                   size, areas=areas, seen=seen)
     if not picked and fallback:
