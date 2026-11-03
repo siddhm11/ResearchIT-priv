@@ -129,7 +129,9 @@ async def search(
     if q.strip() and repeat_qid is None:
         await analytics.log_search(q, query_id, len(papers), search_meta.get("retrieval_mode") or "hybrid",
                                    search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
-                                   features.has_preview(request))
+                                   features.has_preview(request),
+                                   # A cached answer carries the stage times of the search it copies.
+                                   None if search_meta.get("cached") else search_meta)
 
     # htmx restoring a page it has no snapshot of asks with HX-Request too, and
     # swaps the answer in as the whole body, so it gets the whole page.

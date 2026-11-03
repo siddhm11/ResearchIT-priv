@@ -95,6 +95,16 @@ def test_searches_page_shows_volume_queries_and_what_came_of_them():
     assert "Drones navigate" in html
 
 
+
+def test_searches_page_shows_speed_after_a_quiet_spell():
+    s = ("INSERT INTO search_log (query, query_id, n_results, mode, latency_ms, owner, encode_ms, rerank_ms, gap_s) "
+         "VALUES (?, ?, 10, 'hybrid', ?, 0, ?, ?, ?)")
+    run((s, ("warm search", "q1", 1500, 140, 600, 30)), (s, ("after the night", "q2", 9151, 3839, 4345, 11880)))
+    html = get("/admin/searches" + TOKEN).text
+    assert "After an hour or more without a search</th><td>1</td>" in html
+    assert "3839 / 3839 ms" in html and "after 3.3 h quiet" in html
+    assert "encode 140 ms · cross-encoder 600 ms" in html
+
 # ── AI history ───────────────────────────────────────────────────────────────
 
 def test_history_shows_each_paper_and_search_with_what_was_written():

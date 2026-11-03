@@ -1,0 +1,42 @@
+# Known vulnerabilities in the exact versions the image installs.
+#
+# The Docker build installs constraints.txt, a lock `make lock` generates, and
+# tests.yml never reads it, so nothing else looks at those versions. Dependabot
+# can't edit a generated lock correctly (single-line bumps contradicted other
+# pins: PRs #26-#29), so its pip version PRs are off and this job is the alarm.
+#
+# Fix a finding with `make lock` plus `--upgrade-package <name>`, not by hand.
+# Accepted advisories, with the reason, live in .github/pip-audit-accepted.txt.
+# A failed scheduled run emails the repository owner.
+
+name: pip-audit
+
+on:
+  schedule:
+    - cron: "41 3 * * 1"   # Mondays 03:41 UTC, away from the daily job at 02:30
+  pull_request:
+    paths: [constraints.txt, .github/pip-audit-accepted.txt, .github/workflows/pip-audit.yml]
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: python -m pip install pip-audit==2.10.1
+
+      - name: Audit constraints.txt
+        # torch is pinned as 2.14.0+cpu from PyTorch's index; PyPI's advisories
+        # are filed under the plain version, so the local suffix is dropped.
+        run: |
+          sed 's/+cpu$//' constraints.txt > audit-requirements.txt
+          ignores=$(grep -v -e '^#' -e '^$' .github/pip-audit-accepted.txt | sed 's/^/--ignore-vuln /' | tr '\n' ' ')
+          pip-audit -r audit-requirements.txt --no-deps --disable-pip --progress-spinner off $ignores

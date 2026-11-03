@@ -65,6 +65,7 @@
         {% if search_meta.groq_time_ms is defined %}
           <span>rewrite {{ search_meta.groq_time_ms }}ms{% if search_meta.groq_status is defined and search_meta.groq_status != 'rewritten' %} ({{ search_meta.groq_status }}){% endif %}</span>
         {% endif %}
+        {% if search_meta.rewrite_call_ms is defined %}<span>rewrite call {{ search_meta.rewrite_call_ms }}ms</span>{% endif %}
         {% if search_meta.encode_time_ms is defined %}<span>encode {{ search_meta.encode_time_ms }}ms</span>{% endif %}
         {% if search_meta.retrieval_time_ms is defined %}<span>retrieval {{ search_meta.retrieval_time_ms }}ms{% if search_meta.n_retrieval_tasks is defined %} ({{ search_meta.n_retrieval_tasks }} tasks){% endif %}</span>{% endif %}
         {% if search_meta.rrf_time_ms is defined %}<span>rrf {{ search_meta.rrf_time_ms }}ms</span>{% endif %}

@@ -87,6 +87,11 @@ def _post(client: httpx.Client, ids: list[str]) -> list | None:
             r = None
         if r is not None and r.status_code == 200:
             return r.json()
+        # S2 answers 400 "No valid paper ids given" when it knows NONE of the
+        # ids: the daily run's last batch is papers announced hours earlier.
+        # That is every paper unknown (null each), and retrying can't change it.
+        if r is not None and r.status_code == 400 and "No valid paper ids" in r.text:
+            return [None] * len(ids)
         codes.append(r.status_code if r is not None else "net")
         if r is not None and r.status_code in (401, 403) and headers:
             print("[citations] S2_API_KEY rejected; using the public pool from now on", file=sys.stderr)

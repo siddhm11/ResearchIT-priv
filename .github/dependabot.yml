@@ -4,7 +4,11 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
+    # Version PRs are off (limit 0). constraints.txt is a lock `make lock`
+    # generates, and Dependabot bumps one line of it at a time, which
+    # contradicted other pins every time (#26-#29 could not install). Known
+    # vulnerabilities are caught by .github/workflows/pip-audit.yml instead.
+    open-pull-requests-limit: 0
     # The ML stack is pinned exactly on purpose (see requirements.txt): newer
     # FlagEmbedding/transformers combinations break BGE-M3 encoding, and CI
     # cannot catch it because tests.yml does not install these packages. A

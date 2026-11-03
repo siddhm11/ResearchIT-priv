@@ -36,6 +36,38 @@ async def test_a_search_is_logged_collapsed_without_a_reader():
     assert "user_id" not in cols
 
 
+
+async def test_a_search_keeps_its_stage_times_unless_it_came_from_the_cache():
+    meta = {"encode_time_ms": 506, "bge_rerank_time_ms": 1367, "retrieval_time_ms": 1852, "rewrite_call_ms": 526,
+            "meta_time_ms": 14, "gap_s": 31680, "total_ms": 3266}
+    await analytics.log_search("graph neural networks", "q-1", 10, "hybrid", None, 3300, False, meta)
+    await analytics.log_search("graph neural networks", "q-2", 10, "hybrid", None, 3, False, None)   # the cache
+    assert await rows("SELECT encode_ms, rerank_ms, retrieval_ms, rewrite_ms, meta_ms, gap_s FROM search_log "
+                      "ORDER BY id") == [(506, 1367, 1852, 526, 14, 31680), (None,) * 6]
+
+
+async def test_speed_sets_searches_after_a_quiet_spell_and_a_restart_apart():
+    for gap, total, encode, rerank in [(30, 1500, 140, 600), (40, 1700, 150, 700),
+                                       (11880, 9151, 3839, 4345), (None, 2400, 300, 800)]:
+        await analytics.log_search("q", "q", 10, "hybrid", None, total, False,
+                                   {"encode_time_ms": encode, "bge_rerank_time_ms": rerank, "gap_s": gap})
+    await analytics.log_search("q", "q", 10, "hybrid", None, 2, False, None)      # cached: no stage times
+    report = await analytics.searches_report(include_owner=True)
+    every, quiet, restart = report["speed"]
+    assert (every["searches"], quiet["searches"], restart["searches"]) == (4, 1, 1)
+    assert quiet["encode"] == {"p50": 3839, "p95": 3839} and quiet["total"]["p50"] == 9151
+    assert restart["rerank"] == {"p50": 800, "p95": 800}
+    assert [s["after"] for s in report["latest"]] == [None, "first after a restart", "after 3.3 h quiet", None, None]
+
+
+def test_the_stage_times_replicate_and_are_added_remotely():
+    from app import turso_sync
+    new = list(analytics.STAGES)
+    assert turso_sync.TABLES["search_log"]["cols"][-len(new):] == new
+    ddl = next(d for d in turso_sync.REMOTE_DDL if "TABLE IF NOT EXISTS search_log" in d)
+    assert all(c in ddl for c in new)
+    assert {("search_log", c) for c in new} <= {(t, c) for t, c, _ in turso_sync.REMOTE_COLUMNS}
+
 def test_the_search_route_logs_each_search_with_its_results_query_id():
     from app.main import app
 

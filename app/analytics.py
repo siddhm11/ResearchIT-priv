@@ -7,8 +7,10 @@ search_log        one row per search: the query (whitespace collapsed, at most
                   200 characters), its query_id (the results' clicks and saves
                   carry it in interactions.query_id), the number of results,
                   the retrieval mode, the AI rewrite when it changed the query,
-                  the time taken, and owner = 1 when the searcher holds the
-                  preview token. Not stored against the reader.
+                  the time taken and each stage's (none for an answer from
+                  the cache) with the seconds since the search before, and
+                  owner = 1 when the searcher holds the preview token. Not
+                  stored against the reader.
 search_overviews  the AI overview shown for a query and its top papers. Also
                   the overview cache: the same query over the same papers is
                   answered from here for OVERVIEW_TTL_S instead of a new call.
@@ -29,11 +31,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+import statistics
 import time
 
 import aiosqlite
 
-from app import ai_usage, config, errors
+from app import ai_usage, config, errors, runtime_stats
 
 RETENTION_DAYS = 90
 OVERVIEW_TTL_S = 7 * 24 * 3600
@@ -52,18 +55,29 @@ _EXPIRE = [
 
 # ── searches ─────────────────────────────────────────────────────────────────
 
+# search_log column -> the search_meta key it is stored from (app/hybrid_search_svc.py,
+# app/routers/search.py).
+STAGES = {"encode_ms": "encode_time_ms", "rerank_ms": "bge_rerank_time_ms", "retrieval_ms": "retrieval_time_ms",
+          "rewrite_ms": "rewrite_call_ms", "meta_ms": "meta_time_ms", "gap_s": "gap_s"}
+QUIET_S = 3600              # a search this long after the one before counts as after a quiet spell
+
+
 async def log_search(query: str, query_id: str, n_results: int, mode: str, rewritten: str | None,
-                     latency_ms: int, owner: bool) -> None:
-    """One search. Never raises: a search must not fail because it couldn't be counted."""
+                     latency_ms: int, owner: bool, stages: dict | None = None) -> None:
+    """One search, with its stage times when it ran (`stages`: its search_meta;
+    None for an answer from the cache). Never raises: a search must not fail
+    because it couldn't be counted."""
     q = ai_usage.query_subject(query)
     if not q:
         return
     r = ai_usage.query_subject(rewritten) if rewritten and rewritten.strip() != query.strip() else None
+    times = [(stages or {}).get(key) for key in STAGES.values()]
     try:
         async with aiosqlite.connect(config.DB_PATH) as conn:
             await conn.execute(
-                "INSERT INTO search_log (query, query_id, n_results, mode, rewritten, latency_ms, owner) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)", (q, query_id, n_results, mode, r, latency_ms, 1 if owner else 0))
+                "INSERT INTO search_log (query, query_id, n_results, mode, rewritten, latency_ms, owner, "
+                f"{', '.join(STAGES)}) VALUES ({', '.join('?' * (7 + len(STAGES)))})",
+                (q, query_id, n_results, mode, r, latency_ms, 1 if owner else 0, *times))
             await conn.commit()
     except Exception as e:
         errors.report("analytics", "logging a search failed", e)
@@ -345,8 +359,11 @@ async def searches_report(days: int = 30, include_owner: bool = False) -> dict:
         latest = await _all(conn, f"""
             SELECT s.created_at, s.query, s.n_results, s.mode, s.rewritten, s.latency_ms, s.owner, {outcome},
                    (SELECT o.overview FROM search_overviews o WHERE LOWER(o.query) = LOWER(s.query)
-                    ORDER BY o.id DESC LIMIT 1)
+                    ORDER BY o.id DESC LIMIT 1), s.encode_ms, s.rerank_ms, s.gap_s
             FROM search_log s WHERE s.query IS NOT NULL {owner} ORDER BY s.id DESC LIMIT 40""")
+        timed = await _all(conn, f"""
+            SELECT s.latency_ms, s.encode_ms, s.rerank_ms, s.gap_s FROM search_log s
+            WHERE s.encode_ms IS NOT NULL AND s.created_at >= date('now', ?) {owner}""", since)
     by_day = {r[0]: r for r in per_day}
     rows = [{"day": d, "searches": by_day[d][1] if d in by_day else 0,
              "no_results": by_day[d][2] or 0 if d in by_day else 0,
@@ -362,10 +379,41 @@ async def searches_report(days: int = 30, include_owner: bool = False) -> dict:
                 for q, c, r, o, s in top],
         "nothing": [{"query": q, "times": c, "last": t} for q, c, t in nothing],
         "latest": [{"at": a, "query": q, "results": r, "mode": m, "rewritten": rw, "ms": ms, "owner": bool(ow),
-                    "opened": bool(op), "saved": bool(sv), "overview": ov}
-                   for a, q, r, m, rw, ms, ow, op, sv, ov in latest],
+                    "opened": bool(op), "saved": bool(sv), "overview": ov, "encode_ms": en, "rerank_ms": rr,
+                    "after": _after(en, gap)}
+                   for a, q, r, m, rw, ms, ow, op, sv, ov, en, rr, gap in latest],
+        "speed": _speed(timed),
         "retention_days": RETENTION_DAYS,
     }
+
+
+def _after(encode_ms: int | None, gap_s: int | None) -> str | None:
+    """What came before a search that ran the models, when it may have found them cold."""
+    if encode_ms is None:
+        return None
+    if gap_s is None:
+        return "first after a restart"
+    return f"after {gap_s / 3600:.1f} h quiet" if gap_s >= QUIET_S else None
+
+
+def _speed(rows: list) -> list[dict]:
+    """Median and 95th percentile of the whole search, the encode and the
+    cross-encoder: all searches that ran the models, those after a quiet spell,
+    and the first after each restart. The last two are where models that left
+    RAM would show (app/keep_warm.py)."""
+    groups = [("All searches", rows),
+              ("After an hour or more without a search", [r for r in rows if r[3] is not None and r[3] >= QUIET_S]),
+              ("First after a restart", [r for r in rows if r[3] is None])]
+    out = []
+    for label, group in groups:
+        row: dict = {"label": label, "searches": len(group)}
+        for i, stage in ((0, "total"), (1, "encode"), (2, "rerank")):
+            xs = [r[i] for r in group if r[i] is not None]
+            # A true median: the quiet groups hold a handful of searches, where
+            # the upper middle value runtime_stats uses would overstate it.
+            row[stage] = {"p50": round(statistics.median(xs)), "p95": runtime_stats.pct(xs, 0.95)} if xs else None
+        out.append(row)
+    return out
 
 
 async def ai_history(limit: int = 60) -> dict:

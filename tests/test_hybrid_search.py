@@ -409,3 +409,37 @@ async def test_rewritten_question_drops_its_keyword_list(monkeypatch, switch, ma
     assert "hallucination-paper" in ids
     assert ("stop-paper" in ids) is original_counts
     assert ("fts_q0" in meta["retrieval_sources"]) is original_counts
+
+
+# ── What is stored with each search to tell a cold one apart ─────────────────
+
+@pytest.mark.asyncio
+async def test_a_search_records_the_gap_since_the_last_and_the_rewrite_call_alone(monkeypatch):
+    import asyncio
+    import numpy as np
+    from app import config, fts_svc, hybrid_search_svc
+    monkeypatch.setattr(config, "SPARSE_BACKEND", "fts")
+    monkeypatch.setattr(config, "SEARCH_BGE_RERANK", False)
+    monkeypatch.setattr(hybrid_search_svc, "_last_search_at", None)
+
+    def slow_encode(text):
+        import time
+        time.sleep(0.3)                          # the rewrite returns long before this
+        return np.ones(1024, dtype=np.float32), {}
+
+    async def rewrite(q):
+        await asyncio.sleep(0.01)
+        return q
+
+    with patch.object(hybrid_search_svc.groq_svc, "rewrite", side_effect=rewrite), \
+         patch.object(fts_svc, "is_available", return_value=True), \
+         patch.object(fts_svc, "search_sparse", side_effect=_lexical({"sparse attention for long documents": [
+             {"arxiv_id": "p1", "score": 1.0, "match": "all"}]})), \
+         patch.object(hybrid_search_svc.embed_svc, "encode_query", side_effect=slow_encode), \
+         patch.object(hybrid_search_svc.qdrant_svc, "search_dense_merged", new_callable=AsyncMock, return_value=[]), \
+         patch.object(hybrid_search_svc, "_title_match_rerank", new_callable=AsyncMock,
+                      side_effect=lambda fused, q, **kw: fused):
+        _, first = await hybrid_search_svc.search("sparse attention for long documents", return_meta=True)
+        _, second = await hybrid_search_svc.search("sparse attention for long documents", return_meta=True)
+    assert first["gap_s"] is None and second["gap_s"] == 0         # None: the first since a restart
+    assert first["rewrite_call_ms"] < 200 <= first["groq_time_ms"]  # the old timer waited for the encode

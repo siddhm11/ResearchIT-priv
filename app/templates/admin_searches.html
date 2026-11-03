@@ -49,6 +49,28 @@
     </details>
   </section>
 
+  <section class="ai-sec" aria-labelledby="s-speed-h">
+    <h2 id="s-speed-h">Speed</h2>
+    <p class="ai-note">Time on the server, median / slowest 5%. A search after a quiet spell or a restart is where
+      models that had left memory would show.</p>
+    {% if speed[0].searches %}
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Searches</th><th scope="col">How many</th><th scope="col">Whole search</th>
+            <th scope="col">Encode</th><th scope="col">Cross-encoder</th></tr></thead>
+          <tbody>
+            {% for g in speed %}
+              <tr><th scope="row">{{ g.label }}</th><td>{{ g.searches }}</td>
+                <td>{{ ("%.1f / %.1f s" % (g.total.p50 / 1000, g.total.p95 / 1000)) if g.total else "—" }}</td>
+                <td>{{ ("%d / %d ms" % (g.encode.p50, g.encode.p95)) if g.encode else "—" }}</td>
+                <td>{{ ("%d / %d ms" % (g.rerank.p50, g.rerank.p95)) if g.rerank else "—" }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">No timed searches yet.</p>{% endif %}
+  </section>
+
   <section class="ai-sec" aria-labelledby="s-top-h">
     <h2 id="s-top-h">Most searched</h2>
     {% if top %}
@@ -87,7 +109,9 @@
                 <td>{{ s.at[5:16] }}{% if s.owner %} <span class="ai-tag">you</span>{% endif %}</td>
                 <th scope="row" class="ai-query">{{ s.query }}</th>
                 <td>{{ s.results }}</td>
-                <td>{{ "keyword" if s.mode in ("keyword", "arxiv_keyword") else "semantic" }} <span class="muted">· {{ ("%.1f s" % (s.ms / 1000)) if s.ms else "" }}</span></td>
+                <td>{{ "keyword" if s.mode in ("keyword", "arxiv_keyword") else "semantic" }} <span class="muted">· {{ ("%.1f s" % (s.ms / 1000)) if s.ms else "" }}</span>
+                  {% if s.encode_ms is not none %}<br><span class="muted">encode {{ s.encode_ms }} ms · cross-encoder {{ s.rerank_ms if s.rerank_ms is not none else "—" }} ms</span>{% endif %}
+                  {% if s.after %}<br><span class="ai-tag">{{ s.after }}</span>{% endif %}</td>
                 <td>{{ s.rewritten or "—" }}</td>
                 <td>{{ "saved" if s.saved else ("opened" if s.opened else "—") }}</td>
                 <td>{% if s.overview %}<details><summary>Read</summary><p class="ai-overview">{{ s.overview | striptags }}</p></details>{% else %}—{% endif %}</td>
