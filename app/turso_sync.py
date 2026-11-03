@@ -616,6 +616,7 @@ async def start() -> None:
         await ensure_remote_schema()
         await restore()
     except Exception as e:
+        _last.update(ok=False, at=time.time(), error=f"startup: {str(e)[:190]}")
         print(f"[turso_sync] startup failed ({str(e)[:150]}) — continuing without sync")
         return
     _task = asyncio.create_task(_loop())
