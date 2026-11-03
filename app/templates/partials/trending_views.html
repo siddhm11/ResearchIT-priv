@@ -1,0 +1,12 @@
+{#
+  The two views of the Trending tab: what is moving this week (Hugging Face
+  lists, HN lately) and what lasts (HN since 2007). Expects `current`
+  ("week" or "lasting"); shown only when both views are visible to this
+  request (the routes decide).
+#}
+<nav class="trend-views" aria-label="Trending views">
+  <a href="/trending" class="trend-view{% if current == 'week' %} is-on{% endif %}"
+     {% if current == 'week' %}aria-current="page"{% endif %}>This week</a>
+  <a href="/trending/lasting" class="trend-view{% if current == 'lasting' %} is-on{% endif %}"
+     {% if current == 'lasting' %}aria-current="page"{% endif %}>Lasting</a>
+</nav>

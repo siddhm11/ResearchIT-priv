@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{#
+  /trending/lasting (app/routers/trending.py, switch HN_LASTING): the papers
+  Hacker News keeps coming back to, from app/hn_svc.py. One list per page, so
+  a paper is never on it twice: "Closest to you" (the reader's interests and
+  areas, trending_shelf.rank) or "All lasting" (the whole list in order, by
+  area, LASTING_PAGE rows a page). The footnote says how a paper gets on it.
+#}
+{% block title %}Lasting on Hacker News — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--trend trending-page lasting-page">
+  <header class="issue">
+    <div class="issue-kicker">Hacker News, 2007 to today</div>
+    <h1 class="issue-title">Lasting</h1>
+    <p class="muted">Papers Hacker News keeps coming back to: each one linked by at least 3 people, in at least 3 separate months.</p>
+    {% if loaded %}
+      <div class="issue-line">
+        <span><b>{{ total | commafy }}</b> papers</span>
+        <span class="sep">·</span><span>from {{ mentions | commafy }} links to arXiv</span>
+        <span class="sep">·</span><span>updated daily</span>
+      </div>
+    {% endif %}
+  </header>
+
+  {% if trending_page %}{% set current = "lasting" %}{% include "partials/trending_views.html" %}{% endif %}
+
+  {% if not loaded %}
+    <p class="muted">The list is being loaded. It appears here a minute or so after the site starts.</p>
+  {% else %}
+    <nav class="topic-chips" aria-label="Show">
+      {% if has_for_you %}
+        <a class="tchip{% if view == 'you' %} tchip--up{% endif %}" href="/trending/lasting"
+           {% if view == 'you' %}aria-current="page"{% endif %}>Closest to you</a>
+      {% endif %}
+      <a class="tchip{% if view == 'all' and not area %} tchip--up{% endif %}" href="/trending/lasting?view=all"
+         {% if view == 'all' and not area %}aria-current="page"{% endif %}>All {{ total | commafy }}</a>
+      {% for key, name, n in areas %}
+        <a class="tchip tchip--area{% if area == key %} tchip--up{% endif %}" href="/trending/lasting?view=all&amp;area={{ key }}"
+           {% if area == key %}aria-current="page"{% endif %}>{{ name }} · {{ n }}</a>
+      {% endfor %}
+    </nav>
+
+    <section class="shelf" aria-labelledby="hl-list">
+      <header class="shelf-head">
+        <h2 class="shelf-title" id="hl-list">{% if view == "you" %}Closest to your interests{% elif area %}{{ area_name }}{% else %}All lasting papers{% endif %}</h2>
+        <span class="shelf-note">
+          {% if view == "you" %}Lasting papers nearest what you save and the areas you picked; the number is each one's place on the whole list
+          {% else %}Most months with someone new linking them first, then most people{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}{% endif %}
+        </span>
+      </header>
+      {% if papers %}
+        <ol class="hn-list">
+          {% for paper in papers %}{% include "partials/hn_row.html" %}{% endfor %}
+        </ol>
+      {% else %}
+        <p class="muted">No lasting paper is listed in this area.</p>
+      {% endif %}
+      {% if view == "all" and pages > 1 %}
+        <nav class="hn-pager" aria-label="Pages">
+          {% set base = "/trending/lasting?view=all" ~ ("&area=" ~ area if area else "") %}
+          {% if page > 1 %}<a class="btn btn-sm btn-quiet" href="{{ base }}&amp;page={{ page - 1 }}">← Previous</a>{% endif %}
+          <span class="muted small">{{ page }} / {{ pages }}</span>
+          {% if page < pages %}<a class="btn btn-sm btn-quiet" href="{{ base }}&amp;page={{ page + 1 }}">Next →</a>{% endif %}
+        </nav>
+      {% endif %}
+    </section>
+
+    <details class="small muted trending-method">
+      <summary>How a paper gets on this list</summary>
+      <p>Every Hacker News comment and story since 2007 that links an arXiv paper (or its alphaXiv, ar5iv or
+      Hugging Face page) is counted. A paper is listed when at least 3 different people linked it, in at least
+      3 separate months, and a month counts only when someone who had not linked it before did, so one person
+      posting the same paper every month counts once. That is Andrej Karpathy's rule for HackerTube with one
+      change, made because a single account wrote half or more of the links for about one in ten papers that
+      passed the original.</p>
+      <p>A link is not a vote. People link a paper to build on it, to make a point in an argument, or to
+      disagree with it, and all three count the same here.{% if total_all > total %}{% set missing = total_all - total %}
+      {% if missing == 1 %}One lasting paper isn't in ResearchIT's collection yet, so it isn't shown.
+      {% else %}{{ missing | commafy }} lasting papers aren't in ResearchIT's collection yet, so they aren't shown.{% endif %}{% endif %}</p>
+    </details>
+  {% endif %}
+</div>
+{% endblock %}

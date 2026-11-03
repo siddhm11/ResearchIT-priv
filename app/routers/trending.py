@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse
 
 from datetime import date as Date
 
-from app import card_data, db, errors, features, qdrant_svc, runtime_stats, trending_shelf, trending_topics
+from app import card_data, config, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
 from app import user_state as us
 from app.config import COOKIE_NAME
 from app.routers import recommendations
@@ -158,6 +158,8 @@ async def trending_page(
     shown = {p["arxiv_id"] for p in for_you} | {p["arxiv_id"] for a in areas for p in a["papers"]}
     top = trending_shelf.week_top(PAGE_TOP, exclude=decided | shown)
     _add_topics(for_you + [p for a in areas for p in a["papers"]] + top)
+    shown |= {p["arxiv_id"] for p in top}
+    hn_lately = await _hn_lately(user_id, decided | shown) if features.visible(hn_svc.SWITCH_FRESH, request) else []
 
     rising, cooling, steady = trending_topics.rising(), trending_topics.cooling(), trending_topics.steady()
     scale = max([v for t in rising + cooling + steady for v in t["rolling"]] or [0.01])
@@ -175,6 +177,7 @@ async def trending_page(
                               "position": position, "tier": None, "candidate_source": p["candidate_source"],
                               "cluster_id": p["cluster_id"], "propensity": 1.0, "policy_id": policy})
             position += 1
+    exposures += _instrument(hn_lately, user_id, HN_LATELY_POLICY, HN_FRESH_SOURCE, query_id, start=position)
     if user_id and exposures:
         try:
             await db.record_exposures(exposures)
@@ -190,7 +193,120 @@ async def trending_page(
         "steady": [_topic_view(t, scale) for t in steady],
         "chips": _chips(rising, cooling, areas), "window": trending_shelf.window(),
         "basis": trending_topics.coverage(), "since": _day_label(trending_topics.coverage().get("first_week")),
-        "spark_w": SPARK_W, "spark_h": SPARK_H})
+        "spark_w": SPARK_W, "spark_h": SPARK_H, "hn_lately": hn_lately, "hn_days": hn_svc.FRESH_DAYS,
+        "lasting_visible": features.visible(hn_svc.SWITCH_LASTING, request)})
+
+
+# ── "On Hacker News lately" on /trending ─────────────────────────────────────
+#
+# Papers HN discussed in the last hn_svc.FRESH_DAYS days: linked by at least
+# two people, or submitted as a story that reached 20 points. A second source
+# beside Hugging Face's lists, and the only one for most fields outside ML:
+# of 145 papers HN discussed between August and November 2026, 33 were on
+# Hugging Face's lists (doc 06, 2026-11-03). The reader's closest come first,
+# then the rest by how many people linked them.
+
+HN_LATELY = 6
+HN_FRESH_SOURCE = "hn_fresh"
+HN_LATELY_POLICY = "hn_fresh_page_v1"
+
+
+async def _hn_lately(user_id: str | None, exclude: set[str]) -> list[dict]:
+    fresh = [dict(c) for c in hn_svc.fresh_cards() if c["arxiv_id"] not in exclude]
+    mine = await _reader_rank(user_id, fresh, exclude, HN_LATELY)
+    picked = {p["arxiv_id"] for p in mine}
+    return (mine + [c for c in fresh if c["arxiv_id"] not in picked])[:HN_LATELY]
+
+
+# ── /trending/lasting: the papers Hacker News keeps coming back to ───────────
+#
+# app/hn_svc.py counts every HN link to arXiv since 2007; a paper is "lasting"
+# when at least 3 people linked it in at least 3 separate months, a month
+# counting only when someone new linked it. Two views of one list, never both
+# on a page (a paper is on the page once): "Closest to you", the lasting papers
+# nearest the reader's interests and areas by trending_shelf.rank (people on HN
+# as the popularity term), and "All lasting", the whole list in order, by area.
+# A ranked surface, so §3.11 fields ride on every row and in the exposure log.
+
+LASTING_SOURCE = "hn_lasting"
+LASTING_FOR_YOU = 30
+LASTING_PAGE = 25
+
+
+async def _reader_rank(user_id: str | None, candidates: list[dict], exclude: set[str], size: int) -> list[dict]:
+    """trending_shelf.rank over HN candidates for one reader ([] without interests or areas)."""
+    if not user_id:
+        return []
+    interests, bar, areas = await trending_shelf.reader_groups(user_id)
+    return trending_shelf.rank(candidates, hn_svc.vectors(), interests, bar, exclude, size,
+                               areas=areas, votes_key="people")
+
+
+def _instrument(papers: list[dict], user_id: str | None, policy: str, source: str,
+                query_id: str, start: int = 0) -> list[dict]:
+    """§3.11 fields on each paper; the exposure rows to record."""
+    out = []
+    for i, p in enumerate(papers):
+        pos = start + i
+        p.update(query_id=query_id, position=pos, propensity=1.0, policy_id=policy, ranker_version=policy,
+                 candidate_source=source, cluster_id=(p.get("interest") or {}).get("cluster_idx"))
+        out.append({"user_id": user_id, "paper_id": p["arxiv_id"], "query_id": query_id, "position": pos,
+                    "tier": None, "candidate_source": source, "cluster_id": p["cluster_id"],
+                    "propensity": 1.0, "policy_id": policy})
+    return out
+
+
+@router.get("/trending/lasting", response_class=HTMLResponse)
+async def lasting_page(
+    request: Request,
+    view: str = "",
+    area: str = "",
+    page: int = 1,
+    user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    if not features.visible(hn_svc.SWITCH_LASTING, request):
+        return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
+    t0 = time.perf_counter()
+    state = await us.ensure_loaded(user_id) if user_id else None
+    decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)} if user_id else set()
+    saved = set(state.positives) if state else set()
+
+    # Closest to you is the default whenever the reader has interests or areas
+    # that some lasting papers fit; ?view=all or an area asks for the list.
+    closest = await _reader_rank(user_id, hn_svc.lasting_cards(), decided, LASTING_FOR_YOU)
+    view = "you" if closest and view != "all" and not area else "all"
+    for_you = closest if view == "you" else []
+    group = config.CATEGORY_GROUPS.get(area)
+    rows, pages = [], 1
+    if view == "all":
+        everything = hn_svc.lasting_cards(frozenset(group["arxiv"]) if group else None)
+        pages = max(1, -(-len(everything) // LASTING_PAGE))
+        page = min(max(page, 1), pages)
+        rows = [dict(c) for c in everything[(page - 1) * LASTING_PAGE: page * LASTING_PAGE]]
+    shown = for_you or rows
+    for p in shown:
+        p["saved"] = p["arxiv_id"] in saved
+
+    query_id = str(uuid.uuid4())
+    policy = "hn_lasting_for_you_v1" if view == "you" else "hn_lasting_list_v1"
+    exposures = _instrument(shown, user_id, policy, LASTING_SOURCE, query_id,
+                            start=0 if view == "you" else (page - 1) * LASTING_PAGE)
+    if user_id and exposures:
+        try:
+            await db.record_exposures(exposures)
+        except Exception as e:  # pragma: no cover - analytics must not cost the page
+            errors.report("trending", "lasting exposure write failed", e)
+    stats = hn_svc.stats()
+    runtime_stats.record("hn_lasting", {"request_ms": int((time.perf_counter() - t0) * 1000)})
+    return templates.TemplateResponse(request, "lasting.html", {
+        "view": view, "papers": shown, "page": page, "pages": pages, "area": area if group else "",
+        # One interest's name on every row says nothing; it shows when rows differ.
+        "show_interest": len({(p.get("interest") or {}).get("label") for p in shown}) > 1,
+        "area_name": group["name"] if group else "", "areas": hn_svc.area_counts(config.CATEGORY_GROUPS),
+        "has_for_you": bool(closest),
+        "total": stats["lasting"], "total_all": stats["lasting_all"], "mentions": stats["mentions"],
+        "loaded": bool(stats["loaded_at"]), "query_id": query_id, "source": LASTING_SOURCE,
+        "trending_page": features.visible(trending_topics.SWITCH, request)})
 
 
 # ── /trending/topics/<id>: one topic ─────────────────────────────────────────

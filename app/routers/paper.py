@@ -33,7 +33,7 @@ from fastapi import APIRouter, Cookie, Form, Query, Request
 from fastapi.responses import HTMLResponse
 
 from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, briefing_svc, config, db, features, groq_svc,
-                 hf_papers_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
+                 hf_papers_svc, hn_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
 from app.config import COOKIE_NAME
@@ -303,6 +303,10 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
                     ("sec-use", "Where you'd use this")]
     if len(figures) > 1:
         outline.append(("sec-figs", "All figures"))
+    # In memory (hn_svc loads it daily): no read on the request path.
+    hn = hn_svc.paper_block(arxiv_id) if features.visible(hn_svc.SWITCH_PAPER, request) else None
+    if hn:
+        outline.append(("sec-hn", "On Hacker News"))
     if related:
         outline.append(("sec-near", "What sits near this"))
     ask_ctx, ask_suggested = {}, []
@@ -327,6 +331,8 @@ async def _v2_context(paper: dict, related: list[dict], request: Request,
         "back": back,
         "ask_visible": ask_visible,
         "briefing_visible": briefing_visible,
+        "hn": hn,
+        "lasting_visible": features.visible(hn_svc.SWITCH_LASTING, request),
     }
 
 

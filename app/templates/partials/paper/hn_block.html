@@ -1,0 +1,63 @@
+{#
+  "On Hacker News" on the paper page (switch HN_PAPER; app/hn_svc.py). Shown
+  only when HN has linked the paper at least once. Every number is a count of
+  links from scripts/hn_harvest.py: how many people, in how many separate
+  months (a month counts when someone new links it), and in which threads.
+
+  The words are "linked" and "brought up", never "recommended": most papers on
+  HN are cited in an argument, and a link to disagree with a paper counts the
+  same as one to praise it. The note under the threads says so.
+
+  Expects `hn` (hn_svc.paper_block), `pid` and `lasting_visible`.
+#}
+{% set n_people, n_months, n_threads = hn.people, hn.months, hn.threads %}
+<section class="brief hn" id="sec-hn">
+  <h2 class="brief-h">On Hacker News
+    {% if hn.lasting and hn.rank %}<span class="gen-tag gen-tag--solid">Lasting · #{{ hn.rank | commafy }} of {{ hn.of | commafy }}</span>{% endif %}
+  </h2>
+  <p class="hn-lede">
+    {% if n_people >= 2 %}
+      Linked by <b>{{ n_people | commafy }} people</b> in
+      <b>{{ n_months }} separate month{{ "" if n_months == 1 else "s" }}</b>, {{ hn.span }},
+      across {{ n_threads | commafy }} thread{{ "" if n_threads == 1 else "s" }}.
+    {% elif n_people == 1 %}
+      {% if hn.submitted and hn.mentions == 1 %}Posted to Hacker News once, in {{ hn.span }}.
+      {% else %}Linked by one person{% if hn.mentions > 1 %}, {{ hn.mentions }} times{% endif %}, {{ hn.span }}.{% endif %}
+    {% else %}
+      Linked {{ hn.mentions }} time{{ "" if hn.mentions == 1 else "s" }}, {{ hn.span }}.
+    {% endif %}
+  </p>
+
+  {% if hn.strip | length >= 3 %}
+    <figure class="hn-years" style="--n: {{ hn.strip | length }}">
+      <div class="hn-strip" role="img"
+           aria-label="People who linked it each year: {% for y in hn.strip %}{{ y.year }} {{ y.people }}{{ ', ' if not loop.last }}{% endfor %}">
+        {% for y in hn.strip %}
+          <span class="hn-bar{% if not y.people %} is-zero{% endif %}" style="--h: {{ y.h }}%"
+                title="{{ y.year }}: {{ y.people }} {{ 'person' if y.people == 1 else 'people' }}"></span>
+        {% endfor %}
+      </div>
+      <figcaption class="hn-axis"><span>{{ hn.strip[0].year }}</span><span>people per year</span><span>{{ hn.strip[-1].year }}</span></figcaption>
+    </figure>
+  {% endif %}
+
+  {% if hn.threads_shown %}
+    <ul class="near hn-threads">
+      {% for t in hn.threads_shown %}
+        <li>
+          <a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.title or "A Hacker News thread" }} ↗</a>
+          <span class="m">
+            {%- if t.points is not none %}{{ t.points | commafy }} point{{ "" if t.points == 1 else "s" }}{% endif %}
+            {%- if t.comments %} · {{ t.comments | commafy }} comment{{ "" if t.comments == 1 else "s" }}{% endif %}
+            {%- if t.when %} · {{ t.when }}{% endif %}
+            · {% if t.submitted %}the paper was the link{% elif t.mentions > 1 %}{{ t.mentions }} comments link it{% else %}a comment links it{% endif %}
+          </span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <p class="near-note">Links, not votes: people link a paper to build on it, to make a point or to argue with it.
+    <a href="https://hn.algolia.com/?query={{ pid | urlencode }}&amp;type=all&amp;dateRange=all" target="_blank" rel="noopener">Every mention on HN Search ↗</a>
+    {% if lasting_visible %} · <a href="/trending/lasting">Papers HN keeps coming back to</a>{% endif %}</p>
+</section>
