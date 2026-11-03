@@ -136,3 +136,11 @@ def test_the_licence_is_read_from_the_record():
     assert odd["licence"] == "" and odd["licence_url"] == "https://example.org/my-licence"   # kept to remap later
     none = ia.parse_oai_record(list(ET.fromstring(PAGE).iter("{http://www.openarchives.org/OAI/2.0/}record"))[0])
     assert none["licence"] == "" and none["licence_url"] == ""
+
+
+def test_progress_lines_carry_their_utc_time(capsys):
+    # The daily job prints this script's output only at the end; each line's
+    # own time is what shows where a timed-out run spent its minutes.
+    import re
+    ia.stamp("  oai cs       records=1,300")
+    assert re.fullmatch(r"\d\d:\d\d:\d\d   oai cs       records=1,300\n", capsys.readouterr().out)

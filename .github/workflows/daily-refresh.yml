@@ -17,7 +17,13 @@
 # ids come from the arXiv id, so a manual run overlapping this one cannot
 # collide with it.
 #
-# Budget: ~900 papers/day encoded on CPU, roughly 10-20 minutes a run.
+# Budget, measured: a run takes 9-77 minutes (26 Oct - 3 Nov). Encoding is the
+# smaller part: 1,123 new papers took 15 minutes of it on 2 Nov, inside a 47-minute
+# refresh; the rest is the OAI listing (arXiv's rate limits), the writes and the
+# citation refresh. A Monday brings about twice a weekday's papers, and at the old
+# 60-minute ingest limit 31 Oct and 3 Nov failed before finishing. 150 minutes
+# leaves room under the job's 300; the repository is public, so the minutes cost
+# nothing.
 #
 # Catching up after a gap: run it by hand with `today` set to a past day, a
 # lookback covering the days since the previous run, and a longer
@@ -42,7 +48,7 @@ on:
         default: ""
       ingest_timeout_min:
         description: "Fail the run if one ingest attempt takes longer (catch-up runs need more)"
-        default: "60"
+        default: "150"
       skip_citations:
         description: "Skip the citation refresh"
         type: boolean
@@ -92,7 +98,7 @@ jobs:
           S2_API_KEY: ${{ secrets.S2_API_KEY }}
           INGEST_DEVICE: cpu
           TODAY: ${{ inputs.today }}     # through env, never pasted into the script
-          INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '60' }}
+          INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '150' }}
         run: |
           python scripts/daily_refresh.py \
             --lookback-days "${{ inputs.lookback_days || '3' }}" \
