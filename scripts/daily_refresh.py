@@ -20,16 +20,20 @@ Stages, each with a check that fails the run
   2. hf_daily   the last two weeks of Hugging Face Daily Papers lists, with
                 each paper's upvotes as of today, into hf_daily_papers and
                 hf_upvote_history (reported, never fails the run)
-  3. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1);
+  3. hn         Hacker News comments and stories linking arXiv papers since
+                the last run, with their threads' points, into hn_mentions,
+                hn_comments and hn_threads (scripts/hn_harvest.py; reported,
+                never fails the run)
+  4. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1);
                 re-run once if its coverage check reports a gap (exit 3)
-  4. citations  Semantic Scholar counts for papers from the last 3 months;
+  5. citations  Semantic Scholar counts for papers from the last 3 months;
                 only changed rows are written
-  5. verify     new Qdrant points == new Turso rows == papers the ingest
+  6. verify     new Qdrant points == new Turso rows == papers the ingest
                 reported; sampled new vectors are 1024-dim unit vectors and
                 their Turso rows are complete
-  6. licences   how many new papers have a `paper_licences` row, and how many
+  7. licences   how many new papers have a `paper_licences` row, and how many
                 of those may show figures (reported, never fails the run)
-  7. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
+  8. summary    printed as JSON, and to $GITHUB_STEP_SUMMARY when set
 
 Re-running is always safe: the ingest skips papers already stored and point
 ids are derived from the arXiv id, so overlapping runs cannot collide.
@@ -39,6 +43,8 @@ Usage
     python scripts/daily_refresh.py                 # the daily run
     python scripts/daily_refresh.py --dry-run       # stages 1 and 6 only
     python scripts/daily_refresh.py --hf-only --hf-days 182   # backfill the history
+    python scripts/daily_refresh.py --hn-only --hn-since 2007-01-01 --hn-workers 6
+                                                    # every HN mention since 2007
 """
 from __future__ import annotations
 
@@ -61,6 +67,8 @@ import httpx
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 from app import hf_papers_svc, licences  # noqa: E402  (standard library and httpx only)
+sys.path.append(str(HERE))       # hn_harvest sits beside this file
+import hn_harvest  # noqa: E402
 
 REQUIRED_ENV = ("QDRANT_RECENT_URL", "QDRANT_RECENT_API_KEY", "TURSO_URL", "TURSO_DB_TOKEN")
 COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
@@ -419,6 +427,15 @@ def stage_hf_daily(st: Stores, today: dt.date, days: int = HF_DAYS,
     return out
 
 
+def stage_hn(st: Stores, since: str = "", workers: int = 1) -> dict:
+    """Hacker News mentions of arXiv papers since the last run (or `since`,
+    YYYY-MM-DD, for a backfill). Never fails the run: the watermark only moves
+    when every window came back, so the next run fetches a missed one again."""
+    since_ts = (int(dt.datetime.fromisoformat(since).replace(tzinfo=dt.timezone.utc).timestamp())
+                if since else None)
+    return hn_harvest.harvest(st, int(time.time()), since_ts=since_ts, workers=workers)
+
+
 def licence_coverage(codes: list[str | None]) -> dict:
     """One code per new paper; None or "" when it has no licence row."""
     known = [c for c in codes if c]
@@ -482,6 +499,10 @@ def main() -> int:
                     help="Daily Papers lists to record, today included")
     ap.add_argument("--skip-hf", action="store_true")
     ap.add_argument("--hf-only", action="store_true", help="record the lists, then stop")
+    ap.add_argument("--skip-hn", action="store_true")
+    ap.add_argument("--hn-only", action="store_true", help="record Hacker News mentions, then stop")
+    ap.add_argument("--hn-since", default="", help="YYYY-MM-DD: fetch from this day, not the watermark")
+    ap.add_argument("--hn-workers", type=int, default=1, help="parallel searches (a backfill can use 6)")
     args = ap.parse_args()
 
     summary: dict = {"started": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
@@ -503,11 +524,17 @@ def main() -> int:
         return _finish(summary, 0)
 
     # Before the ingest, so a failed ingest cannot cost a day of history.
-    if not args.skip_hf:
+    if not args.skip_hf and not args.hn_only:
         t0 = time.time()
         summary["hf_daily"] = stage_hf_daily(st, today, args.hf_days)
         summary["hf_daily"]["minutes"] = round((time.time() - t0) / 60, 1)
     if args.hf_only:
+        return _finish(summary, 0)
+    if not args.skip_hn:
+        t0 = time.time()
+        summary["hn"] = stage_hn(st, args.hn_since, args.hn_workers)
+        summary["hn"]["minutes"] = round((time.time() - t0) / 60, 1)
+    if args.hn_only:
         return _finish(summary, 0)
 
     t0 = time.time()
