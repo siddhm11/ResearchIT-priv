@@ -54,7 +54,7 @@ MIN_MONTHS = 3
 FRESH_DAYS = 30
 FRESH_PEOPLE = 2            # a fresh paper: this many people in FRESH_DAYS ...
 FRESH_POINTS = 20           # ... or submitted as a story that reached this many points
-SUBMISSION_FIRST = 10       # a submission with fewer points is listed after the discussions
+SUBMISSION_FIRST = 50       # a submission with fewer points is listed after the discussions
 PAGE_ROWS = 5000
 VECTOR_BATCH = 500
 THREADS_SHOWN = 3
@@ -131,6 +131,19 @@ def is_fresh(p: dict) -> bool:
     return p["recent_last"] > 0 and (p["recent_people"] >= FRESH_PEOPLE or p["recent_points"] >= FRESH_POINTS)
 
 
+def _relevance(x: dict) -> tuple:
+    """Threads about the paper before threads that mention it: submissions that
+    drew attention by points, then discussions by how many comments link it,
+    then submissions nobody noticed. A big thread with one passing link sorts
+    by its points only among those."""
+    pts = x["points"] or 0
+    if x["submitted"] and pts >= SUBMISSION_FIRST:
+        return (0, -pts, 0, x["story_id"])
+    if not x["submitted"]:
+        return (1, -x["mentions"], -pts, x["story_id"])
+    return (2, -pts, 0, x["story_id"])
+
+
 def top_threads(p: dict, threads: dict[str, dict], n: int = THREADS_SHOWN) -> list[dict]:
     """The threads to show for a paper: submissions that drew attention
     (SUBMISSION_FIRST points or more) by points, then the discussions that
@@ -138,20 +151,14 @@ def top_threads(p: dict, threads: dict[str, dict], n: int = THREADS_SHOWN) -> li
     out = []
     for story, k in p["per_thread"].items():
         t = threads.get(story) or {}
+        if (t.get("title") or "").strip() in _GONE - {""}:      # removed by HN: nothing to read there
+            continue
         sub = story in p["submitted"]
         out.append({"story_id": story, "title": t.get("title") or "", "points": t.get("points"),
                     "comments": t.get("comments"), "created_at": t.get("created_at"),
                     "submitted": sub, "mentions": k})
 
-    def key(x):
-        pts = x["points"] or 0
-        if x["submitted"] and pts >= SUBMISSION_FIRST:
-            return (0, -pts, 0, x["story_id"])
-        if not x["submitted"]:
-            return (1, -x["mentions"], -pts, x["story_id"])
-        return (2, -pts, 0, x["story_id"])
-
-    out.sort(key=key)
+    out.sort(key=_relevance)
     for x in out[:n]:
         ts = x["created_at"]
         x["when"] = datetime.fromtimestamp(ts, timezone.utc).strftime("%b %Y") if ts else ""
@@ -340,27 +347,156 @@ def paper_block(arxiv_id: str) -> dict | None:
 
 
 def card(arxiv_id: str, kind: str) -> dict | None:
-    """A list entry: the paper's metadata and its HN facts, plus its best thread.
-    `kind` is "lasting" or "fresh"; a fresh entry counts only recent activity."""
+    """A list entry: the paper's metadata and its HN facts, its best thread,
+    its threads in date order and a bar per year since HN began (the year-by-year
+    record DAIR.AI's Hacker Papers shows on each card). `kind` is "lasting" or
+    "fresh"; a fresh entry counts only recent activity."""
     p, m = _state["papers"].get(arxiv_id), _state["meta"].get(arxiv_id)
     if p is None or m is None:
         return None
     best = top_threads(p, _state["threads"], 1)
+    first = datetime.fromtimestamp(p["first"], timezone.utc)
+    last = datetime.fromtimestamp(p["last"], timezone.utc)
     out = {"arxiv_id": arxiv_id, **m, "hn": facts(p), "thread": best[0] if best else None,
            "rank": _state["canon_rank"].get(arxiv_id), "kind": kind,
+           "field": field_of(m.get("categories") or [], arxiv_id),
+           "first": p["first"], "last": p["last"], "last_label": last.strftime("%-d %b %Y"),
+           "span_years": round((p["last"] - p["first"]) / (365.25 * 86400), 1),
+           "best_post": max([(_state["threads"].get(t) or {}).get("points") or 0 for t in p["submitted"]] or [0]),
+           "spark": spark(p, last_year=max(last.year, datetime.now(timezone.utc).year)),
+           "dated": dated_threads(p, _state["threads"]), "n_threads": p["threads"],
            # trending_shelf.rank's popularity term: tenfold more people is
            # worth UPVOTE_WEIGHT of closeness.
            "people": p["recent_people"] if kind == "fresh" else p["people"]}
+    out["first_label"] = first.strftime("%b %Y")
     if kind == "fresh":
         out["recent_people"], out["recent_points"] = p["recent_people"], p["recent_points"]
     return out
 
 
-def lasting_cards(area_codes: frozenset[str] | None = None) -> list[dict]:
-    """Every listed lasting paper in canon order, optionally only those with a
-    category in `area_codes`. Copies: callers add per-request fields."""
-    return [dict(c) for c in _state.get("cards") or []
-            if area_codes is None or set(c["categories"]) & area_codes]
+HN_FIRST_YEAR = 2007
+THREADS_DATED = 8
+
+
+def spark(p: dict, last_year: int) -> list[dict]:
+    """People per year from HN's first year to `last_year`, every list on one
+    axis so rows compare; heights are shares of the paper's own busiest year."""
+    top = max(p["years"].values() or [0]) or 1
+    return [{"year": y, "people": p["years"].get(y, 0), "h": round(100 * p["years"].get(y, 0) / top)}
+            for y in range(HN_FIRST_YEAR, last_year + 1)]
+
+
+_GONE = {"", "[dead]", "[flagged]", "[deleted]"}
+
+
+def dated_threads(p: dict, threads: dict[str, dict], n: int = THREADS_DATED) -> list[dict]:
+    """The paper's n most relevant threads (_relevance), oldest first: how its
+    HN history unfolded, without the dozen two-point reposts of launch week.
+    Threads HN removed, or whose date is unknown, are left out."""
+    out = []
+    for story, k in p["per_thread"].items():
+        t = threads.get(story) or {}
+        if (t.get("title") or "").strip() in _GONE or not t.get("created_at"):
+            continue
+        out.append({"story_id": story, "title": t["title"], "points": t.get("points"),
+                    "created_at": t["created_at"], "submitted": story in p["submitted"], "mentions": k})
+    out.sort(key=_relevance)
+    out = sorted(out[:n], key=lambda x: (x["created_at"], x["story_id"]))
+    for x in out:
+        x["when"] = datetime.fromtimestamp(x["created_at"], timezone.utc).strftime("%b %Y")
+        x["url"] = f"https://news.ycombinator.com/item?id={x['story_id']}"
+    return out
+
+
+# ── Browsing the list: fields, years, views, sorts ───────────────────────────
+#
+# The controls DAIR.AI's Hacker Papers offers, filled from our counts. Fields
+# are five broad groups by a paper's primary arXiv category, coarser than the
+# onboarding areas on purpose: a list of 1,843 papers is browsed, not matched.
+
+FIELDS = (("ai", "AI & ML"), ("cs", "Computer science"), ("math", "Mathematics"),
+          ("physics", "Physics"), ("bio", "Biology, economics & statistics"))
+_AI = {"cs.LG", "cs.CL", "cs.AI", "cs.CV", "cs.NE", "cs.IR", "cs.RO", "cs.MA", "stat.ML"}
+_PHYSICS = ("quant-ph", "physics", "hep-", "gr-qc", "astro-ph", "cond-mat", "nlin", "nucl-", "math-ph")
+
+
+def field_of(categories: list[str], arxiv_id: str = "") -> str:
+    """The broad field of a paper's primary category (or, without one, its old-style archive)."""
+    prim = categories[0] if categories else arxiv_id.split("/")[0] if "/" in arxiv_id else ""
+    if prim in _AI:
+        return "ai"
+    if prim.startswith(("cs", "eess")):
+        return "cs"
+    if prim.startswith(_PHYSICS):
+        return "physics"
+    if prim.startswith("math"):
+        return "math"
+    if prim.startswith(("q-bio", "q-fin", "econ", "stat")):
+        return "bio"
+    return "cs" if not prim else "bio"
+
+
+def year_buckets(this_year: int) -> list[tuple[str, str, int, int]]:
+    """(key, label, from, to) by the year a paper first appeared: the last four
+    years one by one, then 2020–2022, 2015–2019 and before 2015 (for 2026)."""
+    y = this_year
+    single = [(str(y - i), str(y - i), y - i, y - i) for i in range(4)]
+    return single + [(f"{y - 6}-{y - 4}", f"{y - 6}–{y - 4}", y - 6, y - 4),
+                     (f"{y - 11}-{y - 7}", f"{y - 11}–{y - 7}", y - 11, y - 7),
+                     (f"before-{y - 11}", f"Before {y - 11}", 0, y - 12)]
+
+
+GEM_MAX_CITATIONS = 50      # hidden gem: lasting on HN, cited fewer times than this ...
+GEM_MIN_AGE = 2             # ... and old enough (years) for citations to have arrived
+
+VIEWS = (("lasting", "Most lasting"), ("running", "Longest running"), ("gems", "Hidden gems"),
+         ("recent", "Recently mentioned"), ("saved", "Saved"))
+SORTS = (("default", "Default"), ("newest", "Newest papers"), ("oldest", "Oldest papers"),
+         ("people", "Most people"), ("threads", "Most threads"))
+
+
+def is_gem(c: dict, this_year: int) -> bool:
+    """Lasting on HN and rarely cited: 1 to GEM_MAX_CITATIONS - 1 citations. A
+    count of 0 is left out, since it usually means Semantic Scholar has no
+    record (NeRF, DeepSeek-V3 and Gemini all read 0), and so are papers too new
+    to have been cited."""
+    cites = c.get("citation_count") or 0
+    year = c.get("year") or this_year
+    return 0 < cites < GEM_MAX_CITATIONS and int(year) <= this_year - GEM_MIN_AGE
+
+
+def browse(cards: list[dict], view: str = "lasting", sort: str = "default", year: str = "",
+           field: str = "", saved: frozenset[str] = frozenset(), this_year: int | None = None) -> list[dict]:
+    """The list as the controls ask: a view picks and orders papers, a sort
+    reorders them, and the year and field narrow them. Pure."""
+    this_year = this_year or datetime.now(timezone.utc).year
+    span = next(((lo, hi) for k, _l, lo, hi in year_buckets(this_year) if k == year), None)
+    out = [c for c in cards
+           if (not field or c["field"] == field)
+           and (span is None or span[0] <= int(c.get("year") or 0) <= span[1])]
+    if view == "gems":
+        out = [c for c in out if is_gem(c, this_year)]
+    elif view == "saved":
+        out = [c for c in out if c["arxiv_id"] in saved]
+    if view == "running":
+        out.sort(key=lambda c: (-c["span_years"], c["rank"] or 0))
+    elif view == "recent":
+        out.sort(key=lambda c: (-c["last"], c["rank"] or 0))
+    if sort == "newest":
+        out.sort(key=lambda c: (-int(c.get("year") or 0), c["rank"] or 0))
+    elif sort == "oldest":
+        out.sort(key=lambda c: (int(c.get("year") or 0), c["rank"] or 0))
+    elif sort == "people":
+        out.sort(key=lambda c: (-c["hn"]["people"], c["rank"] or 0))
+    elif sort == "threads":
+        out.sort(key=lambda c: (-c["hn"]["threads"], c["rank"] or 0))
+    return out
+
+
+def lasting_cards() -> list[dict]:
+    """Every listed lasting paper in canon order. Copies: callers add
+    per-request fields."""
+    return [dict(c) for c in _state.get("cards") or []]
 
 
 def fresh_cards() -> list[dict]:
@@ -369,14 +505,3 @@ def fresh_cards() -> list[dict]:
 
 def vectors() -> dict:
     return _state["vectors"]
-
-
-def area_counts(groups: dict[str, dict]) -> list[tuple[str, str, int]]:
-    """(key, name, lasting papers in it) for every area with at least one, biggest first."""
-    out = []
-    for key, g in groups.items():
-        codes = set(g["arxiv"])
-        n = sum(1 for a in _state["canon"] if set(_state["meta"][a]["categories"]) & codes)
-        if n:
-            out.append((key, g["name"], n))
-    return sorted(out, key=lambda t: (-t[2], t[1]))

@@ -21,9 +21,9 @@ import uuid
 from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import HTMLResponse
 
-from datetime import date as Date
+from datetime import date as Date, datetime, timezone
 
-from app import card_data, config, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
+from app import card_data, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
 from app import user_state as us
 from app.config import COOKIE_NAME
 from app.routers import recommendations
@@ -260,7 +260,9 @@ def _instrument(papers: list[dict], user_id: str | None, policy: str, source: st
 async def lasting_page(
     request: Request,
     view: str = "",
-    area: str = "",
+    sort: str = "default",
+    year: str = "",
+    field: str = "",
     page: int = 1,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
@@ -269,26 +271,46 @@ async def lasting_page(
     t0 = time.perf_counter()
     state = await us.ensure_loaded(user_id) if user_id else None
     decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)} if user_id else set()
-    saved = set(state.positives) if state else set()
+    saved = frozenset(state.positives) if state else frozenset()
+    this_year = datetime.now(timezone.utc).year
 
+    # The controls, as DAIR.AI's Hacker Papers offers them; anything unknown
+    # falls back to the default rather than erroring. "all" is the old name of
+    # the whole list.
+    views = dict(hn_svc.VIEWS)
+    view = "lasting" if view == "all" else view
+    sort = sort if sort in dict(hn_svc.SORTS) else "default"
+    buckets = hn_svc.year_buckets(this_year)
+    year = year if year in {k for k, *_ in buckets} else ""
+    field = field if field in dict(hn_svc.FIELDS) else ""
+
+    cards = hn_svc.lasting_cards()
     # Closest to you is the default whenever the reader has interests or areas
-    # that some lasting papers fit; ?view=all or an area asks for the list.
-    closest = await _reader_rank(user_id, hn_svc.lasting_cards(), decided, LASTING_FOR_YOU)
-    view = "you" if closest and view != "all" and not area else "all"
-    for_you = closest if view == "you" else []
-    group = config.CATEGORY_GROUPS.get(area)
-    rows, pages = [], 1
-    if view == "all":
-        everything = hn_svc.lasting_cards(frozenset(group["arxiv"]) if group else None)
-        pages = max(1, -(-len(everything) // LASTING_PAGE))
+    # that some lasting papers fit. The filters narrow what it ranks.
+    pool = hn_svc.browse(cards, year=year, field=field, this_year=this_year)
+    closest = await _reader_rank(user_id, pool, decided, LASTING_FOR_YOU)
+    if view not in views and view != "you":
+        view = "you" if closest else "lasting"
+    if view == "you" and not closest:
+        view = "lasting"
+
+    pages, total = 1, 0
+    if view == "you":
+        shown = closest
+        total = len(closest)
+    else:
+        everything = hn_svc.browse(cards, view, sort, year, field, saved, this_year)
+        total = len(everything)
+        pages = max(1, -(-total // LASTING_PAGE))
         page = min(max(page, 1), pages)
-        rows = [dict(c) for c in everything[(page - 1) * LASTING_PAGE: page * LASTING_PAGE]]
-    shown = for_you or rows
+        shown = everything[(page - 1) * LASTING_PAGE: page * LASTING_PAGE]
     for p in shown:
         p["saved"] = p["arxiv_id"] in saved
+    by_field = {k: len(hn_svc.browse(cards, view if view != "you" else "lasting", "default", year, k, saved, this_year))
+                for k, _ in hn_svc.FIELDS}
 
     query_id = str(uuid.uuid4())
-    policy = "hn_lasting_for_you_v1" if view == "you" else "hn_lasting_list_v1"
+    policy = {"you": "hn_lasting_for_you_v1", "lasting": "hn_lasting_list_v1"}.get(view, f"hn_lasting_{view}_v1")
     exposures = _instrument(shown, user_id, policy, LASTING_SOURCE, query_id,
                             start=0 if view == "you" else (page - 1) * LASTING_PAGE)
     if user_id and exposures:
@@ -296,14 +318,28 @@ async def lasting_page(
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
             errors.report("trending", "lasting exposure write failed", e)
+
+    current = {"view": view, "sort": sort, "year": year, "field": field}
+
+    def link(**change) -> str:
+        """This page with some controls changed; defaults are left out, and any
+        change goes back to page 1."""
+        q = {**current, **change}
+        parts = [f"{k}={v}" for k, v in q.items()
+                 if v and not (k == "sort" and v == "default") and not (k == "view" and v == ("you" if closest else "lasting"))]
+        if change.get("page", 1) > 1:
+            parts.append(f"page={change['page']}")
+        return "/trending/lasting" + ("?" + "&".join(parts) if parts else "")
+
     stats = hn_svc.stats()
     runtime_stats.record("hn_lasting", {"request_ms": int((time.perf_counter() - t0) * 1000)})
     return templates.TemplateResponse(request, "lasting.html", {
-        "view": view, "papers": shown, "page": page, "pages": pages, "area": area if group else "",
+        **current, "papers": shown, "page": page, "pages": pages, "count": total,
+        "views": hn_svc.VIEWS, "sorts": hn_svc.SORTS, "years": buckets, "fields": hn_svc.FIELDS,
+        "by_field": by_field, "has_for_you": bool(closest), "signed": bool(user_id), "link": link,
+        "gem_max": hn_svc.GEM_MAX_CITATIONS, "gem_age": hn_svc.GEM_MIN_AGE,
         # One interest's name on every row says nothing; it shows when rows differ.
         "show_interest": len({(p.get("interest") or {}).get("label") for p in shown}) > 1,
-        "area_name": group["name"] if group else "", "areas": hn_svc.area_counts(config.CATEGORY_GROUPS),
-        "has_for_you": bool(closest),
         "total": stats["lasting"], "total_all": stats["lasting_all"], "mentions": stats["mentions"],
         "loaded": bool(stats["loaded_at"]), "query_id": query_id, "source": LASTING_SOURCE,
         "trending_page": features.visible(trending_topics.SWITCH, request)})

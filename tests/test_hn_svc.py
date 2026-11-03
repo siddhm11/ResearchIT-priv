@@ -321,17 +321,74 @@ async def test_a_reader_with_interests_gets_the_closest_first(world, monkeypatch
         everything = (await c.get("/trending/lasting?view=all")).text
     assert "Closest to your interests" in you and "pol=hn_lasting_for_you_v1" in you
     assert 'class="interest' not in you                     # one interest's name on every row says nothing
-    assert "All lasting papers" in everything and "pol=hn_lasting_list_v1" in everything
+    assert ">Most lasting</h2>" in everything and "pol=hn_lasting_list_v1" in everything
     assert 'href="/trending/lasting"' in everything             # the way back to "Closest to you"
 
 
-async def test_an_area_filters_the_list(world, monkeypatch):
+async def test_fields_and_years_filter_the_list_and_links_keep_them(world, monkeypatch):
     monkeypatch.setenv("HN_LASTING", "on")
     async with client() as c:
-        nlp = (await c.get("/trending/lasting?view=all&area=nlp")).text
-        cv = (await c.get("/trending/lasting?view=all&area=cv")).text
-    assert "Attention Is All You Need" in nlp
-    assert "Attention Is All You Need" not in cv and "No lasting paper is listed in this area." in cv
+        ai = (await c.get("/trending/lasting?field=ai&year=2015-2019")).text
+        physics = (await c.get("/trending/lasting?field=physics")).text
+        bad = await c.get("/trending/lasting?field=nonsense&sort=nonsense&year=1066")
+    assert "Attention Is All You Need" in ai and "1 paper" in ai
+    assert 'href="/trending/lasting?sort=people&amp;year=2015-2019&amp;field=ai"' in ai
+    assert "Attention Is All You Need" not in physics and "No lasting paper matches these filters." in physics
+    assert bad.status_code == 200 and "Attention Is All You Need" in bad.text
+
+
+async def test_each_view_says_what_it_counts(world, monkeypatch):
+    monkeypatch.setenv("HN_LASTING", "on")
+    async with client() as c:
+        gems = (await c.get("/trending/lasting?view=gems")).text
+        running = (await c.get("/trending/lasting?view=running")).text
+        recent = (await c.get("/trending/lasting?view=recent")).text
+        saved = (await c.get("/trending/lasting?view=saved")).text
+    assert "cited 9 times" in gems and "pol=hn_lasting_gems_v1" in gems
+    assert "linked over 1.8 years" in running
+    assert "last linked 15 Apr 2019" in recent
+    assert "None of the papers you saved is on the list" in saved
+
+
+async def test_rows_carry_the_year_record_and_dated_threads(world, monkeypatch):
+    monkeypatch.setenv("HN_LASTING", "on")
+    async with client() as c:
+        html = (await c.get("/trending/lasting")).text
+    assert 'class="hn-spark"' in html and 'aria-label="People who linked it each year: 2017 2, 2019 2"' in html
+    assert "<summary>3 threads</summary>" in html
+    assert html.index("Attention is all you need (arxiv.org)") < html.index("Transformers, explained")
+
+
+def _c(aid, field="ai", year=2017, people=5, threads=5, span=1.0, last=0, cites=10, rank=1):
+    return {"arxiv_id": aid, "field": field, "year": year, "hn": {"people": people, "threads": threads},
+            "span_years": span, "last": last, "citation_count": cites, "rank": rank}
+
+
+def test_browse_views_sorts_and_filters():
+    cards = [_c("a", rank=1, people=9, threads=1, span=2, last=5, cites=0),
+             _c("b", field="physics", year=2010, rank=2, people=3, threads=9, span=9, last=9, cites=20),
+             _c("c", year=2025, rank=3, people=5, threads=5, span=1, last=1, cites=10)]
+    ids = lambda xs: [x["arxiv_id"] for x in xs]
+    assert ids(hn_svc.browse(cards, this_year=2026)) == ["a", "b", "c"]
+    assert ids(hn_svc.browse(cards, "running", this_year=2026)) == ["b", "a", "c"]
+    assert ids(hn_svc.browse(cards, "recent", this_year=2026)) == ["b", "a", "c"]
+    assert ids(hn_svc.browse(cards, "gems", this_year=2026)) == ["b"]        # a: no count; c: too new
+    assert ids(hn_svc.browse(cards, "saved", saved=frozenset({"c"}), this_year=2026)) == ["c"]
+    assert ids(hn_svc.browse(cards, sort="people", this_year=2026)) == ["a", "c", "b"]
+    assert ids(hn_svc.browse(cards, sort="threads", this_year=2026)) == ["b", "c", "a"]
+    assert ids(hn_svc.browse(cards, sort="newest", this_year=2026)) == ["c", "a", "b"]
+    assert ids(hn_svc.browse(cards, field="physics", this_year=2026)) == ["b"]
+    assert ids(hn_svc.browse(cards, year="2025", this_year=2026)) == ["c"]
+    assert ids(hn_svc.browse(cards, year="2015-2019", this_year=2026)) == ["a"]
+    assert ids(hn_svc.browse(cards, year="before-2015", this_year=2026)) == ["b"]
+
+
+def test_fields_and_year_buckets_match_dairs_groups():
+    assert [hn_svc.field_of([c]) for c in ("cs.LG", "cs.CR", "math.CO", "quant-ph", "q-bio.NC", "stat.ML", "stat.ME")] == \
+        ["ai", "cs", "math", "physics", "bio", "ai", "bio"]
+    assert hn_svc.field_of([], "hep-th/9711200") == "physics"
+    assert [label for _k, label, *_ in hn_svc.year_buckets(2026)] == \
+        ["2026", "2025", "2024", "2023", "2020–2022", "2015–2019", "Before 2015"]
 
 
 async def test_trending_shows_hn_lately_only_with_its_switch(world, monkeypatch):
@@ -355,3 +412,18 @@ def test_a_list_shows_the_year_a_paper_first_appeared():
     assert hn_svc.id_year("1706.03762") == 2017
     assert hn_svc.id_year("hep-th/9711200") == 1997
     assert hn_svc.id_year("cs/0101001") == 2001
+
+
+def test_dated_threads_are_the_biggest_in_date_order_without_removed_ones():
+    p = {"per_thread": {str(i): 1 for i in range(1, 13)}, "submitted": set()}
+    threads = {str(i): {"title": f"T{i}", "points": i * 10, "created_at": ts_of(2010 + i, 1)} for i in range(1, 12)}
+    threads["12"] = {"title": "[dead]", "points": 9999, "created_at": ts_of(2024, 1)}
+    got = hn_svc.dated_threads(p, threads, n=3)
+    assert [t["story_id"] for t in got] == ["9", "10", "11"]
+    # The paper's own post comes before bigger threads that only mention it.
+    p2 = {"per_thread": {"1": 1, "2": 1, "3": 1}, "submitted": {"1"}}
+    t2 = {"1": {"title": "Posted", "points": 80, "created_at": ts_of(2020, 1)},
+          "2": {"title": "Huge, one passing link", "points": 4000, "created_at": ts_of(2024, 1)},
+          "3": {"title": "Bigger still", "points": 5000, "created_at": ts_of(2022, 1)}}
+    assert [t["story_id"] for t in hn_svc.dated_threads(p2, t2, n=2)] == ["1", "3"]
+    assert [t["story_id"] for t in hn_svc.top_threads(p, threads, n=1)] == ["11"]
