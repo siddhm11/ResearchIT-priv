@@ -59,6 +59,8 @@ TREND_POOL = 50
 TREND_AUDITIONS = 2
 TREND_MAX_PROMOTED = 2
 
+_last_search_at: float | None = None   # time.monotonic() when the last search began
+
 async def search(
     query: str,
     limit: int = 10,
@@ -87,8 +89,15 @@ async def search(
         return ([], {}) if return_meta else []
 
     import time
+    global _last_search_at
     t_start = time.perf_counter()
     search_meta = {"rewritten_query": None, "groq_time_ms": 0, "groq_status": "off"}
+    # Seconds since the previous search began in this process, None for the
+    # first since a restart: stored with the search (app/analytics.py) so one
+    # after a quiet spell, when the models may have left RAM, can be told apart.
+    now = time.monotonic()
+    search_meta["gap_s"] = None if _last_search_at is None else int(now - _last_search_at)
+    _last_search_at = now
 
 
     # ── Step 1: LLM rewrite — started now, collected after the first encode ──
@@ -102,9 +111,16 @@ async def search(
     # is a no-op we get its latency back entirely; when it does rewrite, the
     # extra encode+search happens after, exactly as before.
     start_groq = time.perf_counter()
-    rewrite_task = (
-        asyncio.create_task(groq_svc.rewrite(query)) if use_rewrite else None
-    )
+
+    async def timed_rewrite() -> str:
+        # The call's own time: groq_time_ms below also counts the wait for the
+        # encode, so it overstated the rewrite whenever the encode was slow.
+        try:
+            return await groq_svc.rewrite(query)
+        finally:
+            search_meta["rewrite_call_ms"] = int((time.perf_counter() - start_groq) * 1000)
+
+    rewrite_task = asyncio.create_task(timed_rewrite()) if use_rewrite else None
     # Which paper a short search names ("resnet"), checked against the corpus
     # (app/named_paper.py). Runs alongside everything below; collected before
     # the final ordering.

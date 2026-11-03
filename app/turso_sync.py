@@ -167,7 +167,8 @@ TABLES: dict[str, dict] = {
         "watermark": "id",
         "wm_kind": "int",
         "pk": ["id"],
-        "cols": ["id", "created_at", "query", "query_id", "n_results", "mode", "rewritten", "latency_ms", "owner"],
+        "cols": ["id", "created_at", "query", "query_id", "n_results", "mode", "rewritten", "latency_ms", "owner",
+                 "encode_ms", "rerank_ms", "retrieval_ms", "rewrite_ms", "meta_ms", "gap_s"],
         "blobs": [],
         "paged": True,
     },
@@ -248,7 +249,8 @@ REMOTE_DDL = [
         reason TEXT, user_id TEXT, created_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS search_log (
         id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
-        mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER)""",
+        mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER, encode_ms INTEGER, rerank_ms INTEGER,
+        retrieval_ms INTEGER, rewrite_ms INTEGER, meta_ms INTEGER, gap_s INTEGER)""",
     """CREATE TABLE IF NOT EXISTS search_overviews (
         id INTEGER PRIMARY KEY, cache_key TEXT NOT NULL UNIQUE, query TEXT, paper_ids TEXT,
         overview TEXT, created_at TEXT)""",
@@ -404,6 +406,12 @@ REMOTE_COLUMNS = [
     ("llm_calls", "requests_left", "INTEGER"),
     ("llm_calls", "tokens_left", "INTEGER"),
     ("llm_calls", "subject", "TEXT"),
+    ("search_log", "encode_ms", "INTEGER"),
+    ("search_log", "rerank_ms", "INTEGER"),
+    ("search_log", "retrieval_ms", "INTEGER"),
+    ("search_log", "rewrite_ms", "INTEGER"),
+    ("search_log", "meta_ms", "INTEGER"),
+    ("search_log", "gap_s", "INTEGER"),
 ]
 
 

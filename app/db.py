@@ -282,7 +282,13 @@ CREATE TABLE IF NOT EXISTS search_log (
     mode        TEXT,
     rewritten   TEXT,
     latency_ms  INTEGER,
-    owner       INTEGER DEFAULT 0
+    owner       INTEGER DEFAULT 0,
+    encode_ms    INTEGER,        -- stage times (app/hybrid_search_svc.py); NULL for
+    rerank_ms    INTEGER,        -- a search answered from the cache
+    retrieval_ms INTEGER,
+    rewrite_ms   INTEGER,
+    meta_ms      INTEGER,
+    gap_s        INTEGER         -- since the previous search; NULL = first since a restart
 );
 CREATE INDEX IF NOT EXISTS idx_search_log_time ON search_log(created_at);
 CREATE TABLE IF NOT EXISTS search_overviews (
@@ -464,6 +470,18 @@ _MIGRATION_AI_USAGE = [
     "ALTER TABLE llm_calls ADD COLUMN subject TEXT",
 ]
 
+# ── Search stage times, so speed after a quiet spell or a restart can be
+# compared over days (/healthz/runtime loses its timings on every restart).
+# Replicated; turso_sync adds the remote columns too.
+_MIGRATION_SEARCH_TIMES = [
+    "ALTER TABLE search_log ADD COLUMN encode_ms INTEGER",
+    "ALTER TABLE search_log ADD COLUMN rerank_ms INTEGER",
+    "ALTER TABLE search_log ADD COLUMN retrieval_ms INTEGER",
+    "ALTER TABLE search_log ADD COLUMN rewrite_ms INTEGER",
+    "ALTER TABLE search_log ADD COLUMN meta_ms INTEGER",
+    "ALTER TABLE search_log ADD COLUMN gap_s INTEGER",
+]
+
 LAYOUTS = ("list", "grid2")
 
 
@@ -493,7 +511,7 @@ async def init_db() -> None:
                 await db.execute(stmt)
             except Exception:
                 pass  # Column already exists — safe to ignore
-        for stmt in _MIGRATION_REDESIGN + _MIGRATION_AI_USAGE:
+        for stmt in _MIGRATION_REDESIGN + _MIGRATION_AI_USAGE + _MIGRATION_SEARCH_TIMES:
             try:
                 await db.execute(stmt)
             except Exception:

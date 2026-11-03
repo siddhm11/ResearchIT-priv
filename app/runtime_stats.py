@@ -41,7 +41,7 @@ def counters() -> dict[str, int]:
         return dict(sorted(_counters.items()))
 
 
-def _pct(xs: list[float], p: float) -> float:
+def pct(xs: list[float], p: float) -> float:
     xs = sorted(xs)
     return xs[min(len(xs) - 1, int(p * len(xs)))]
 
@@ -56,7 +56,7 @@ def timings() -> dict:
         out[kind] = {"n": len(rows)}
         for k in keys:
             xs = [r[k] for r in rows if k in r]
-            out[kind][k] = {"p50": _pct(xs, 0.5), "p95": _pct(xs, 0.95), "max": max(xs)}
+            out[kind][k] = {"p50": pct(xs, 0.5), "p95": pct(xs, 0.95), "max": max(xs)}
     return out
 
 
