@@ -22,11 +22,13 @@ from app import db
 from app.config import APP_TITLE, COOKIE_NAME
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
-                         health, collections, paper, figures)
+                         health, collections, paper, figures, trending)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app import compute_pool
+    compute_pool.configure_gil()
     await db.init_db()
 
     # Restore user data from Turso and start replicating.
@@ -91,20 +93,28 @@ async def lifespan(app: FastAPI):
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
-    from app import ai_usage, analytics, figure_prewarm
+    from app import ai_usage, analytics, figure_prewarm, keep_warm, trending_shelf, trending_topics
+    await keep_warm.start()
     await figure_prewarm.start()
+    await trending_shelf.start()
+    await trending_topics.start()
     await ai_usage.start()
     await analytics.start()
     try:
         yield
     finally:
         await app.state.discovery.stop()
-        from app import abstract_svc, figure_prewarm, paper_source_svc
+        from app import abstract_svc, figure_prewarm, keep_warm, paper_source_svc, trending_shelf, trending_topics
+        await keep_warm.stop()
         await figure_prewarm.stop()
+        await trending_shelf.stop()
+        await trending_topics.stop()
         await ai_usage.stop()
         await analytics.stop()
         await abstract_svc.stop()
         await paper_source_svc.stop()
+        from app import llm_router
+        await llm_router.aclose()
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:
@@ -226,6 +236,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 app.include_router(search.router)
 app.include_router(events.router)
 app.include_router(recommendations.router)
+app.include_router(trending.router)
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)

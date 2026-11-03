@@ -124,7 +124,7 @@
               <td>{{ r.avg_tokens | commafy if r.avg_tokens is not none else "—" }}</td>
               <td>{{ ("%.1f s" % (r.avg_ms / 1000)) if r.avg_ms is not none else "—" }}</td>
               <td>{% if r.cache_pct is not none %}{{ r.cache_pct }}% <span class="muted">of {{ r.cache_n }}</span>
-                  {% elif r.feature in ("search_rewrite", "search_overview") %}<span class="muted">not cached</span>
+                  {% elif r.feature in ("search_rewrite", "search_paper", "search_overview") %}<span class="muted">not cached</span>
                   {% else %}—{% endif %}</td>
               <td class="ai-outcomes">{% for name, n in r.outcomes %}<span>{{ n | commafy }} {{ name }}</span>{% else %}<span class="muted">—</span>{% endfor %}</td>
             </tr>

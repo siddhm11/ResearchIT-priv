@@ -111,7 +111,7 @@
   function dismissPaper(btn) {
     var id = btn.getAttribute('data-paper-id');
     if (!id || pending.has(id)) return;
-    var card = btn.closest('.card');
+    var card = btn.closest('.card, .shelf-card');
     if (!card) return;
 
     var vals = {};
@@ -348,6 +348,16 @@
     if (isSearchRequest(e)) searchProgressStop();
   });
 
+  /* The box is the only place the search page shows its query, so it must name
+     the results under it. htmx restores Back/Forward from a snapshot of the
+     page's HTML, and what a reader typed is not in the HTML: Forward to a search
+     run from the box showed its results under the query the page was opened
+     with. The URL is right, so the box follows it. */
+  document.body.addEventListener('htmx:historyRestore', function () {
+    var box = document.getElementById('search-q');
+    if (box) box.value = new URLSearchParams(location.search).get('q') || '';
+  });
+
   /* ── Overflow menus ("⋯") and Copy arXiv ID ───────────────────────────
      Used by the redesigned paper page and feed cards. One menu open at a
      time; Escape or a click elsewhere closes it and returns focus to its
@@ -464,6 +474,25 @@
     if (img.complete && img.naturalWidth === 0) hideFigure(img);
   });
 
+  /* ── Trending card figures ──
+     The plate shimmers until its image paints, then the image fades in; one
+     that fails shows the paper's name instead, so the card keeps its shape.
+     Load and error do not bubble, hence the capture phase. Images that
+     settled before this script ran, or came in with the shelf from htmx's
+     cache, are swept up by markFigs. */
+  function markFig(img) {
+    var box = img && img.closest && img.closest('.tc-fig, .tp-thumb');
+    if (box && img.complete) box.classList.add(img.naturalWidth > 0 ? 'is-loaded' : 'is-failed');
+  }
+  function markFigs(root) {
+    (root || document).querySelectorAll('.tc-fig img, .tp-thumb img').forEach(markFig);
+  }
+  ['load', 'error'].forEach(function (type) {
+    document.addEventListener(type, function (e) { if (e.target.tagName === 'IMG') markFig(e.target); }, true);
+  });
+  markFigs();
+  document.body.addEventListener('htmx:afterSwap', function (e) { markFigs(e.target && e.target.parentNode || document); });
+
   /* ── Wide feed (FEED_WIDE): two columns, rail, filter, layout logging ──
      The feed stays one list in served order; each card spans grid rows to
      its height so the two columns pack without reordering anything. */
@@ -493,7 +522,7 @@
     var feed = document.querySelector('[data-wide-feed] .feed');
     if (!feed) return;
     Array.prototype.forEach.call(feed.children, function (el) {
-      if (!el.classList.contains('card')) return;
+      if (!el.classList.contains('card') && !el.classList.contains('shelf')) return;
       if (spanObserver && !el.hasAttribute('data-span')) { el.setAttribute('data-span', '1'); spanObserver.observe(el); }
       setSpan(el);
     });

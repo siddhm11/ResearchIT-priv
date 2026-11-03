@@ -253,12 +253,28 @@ def _commafy(value) -> str:
         return ""
 
 
+def _short_count(value) -> str:
+    """5742 -> '5.7k', 113000 -> '113k', 950 -> '950'. '' for anything non-numeric."""
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if n < 1000:
+        return str(n)
+    if n < 10_000:
+        return f"{n / 1000:.1f}".rstrip("0").rstrip(".") + "k"
+    if n < 1_000_000:
+        return f"{n // 1000}k"
+    return f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
+
+
 templates.env.filters["tojson_parse"] = _tojson_parse
 templates.env.filters["lead"] = _lead
 templates.env.filters["lead_rest"] = _lead_rest
 templates.env.filters["cat_class"] = _cat_class
 templates.env.filters["why_shown"] = _why_shown
 templates.env.filters["commafy"] = _commafy
+templates.env.filters["short_count"] = _short_count
 templates.env.filters["match_pct"] = _match_pct
 templates.env.filters["is_truncated"] = _is_truncated
 
@@ -296,6 +312,61 @@ templates.env.globals["static_version"] = _static_version()
 from app import features  # noqa: E402
 
 templates.env.globals["feature_visible"] = features.visible
+
+
+def one_in(share: float) -> str:
+    """A share as people read it: 0.055 -> "1 in 18". Trending topics show both."""
+    try:
+        share = float(share)
+    except (TypeError, ValueError):
+        return ""
+    return f"1 in {round(1 / share):,}" if share > 0 else "none"
+
+
+templates.env.filters["one_in"] = one_in
+
+
+def drop_none(values: dict) -> dict:
+    """A dict without its None values, for form fields sent by htmx (hx-vals).
+
+    htmx sends JSON null as the text "null", which no handler can read as a
+    number; a field left out takes the handler's own default instead. app.js
+    already leaves nulls out of the forms it builds (payloadFor)."""
+    return {k: v for k, v in values.items() if v is not None}
+
+
+templates.env.filters["drop_none"] = drop_none
+
+
+def short_name(title: str | None, words: int = 6) -> str:
+    """What a paper calls itself, for a card with no figure: the name before
+    the colon ("WeVisOne-VL: Unified ..." -> "WeVisOne-VL") when it is short,
+    otherwise the title's first `words` words ("" with words=0, for a card
+    whose title already shows in full beside it)."""
+    title = " ".join((title or "").split())
+    head, sep, _ = title.partition(":")
+    if sep and 0 < len(head) <= 32:
+        return head
+    parts = title.split()
+    return " ".join(parts[:words]) + (" …" if len(parts) > words > 0 else "")
+
+
+def byline(paper: dict) -> str:
+    """Who a trending paper is from: the organisation it was submitted under on
+    Hugging Face, else its first author ("Liang et al.")."""
+    if paper.get("org"):
+        return paper["org"]
+    authors = _tojson_parse(paper.get("authors") or "[]") or []
+    if not authors and paper.get("authors"):
+        raw = paper["authors"]
+        authors = [a.strip() for a in raw.split(";" if ";" in raw else ",") if a.strip()]
+    if not authors:
+        return ""
+    return f"{authors[0]} et al." if len(authors) > 1 else authors[0]
+
+
+templates.env.filters["short_name"] = short_name
+templates.env.filters["byline"] = byline
 
 # Figure thumbnails: URLs that pass the licence and path checks, and the credit
 # line every displayed figure carries (app/routers/figures.py).

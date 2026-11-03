@@ -940,3 +940,273 @@ The number check still dropped 2 unsupported points.
 new one comes out worse. More papers now fill the 16,000-character cap, so one briefing is about
 2,400–6,700 prompt tokens plus ~560 out: with 200,000 tokens a day per Groq model, about 35–40 new
 briefings per model per day. Re-run `scripts/eval_briefings.py` on the 50 papers before rating.
+
+### 2026-10-23 — Onboarding takes a sentence, and every area is drawn
+**Decision:** Step 1 of onboarding opens with "In a sentence": the reader describes their work, the
+sentence is searched (hybrid search, no LLM rewrite, not stored), and the areas its top papers sit
+in are picked for the reader to check: a paper's primary category counts 1, a cross-list ½, and an
+area needs 35% of the leader's weight and 1.5 in all (at most 3). Step 2 then opens on papers
+for the sentence instead of popular ones. Areas stay a filter and a ranking feature, never the user
+vector (§3.6), and the reader still chooses every seed. Each area card also shows a drawing of the
+field (a detector's box for Computer Vision, a fitted line for Machine Learning).
+**Supersedes:** nothing; it adds the free-text layer this doc's verdict argued for.
+**Rationale:** Sanner et al. (RecSys 2023) found language-based preferences competitive with
+item-based ones near cold start, and the owner reported that area names alone ("Machine Learning")
+mean little to a newcomer. Probed on 12 descriptions with word-match search only (no BGE-M3
+locally), 11 got sensible areas; "I like space stuff" matched COCO-Stuff and suggested Computer
+Vision. The half weight exists because cs.LG is cross-listed on so much that, counted fully,
+Machine Learning would be suggested for most descriptions.
+**Action items:** After deploy, re-run the probe on the Space, where dense retrieval should place
+vague descriptions better; watch `/api/onboarding/describe` latency (one hybrid search).
+
+### 2026-10-23 — Trending in your interests: a shelf, not feed slots
+**Decision:** Readers in the clustered tier get a shelf of up to 6 papers from Hugging Face Daily
+Papers (last 7 days, refreshed every 3 hours) after the fourth card of the feed's first page,
+loaded after the page arrives. A paper qualifies when its closeness to its nearest interest medoid
+reaches the 25th percentile of the reader's own saves' closeness to their medoids (clamped to
+0.55–0.70; 0.60 below four measurable saves); the order is closeness + 0.07·log10(upvotes); each
+interest gets max(2, ⌈6/K⌉) places first; fewer than 3 qualifying papers means no shelf. Shelf
+cards carry their own query_id, propensity 1.0 and policy `trending_shelf_v1` (§3.11), and what
+the shelf shows counts as shown for the feed and for the next shelf. Switch `TRENDING_SHELF`.
+**Supersedes:** "app/hf_papers_svc.py is a shadow-only source adapter" in CLAUDE.md §5.4 for this
+surface; the shadow swap policy (`discovery_shadow.compare_feed`) stays offline.
+**Rationale:** On the owner's profile 147 of HF's 383 Daily Papers from 16–23 Oct were on-topic
+and the feed's 60-paper pool held 1; 379 of the 383 were already in the corpus with vectors. Swaps
+inside the feed would have traded slots the reader's interests are entitled to (closeness
+0.757–0.763 out, 0.628–0.690 in) for popularity, against §3.1. A separate shelf adds the same
+papers and leaves the quota, the MMR and the served order of the feed untouched.
+**Action items:** Turn on as `preview`, then `on`. Read shelf saves and clicks per policy id in
+`feed_exposures`. Readers outside machine learning get no shelf until trending in every field
+(citation history, recorded from 2026-10-24) supplies a second source.
+
+### 2026-10-23 — A rewritten question searches keywords in the rewrite's words only
+**Decision:** When the LLM rewriter changes a query and no paper contains every word of the
+original (keyword search fell back to matching any word), the original's keyword list is left
+out of RRF; its dense list and the exact-title boost stay. Switch `SEARCH_REWRITE_KEYWORDS`.
+**Supersedes:** nothing; refines §3.1 "RRF fuses actual available result lists".
+**Rationale:** After the rewriter fix (2026-10-23) long questions are rewritten, but their own
+literal words still steered keyword search: "how do I stop a RAG system from making things up"
+kept two "stop" papers from the original's keyword list. Blind-graded on the 12 of 79 logged
+searches it changes: 124 → 138 points (6 better, 1 worse, 5 equal). The guard is what keeps
+titles safe: dropping the list whenever a rewrite happened lost "Direct Preference Optimization:
+Your Language Model is Secretly a Reward Model" from the top 10, because the rewriter shortened it;
+every known title tested matches at least one paper word for word, and all 9 stay first.
+Also measured and rejected the same day: requiring the rarest words instead of falling back to
+any word (keyword top-10 hit rate on 487 LitSearch questions 33.9% → 11.1%), phrases for
+hyphenated terms (neutral), and topping up a short every-word list with any-word matches (+1.4
+points keyword-only, but its extra RRF votes pushed the DPO paper out of the top 10).
+**Action items:** Set `SEARCH_REWRITE_KEYWORDS=on` on the Space; watch search_log for rewritten
+queries.
+
+### 2026-10-24 — Trending v2: why a paper trends, rising topics, a few days' step-up in search
+**Decision:** Three additions to Hugging Face Daily Papers, each behind its own switch.
+(1) Every trending card says why in counts from the lists only: its place on its day ("#1 of 92
+papers on 30 Sep") and, when in the top quarter of a week of 20 or more, its place in the week
+("top 1% of this week's 404"); Hugging Face's one-line summary is shown labelled as theirs;
+comment counts are never shown. (2) Topics (switch `TRENDING_PAGE`, page `/trending`): once a day
+the last 26 weeks of stored lists (`hf_daily_papers`) are clustered as §3.3 clusters a reader's
+saves (Ward on L2-normalised vectors, K = 24, medoids, Hungarian-matched ids). A topic is rising or
+cooling only when the slope of its weekly *share* beats the same slope with every paper's week
+shuffled 2,000 times, Benjamini–Hochberg q < 0.05, and it is shown only under a phrase from its
+papers' titles, keywords and summaries that at least 30% of them carry; no model names topics.
+(3) Search (switch `SEARCH_TRENDING`, off / shadow / on): a top-quarter paper of this week that
+retrieval already found in its first 50 may take one of 2 extra cross-encoder places; if it scores
+at least half the best, it gains up to 0.25 × the best score, full for 3 days on the list and gone
+at 7, at most 2 papers per search, and the moved result is tagged "Trending on Hugging Face".
+**Supersedes:** nothing; the 2026-10-23 shelf entry stands, and the feed's quota and served order
+are untouched (the step-up applies to search only).
+**Rationale:** Measured on 26 weeks (5,198 papers, 24 Oct): lists ran from 101 to 404 papers a
+week and upvotes are heavy-tailed (median 13, p99 271), so only relative places mean the same thing
+every week; comments carry no signal (median 2, nearly every paper has one); stars track upvotes
+weakly (rank correlation 0.27). "Last 4 weeks against before" is near chance (5 topics past two
+standard errors at K = 40 where shuffled weeks give 1.7, up to 4), while the 26-week slope test
+holds at K = 24 and 40. Hugging Face's own keywords name a topic badly (top three cover a median
+21% of it). Social explanations raise trying but not liking (Sharma & Cosley, WWW 2013), so
+trending stays a labelled extra and is judged by saves and reads. After the 24 Oct re-harvest,
+99–100% of the lists' papers have vectors in the corpus.
+**Action items:** `TRENDING_PAGE=preview`, then `on`. `SEARCH_TRENDING=shadow` for 7 days, compare
+`search_meta.trending_shadow` moves with graded relevance, then `on` only if relevance holds.
+After 7 days of `hf_upvote_history`, add momentum facts ("+120 upvotes since yesterday").
+
+### 2026-10-24 — Trending v2 deployed; the search step-up goes straight to on
+**Decision:** Deployed a572e3d with `TRENDING_PAGE=on` and `SEARCH_TRENDING=on`, skipping the planned
+week of shadow. The tag also marks a trending paper the step-up applies to that already ranked where
+it is: it states a fact about the result, not that the result moved.
+**Supersedes:** the 2026-10-24 action item "`SEARCH_TRENDING=shadow` for 7 days".
+**Rationale:** Replayed in shadow on the production stores and keyword index: all 84 distinct logged
+searches (20–24 Oct) and 15 written on this week's trending subjects. No result changed order in any
+of the 99. Four results would carry the tag, each already at #1 to #3 and on topic (StreamEval for
+"evaluating streaming video generation"); the two trending papers that auditioned into the
+cross-encoder both stayed out, below half the best score. Shadow mode records nothing that on mode
+does not (one counter, `search_trend_<mode>`), so a week of it would not have taught more.
+**Action items:** Watch `search_trend_on` in /healthz/runtime against searches. If the step-up proves
+too timid to ever move a paper (likely, on this evidence), measure looser settings (3 auditions, half →
+0.4 of the best score) on the replay before changing them.
+
+### 2026-10-25 — The trending shelf is always there: chosen areas count, shown papers repeat last
+**Decision:** The "Trending in your interests" shelf shows on every feed tier, not only the
+clustered one. A Daily Paper qualifies by closeness to a saved interest (unchanged bar) or, failing
+that, by being listed in one of the reader's chosen areas (onboarding, /interests), scored at 0.50
+plus the upvote term, so saves lead and areas fill. Places go round the interests and areas, best
+first. Papers shown before (impressions, 7 days) no longer leave the shelf; they come after every
+unseen one. The papers of the feed page below stay excluded, as do saved and dismissed ones. When
+nothing qualifies, the shelf shows the week's most upvoted under "Trending this week". /trending adds,
+per chosen area, its count of the week's papers and its 3 most upvoted.
+**Supersedes:** the 2026-10-23 shelf rules "Tier 1 only", "no shelf below 3 on-topic papers" and
+"shown is shown".
+**Rationale:** On 25 Oct the owner, re-onboarded after the Turso switch with 2 saves and 6 areas, lost
+the shelf: 7 of the week's 312 papers fitted the two saves, the first shelf showed 6, the next had
+1 and hid, and it was a weekend, so no list arrived to refill it. The same week held 38 robotics, 118
+vision, 137 AI and 102 language papers by category: the areas a reader picks are enough to show what
+is trending in them, with no saves at all. The shelf is a separate block (it takes no feed slot), so
+the quota rules of §3.1 are untouched.
+**Action items:** Watch shelf saves against feed saves; if repeats draw no clicks, lower their share.
+
+### 2026-10-25 — Trending becomes a main tab; new readers see trending in their areas first
+**Decision:** With `TRENDING_PAGE` visible, the top and bottom bars read Feed · Trending · Search ·
+Library, and Collections moves inside Library (Saved · Collections · Recent). /trending names the
+lists it shows, leads with chips for moving topics and the reader's areas, gives shares in plain
+numbers as well as percentages, and lists named topics that fail the trend test as "Steady" with their
+current share, never as moving. Each named topic has a page (/trending/topics/<id>) with its line,
+this week's papers, its most upvoted, recent arXiv papers nearest its middle paper (vector search on
+the recent shard, labelled as not from the lists) and its nearest topics. A reader with fewer than 5
+saves sees the trending shelf above the first feed card, titled for their areas; later it stays after
+the fourth card. New visitors still start at onboarding.
+**Supersedes:** the shelf placement in the 2026-10-23 entry for readers with fewer than 5 saves.
+**Rationale:** The owner's call after the Trending Tab Plan (claude.ai/artifact/GLTUJffFW1UBejaypZYhHq):
+onboarding explains the areas and stays first; trending in those areas is the first thing the feed
+shows, then the feed itself. YouTube closed its single global Trending page in July 2025 after five
+years of falling use; trending cut by topic and woven into personal pages is what lasts. Showing the
+10 steady topics beside the 5 tested ones triples what there is to explore without claiming a trend.
+The shelf and topic pages take no feed slot, so §3.1 is untouched.
+**Action items:** Following a topic is not built. The topic page's "recent arXiv papers like this" is
+the retrieval a followed topic would use; judge it there first. The proposed follow seeds the feed
+the way following a collection already does, by saving a few of the topic's papers through the
+ordinary save path, which needs no quota change (to be decided).
+
+### 2026-10-25 — Trending cards show the paper's first figure; /trending puts papers before topics
+**Decision:** Trending cards (shelf, /trending, topic pages) open on the paper's first figure from our
+own reader (`paper_source_svc` + `/fig`, with its credit line), never Hugging Face's media or
+thumbnails. Each refresh of the lists queues the week's unread papers for that reader, most upvoted
+first (`trending_shelf.warm_figures`, at most 200 per refresh), and the moving topics' top papers too.
+A paper with no figure yet shows its name or its upvotes on a cover the same shape. /trending runs
+68 rem wide and orders: your interests, the week's most upvoted (the top one wide, then 9),
+rising/cooling topics with labelled lines and small figures, your areas, steady topics as table rows,
+and the method folded.
+**Supersedes:** the /trending layout in the 2026-10-25 "Trending becomes a main tab" entry (topics
+first); the page's top grows from 9 to 10.
+**Rationale:** Of the week's 312 Daily Papers on 25 Oct, 112 (36%) had any Hugging Face media and 73
+of those were MP4; their thumbnail is the PDF's first page. Our reader had a figure for 179 of 187
+papers it had read, served from our origin with licence credit. Logged out, the first paper card sat
+about 3,300 px down the live page behind 16 topic boxes. The shelf still takes no feed slot (§3.1).
+**Action items:** Reading runs at about one paper a minute (arXiv's crawl delay); the first deploy
+queued 211 never-read papers, after which about 60 a day join. `paper_sources` is replicated, so a
+deploy keeps what was read, but thumbnail files are not: queue read papers whose file is gone so the
+first viewer after a deploy doesn't wait. Prefer a wide figure over a logo. Compare save rates per
+trending policy id over two weeks.
+
+### 2026-10-26 — Qwen-first Groq credential failover (opt-in, off by default)
+
+**Decision:** Preserve model preference while failing over credentials: attempt
+eligible keys on Qwen before the next configured model. Scope failures to the
+credential, shared quota/permission group, model, or provider rather than blindly
+sweeping every key. One total generation deadline and disabled SDK retries bound
+latency. Rewrites preserve the original query on exhaustion; summaries and
+explanations remain optional and honor abstention.
+
+**Implementation:** `app/llm_router.py`, opt-in service wrappers, task-scoped
+rollout flags, cancellation and concurrency bounds, actual-model explanation
+cache attribution, and a sanitized access-check CLI. Default-off preserves the
+legacy route. Cache identity is abstract, prompt and actual model; for the head
+of the chain it is the old key, so cached explanations and feed cards keep
+working. A key takes concurrent requests; only a recovering scope is held to
+one probe. Retrieval, EWMA, quotas, and scoring are unchanged.
+
+**Integration:** Built on the stack the Space runs (`456f47b`), preserving the
+October 4 model comparison and default Qwen -> GPT-OSS 20B preference (the
+first two `GROQ_MODELS`), and the rewriter's reply guard. AI usage logging,
+full-abstract repair, and redesigned paper rendering remain in place. The old
+working branch's 120B-first proposal is superseded by that recorded evidence.
+
+**Limits:** The historical ranking has not been remeasured. Qwen's preview
+status must be watched. A live check with the one local key passed on both
+models (Qwen 192 ms, GPT-OSS 20B 474 ms). Keys in one Groq organization share
+its limits, so rotation adds quota only across organizations. Token pre-reservation,
+aggregated health counters, distributed coordination, and quality evaluation
+remain pending. [The failover plan](../LLM-FAILOVER-PLAN.md) contains the
+implementation checkpoint and release sequence.
+
+### 2026-10-30 — Search models run without holding the GIL (opt-in, off by default)
+
+**Decision:** Trace BGE-M3's transformer and the search cross-encoder with
+`torch.jit` at load, check the traced copy against the eager model on probe
+inputs, and serve with it (switch `SEARCH_MODEL_TRACE`: off, shadow, on).
+Shorten Python's GIL switch interval (`GIL_SWITCH_INTERVAL_MS`, 0 = Python's
+5 ms default; 0.5 recommended).
+
+**Rationale:** Every torch op called from Python retakes the GIL. While any
+other thread runs pure Python, each retake waits up to the switch interval,
+so a search stalled for seconds with the CPU idle (Space, 26 Oct: "bert
+paper" 9.3 s, encode 3.4 s, cross-encoder 4.8 s). Measured on the app's own
+search path with an arXiv HTML parse looping in the background: median
+11.0 s per search today, 0.37 s with both settings, 0.35-0.39 s with no
+background work; top-10 lists identical (20/20), traced outputs bit-identical
+(0.0 difference on 400 search pairs and 40 encodes). Compared on the same
+harness: the switch interval alone (0.1 ms: encode 2.5x, cross-encoder 1.7x
+slower than idle), parsing in a separate process (fixes only that one source;
+the Space's actual contender was never identified), and the models in their
+own process (equally fast, far more moving parts).
+
+**Supersedes:** nothing; scores, ranking and models are unchanged.
+
+**Action items:** `app/model_trace.py`; `compute_pool.configure_gil()` at
+startup; `/healthz/runtime` reports `models.traced` and
+`cpu.gil_switch_interval_ms`. Roll out with `SEARCH_MODEL_TRACE=shadow` first
+(confirms tracing passes on the Space), then `on` with
+`GIL_SWITCH_INTERVAL_MS=0.5`, and compare encode and cross-encoder p50/p95 on
+`/healthz/runtime` before and after. A trace that fails or differs falls back
+to the eager model.
+
+### 2026-10-30 — A short search that names a paper shows that paper first (opt-in, off by default)
+
+**Decision:** For searches of up to 4 words, ask the primary Groq model
+(only the first of `GROQ_MODELS`) for the exact title of the paper the search
+names, in a call of its own alongside the rewrite. If that title matches a
+corpus title almost exactly (difflib >= 0.92; most cited on a tie), put the
+paper first and label it. Switch `SEARCH_NAMED_PAPER`: off, shadow (record
+in search meta, change nothing), on.
+
+**Rationale:** Famous papers are found by nickname ("resnet", "lora", "gpt-3
+paper"), but their titles rarely contain it and later papers that do fill
+every retrieval list: today 2 of 30 such originals reach page 1, and most are
+in none of the four top-60 lists. Measured 2026-10-30 against rule-built sets
+(Papers with Code method and dataset names by usage, LitSearch, a held-out
+tier never inspected while building):
+
+| | today #1 | with pin | another paper pinned | topic searches pinned |
+|---|---|---|---|---|
+| 302 named searches | 60 | 132 | 7 | — |
+| 140 held-out names | 47 | 64 | 6 (2 displaced a correct #1) | — |
+| 238 topic searches | — | — | — | 7, all the field's canonical paper |
+
+Alternatives on the same sets: a title-alias table without an LLM (+2 on the
+held-out names), folding the title into the rewrite call (no more papers
+found, but it changed a quarter of the rewrites), looser title matching (+3
+papers, 4 topic searches pinned to minor papers), and gpt-oss-20b as the
+answering model (pins a paper on 25% of topic searches, Qwen on 6%).
+
+The pre-registered limits (another paper pinned on at most 3% of named
+searches, topic searches pinned at most 5%) were missed narrowly: 4.3% on
+the held-out names and 5.0% on the topics. Most of those pins are a sibling
+paper (Llama 2 for "llama"); clearly wrong ones were "trpo" -> PPO and
+"deepmind control suite" -> DreamerV2. Shipping it is the owner's call on
+that trade.
+
+**Supersedes:** nothing; retrieval, fusion and reranking are unchanged. The
+pinned paper is added after them.
+
+**Action items:** `app/named_paper.py`, `groq_svc.name_paper` (feature
+`search_paper` in AI usage; query text expires with the other search
+features). One extra Qwen call per search of up to 4 words, ~60 tokens. Roll
+out `shadow`, watch `named_paper_*` counters and `named_paper_wait_ms` on
+`/healthz/runtime`, then `on`.

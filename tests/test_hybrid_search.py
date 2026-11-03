@@ -218,6 +218,17 @@ class TestGroqRewriter:
         from app.groq_svc import _looks_academic
         assert not _looks_academic("when AI makes stuff up")
 
+    def test_long_casual_question_not_academic(self):
+        """Ordinary lowercase words are not acronyms, so a long question gets rewritten."""
+        from app.groq_svc import _looks_academic
+        assert not _looks_academic("how do I stop a RAG system from making things up")
+        assert not _looks_academic("when the AI makes up fake facts")
+
+    def test_long_query_topic_words_any_case(self):
+        """The topic words still count in any case; only acronyms are case-sensitive."""
+        from app.groq_svc import _looks_academic
+        assert _looks_academic("Mastering the game of Go with deep Neural Networks and tree search")
+
     def test_rewrite_empty_query(self):
         """Empty query returns empty string."""
         import asyncio
@@ -354,3 +365,81 @@ class TestHybridSearchOrchestrator:
             result = await hybrid_search_svc.search("test", limit=10)
 
         assert result == []
+
+
+
+# ── After a rewrite, a question's own keyword list stops counting ─────────────
+
+def _lexical(query_lists):
+    async def search(text, limit=50):
+        return query_lists[text]
+    return search
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("switch,match,original_counts", [
+    ("on", "any", False),     # a question: no paper had every word, so its words only steer
+    ("on", "all", True),      # a title: some paper matched word for word, keep its list
+    ("off", "any", True),     # switch off: unchanged behaviour
+])
+async def test_rewritten_question_drops_its_keyword_list(monkeypatch, switch, match, original_counts):
+    import numpy as np
+    from app import config, fts_svc, hybrid_search_svc
+    monkeypatch.setenv("SEARCH_REWRITE_KEYWORDS", switch)
+    monkeypatch.setattr(config, "SPARSE_BACKEND", "fts")
+    monkeypatch.setattr(config, "SEARCH_BGE_RERANK", False)
+    lists = {
+        "how do I stop a RAG system from making things up":
+            [{"arxiv_id": "stop-paper", "score": 9.0, "match": match}],
+        "RAG hallucination mitigation":
+            [{"arxiv_id": "hallucination-paper", "score": 9.0, "match": "all"}],
+    }
+    with patch.object(hybrid_search_svc.groq_svc, "rewrite", new_callable=AsyncMock,
+                      return_value="RAG hallucination mitigation"), \
+         patch.object(fts_svc, "is_available", return_value=True), \
+         patch.object(fts_svc, "search_sparse", side_effect=_lexical(lists)), \
+         patch.object(hybrid_search_svc.embed_svc, "encode_query",
+                      return_value=(np.ones(1024, dtype=np.float32), {})), \
+         patch.object(hybrid_search_svc.qdrant_svc, "search_dense_merged", new_callable=AsyncMock,
+                      return_value=[]), \
+         patch.object(hybrid_search_svc, "_title_match_rerank", new_callable=AsyncMock,
+                      side_effect=lambda fused, q, **kw: fused):
+        ids, meta = await hybrid_search_svc.search(
+            "how do I stop a RAG system from making things up", limit=10, return_meta=True)
+    assert "hallucination-paper" in ids
+    assert ("stop-paper" in ids) is original_counts
+    assert ("fts_q0" in meta["retrieval_sources"]) is original_counts
+
+
+# ── What is stored with each search to tell a cold one apart ─────────────────
+
+@pytest.mark.asyncio
+async def test_a_search_records_the_gap_since_the_last_and_the_rewrite_call_alone(monkeypatch):
+    import asyncio
+    import numpy as np
+    from app import config, fts_svc, hybrid_search_svc
+    monkeypatch.setattr(config, "SPARSE_BACKEND", "fts")
+    monkeypatch.setattr(config, "SEARCH_BGE_RERANK", False)
+    monkeypatch.setattr(hybrid_search_svc, "_last_search_at", None)
+
+    def slow_encode(text):
+        import time
+        time.sleep(0.3)                          # the rewrite returns long before this
+        return np.ones(1024, dtype=np.float32), {}
+
+    async def rewrite(q):
+        await asyncio.sleep(0.01)
+        return q
+
+    with patch.object(hybrid_search_svc.groq_svc, "rewrite", side_effect=rewrite), \
+         patch.object(fts_svc, "is_available", return_value=True), \
+         patch.object(fts_svc, "search_sparse", side_effect=_lexical({"sparse attention for long documents": [
+             {"arxiv_id": "p1", "score": 1.0, "match": "all"}]})), \
+         patch.object(hybrid_search_svc.embed_svc, "encode_query", side_effect=slow_encode), \
+         patch.object(hybrid_search_svc.qdrant_svc, "search_dense_merged", new_callable=AsyncMock, return_value=[]), \
+         patch.object(hybrid_search_svc, "_title_match_rerank", new_callable=AsyncMock,
+                      side_effect=lambda fused, q, **kw: fused):
+        _, first = await hybrid_search_svc.search("sparse attention for long documents", return_meta=True)
+        _, second = await hybrid_search_svc.search("sparse attention for long documents", return_meta=True)
+    assert first["gap_s"] is None and second["gap_s"] == 0         # None: the first since a restart
+    assert first["rewrite_call_ms"] < 200 <= first["groq_time_ms"]  # the old timer waited for the encode

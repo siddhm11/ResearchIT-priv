@@ -35,11 +35,20 @@
   see the first chunk of the list, without being able to trigger the loading of
   new content".
 #}
+{#- New readers (saves not grouped yet) see the trending shelf before the feed. -#}
+{% if shelf_first %}
+  <div class="shelf-slot shelf-slot--first" hx-get="/api/trending-shelf?after={{ query_id }}&amp;first=1" hx-trigger="load" hx-swap="outerHTML"></div>
+{% endif %}
 {% for paper in papers %}
   {% set source = "recommendation" %}
   {% set position = paper.position %}
   {# card_v2 (switch FEED_CARD_V2) picks the redesigned card; see app/card_data.py. #}
   {% include ("partials/paper_card_v2.html" if card_v2 else "partials/paper_card.html") %}
+  {#- The trending shelf (app/trending_shelf.py) loads once these cards are on
+      screen and replaces this placeholder, or removes it when it is empty. -#}
+  {% if shelf_after and loop.index == shelf_after %}
+    <div class="shelf-slot" hx-get="/api/trending-shelf?after={{ query_id }}" hx-trigger="load" hx-swap="outerHTML"></div>
+  {% endif %}
 {% endfor %}
 
 {% if has_more %}

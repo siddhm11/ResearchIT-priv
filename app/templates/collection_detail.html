@@ -20,7 +20,7 @@
 <div class="wrap wrap--feed">
 
   <div class="coll-hero">
-    <a href="/collections" class="back-link">← Collections</a>
+    <a href="/collections" class="back-link">← {% if feature_visible("TRENDING_PAGE", request) %}Library · {% endif %}Collections</a>
     <h1 class="sec-title">{{ collection.title }}</h1>
     <p class="coll-blurb coll-blurb--lg">{{ collection.blurb }}</p>
     <div class="coll-hero-actions">

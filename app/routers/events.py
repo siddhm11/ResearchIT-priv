@@ -28,6 +28,21 @@ def _position(value: int | None) -> int | None:
     return value
 
 
+def _cluster_id(value: str) -> int | None:
+    """The interest a card came from, or None when it came from none.
+
+    Trending cards matched by area, the week's top and topic-page cards have no
+    interest. Their hx-vals once carried JSON null, which htmx sends as the text
+    "null", and int("null") failed every save from them with a 500. A value
+    that is not a whole number now records no interest; the save always lands.
+    """
+    value = (value or "").strip()
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
 router = APIRouter(prefix="/api/papers")
 
 
@@ -57,7 +72,7 @@ async def save_paper(
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
-        cluster_id=int(cluster_id) if cluster_id else None,
+        cluster_id=_cluster_id(cluster_id),
         propensity=propensity if propensity > 0 else None,
         policy_id=policy_id or None,
         layout=layout or None,
@@ -121,7 +136,7 @@ async def not_interested(
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
-        cluster_id=int(cluster_id) if cluster_id else None,
+        cluster_id=_cluster_id(cluster_id),
         propensity=propensity if propensity > 0 else None,
         policy_id=policy_id or None,
         layout=layout or None,
@@ -179,7 +194,7 @@ async def unsave(
         query_id=query_id or None,
         ranker_version=ranker_version or None,
         candidate_source=candidate_source or None,
-        cluster_id=int(cluster_id) if cluster_id else None,
+        cluster_id=_cluster_id(cluster_id),
         propensity=propensity if propensity > 0 else None,
         policy_id=policy_id or None,
         layout=layout or None,

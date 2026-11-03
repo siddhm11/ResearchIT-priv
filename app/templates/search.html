@@ -14,7 +14,13 @@
 
   <header class="issue">
     <div class="issue-kicker">Semantic search</div>
-    <h1 class="issue-title" id="search-title">{% if query %}{{ query }}{% else %}Search{% endif %}</h1>
+    {#
+      The heading names the page, like every other masthead; it never repeats
+      the query. The query lives in the box below and in the tab title, and
+      nowhere else on the page (reported 2026-10-23: the same sentence ran as
+      the heading, in the box and in the result count).
+    #}
+    <h1 class="issue-title">Find papers</h1>
     <div class="issue-line">
       <span>1.8M arXiv papers</span>
       <span class="sep">·</span>
@@ -31,7 +37,7 @@
          stroke-linecap="round" aria-hidden="true">
       <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
     </svg>
-    <input type="search" name="q" value="{{ query }}"
+    <input type="search" name="q" id="search-q" value="{{ query }}"
            placeholder="Search 1.8M papers…"
            aria-label="Search papers"
            {% if not query %}autofocus{% endif %} />

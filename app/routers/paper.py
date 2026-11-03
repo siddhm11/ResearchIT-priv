@@ -370,11 +370,15 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
         full = await abstract_svc.ensure(arxiv_id, timeout=4.0)
         if full and len(full) > len(abstract):
             abstract = full
-    key = groq_svc.explain_cache_key(arxiv_id, abstract)
+    title = paper.get("title") or ""
 
     cached = None
     try:
-        cached = await db.get_explanation(key)
+        for model in groq_svc.explanation_models():
+            key = groq_svc.explain_cache_key(arxiv_id, abstract, model=model)
+            cached = await db.get_explanation(key)
+            if cached is not None:
+                break
     except Exception as e:                      # cache is an optimisation
         print(f"[paper] explanation cache read failed: {e}")
 
@@ -382,11 +386,12 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     runtime_stats.count("explain_cache_hit" if cached is not None else "explain_cache_miss")
     ai_usage.count("explain", "cache_hit" if cached is not None else "cache_miss")
     if text is None:
-        text = await groq_svc.explain_paper(paper.get("title") or "", abstract, arxiv_id)
-        if text:
+        generated = await groq_svc.explain_paper_result(title, abstract, arxiv_id)
+        text = generated.text
+        if text and generated.model:
             try:
-                await db.save_explanation(
-                    key, arxiv_id, text, groq_svc.explain_model())
+                key = groq_svc.explain_cache_key(arxiv_id, abstract, model=generated.model)
+                await db.save_explanation(key, arxiv_id, text, generated.model)
             except Exception as e:
                 print(f"[paper] explanation cache write failed: {e}")
 

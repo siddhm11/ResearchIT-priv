@@ -48,7 +48,8 @@
     <span class="spinner" style="margin:0 auto"></span>
   </div>
 
-  <div id="seed-results" {% if suggestions %}hx-get="/api/onboarding/seed-search" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
+  {# A described interest from step 1 opens on papers for that description. #}
+  <div id="seed-results" {% if suggestions %}hx-get="/api/onboarding/seed-search{% if query %}?q={{ query | urlencode }}{% endif %}" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
     {% include "partials/seed_results.html" %}
   </div>
 </div>

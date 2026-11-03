@@ -79,7 +79,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 
 - **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
 - **Search results are kept in memory for 10 minutes** (`app/search_cache.py`; 2 when a retrieval arm was missing). Callers get copies, so per-reader fields (saved, `query_id`, position) never reach the shared entry. A reader returning to the same cached results keeps their `query_id` and is not logged again (doc 06, 2026-10-21).
-- **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Zilliz is the fallback when FTS is unavailable and encoding succeeds. RRF fuses actual available result lists; do not confuse configured backends with successful retrieval.
+- **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Zilliz is the fallback when FTS is unavailable and encoding succeeds. RRF fuses actual available result lists; do not confuse configured backends with successful retrieval. One exception, switch `SEARCH_REWRITE_KEYWORDS`: a query the rewriter changed whose words no single paper contains leaves its own keyword list out (doc 06, 2026-10-23); its dense list and the title boost stay.
 - **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
@@ -148,6 +148,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
   took a correct 61/39 pool and selected 39/1, dumping 60 minority papers into the
   exploration pool where no later quota stage could recover them. See doc 06,
   2026-08-21.
+- Trending shelf (switch `TRENDING_SHELF`, `app/trending_shelf.py`): Hugging Face Daily Papers close to the reader's interests, in one block after the fourth card of page 1. It holds no feed slot, so it never enters quota, MMR or the served order; its cards log policy `trending_shelf_v1`. See doc 06, 2026-10-23.
 - Exploration: 2 serendipitous papers per page, drawn in `_build_page()`. The pool is starter papers from ticked interests that no cluster medoid covers (`_uncovered_interest_papers`), otherwise the far half of the reader's own candidates. Draws stay uniform so propensities hold.
 - Quota (3.1) handles cross-cluster diversity. MMR handles within-quota redundancy.
   This is a statement about WHERE each runs, not just what it is for.
@@ -155,7 +156,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
 
-IMPLEMENTED: category/seed onboarding, starter suggestions, and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
+IMPLEMENTED: category/seed onboarding, starter suggestions, a described interest ("In a sentence": suggests areas and opens the seed step on its papers; doc 06, 2026-10-23), and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
 
 1. arXiv category multi-select — used as a **filter and LightGBM feature**, NOT as the primary user vector.
 2. Author import is historical context, not a currently planned implementation.
@@ -297,8 +298,8 @@ If a request asks for one of these, surface that it is out of scope per doc 06 p
 Recommendation diagnostics: `.venv/bin/python scripts/run_recommendation_audit.py
 --live --encode` generates `reports/recommendations/index.html` with temporary
 user storage and replication disabled. Live/semantic gaps must be reported, not
-filled with synthetic success. `app/hf_papers_svc.py` is a shadow-only source
-adapter; it does not replace the serving recommendation candidates.
+filled with synthetic success. `app/hf_papers_svc.py` never supplies feed
+candidates; its Daily Papers lists feed only the separate trending shelf.
 `scripts/hf_discovery.py` now supports local collection/preparation scheduling,
 scratch-profile baseline capture and offline comparison. See
 `docs/HF-DISCOVERY-OPERATIONS.md`; shadow-ready does not mean production-indexed.

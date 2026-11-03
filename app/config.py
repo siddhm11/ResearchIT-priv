@@ -336,6 +336,12 @@ GROQ_MODELS = [
 GROQ_REQUESTS_PER_DAY = int(os.getenv("GROQ_REQUESTS_PER_DAY", "1000"))
 GROQ_TOKENS_PER_DAY = int(os.getenv("GROQ_TOKENS_PER_DAY", "200000"))
 GROQ_TOKENS_PER_MINUTE = int(os.getenv("GROQ_TOKENS_PER_MINUTE", "8000"))
+# Staged rollout: verify route access and task quality before enabling.
+GROQ_FAILOVER_ENABLED = os.getenv("GROQ_FAILOVER_ENABLED", "0").lower() in {"1", "true", "on"}
+GROQ_FAILOVER_TASKS = frozenset(filter(None, (
+    task.strip() for task in os.getenv("GROQ_FAILOVER_TASKS", "rewrite,summary,explain").split(","))))
+GROQ_KEY_POOL_JSON = os.getenv("GROQ_KEY_POOL_JSON", "")
+GROQ_MODEL_ORDER_JSON = os.getenv("GROQ_MODEL_ORDER_JSON", "")
 
 # ── BGE-M3 (embedding model) — Phase 3 ───────────────────────────────────────
 BGE_M3_MODEL = os.getenv("BGE_M3_MODEL", "BAAI/bge-m3")
@@ -361,6 +367,12 @@ INFERENCE_THREADS = int(os.getenv("INFERENCE_THREADS", "0"))
 # concurrent fan-outs across 3 shards, the measured sweet spot. Extra calls
 # queue here instead of slowing everyone down inside Qdrant.
 IO_POOL_WORKERS = int(os.getenv("IO_POOL_WORKERS", "12"))
+# How long a thread that wants the GIL waits before asking the holder to let go
+# (sys.setswitchinterval). 0 keeps Python's 5 ms. Each torch op a search model
+# runs from Python pays up to this wait while another thread runs pure Python,
+# so 5 ms turned a 45 ms query encode into 5.2 s (app/model_trace.py has the
+# measurements). 0.5 cost the background work nothing measurable (2026-10-30).
+GIL_SWITCH_INTERVAL_MS = float(os.getenv("GIL_SWITCH_INTERVAL_MS", "0"))
 
 # ── Cross-Encoder Reranker (search reranking) ─────────────────────────────────
 # mxbai-rerank-xsmall-v1 (70M, Apache-2.0) replaced ms-marco-MiniLM-L-6-v2 on

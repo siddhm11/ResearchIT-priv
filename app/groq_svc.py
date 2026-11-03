@@ -16,7 +16,40 @@ import threading
 import time
 from typing import NamedTuple
 
-from app import config
+from app import config, llm_router
+
+def _failover_enabled(task: str) -> bool:
+    return config.GROQ_FAILOVER_ENABLED and task in config.GROQ_FAILOVER_TASKS
+
+
+async def _routed(task: str, messages: list[dict], *, subject: str | None = None) -> llm_router.Generation:
+    """The feature flag controls all network failover, never retrieval behavior."""
+    def valid(text: str) -> bool:
+        # rewrite() applies the direct path's own checks to what comes back.
+        if task == "rewrite":
+            return len(text) <= 200 and "\n" not in text
+        return len(text) <= 2400
+
+    try:
+        result = await llm_router.get_router().complete(
+            task, messages, llm_router.configured_models(task), valid)
+    except ValueError:
+        result = llm_router.Generation("configuration_error")
+    print(f"[groq_svc] task={task} outcome={result.outcome} model={result.model} "
+          f"attempts={result.attempts} elapsed_ms={result.elapsed_ms} tokens={result.total_tokens}")
+    from app import ai_usage
+    completion = (Completion(result.text or "", result.model, False,
+                             result.tokens_in, result.tokens_out,
+                             llm_router.configured_models(task).index(result.model))
+                  if result.model else None)
+    feature = {"rewrite": "search_rewrite", "summary": "search_overview", "explain": "explain"}[task]
+    await ai_usage.log_call(feature, completion, latency_ms=result.elapsed_ms,
+                            status="ok" if result.outcome == "success" else "unavailable",
+                            chars_in=sum(len(m.get("content", "")) for m in messages), subject=subject)
+    if task == "explain":
+        _count("explain", "written" if result.text else "declined")
+    return result
+
 
 # ── Client singleton ─────────────────────────────────────────────────────────
 
@@ -287,10 +320,11 @@ def _trim_to_sentence(text: str) -> str:
 
 
 def _complete(client, messages: list[dict], *, temperature: float,
-              max_tokens: int, timeout: float) -> Completion:
+              max_tokens: int, timeout: float, models: int | None = None) -> Completion:
     """One chat completion from the first configured model that answers.
 
-    ``timeout`` is the budget for the whole call, failover included. Retired
+    ``timeout`` is the budget for the whole call, failover included. ``models``
+    limits it to the first that many configured models (None: all). Retired
     and rate-limited models are benched and skipped; any other failure raises,
     and every caller already degrades to its no-LLM path on an exception.
     """
@@ -298,7 +332,8 @@ def _complete(client, messages: list[dict], *, temperature: float,
 
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
-    for model in _ready_models():
+    allowed = config.GROQ_MODELS if models is None else config.GROQ_MODELS[:models]
+    for model in [m for m in _ready_models() if m in allowed]:
         remaining = deadline - time.monotonic()
         if remaining < _MIN_ATTEMPT_S:
             break
@@ -376,10 +411,14 @@ Output: hi how are you"""
 
 # ── Heuristic: should we skip rewriting? ─────────────────────────────────────
 
+# The acronym branch must stay case-sensitive. Under IGNORECASE it matched every
+# word of two or more letters, so every query over six words "looked academic"
+# and none of them was ever rewritten ("how do I stop a RAG system from making
+# things up" counted 9 acronyms). The topic words below stay case-insensitive.
 _ACADEMIC_PATTERN = re.compile(
     r"""(?:
         \d{4}\.\d{4,5}          |   # arXiv ID
-        [A-Z]{2,}               |   # Acronyms like LLM, NLP, BERT
+        (?-i:[A-Z]{2,})         |   # Acronyms like LLM, NLP, BERT
         transformer|attention   |
         neural|network          |
         \b(?:et\s+al|arxiv)\b
@@ -448,6 +487,18 @@ async def rewrite(query: str) -> str:
         _count("search_rewrite", "skipped")
         return query
 
+    if _failover_enabled("rewrite"):
+        result = await _routed("rewrite", [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": query},
+        ], subject=ai_usage_query(query))
+        rewritten = _clean(result.text or "").strip('"').strip("'").strip()
+        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
+            _count("search_rewrite", "discarded")
+            return query
+        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
+        return rewritten
+
     client = _get_client()
     if client is None:
         return query  # No API key configured — skip
@@ -490,6 +541,61 @@ def _run_rewrite(client, query: str) -> Completion:
     )
 
 
+# ── Named paper: which paper does a short search mean? ───────────────────────
+# Searches like "resnet" or "lora paper" name one paper, but its title rarely
+# contains the name, and hundreds of later papers that do drown it out: on 30
+# such nicknames only 2 originals reached page 1. The model knows the title;
+# app/named_paper.py only pins a title it finds in the corpus. Prompt measured
+# 2026-10-30 (doc 06): unchanged wording keeps those measurements valid. Only
+# the first configured model is asked: on the same searches gpt-oss-20b named
+# a paper for 25% of topic searches ("object detection"), Qwen for 6%, so a
+# rate-limited Qwen means no pin rather than a worse one.
+_NAMED_PAPER_PROMPT = """Reply with the exact title of the one well-known research paper this search refers to, and nothing else.
+If it does not refer to one specific paper, reply NONE."""
+
+_TRAILING_CITATION = re.compile(r"\s*\((?:[^()]*\d{4}[^()]*|[^()]*et al[^()]*)\)\s*$")
+
+
+def _named_title(text: str) -> str | None:
+    """The title in a reply, or None for NONE / nothing usable."""
+    line = next((ln for ln in (text or "").splitlines() if ln.strip()), "").strip()
+    line = _TRAILING_CITATION.sub("", line).strip(" -*\"'`“”").rstrip(".").strip(" \"'`“”")
+    if not line or line.upper().startswith("NONE") or len(line) > 300:
+        return None
+    return line
+
+
+async def name_paper(query: str) -> str | None:
+    """Title of the paper a short search names, as the model recalls it, or None.
+
+    Never raises; any failure is None, and the search goes on without it.
+    """
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        result = await _run_logged("search_paper", _run_name_paper, client, query,
+                                   chars_in=len(_NAMED_PAPER_PROMPT) + len(query),
+                                   subject=ai_usage_query(query))
+    except Exception as e:
+        print(f"[groq_svc] Named-paper lookup failed: {e}")
+        return None
+    title = None if result.truncated else _named_title(result.text)
+    _count("search_paper", "named" if title else "none")
+    return title
+
+
+def _run_name_paper(client, query: str) -> Completion:
+    return _complete(
+        client,
+        [{"role": "system", "content": _NAMED_PAPER_PROMPT}, {"role": "user", "content": query}],
+        temperature=0.1,
+        max_tokens=60,
+        timeout=1.5,
+        models=1,
+    )
+
+
 # ── AI Search Summaries ──────────────────────────────────────────────────────
 
 def _summary_prompt(query: str, papers: list[dict]) -> str:
@@ -521,15 +627,20 @@ async def generate_search_summary(query: str, papers: list[dict]) -> str | None:
     if not papers or len(papers) < 2:
         return None
         
-    client = _get_client()
-    if client is None:
+    client = None if _failover_enabled("summary") else _get_client()
+    if client is None and not _failover_enabled("summary"):
         return None
-        
+
     prompt = _summary_prompt(query, papers)
 
     try:
-        result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt),
-                                   subject=ai_usage_query(query))
+        if _failover_enabled("summary"):
+            generated = await _routed("summary", [{"role": "user", "content": prompt}],
+                                      subject=ai_usage_query(query))
+            result = Completion(_clean(generated.text or ""), generated.model or "", False)
+        else:
+            result = await _run_logged("search_overview", _run_summary, client, prompt, chars_in=len(prompt),
+                                       subject=ai_usage_query(query))
         
         summary = _trim_to_sentence(result.text) if result.truncated else result.text
         if not summary:
@@ -605,14 +716,16 @@ def explain_model() -> str:
     return config.GROQ_MODELS[0] if config.GROQ_MODELS else ""
 
 
-def explain_cache_key(arxiv_id: str, abstract: str) -> str:
+def explain_cache_key(arxiv_id: str, abstract: str, *, model: str | None = None) -> str:
     """Content-addressed, per doc 07 §A.4.
 
     Keyed on the abstract TEXT rather than just the id, so the 500-char stored
     truncation and a later backfilled full abstract are different cache
     entries — otherwise repairing the corpus would silently keep serving
     explanations generated from stumps. The prompt version and model are in the
-    key for the same reason.
+    key for the same reason. For the head of the chain the key is unchanged
+    since 2026-10-04, so explanations already cached (and the feed cards that
+    only read them, card_data) keep finding each other.
     """
     import hashlib
     h = hashlib.sha256()
@@ -622,12 +735,58 @@ def explain_cache_key(arxiv_id: str, abstract: str) -> str:
     h.update(b"\x00")
     h.update(_EXPLAIN_PROMPT_VERSION.encode())
     h.update(b"\x00")
-    h.update(explain_model().encode())
+    h.update((model or explain_model()).encode())
     return h.hexdigest()
+
+
+def explanation_models() -> tuple[str, ...]:
+    """Only currently accepted producing models may be read from cache."""
+    if not _failover_enabled("explain"):
+        return (explain_model(),)
+    try:
+        return llm_router.configured_models("explain")
+    except ValueError:
+        return ()
+
+
+_explanation_tasks: dict[tuple[str, str], tuple[asyncio.Task, int]] = {}
+
+
+async def explain_paper_result(title: str, abstract: str, arxiv_id: str | None = None) -> llm_router.Generation:
+    """Carry actual model provenance; share concurrent work for identical input."""
+    if not _failover_enabled("explain"):
+        text = await explain_paper(title, abstract, arxiv_id)
+        return llm_router.Generation("success" if text else "unavailable", text, explain_model())
+    if not abstract or len(abstract.strip()) < 120:
+        return llm_router.Generation("abstained")
+    identity = (title, abstract)
+    if identity not in _explanation_tasks:
+        prompt = f"<title>{title.strip()}</title>\n<abstract>{abstract.strip()}</abstract>"
+        task = asyncio.create_task(_routed("explain", [
+            {"role": "system", "content": _EXPLAIN_SYSTEM},
+            {"role": "user", "content": prompt},
+        ], subject=arxiv_id))
+        _explanation_tasks[identity] = (task, 0)
+    task, count = _explanation_tasks[identity]
+    _explanation_tasks[identity] = (task, count + 1)
+    try:
+        return await asyncio.shield(task)
+    finally:
+        _, count = _explanation_tasks[identity]
+        if count == 1:
+            del _explanation_tasks[identity]
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        else:
+            _explanation_tasks[identity] = (task, count - 1)
 
 
 async def explain_paper(title: str, abstract: str, arxiv_id: str | None = None) -> str | None:
     """Three plain sentences, or None when it cannot be done honestly."""
+    if _failover_enabled("explain"):
+        result = await explain_paper_result(title, abstract, arxiv_id)
+        return result.text
     if not abstract or len(abstract.strip()) < 120:
         return None
     client = _get_client()

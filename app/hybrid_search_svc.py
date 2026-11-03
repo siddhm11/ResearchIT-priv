@@ -33,9 +33,33 @@ from app import fts_svc
 from app import groq_svc
 from app import turso_svc
 from app import arxiv_svc
+from app import features
+from app import named_paper
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+REWRITE_KEYWORDS_SWITCH = "SEARCH_REWRITE_KEYWORDS"
+
+# Trending papers jump the line, for a few days. A paper in the top quarter of
+# this week's Hugging Face Daily Papers that the search already found (top
+# TREND_POOL after fusion) may take one of the last TREND_AUDITIONS places the
+# cross-encoder scores. If the cross-encoder then rates it at least
+# TREND_MIN_RELEVANCE of the best score, it gains up to TREND_BOOST of the best
+# score, in full for its first three days on the list and fading to nothing a
+# week after (trending_shelf.freshness). At most TREND_MAX_PROMOTED papers per
+# search. Search results are cached for everyone, so the switch has no preview:
+# off, shadow (measure what would move, change nothing) or on (doc 06,
+# 2026-10-24).
+TRENDING_SWITCH = "SEARCH_TRENDING"
+TREND_MIN_STRENGTH = 0.75
+TREND_BOOST = 0.25           # x the best score; citations get at most 0.2
+TREND_MIN_RELEVANCE = 0.5
+TREND_POOL = 50
+TREND_AUDITIONS = 2
+TREND_MAX_PROMOTED = 2
+
+_last_search_at: float | None = None   # time.monotonic() when the last search began
 
 async def search(
     query: str,
@@ -65,8 +89,15 @@ async def search(
         return ([], {}) if return_meta else []
 
     import time
+    global _last_search_at
     t_start = time.perf_counter()
     search_meta = {"rewritten_query": None, "groq_time_ms": 0, "groq_status": "off"}
+    # Seconds since the previous search began in this process, None for the
+    # first since a restart: stored with the search (app/analytics.py) so one
+    # after a quiet spell, when the models may have left RAM, can be told apart.
+    now = time.monotonic()
+    search_meta["gap_s"] = None if _last_search_at is None else int(now - _last_search_at)
+    _last_search_at = now
 
 
     # ── Step 1: LLM rewrite — started now, collected after the first encode ──
@@ -80,8 +111,22 @@ async def search(
     # is a no-op we get its latency back entirely; when it does rewrite, the
     # extra encode+search happens after, exactly as before.
     start_groq = time.perf_counter()
-    rewrite_task = (
-        asyncio.create_task(groq_svc.rewrite(query)) if use_rewrite else None
+
+    async def timed_rewrite() -> str:
+        # The call's own time: groq_time_ms below also counts the wait for the
+        # encode, so it overstated the rewrite whenever the encode was slow.
+        try:
+            return await groq_svc.rewrite(query)
+        finally:
+            search_meta["rewrite_call_ms"] = int((time.perf_counter() - start_groq) * 1000)
+
+    rewrite_task = asyncio.create_task(timed_rewrite()) if use_rewrite else None
+    # Which paper a short search names ("resnet"), checked against the corpus
+    # (app/named_paper.py). Runs alongside everything below; collected before
+    # the final ordering.
+    named_task = (
+        asyncio.create_task(named_paper.resolve(query))
+        if use_rewrite and named_paper.wanted(query) else None
     )
 
     # ── Step 2: BGE-M3 encode the original AND rewrite ──────────────────
@@ -186,9 +231,27 @@ async def search(
     search_meta["retrieval_time_ms"] = int((time.perf_counter() - t0_retrieval) * 1000)
     search_meta["n_retrieval_tasks"] = len(tasks)
 
+    # A conversational question the rewriter changed: its literal words steer
+    # keyword search off course (after the 2026-10-23 rewriter fix, the two
+    # "stop" papers left in the top 10 for "how do I stop a RAG system from
+    # making things up" were #2 and #3 of the original's keyword list), so only
+    # the rewrite's keyword list counts. Its meaning still counts: the vector
+    # list stays. Only when no paper matched every word of the original, which
+    # is what tells a question from a title: every known title tested matched
+    # at least one paper word for word, and the rewriter shortens titles
+    # ("Direct Preference Optimization: Your Language Model is Secretly a
+    # Reward Model" became "Direct Preference Optimization"), so dropping a
+    # title's keyword list lost the paper.
+    skipped = set()
+    if rewritten_query != query and features.mode(REWRITE_KEYWORDS_SWITCH) == "on":
+        orig = raw_results[task_labels.index("fts_q0")] if "fts_q0" in task_labels else None
+        if isinstance(orig, list) and (not orig or orig[0].get("match") == "any"):
+            skipped.add("fts_q0")
     valid_result_lists: list[list[dict]] = []
     search_meta["retrieval_sources"] = []
     for label, r in zip(task_labels, raw_results):
+        if label in skipped:
+            continue
         if isinstance(r, Exception):
             print(f"[hybrid_search] search task failed: {r}")
             continue
@@ -203,6 +266,8 @@ async def search(
     )
 
     if not valid_result_lists:
+        if named_task is not None:
+            named_task.cancel()
         return ([], search_meta) if return_meta else []
 
     # ── Step 4: RRF fusion across all result lists ──────────────────────
@@ -211,16 +276,29 @@ async def search(
     search_meta["rrf_time_ms"] = int((time.perf_counter() - t0_rrf) * 1000)
 
     if not fused:
+        if named_task is not None:
+            named_task.cancel()
         return ([], search_meta) if return_meta else []
 
     # ── Step 4.5: BGE Cross-Encoder Reranking ──────────────────────────
     t0_bge = time.perf_counter()
     bge_time_ms = 0
+    trend_mode = features.mode(TRENDING_SWITCH)
+    trend: dict = {}
+    if trend_mode in ("shadow", "on"):
+        from app import trending_shelf
+        trend = {a: t for a, t in trending_shelf.trending_now().items()
+                 if t["strength"] >= TREND_MIN_STRENGTH}
 
     if fused and config.SEARCH_BGE_RERANK:
         top_n = min(len(fused), rerank_depth())
         search_meta["rerank_depth"] = top_n
         top_candidates = fused[:top_n]
+        if trend:
+            extra = [it for it in fused[top_n:TREND_POOL] if it["arxiv_id"] in trend][:TREND_AUDITIONS]
+            search_meta["trend_auditions"] = len(extra)
+            if extra and trend_mode == "on":
+                top_candidates = fused[:top_n - len(extra)] + extra
         top_ids = [item["arxiv_id"] for item in top_candidates]
 
         try:
@@ -275,7 +353,7 @@ async def search(
             # looked at.  Dropping the tail keeps every remaining score on one
             # comparable scale.
             scored = [
-                it for it in fused[:top_n] if it["arxiv_id"] in bge_scores_by_id
+                it for it in top_candidates if it["arxiv_id"] in bge_scores_by_id
             ]
             if scored:
                 for item in scored:
@@ -295,8 +373,15 @@ async def search(
     t0_rerank = time.perf_counter()
     rerank_timings: dict = {}
     ranked = await _title_match_rerank(
-        fused, query, top_n_for_boost=50, timings=rerank_timings
+        fused, query, top_n_for_boost=50, timings=rerank_timings,
+        trend=trend, apply_trend=trend_mode == "on",
     )
+    moved = {it["arxiv_id"]: {"from": it["trend_from"], "to": it["trend_to"],
+                              "facts": trend[it["arxiv_id"]]["facts"]}
+             for it in ranked if it.get("trend_boost") and it["trend_to"] < limit}
+    if moved:
+        search_meta["trending" if trend_mode == "on" else "trending_shadow"] = moved
+        runtime_stats.count(f"search_trend_{trend_mode}")
     rerank_total = int((time.perf_counter() - t0_rerank) * 1000)
     search_meta["rerank_time_ms"] = rerank_total
     # Sub-timings come back via the timings dict.  They used to be stashed on
@@ -306,6 +391,19 @@ async def search(
     turso_boost_ms = rerank_timings.get("turso_boost_fetch_ms", 0)
     search_meta["turso_boost_fetch_ms"] = turso_boost_ms
     search_meta["rerank_compute_ms"] = max(0, rerank_total - turso_boost_ms)
+
+    # ── Step 5.5: the paper a short search names goes first ──────────────
+    t0_named = time.perf_counter()
+    named = await named_paper.collect(named_task, t_start)
+    if named_task is not None:
+        # Normally 0: the lookup finished during retrieval and reranking.
+        search_meta["named_paper_wait_ms"] = int((time.perf_counter() - t0_named) * 1000)
+    if named:
+        if features.mode(named_paper.SWITCH) == "on":
+            ranked = named_paper.pin(ranked, named)
+            search_meta["named_paper"] = named
+        else:
+            search_meta["named_paper_shadow"] = named
 
     # ── Step 6: Return top results ───────────────────────────────────────
     final_results = [item["arxiv_id"] for item in ranked[:limit]]
@@ -520,6 +618,8 @@ async def _title_match_rerank(
     user_query: str,
     top_n_for_boost: int = 50,
     timings: dict | None = None,
+    trend: dict | None = None,
+    apply_trend: bool = False,
 ) -> list[dict]:
     """
     Boost candidates by title overlap + citation popularity.
@@ -534,7 +634,12 @@ async def _title_match_rerank(
        overlap is low but the paper is obviously important.
 
     The final score is:
-      final = rrf_score + max_rrf * (title_boost + citation_boost)
+      final = rrf_score + max_rrf * (title_boost + citation_boost [+ trend_boost])
+
+    3. Trend boost (temporary, see TRENDING_SWITCH): papers in `trend` that are
+       at least TREND_MIN_RELEVANCE of the best score. Each records where it
+       stood without it (`trend_from`) and with it (`trend_to`); it joins the
+       score only when `apply_trend`.
 
     Safe under partial Turso failure: papers with missing metadata get
     boost=0 and rank by RRF alone.
@@ -579,7 +684,31 @@ async def _title_match_rerank(
         c_boost = _compute_citation_boost(citations.get(aid, 0))
         item["title_boost"] = t_boost
         item["citation_boost"] = c_boost
+        item["trend_boost"] = _trend_boost((trend or {}).get(aid), item["rrf_score"], max_rrf)
         item["final_score"] = item["rrf_score"] + max_rrf * (t_boost + c_boost)
 
+    boosted = sorted((it for it in fused if it["trend_boost"]), key=lambda it: -it["trend_boost"])
+    for it in boosted[TREND_MAX_PROMOTED:]:
+        it["trend_boost"] = 0.0
     fused.sort(key=lambda x: x["final_score"], reverse=True)
+    if boosted:
+        for pos, it in enumerate(fused):
+            it["trend_from"] = pos
+        with_trend = sorted(fused, key=lambda x: x["final_score"] + max_rrf * x["trend_boost"], reverse=True)
+        for pos, it in enumerate(with_trend):
+            it["trend_to"] = pos
+        if apply_trend:
+            for it in fused:
+                it["final_score"] += max_rrf * it["trend_boost"]
+            fused = with_trend
     return fused
+
+
+def _trend_boost(info: dict | None, score: float, best: float) -> float:
+    """Up to TREND_BOOST for the week's most upvoted paper, half of it at the
+    top-quarter line, times how fresh it still is; 0 unless the paper already
+    scores TREND_MIN_RELEVANCE of the best."""
+    if not info or best <= 0 or score < TREND_MIN_RELEVANCE * best:
+        return 0.0
+    above = (info["strength"] - TREND_MIN_STRENGTH) / (1 - TREND_MIN_STRENGTH)
+    return TREND_BOOST * (0.5 + 0.5 * min(max(above, 0.0), 1.0)) * info["fresh"]

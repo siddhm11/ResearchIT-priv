@@ -65,7 +65,7 @@
           data-dismiss
           data-action="unsave"
           data-paper-id="{{ pid }}"
-          data-vals='{{ _vals | tojson }}'>Remove</button>
+          data-vals='{{ _vals | drop_none | tojson }}'>Remove</button>
 {% else %}
   {#
     The target MUST be the attribute-selector form, not "#actions-{{ pid }}".
@@ -79,7 +79,7 @@
           hx-post="/api/papers/{{ pid }}/save"
           hx-target="[id='actions-{{ pid }}']"
           hx-swap="innerHTML"
-          hx-vals='{{ _vals | tojson }}'>
+          hx-vals='{{ _vals | drop_none | tojson }}'>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
          stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M6 4h12a1 1 0 0 1 1 1v15l-7-3.6L5 20V5a1 1 0 0 1 1-1z" />
@@ -89,7 +89,7 @@
   <button type="button" class="btn btn-sm btn-pass"
           data-dismiss
           data-paper-id="{{ pid }}"
-          data-vals='{{ _vals | tojson }}'>Pass</button>
+          data-vals='{{ _vals | drop_none | tojson }}'>Pass</button>
 {% endif %}
 
 {% if _cand | why_shown %}

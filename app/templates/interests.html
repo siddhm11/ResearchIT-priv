@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/area_art.html" import area_art %}
 {% block title %}Your interests — ResearchIT{% endblock %}
 {% block content %}
 <div class="wrap wrap--feed">
@@ -12,11 +13,12 @@
   <form action="/interests" method="post">
     <fieldset class="interest-picker">
       <legend>Research areas</legend>
-      <div class="cat-grid">
+      <div class="cat-grid cat-grid--art">
         {% for key, cat in categories.items() %}
         <label class="cat-opt interest-choice">
+          <span class="art">{{ area_art(key) }}</span>
           <input type="checkbox" name="categories" value="{{ key }}" {% if key in selected %}checked{% endif %}>
-          <span><span class="name">{{ cat.name }}</span><span class="desc">{{ cat.desc }}</span></span>
+          <span class="name">{{ cat.name }}</span><span class="desc">{{ cat.desc }}</span>
         </label>
         {% endfor %}
       </div>

@@ -178,6 +178,24 @@ def test_runtime_endpoint_reports_memory_cpu_models_and_timings():
     assert body["sidecar_warmup"]["status"] in ("disabled", "no sidecar")
 
 
+async def test_runtime_endpoint_says_whether_user_data_replicates_without_the_error_text(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import turso_sync
+    from app.main import app
+
+    async def refused(stmts, timeout=60):
+        raise RuntimeError("HTTP 400: ALTER TABLE search_log failed at libsql://researchit-db.turso.io")
+
+    monkeypatch.setattr(turso_sync, "enabled", lambda: True)
+    monkeypatch.setattr(turso_sync, "_execute", refused)
+    monkeypatch.setattr(turso_sync, "_last", dict(turso_sync._last))
+    await turso_sync.start()                     # a schema change the remote refuses stops replication
+    with TestClient(app) as c:
+        rep = c.get("/healthz/runtime").json()["replication"]
+    assert rep["running"] is False and rep["last_ok"] is False and rep["last_error"] is True
+    assert "turso.io" not in str(rep)
+
+
 def test_docker_image_bakes_in_the_configured_reranker():
     from pathlib import Path
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()

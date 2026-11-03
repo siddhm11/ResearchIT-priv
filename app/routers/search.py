@@ -110,6 +110,15 @@ async def search(
         p["position"] = idx
         p["propensity"] = 1.0  # search is deterministic
         p["policy_id"] = "search_v2_independent_lexical"
+    # Papers the temporary trending step-up moved into view (SEARCH_TRENDING=on)
+    # say so, with the strongest count behind it. Shadow mode tags nothing.
+    for p in papers:
+        moved = (search_meta.get("trending") or {}).get(p.get("arxiv_id"))
+        p["trending"] = {"fact": (moved.get("facts") or [""])[0]} if moved else None
+    # The paper the search named, put first by app/named_paper.py, says why.
+    named = (search_meta.get("named_paper") or {}).get("arxiv_id")
+    for p in papers:
+        p["named_paper"] = bool(named) and p.get("arxiv_id") == named
 
     # A small figure beside each result that already has one saved (switch
     # SEARCH_FIGURES; local reads only, order and instrumentation untouched),
@@ -120,7 +129,9 @@ async def search(
     if q.strip() and repeat_qid is None:
         await analytics.log_search(q, query_id, len(papers), search_meta.get("retrieval_mode") or "hybrid",
                                    search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
-                                   features.has_preview(request))
+                                   features.has_preview(request),
+                                   # A cached answer carries the stage times of the search it copies.
+                                   None if search_meta.get("cached") else search_meta)
 
     # htmx restoring a page it has no snapshot of asks with HX-Request too, and
     # swaps the answer in as the whole body, so it gets the whole page.
@@ -128,7 +139,7 @@ async def search(
         resp = templates.TemplateResponse(
             request,
             "partials/search_results.html",
-            {"papers": papers, "query": q, "search_meta": search_meta, "heading_oob": True},
+            {"papers": papers, "query": q, "search_meta": search_meta, "with_title": True},
         )
     else:
         resp = templates.TemplateResponse(

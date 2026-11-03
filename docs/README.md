@@ -24,6 +24,11 @@ checks separately.
 [HF discovery operations](HF-DISCOVERY-OPERATIONS.md) documents the implemented
 local worker, shadow readiness, baseline capture and comparison commands.
 
+[Qwen key rotation and model fallback plan](LLM-FAILOVER-PLAN.md) documents
+model-first Groq failover, quota-aware credential selection, bounded retries,
+cache provenance, and release gates. The first opt-in implementation is locally
+tested and disabled by default; live access and quality remain unverified.
+
 ## Historical references
 
 `TASK-TRACKER.md`, phase plans, and walkthroughs record the implementation at

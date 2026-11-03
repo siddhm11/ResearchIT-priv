@@ -103,20 +103,30 @@ async def warm(arxiv_id: str) -> str:
     return "done"
 
 
+# The daily job appends new papers at the end of Turso's papers table, so the
+# newest rows by rowid are the new papers. Filtering update_date instead (no
+# index) read all 1.97M rows on every run, every 6 hours and at every restart:
+# about a quarter of the free plan's 500M monthly reads on its own, and part of
+# why Turso blocked all reads on 2026-10-24.
+RECENT_ROWS = 5000          # the daily job adds about 1,000 a day
+
+
 async def recent_ids(days: int = 2) -> list[tuple[str, str]]:
-    """[(arxiv_id, licence code)] for papers Turso dates in the last `days` days."""
+    """[(arxiv_id, licence code)] for the newest papers Turso dates in the last `days` days."""
     if not (config.TURSO_URL and config.TURSO_DB_TOKEN):
         return []
     from app.turso_sync import _execute
     since = f"date('now', '-{int(days)} day')"
+    newest = f"p.rowid > (SELECT MAX(rowid) FROM papers) - {RECENT_ROWS}"
     try:
         rows = (await _execute([{"sql": (
             "SELECT p.arxiv_id, COALESCE(l.licence, '') FROM papers p "
             "LEFT JOIN paper_licences l ON l.arxiv_id = p.arxiv_id "
-            f"WHERE p.update_date >= {since}")}]))[0]
+            f"WHERE {newest} AND p.update_date >= {since}")}]))[0]
     except Exception:
         # paper_licences arrives with the daily harvest; without it, no order.
-        rows = (await _execute([{"sql": f"SELECT arxiv_id, '' FROM papers WHERE update_date >= {since}"}]))[0]
+        rows = (await _execute([{"sql": f"SELECT arxiv_id, '' FROM papers p WHERE {newest} "
+                                        f"AND update_date >= {since}"}]))[0]
     return [(str(a), str(c or "")) for a, c in rows]
 
 

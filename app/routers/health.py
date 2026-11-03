@@ -13,7 +13,7 @@ import json
 import time
 from fastapi import APIRouter, Request
 from app.recommend import reranker as _rr
-from app import config, qdrant_svc
+from app import config, qdrant_svc, trending_shelf, trending_topics
 
 router = APIRouter()
 
@@ -58,16 +58,23 @@ async def healthz_runtime():
     builds since the last restart. Search stage times overlap (the rewrite runs
     alongside encoding and retrieval), so they do not sum to `total_ms`.
     """
-    from app import abstract_svc, compute_pool, local_meta, runtime_stats
+    from app import abstract_svc, compute_pool, local_meta, runtime_stats, turso_sync
+    # Whether user data is being copied to Turso. Only whether there was an
+    # error: its text stays in the logs, since it can name the database host.
+    replication = turso_sync.status()
+    replication["last_error"] = replication["last_error"] is not None
     return {
         "memory": runtime_stats.memory(),
         "cpu": compute_pool.stats(),
         "models": runtime_stats.models(),
         "vector_cache": qdrant_svc.vector_cache_stats(),
+        "trending_shelf": trending_shelf.stats(),
+        "trending_topics": trending_topics.stats(),
         "timings": runtime_stats.timings(),
         "counters": runtime_stats.counters(),
         "sidecar_warmup": local_meta.warmup_status(),
         "full_abstracts": abstract_svc.stats(),
+        "replication": replication,
     }
 
 
@@ -441,6 +448,13 @@ async def healthz_deep():
                     },
                 )
                 resp.raise_for_status()
+                # Turso answers HTTP 200 with the error inside the result, so a
+                # status check alone reported "ok" all through the 2026-10-24
+                # read block ("BLOCKED: SQL read operations are forbidden").
+                first = (resp.json().get("results") or [{}])[0]
+                if first.get("type") == "error":
+                    err = first.get("error") or {}
+                    raise RuntimeError(f"{err.get('code', 'ERROR')}: {err.get('message', '')}"[:200])
             results["services"]["turso"] = {
                 "status": "ok",
                 "time_ms": int((time.perf_counter() - t0) * 1000),

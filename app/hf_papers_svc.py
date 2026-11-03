@@ -84,9 +84,40 @@ def normalize_snapshot(payload: object, observed_at: datetime) -> dict:
             "input_count": len(payload), "trend_velocity": None}
 
 
-async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = None) -> dict:
-    """One bounded, read-only request. Caller owns scheduling and persistence."""
-    async with client.stream("GET", ENDPOINT, timeout=15) as response:
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = None,
+                         date: str | None = None) -> dict:
+    """One bounded, read-only request. Caller owns scheduling and persistence.
+
+    `date` (YYYY-MM-DD) asks for that day's list instead of today's. The
+    snapshot also carries `code`: {arxiv_id: (repo_url, stars)} for papers whose
+    record names a GitHub repository, read from the same response.
+    """
+    if date is not None and not _DATE.fullmatch(date):
+        raise ValueError("date must be YYYY-MM-DD")
+    payload: list = []
+    for page in range(MAX_PAGES):
+        params = {"limit": PAGE_SIZE, "p": page, **({"date": date} if date else {})}
+        part = await _get_list(client, params)
+        payload += part
+        if len(part) < PAGE_SIZE:
+            break
+    snapshot = normalize_snapshot(payload, now or datetime.now(timezone.utc))
+    snapshot["code"] = _code_links(payload)
+    snapshot["extra"] = _extras(payload)
+    return snapshot
+
+
+# The API serves at most 100 papers a page, most upvoted first; without a limit
+# it stops at 50, which cut 8 papers from 22 Oct 2026's 58.
+PAGE_SIZE = 100
+MAX_PAGES = 5
+
+
+async def _get_list(client: httpx.AsyncClient, params: dict) -> list:
+    async with client.stream("GET", ENDPOINT, params=params, timeout=15) as response:
         response.raise_for_status()
         body = bytearray()
         async for chunk in response.aiter_bytes():
@@ -94,7 +125,46 @@ async def fetch_snapshot(client: httpx.AsyncClient, *, now: datetime | None = No
             if len(body) > 4_000_000:
                 raise ValueError("Daily Papers response exceeds 4 MB")
     import json
-    return normalize_snapshot(json.loads(body), now or datetime.now(timezone.utc))
+    part = json.loads(body)
+    if not isinstance(part, list):
+        raise ValueError("Expected a Daily Papers list")
+    return part
+
+
+def _extras(payload: list) -> dict[str, dict]:
+    """What each record says beyond the paper itself: Hugging Face's keywords
+    and one-line summary, its comment count, and the organisation the paper
+    was submitted under (its display name; the avatar would be a third-party
+    image)."""
+    out: dict[str, dict] = {}
+    for record in payload:
+        paper = record.get("paper") if isinstance(record, dict) else None
+        if not isinstance(paper, dict) or not isinstance(paper.get("id"), str):
+            continue
+        keywords = [k.strip() for k in paper.get("ai_keywords") or [] if isinstance(k, str) and k.strip()]
+        summary = paper.get("ai_summary")
+        comments = record.get("numComments")
+        org = paper.get("organization") or record.get("organization")
+        org = (org.get("fullname") or org.get("name")) if isinstance(org, dict) else None
+        out[re.sub(r"v\d+$", "", paper["id"])] = {
+            "keywords": keywords[:12],
+            "summary": summary.strip()[:400] if isinstance(summary, str) else "",
+            "comments": comments if type(comments) is int and comments >= 0 else 0,
+            "org": org.strip()[:60] if isinstance(org, str) else ""}
+    return out
+
+
+def _code_links(payload: list) -> dict[str, tuple[str, int]]:
+    out: dict[str, tuple[str, int]] = {}
+    for record in payload:
+        paper = record.get("paper") if isinstance(record, dict) else None
+        if not isinstance(paper, dict) or not isinstance(paper.get("id"), str):
+            continue
+        repo = github_repo(paper.get("githubRepo"))
+        if repo:
+            stars = paper.get("githubStars")
+            out[re.sub(r"v\d+$", "", paper["id"])] = (repo, stars if type(stars) is int and stars >= 0 else 0)
+    return out
 
 
 # ── Code links for one paper (the paper page's Code chip) ────────────────────

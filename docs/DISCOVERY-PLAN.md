@@ -124,6 +124,13 @@ boundaries in CURRENT-STATE.md).
 
 ## Next release gates and later work
 
+For Qwen text generation reliability, see the
+[key rotation and model fallback plan](LLM-FAILOVER-PLAN.md) (2026-10-26).
+It keeps Qwen first across eligible Groq credentials, then tries the next
+configured model, within a total deadline. The first opt-in implementation is
+locally tested; live access, model ranking, and deployment remain pending.
+This does not change the discovery/retrieval policy.
+
 Before deployment, test a built image against scratch user storage, verify
 fresh-container restore, sidecar/FTS coverage and real model availability, and
 measure request latency. Existing recovery gaps for follows and exposure logs

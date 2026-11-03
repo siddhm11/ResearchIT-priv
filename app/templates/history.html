@@ -9,10 +9,10 @@
       {% else %}Papers recently offered in your feed, whether or not you opened them.
       This discovery history may reset after a server restart.{% endif %}</p>
   </header>
+  {% set library_tab = "recent" %}{% include "partials/library_tabs.html" %}
   <nav class="discovery-tools" aria-label="Reading history">
     <a href="/history" class="btn btn-sm {{ 'btn-primary' if view == 'opened' else 'btn-ghost' }}" {% if view == 'opened' %}aria-current="page"{% endif %}>Recently opened</a>
     <a href="/history?view=discovered" class="btn btn-sm {{ 'btn-primary' if view == 'discovered' else 'btn-ghost' }}" {% if view == 'discovered' %}aria-current="page"{% endif %}>Recently discovered</a>
-    <a href="/saved" class="btn btn-ghost btn-sm">Saved library</a>
   </nav>
   {% if papers %}
   <p class="small muted">Your latest {{ papers|length }} distinct papers. Times are UTC.</p>

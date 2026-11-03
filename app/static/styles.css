@@ -814,6 +814,106 @@ a.card-title:hover { color: var(--accent); }
 .cat-opt .desc { font-size: .75rem; color: var(--text-3); line-height: 1.4; }
 .cat-opt[aria-pressed="true"] .name { color: var(--accent); }
 
+/* "In a sentence": describe your work, and the areas get picked for you. */
+.describe { display: flex; flex-direction: column; gap: .4rem; }
+.describe-label {
+  font-family: var(--font-mono); font-size: .66rem; font-weight: 600; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.describe-status:empty { display: none; }
+.ob-or {
+  display: flex; align-items: center; gap: .6rem;
+  font-family: var(--font-mono); font-size: .66rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.ob-or::before, .ob-or::after { content: ""; flex: 1; height: 1px; background: var(--border-2); }
+.cat-opt[data-suggested]::after {
+  content: "from your words"; position: absolute; left: .7rem; top: -.55rem;
+  font-family: var(--font-mono); font-size: .6rem; font-weight: 600;
+  padding: .1rem .4rem; border-radius: 3px; background: var(--accent); color: var(--surface);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+@media (max-width: 480px) { .describe .btn .more { display: none; } }
+
+/* Area drawings (partials/area_art.html). The ink is the card's muted text
+   colour; the one thing each drawing is about (the detector's box, the fitted
+   line) is in --note, the annotation colour, and both turn green when the area
+   is picked. Hover redraws the annotated stroke: alive, not a celebration. */
+.cat-grid--art { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
+.cat-grid--art .cat-opt { position: relative; padding: .45rem .45rem .7rem; }
+.cat-grid--art .cat-opt .name,
+.cat-grid--art .cat-opt .desc { padding-inline: .3rem; }
+.cat-opt .art {
+  display: block; margin-bottom: .45rem; border-radius: 4px;
+  background: var(--surface-2); transition: background .12s ease;
+}
+/* The onboarding cards are toggle buttons; /interests uses real checkboxes. */
+.cat-opt:is([aria-pressed="true"], :has(input:checked)) .art { background: var(--accent-bg); }
+.cat-opt:is([aria-pressed="true"], :has(input:checked)) .cat-art { --note: var(--accent); --note-bg: var(--accent-br); color: var(--text-2); }
+.cat-tick {
+  position: absolute; top: -.45rem; right: -.45rem; width: 1.2rem; height: 1.2rem;
+  border-radius: 50%; background: var(--accent); color: var(--surface);
+  box-shadow: 0 0 0 2px var(--bg);
+  display: grid; place-items: center; opacity: 0; transform: scale(.6);
+  transition: opacity .12s ease, transform .12s ease;
+}
+.cat-tick svg { width: .7rem; height: .7rem; fill: none; stroke: currentColor; stroke-width: 2.4;
+  stroke-linecap: round; stroke-linejoin: round; }
+.cat-opt[aria-pressed="true"] .cat-tick { opacity: 1; transform: none; }
+
+.cat-art {
+  display: block; width: 100%; height: auto; aspect-ratio: 5 / 3;
+  color: var(--text-3); fill: currentColor;
+  font-family: var(--font-mono); font-size: 7.5px;
+}
+.cat-art .s, .cat-art .p, .cat-art .h, .cat-art .hf {
+  stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round;
+}
+.cat-art .s  { fill: none; stroke: currentColor; }
+.cat-art .p  { fill: var(--surface); stroke: currentColor; }
+.cat-art .h  { fill: none; stroke: var(--note); stroke-width: 1.8; }
+.cat-art .hf { fill: var(--note-bg); stroke: var(--note); stroke-width: 1.6; }
+.cat-art .lk  { stroke-width: 3.2; }
+.cat-art .lk2 { stroke-width: 2; }
+.cat-art .dash  { stroke-dasharray: 3 2.5; }
+.cat-art .faint { opacity: .5; }
+.cat-art .soft  { opacity: .3; }
+.cat-art .d, .cat-art .dk, .cat-art .t { fill: currentColor; }
+.cat-art .dh, .cat-art .hfill { fill: var(--note); }
+.cat-art .tk { fill: var(--text); font-weight: 600; }
+.cat-art .tb { fill: var(--text-2); font-size: 9.5px; }
+.cat-art .th, .cat-art .thc { fill: var(--note); font-weight: 600; }
+.cat-art .tl { fill: var(--surface); font-size: 7px; font-weight: 600; }
+.cat-art .draw { stroke-dasharray: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .cat-opt:is(:hover, :focus-visible, :focus-within, [aria-pressed="true"]) .cat-art .draw {
+    animation: art-draw 1.1s cubic-bezier(.3, .6, .3, 1) both;
+  }
+  .cat-opt:is(:hover, :focus-visible) .cat-art .seq {
+    animation: art-type .3s calc(var(--i) * .28s) ease-out both;
+  }
+  .cat-opt:is(:hover, :focus-visible) .cat-art .blink { animation: art-blink 1s steps(1) infinite; }
+}
+@keyframes art-draw  { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes art-type  { from { opacity: 0; transform: translateX(-3px); } }
+@keyframes art-blink { 50% { opacity: 0; } }
+
+/* /interests: the checkbox sits beside the name, not over the drawing. */
+.cat-grid--art .interest-choice {
+  display: grid; grid-template-columns: auto 1fr; column-gap: .4rem; row-gap: .15rem; align-items: start;
+}
+.cat-grid--art .interest-choice .art,
+.cat-grid--art .interest-choice .desc { grid-column: 1 / -1; }
+.cat-grid--art .interest-choice .art { margin-bottom: .3rem; }
+.cat-grid--art .interest-choice input { margin: .12rem 0 0 .3rem; accent-color: var(--accent); }
+.cat-grid--art .interest-choice .name { padding-inline: 0; }
+.cat-grid--art .interest-choice:has(input:checked) {
+  outline: 0; border-color: var(--accent); background: var(--accent-bg);
+}
+.cat-grid--art .interest-choice:has(input:checked) .name { color: var(--accent); }
+.cat-grid--art .interest-choice:has(input:focus-visible) { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
 .ob-progress {
   display: flex; align-items: center; gap: .5rem;
   font-family: var(--font-mono); font-size: .72rem; color: var(--text-3);
@@ -1932,3 +2032,252 @@ a.src:hover { text-decoration: underline; }
   font-size: .8rem; }
 .ai-overview { margin: .4rem 0 0; max-width: 34rem; font-size: .82rem; line-height: 1.45; color: var(--text-2); }
 .ai-table details summary { cursor: pointer; color: var(--text-2); }
+
+/* ── Trending shelf ───────────────────────────────────────────────────────
+   "Trending in your interests" (app/trending_shelf.py): one labelled block
+   after the fourth card of page 1, holding papers that take no feed slot. A
+   row that scrolls sideways on a phone, so it costs one card's height; three
+   columns from 900 px; full width in the wide feed, where app.js gives it a
+   row span like a card. */
+.shelf { display: flex; flex-direction: column; gap: .6rem; padding: .85rem 0 .2rem;
+  border-top: 2px solid var(--rule); min-width: 0; }
+.shelf-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .8rem; }
+.shelf-title { font-family: var(--font-read); font-size: 1.12rem; font-weight: 660; letter-spacing: -.01em; margin: 0; }
+.shelf-note { font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); }
+.shelf-row { list-style: none; margin: 0; padding: 0 0 .35rem; display: grid; gap: .7rem;
+  grid-auto-flow: column; grid-auto-columns: minmax(15rem, 80%); overflow-x: auto;
+  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+@media (min-width: 900px) {
+  .shelf-row { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+}
+.shelf-card { display: flex; flex-direction: column; gap: .5rem; min-width: 0; scroll-snap-align: start;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .85rem .7rem; transition: opacity .2s ease; }
+.shelf-card .interest { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.shelf-paper { color: var(--text); text-decoration: none; font-family: var(--font-read); font-weight: 640;
+  font-size: 1.04rem; line-height: 1.26; letter-spacing: -.01em;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.shelf-paper:hover { color: var(--accent); }
+.shelf-paper:focus-visible, .shelf-votes:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.shelf-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .65rem;
+  font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.shelf-votes { color: var(--text-2); font-weight: 600; text-decoration: none; }
+.shelf-votes:hover { color: var(--accent); }
+.shelf-actions { margin-top: auto; }
+.shelf-card.is-leaving { opacity: .35; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .shelf-card { transition: none; } }
+/* Why it is trending (trending_card.html): counts from the lists, then the
+   rising topic, then Hugging Face's own summary, labelled as theirs. */
+.shelf-why { margin: 0; font-family: var(--font-mono); font-size: .72rem; line-height: 1.45;
+  color: var(--text); font-variant-numeric: tabular-nums; }
+.shelf-topic { margin: 0; font-size: .78rem; line-height: 1.4; color: var(--text-2); }
+.shelf-topic b { color: var(--accent); font-weight: 650; }
+.shelf-sum { margin: 0; font-size: .8rem; line-height: 1.45; color: var(--text-2);
+  border-left: 2px solid var(--border); padding-left: .55rem;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.shelf-sum span { display: block; font-family: var(--font-mono); font-size: .62rem; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--text-3); }
+.shelf-more { margin-left: auto; font-family: var(--font-mono); font-size: .72rem; color: var(--accent);
+  text-decoration: none; }
+.shelf-more:hover { text-decoration: underline; }
+
+/* /trending: rising and cooling topics, each with its weekly share line. */
+.trending-page { display: flex; flex-direction: column; gap: 1.6rem; }
+.trending-page .issue + .topics-block, .trending-page .issue + .shelf { border-top: 0; padding-top: 0; }
+.topics-block { display: flex; flex-direction: column; gap: .7rem; padding-top: .85rem;
+  border-top: 2px solid var(--rule); min-width: 0; }
+.topic-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .7rem; }
+.topic-row { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .9rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.topic-head { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .8rem; }
+.topic-name { margin: 0; font-family: var(--font-read); font-size: 1.04rem; font-weight: 650; }
+.topic-delta { font-family: var(--font-mono); font-size: .78rem; color: var(--accent);
+  font-variant-numeric: tabular-nums; }
+#tp-cooling ~ .topic-list .topic-delta { color: var(--danger); }
+.topic-spark { margin-left: auto; max-width: 100%; height: auto; }
+.topic-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+#tp-cooling ~ .topic-list .topic-spark polyline { stroke: var(--danger); }
+.topic-also { margin: 0; font-family: var(--font-mono); font-size: .7rem; color: var(--text-3); }
+.topic-papers { margin: 0; padding-left: 1.1rem; display: grid; gap: .25rem; font-size: .88rem; }
+.topic-papers a { color: var(--text); text-decoration: none; }
+.topic-papers a:hover { color: var(--accent); }
+.trending-method { max-width: 40rem; }
+
+/* A search result that stepped up because it is trending (SEARCH_TRENDING=on). */
+.trend-tag { align-self: flex-start; font-family: var(--font-mono); font-size: .7rem; color: var(--accent);
+  background: var(--accent-bg); border: 1px solid var(--accent-br); border-radius: 999px; padding: .05rem .5rem; }
+
+/* The Trending tab (doc 06, 2026-10-25): which week, a strip of topics and
+   areas, steady topics beside the moving ones, and a page per topic. Steady
+   topics take neutral ink so they never read as moving. */
+.trend-window { margin-top: .2rem; }
+.topic-chips { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .2rem; scrollbar-width: thin; }
+.tchip { flex: none; display: inline-flex; align-items: center; gap: .25rem; white-space: nowrap;
+  font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 999px; padding: .3rem .7rem; }
+.tchip:hover { border-color: var(--accent); color: var(--accent); }
+.tchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tchip--up { color: var(--accent); border-color: var(--accent-br); background: var(--accent-bg); }
+.tchip--down { color: var(--danger); border-color: var(--danger-bg); }
+.tchip--area { background: var(--surface-2); color: var(--text-2); }
+.topic-name a { color: inherit; text-decoration: none; }
+.topic-name a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.topic-name a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.topic-plain { font-family: var(--font-mono); font-size: .72rem; color: var(--text-3); }
+.topic-row--cooling .topic-delta { color: var(--danger); }
+.topic-row--cooling .topic-spark polyline { stroke: var(--danger); }
+.topic-row--steady .topic-delta { color: var(--text-2); }
+.topic-row--steady .topic-spark polyline { stroke: var(--text-3); }
+
+.library-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .4rem; }
+.library-tab { font-size: .88rem; font-weight: 600; color: var(--text-3); text-decoration: none;
+  padding: .45rem .75rem; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.library-tab:hover { color: var(--text); }
+.library-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+.library-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.topic-page .back-link { align-self: flex-start; }
+.chip-label { font-family: var(--font-mono); font-size: .7rem; font-weight: 650; letter-spacing: .05em;
+  text-transform: uppercase; border-radius: 3px; padding: .12rem .4rem; }
+.chip-label--rising { color: var(--accent); background: var(--accent-bg); }
+.chip-label--cooling { color: var(--danger); background: var(--danger-bg); }
+.chip-label--steady { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border-2); }
+.topic-chart { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: .8rem .9rem .6rem; display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.topic-chart svg { width: 100%; height: 7.5rem; display: block; }
+.topic-chart .axis { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.topic-chart .line { fill: none; stroke: var(--accent); stroke-width: 2.2; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.topic-chart .line--cooling { stroke: var(--danger); }
+.topic-chart .line--steady { stroke: var(--text-3); }
+.topic-chart-axis { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap;
+  font-family: var(--font-mono); font-size: .68rem; color: var(--text-3); }
+.topic-best { margin: 0; padding-left: 1.3rem; display: grid; gap: .35rem; font-size: .9rem; }
+.topic-best a { color: var(--text); text-decoration: none; }
+.topic-best a:hover { color: var(--accent); }
+.shelf-topic a { color: inherit; text-decoration: none; }
+.shelf-topic a:hover b { text-decoration: underline; text-underline-offset: 3px; }
+.shelf-topic a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── Trending cards with figures (trending_card.html) ──────────────────────
+   Each card opens on the paper's first figure, on the same white "plate" as
+   the feed's figures, at one 16:10 shape so a row lines up. The plate
+   shimmers until its image paints (app.js adds is-loaded); a paper with no
+   figure yet, or one that fails (is-failed), shows its own name on a ruled
+   cover instead of an empty box. Without scripting the image simply shows.
+   /trending runs wider than the feed so three cards a row have room. */
+.wrap--trend { max-width: calc(var(--page-w) + 4rem); }
+.tc { padding: 0; gap: 0; overflow: hidden; }
+.tc:hover { border-color: var(--border-2); }
+.tc-media { display: flex; flex-direction: column; min-width: 0; }
+.tc-fig, .tp-thumb { position: relative; display: block; overflow: hidden; background: var(--plate); }
+.tc-fig { aspect-ratio: 16 / 10; border-bottom: 1px solid var(--border); }
+.tc-fig img, .tp-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+  padding: .55rem; transition: opacity .35s ease; }
+@media (scripting: enabled) {
+  .tc-fig:not(.is-bare):not(.is-loaded):not(.is-failed),
+  .tp-thumb:not(.is-bare):not(.is-loaded):not(.is-failed) {
+    background: linear-gradient(90deg, var(--plate) 25%, color-mix(in srgb, var(--plate) 86%, var(--text-3)) 50%,
+      var(--plate) 75%) 0 0 / 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite; }
+  .tc-fig:not(.is-loaded) img, .tp-thumb:not(.is-loaded) img { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tc-fig, .tp-thumb { animation: none !important; }
+  .tc-fig img, .tp-thumb img { transition: none; }
+}
+.tc-fig.is-failed img, .tp-thumb.is-failed img { display: none; }
+.tc-cover { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: flex-end;
+  gap: .35rem; padding: .85rem 1rem;
+  background: linear-gradient(var(--grid-major) 1px, transparent 1px) 0 0 / 100% 1.3rem, var(--surface-2); }
+.tc-cover::before { content: ""; position: absolute; left: 1rem; top: .9rem; width: 2rem; height: 3px;
+  background: var(--accent); }
+.is-bare > .tc-cover, .is-failed > .tc-cover { display: flex; }
+.tc-cover-k { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-cover-name { font-family: var(--font-read); font-weight: 700; font-size: 1.45rem; line-height: 1.1;
+  letter-spacing: -.015em; color: var(--text); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tc-credit { margin: 0; padding: .3rem .85rem 0; font-size: .66rem; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc-body { flex: 1; display: flex; flex-direction: column; gap: .45rem; min-width: 0; padding: .55rem .85rem .7rem; }
+.tc-by { margin: 0; font-family: var(--font-mono); font-size: .64rem; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tc .shelf-sum { -webkit-line-clamp: 3; }
+.tc .shelf-sum span { display: inline; margin-right: .35rem; white-space: nowrap; }
+.trending-page .tc .shelf-paper { -webkit-line-clamp: 4; }
+
+/* The page's grid: one column on a phone, then two, then three. The lead (the
+   week's most upvoted) spans the row, figure beside text from 760 px. Rows
+   that are also .shelf-row keep scrolling sideways on a phone. */
+.tgrid { list-style: none; margin: 0; padding: 0; display: grid; gap: .8rem; grid-template-columns: minmax(0, 1fr); }
+.shelf-row.tgrid { grid-template-columns: none; }
+@media (min-width: 620px) {
+  .tgrid, .shelf-row.tgrid { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+}
+@media (min-width: 960px) {
+  .tgrid, .shelf-row.tgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.tc--lead .shelf-paper { font-size: 1.3rem; }
+@media (min-width: 620px) { .tc--lead { grid-column: 1 / -1; } }
+@media (min-width: 760px) {
+  .tc--lead { flex-direction: row; }
+  .tc--lead .tc-media { flex: 0 0 56%; border-right: 1px solid var(--border); padding-bottom: .5rem; }
+  .tc--lead .tc-fig { flex: 1; aspect-ratio: auto; min-height: 17rem; }
+  .tc--lead .tc-body { padding: 1rem 1.2rem 1rem; gap: .6rem; }
+  .trending-page .tc--lead .shelf-paper { font-size: 1.55rem; line-height: 1.18; -webkit-line-clamp: 5; }
+  .tc--lead .shelf-sum { -webkit-line-clamp: 6; font-size: .88rem; }
+  .tc--lead .tc-cover-name { font-size: 2.2rem; }
+}
+
+/* What's moving: rising and cooling topics, two a row, each with its line
+   labelled at both ends and its top papers beside small figures. */
+@media (min-width: 760px) { .topic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.topic-badge { margin-left: auto; font-family: var(--font-mono); font-size: .66rem; font-weight: 650;
+  letter-spacing: .05em; text-transform: uppercase; border-radius: 3px; padding: .12rem .4rem;
+  color: var(--accent); background: var(--accent-bg); }
+.topic-row--cooling .topic-badge { color: var(--danger); background: var(--danger-bg); }
+.topic-delta-line { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .6rem; }
+.topic-delta-line .topic-delta { font-size: .95rem; font-weight: 650; }
+.topic-chart-sm { margin: 0; }
+.topic-chart-sm svg { display: block; width: 100%; height: 3.2rem; }
+.topic-chart-sm polyline { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke; }
+.topic-row--cooling .topic-chart-sm polyline { stroke: var(--danger); }
+.topic-chart-sm figcaption { display: flex; justify-content: space-between; padding-top: .2rem;
+  border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: .64rem; color: var(--text-3); }
+.topic-papers--thumbs { list-style: none; padding: 0; gap: .5rem; }
+.topic-papers--thumbs li { display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); align-items: center; gap: .65rem; }
+.tp-thumb { aspect-ratio: 4 / 3; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.tp-thumb img { padding: .15rem; }
+.tp-thumb .tc-cover { padding: .3rem .35rem; }
+.tp-thumb .tc-cover::before { display: none; }
+.tp-thumb .tc-cover-name { font-size: .62rem; line-height: 1.15; }
+.tp-text { font-size: .86rem; line-height: 1.35; min-width: 0; }
+.tp-text a { color: var(--text); text-decoration: none; }
+.tp-text a:hover { color: var(--accent); }
+.tp-text a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Steady topics: one row each (name, share bar, share, line). */
+.steady-list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.steady-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 7rem 7.5rem; align-items: center;
+  gap: .3rem .9rem; padding: .5rem .1rem; border-bottom: 1px solid var(--border); }
+.steady-name { min-width: 0; }
+.steady-name a { font-family: var(--font-read); font-weight: 650; color: var(--text); text-decoration: none; }
+.steady-name a:hover { color: var(--accent); }
+.steady-name a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.steady-also { display: block; font-family: var(--font-mono); font-size: .66rem; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steady-bar { height: .45rem; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.steady-bar span { display: block; height: 100%; background: var(--text-3); border-radius: inherit; }
+.steady-share { font-family: var(--font-mono); font-size: .74rem; color: var(--text-2); text-align: right;
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.steady-row .topic-spark { width: 100%; height: 1.6rem; margin: 0; }
+.steady-row .topic-spark polyline { stroke: var(--text-3); stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+@media (max-width: 620px) {
+  .steady-row { grid-template-columns: minmax(0, 1fr) auto 4.5rem; }
+  .steady-bar { display: none; }
+}
+.trending-method summary { cursor: pointer; font-family: var(--font-mono); font-size: .72rem; }
+.trending-method summary:hover { color: var(--text-2); }
+.trending-method p { margin: .5rem 0 0; }

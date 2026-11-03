@@ -119,28 +119,32 @@ def test_back_from_a_paper_returns_to_the_search(browser):
         ctx.close()
 
 
-def test_a_search_from_the_box_renames_the_heading_and_the_tab(browser):
-    """Open one search, run another from the box (reported 2026-10-23). Only the
-    results were swapped, so the heading and the tab kept the first query above
-    the second one's results. Back and Forward must show each its own."""
+def test_the_box_alone_names_the_search_through_back_and_forward(browser):
+    """Open one search, run another from the box. The query shows in the box and
+    the tab title only, never as the heading (reported 2026-10-23), so the box
+    must name the results under it after Back and Forward too: htmx restores
+    those from saved HTML, which does not hold what was typed into the box."""
     ctx, page = search(browser, 1280)                                # opens /search?q=navigation
-    heading = "() => document.getElementById('search-title').textContent"
+    box = 'form.searchbar input[name="q"]'
     try:
-        assert page.evaluate(heading) == "navigation" and page.title() == "navigation — Search — ResearchIT"
-        page.fill('form.searchbar input[name="q"]', "astra")
-        page.press('form.searchbar input[name="q"]', "Enter")
-        page.wait_for_function(f"({heading})() === 'astra'")
-        # htmx sets the title as the swap settles, a moment after the heading.
+        assert page.locator("h1").count() == 1 and page.locator("h1").inner_text() == "Find papers"
+        assert page.title() == "navigation — Search — ResearchIT"
+        page.fill(box, "astra")
+        page.press(box, "Enter")
+        page.wait_for_function("document.querySelector('.search-meta').textContent.includes('1 result')")
+        # htmx sets the title as the swap settles, a moment after the results.
         page.wait_for_function("document.title === 'astra — Search — ResearchIT'")
         assert page.url.endswith("/search?q=astra")
-        assert page.locator("#search-title").count() == 1 and page.locator("#search-title").is_visible()
+        assert "astra" not in page.locator("header.issue").inner_text().lower()
+        assert "astra" not in page.locator(".search-meta").first.inner_text().lower()
 
         page.go_back()
-        page.wait_for_function(f"({heading})() === 'navigation'")
         page.wait_for_function("document.title === 'navigation — Search — ResearchIT'")
+        assert page.input_value(box) == "navigation"
         page.go_forward()
-        page.wait_for_function(f"({heading})() === 'astra'")
         page.wait_for_function("document.title === 'astra — Search — ResearchIT'")
+        assert page.input_value(box) == "astra"                     # was "navigation"
+        assert page.locator("h1").inner_text() == "Find papers"
         assert not page.errors
     finally:
         ctx.close()

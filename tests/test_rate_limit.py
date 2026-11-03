@@ -209,3 +209,21 @@ def test_a_suffix_only_counts_under_api_papers():
     assert rate_limit._rule_for("/explain") is None
     assert rate_limit._rule_for("/api/papers/2609.31507/explain")[0] == "/api/papers/*/explain"
     assert rate_limit._rule_for("/api/papers/2609.31507/code")[0] == "/api/papers/*/code"
+
+
+def test_the_map_search_is_limited_like_search_and_its_reads_more_loosely():
+    """/api/space/search runs the whole search, Groq included; the map's vector
+    reads are cheap and its readers can share one address (the map's server)."""
+    assert rate_limit._rule_for("/api/space/search") == ("/api/space/search", 30, 60)
+    for path in ("/api/space/locate", "/api/space/locate/health", "/api/space/similarity",
+                 "/api/space/neighbors"):
+        assert rate_limit._rule_for(path) == ("/api/space", 120, 60), path
+    assert rate_limit._rule_for("/api/spacey") is None, "a prefix only matches whole path segments"
+
+
+def test_the_map_search_trips_on_its_own_budget():
+    limit, _ = rate_limit.LIMITS["/api/space/search"]
+    for _ in range(limit):
+        assert rate_limit.check("/api/space/search", "9.9.9.1")[0]
+    assert not rate_limit.check("/api/space/search", "9.9.9.1")[0]
+    assert rate_limit.check("/api/space/neighbors", "9.9.9.1")[0], "the cheap reads keep their own budget"
