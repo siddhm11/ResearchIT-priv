@@ -19,7 +19,7 @@ import httpx
 import numpy as np
 import pytest
 
-from app import db, hn_svc, qdrant_svc, trending_shelf as ts, turso_svc, user_state as us
+from app import db, hn_svc, http_client, qdrant_svc, trending_shelf as ts, turso_svc, user_state as us
 from app.main import app
 
 READER = "hn-reader"
@@ -76,7 +76,8 @@ META = {a: {"arxiv_id": a, "title": t, "authors": '["A. Author", "B. Author"]', 
                            ("2001.08361", "Scaling Laws for Neural Language Models", 2020, "cs.LG"),
                            ("2610.00001", "A fresh paper people discuss", 2026, "cs.CL"),
                            ("2610.00002", "A fresh paper someone posted", 2026, "quant-ph"),
-                           ("1802.00001", "Mentioned once", 2018, "cs.CV")]}
+                           ("1802.00001", "Mentioned once", 2018, "cs.CV"),
+                           ("2005.00001", "Never on Hacker News", 2020, "cs.CV")]}
 VECTORS = {"1706.03762": unit(1), "2610.00001": unit(2), "2610.00002": unit(3), "2001.08361": unit(4)}
 
 
@@ -100,7 +101,21 @@ def write_tables(path, rows=ROWS, loaded_at="2026-11-03T08:00:00+00:00"):
 
 
 @pytest.fixture
-async def world(monkeypatch, tmp_path):
+def outside_calls(monkeypatch):
+    """Every outbound request through the shared client, refused and recorded."""
+    calls: list[str] = []
+
+    def refuse(request):
+        calls.append(str(request.url))
+        return httpx.Response(503)
+
+    trap = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+    monkeypatch.setattr(http_client, "get_client", lambda: trap)
+    return calls
+
+
+@pytest.fixture
+async def world(monkeypatch, tmp_path, outside_calls):
     """The tables in a local file, metadata and vectors patched, nothing remote."""
     path = tmp_path / "hn.sqlite"
     write_tables(path)
@@ -243,10 +258,11 @@ def paper_page(monkeypatch):
     monkeypatch.setattr(qdrant_svc, "search_by_vector", AsyncMock(return_value=[]))
 
 
-async def test_the_paper_page_shows_where_hn_discussed_it(world, paper_page, monkeypatch):
+async def test_the_paper_page_shows_where_hn_discussed_it(world, paper_page, monkeypatch, outside_calls):
     monkeypatch.setenv("HN_PAPER", "on")
     async with client() as c:
         html = (await c.get("/p/1706.03762")).text
+    assert outside_calls == []
     assert 'id="sec-hn"' in html and 'href="#sec-hn"' in html
     assert "Linked by <b>4 people</b>" in html and "4 separate months" in html and "2017–2019" in html
     assert 'href="https://news.ycombinator.com/item?id=100"' in html and "the paper was the link" in html
@@ -262,11 +278,13 @@ async def test_once_is_said_as_once(world, paper_page, monkeypatch):
     assert "Linked by one person, 2018." in html and "hn-strip" not in html and "Lasting ·" not in html
 
 
-async def test_no_block_with_the_switch_off_or_without_mentions(world, paper_page, monkeypatch):
+async def test_no_block_with_the_switch_off_or_without_mentions(world, paper_page, monkeypatch, outside_calls):
     async with client() as c:
         assert 'id="sec-hn"' not in (await c.get("/p/1706.03762")).text
         monkeypatch.setenv("HN_PAPER", "on")
-        assert 'id="sec-hn"' not in (await c.get("/p/2001.99999")).text
+        never = (await c.get("/p/2005.00001")).text
+    assert "Never on Hacker News" in never and 'id="sec-hn"' not in never
+    assert outside_calls == []
 
 
 # ── /trending/lasting and the section on /trending ───────────────────────────
