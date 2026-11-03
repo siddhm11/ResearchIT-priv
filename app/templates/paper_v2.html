@@ -170,6 +170,8 @@
       </section>
     {% endif %}
 
+    {% if hn %}{% include "partials/paper/hn_block.html" %}{% endif %}
+
     {% if related %}
       <section class="brief" id="sec-near">
         <h2 class="brief-h">What sits near this</h2>

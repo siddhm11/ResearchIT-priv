@@ -1,0 +1,76 @@
+{#
+  One paper on a Hacker News list (/trending/lasting, "On Hacker News lately"
+  on /trending). Expects `paper` (hn_svc.card, instrumented by the route) and
+  `source`. A row, not a card with a figure: most lasting papers were read
+  years before this site existed, so few have a figure saved, and a list of
+  2,000 reads better as rows.
+
+  The facts are counts a reader can check on HN: how many people linked it, in
+  how many separate months, over which years, and its biggest thread. Links
+  and buttons carry the §3.11 fields like every ranked surface.
+#}
+{% set _q = ["qid=" ~ paper.query_id, "sf=" ~ source, "pos=" ~ paper.position,
+             "src=" ~ paper.candidate_source, "prop=" ~ paper.propensity,
+             "pol=" ~ paper.policy_id] %}
+{% set href = "/p/" ~ paper.arxiv_id ~ "?" ~ (_q | join('&')) %}
+{% set by = paper | byline %}
+{% set t = paper.thread %}
+{% set ranked = paper.rank and paper.kind == "lasting" %}
+<li class="hn-row{% if not ranked %} hn-row--norank{% endif %}">
+  {% if ranked %}<span class="hn-rank" title="Place on the lasting list">{{ paper.rank }}</span>{% endif %}
+  <div class="hn-row-body">
+    {% if paper.interest and paper.interest.label and show_interest | default(true) %}
+      <span class="interest tone-{{ paper.interest.tone }}">{{ paper.interest.label }}</span>
+    {% endif %}
+    <a class="hn-row-title tex" href="{{ href }}">{{ paper.title }}</a>
+    <p class="hn-row-by">{% if by %}{{ by }}{% endif %}{% if paper.year %}{% if by %} · {% endif %}{{ paper.year }}{% endif %}</p>
+    <p class="hn-row-facts">
+      {% if paper.kind == "fresh" %}
+        <b>{{ paper.recent_people }} {{ "person" if paper.recent_people == 1 else "people" }}</b> in the last 30 days
+        {%- if paper.hn.people > paper.recent_people %} ({{ paper.hn.people | commafy }} since {{ paper.hn.since }}){% endif %}
+      {% else %}
+        <b>{{ paper.hn.people | commafy }} people</b> · {{ paper.hn.months }} months · {{ paper.hn.span }}
+        {%- set _view = view | default("") %}
+        {%- if _view == "running" %} · <b>linked over {{ paper.span_years }} years</b>
+        {%- elif _view == "recent" %} · <b>last linked {{ paper.last_label }}</b>
+        {%- elif _view == "gems" %} · <b>cited {{ paper.citation_count | commafy }} time{{ "" if paper.citation_count == 1 else "s" }}</b>{% endif %}
+      {% endif %}
+      {% if t %}
+        {# A submission's title is usually the paper's own, so it says where instead. #}
+        <span class="hn-row-thread">· <a href="{{ t.url }}" target="_blank" rel="noopener"
+          title="{{ t.title }}">{% if t.submitted %}posted to HN{% else %}{{ (t.title or "Hacker News thread") | truncate(64) }}{% endif %} ↗</a>{% if t.points %} {{ t.points | commafy }} points{% endif %}</span>
+      {% endif %}
+    </p>
+    {% if paper.kind == "lasting" and paper.spark %}
+      {# The year-by-year record: people who linked it each year since HN
+         began, on one axis for every row, and its threads in date order. #}
+      <div class="hn-row-more">
+        <span class="hn-spark" role="img"
+              aria-label="People who linked it each year: {% for y in paper.spark if y.people %}{{ y.year }} {{ y.people }}{{ ', ' if not loop.last }}{% endfor %}">
+          {%- for y in paper.spark %}<i class="{{ 'z' if not y.people }}" style="--h: {{ y.h }}%" title="{{ y.year }}: {{ y.people }} {{ 'person' if y.people == 1 else 'people' }}"></i>{% endfor -%}
+        </span>
+        <span class="hn-spark-axis">{{ paper.spark[0].year }}–{{ paper.spark[-1].year }}</span>
+        {% if paper.dated %}
+          <details class="hn-dated">
+            <summary>{{ paper.n_threads }} thread{{ "" if paper.n_threads == 1 else "s" }}</summary>
+            <ol>
+              {% for d in paper.dated %}
+                <li><span class="d">{{ d.when }}</span>
+                  <a href="{{ d.url }}" target="_blank" rel="noopener">{{ (d.title or "Hacker News thread") | truncate(80) }} ↗</a>
+                  {%- if d.points %} <span class="pts">{{ d.points | commafy }} pts</span>{% endif %}
+                  <span class="pts">· {% if d.submitted %}the paper was the link{% elif d.mentions > 1 %}{{ d.mentions }} comments link it{% else %}a comment links it{% endif %}</span></li>
+              {% endfor %}
+            </ol>
+            {% if paper.n_threads > paper.dated | length %}
+              <a class="hn-more" href="https://hn.algolia.com/?query={{ paper.arxiv_id | urlencode }}&amp;type=all&amp;dateRange=all"
+                 target="_blank" rel="noopener">All {{ paper.n_threads }} on HN Search ↗</a>
+            {% endif %}
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+  <div class="card-actions hn-row-actions" id="actions-{{ paper.arxiv_id }}">
+    {% include "partials/action_buttons.html" %}
+  </div>
+</li>

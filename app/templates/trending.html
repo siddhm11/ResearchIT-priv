@@ -26,6 +26,8 @@
     {% endif %}
   </header>
 
+  {% if lasting_visible %}{% set current = "week" %}{% include "partials/trending_views.html" %}{% endif %}
+
   {% if chips %}
   <nav class="topic-chips" aria-label="Topics and your areas">
     {% for c in chips %}<a class="tchip tchip--{{ c.kind }}" href="{{ c.href }}">{{ c.text }}{% if c.kind == "up" %} <span aria-label="rising">↑</span>{% elif c.kind == "down" %} <span aria-label="cooling">↓</span>{% endif %}</a>{% endfor %}
@@ -52,6 +54,18 @@
     </header>
     <ol class="tgrid tgrid--top">
       {% for paper in top %}{% set lead = loop.first %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% if hn_lately %}
+  <section class="shelf" aria-labelledby="tp-hn">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="tp-hn">On Hacker News lately</h2>
+      <span class="shelf-note">Papers linked there by at least two people in the last {{ hn_days }} days, or posted and upvoted{% if lasting_visible %} · <a href="/trending/lasting">the ones it keeps coming back to</a>{% endif %}</span>
+    </header>
+    <ol class="hn-list">
+      {% for paper in hn_lately %}{% include "partials/hn_row.html" %}{% endfor %}
     </ol>
   </section>
   {% endif %}

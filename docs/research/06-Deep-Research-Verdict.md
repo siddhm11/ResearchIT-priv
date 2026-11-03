@@ -1210,3 +1210,74 @@ pinned paper is added after them.
 features). One extra Qwen call per search of up to 4 words, ~60 tokens. Roll
 out `shadow`, watch `named_paper_*` counters and `named_paper_wait_ms` on
 `/healthz/runtime`, then `on`.
+
+### 2026-11-03 — Hacker News as a second signal: a paper-page block, a Lasting list, and HN lately on /trending
+
+**Decision:** Count every Hacker News comment and story that links an arXiv
+paper (via the HN Search API by Algolia; `scripts/hn_harvest.py`, a stage of
+the daily job) and show the counts on three surfaces, each behind its own
+switch, none of them in the feed:
+
+* `HN_PAPER`: an "On Hacker News" block on the paper page (v2): how many people
+  linked it, in how many separate months, a strip of people per year, and its
+  three main threads, linked.
+* `HN_LASTING`: `/trending/lasting`, the papers HN keeps coming back to. A paper
+  is listed when at least 3 people linked it in at least 3 separate months,
+  where a month counts only when someone who had not linked it before did
+  ("new-voice months"). The page offers the controls DAIR.AI's Hacker Papers
+  does, one list per page: views "Closest to you" (`trending_shelf.rank`
+  with people on HN as the popularity term, `votes_key="people"`), "Most
+  lasting", "Longest running", "Hidden gems", "Recently mentioned" and
+  "Saved"; sorts by newest, oldest, most people, most threads; filters by
+  the year a paper appeared and by five broad fields. A hidden gem is a
+  lasting paper cited 1 to 49 times and at least 2 years old (346 of 1,843;
+  a count of 0 is left out, since NeRF, DeepSeek-V3 and Gemini all read 0).
+  Each row carries a bar per year since 2007 and its eight most relevant
+  threads in date order.
+* `HN_FRESH`: "On Hacker News lately" on `/trending`: papers linked by at least
+  2 people in the last 30 days, or submitted as a story that reached 20 points.
+
+The words are "linked" and "brought up", never "recommended".
+
+**Rationale:** Karpathy's HackerTube (31 Oct 2026) and DAIR.AI's "Hacker Papers"
+showed that persistence across months filters HN's one-day spikes. Measured
+on every HN link to arXiv up to 3 Nov 2026 (49,639 links to 28,447 papers,
+1,309 requests, 5 minutes):
+
+* Karpathy's rule passes 2,080 papers; for 214 of them one account wrote half
+  or more of the links, and one passed because one user linked it 14 times.
+  The new-voice rule passes 2,023, and 86 of the top 100 are the same.
+* Most links are citations in an argument, not recommendations: 8 of 10
+  sampled comments on "Markets are efficient if and only if P = NP" (4th on the
+  list) used it as a rebuttal. So no surface claims approval.
+* HN is a second source where Hugging Face's lists are thin: of 145 papers HN
+  discussed between August and November, 33 were on Daily Papers, and HN covers
+  maths, theory and physics, which those lists barely touch (the gap the
+  2026-10-23 trending entry left open for readers outside ML).
+* 1,843 of the 2,023 are in the corpus; the rest are mostly categories never
+  ingested (gr-qc, physics.pop-ph, cs.PL, hep-th, math.HO). Lists count them
+  but show only papers that open.
+
+Personal ranking reuses the shelf's ranker unchanged apart from the
+popularity key. For a reader with five saves in quantum computing and
+cosmology, the closest lasting papers were Preskill's NISQ paper, Boixo et
+al. on quantum supremacy and the surface-code papers; nothing cleared the bar
+for cosmology.
+
+**Supersedes:** nothing. No feed slot, retrieval, fusion or reranking changes
+(§3.1, §3.4 untouched); the lists are separate ranked surfaces with their own
+§3.11 policy ids (`hn_lasting_for_you_v1`, `hn_lasting_list_v1`,
+`hn_lasting_{running,gems,recent,saved}_v1`, `hn_fresh_page_v1`, candidate
+sources `hn_lasting`, `hn_fresh`). No LLM.
+
+**Action items:** Turso tables `hn_mentions`, `hn_comments`, `hn_threads`,
+`hn_state` (daily job; one-off backfill `daily_refresh.py --hn-only --hn-since
+2007-01-01 --hn-workers 6`). `app/hn_svc.py` loads them in pages of 5,000 by
+rowid when `hn_state.loaded_at` changes (~90,000 rows a day and at each start,
+under 2% of the free plan's monthly reads), and holds the counts in memory, so
+no request reads Turso. Roll out each switch `preview` then `on`. Next, not
+built: HN lately as a second source for the feed's trending shelf (its own
+policy id), labelling how each comment uses a paper (stored in `hn_comments`
+for that), and ingesting the 180 missing lasting papers (writes the vector
+store; needs the owner's OK and a shard decision, since the ingest writes
+only the recent shard).

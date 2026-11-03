@@ -13,7 +13,7 @@ import json
 import time
 from fastapi import APIRouter, Request
 from app.recommend import reranker as _rr
-from app import config, qdrant_svc, trending_shelf, trending_topics
+from app import config, hn_svc, qdrant_svc, trending_shelf, trending_topics
 
 router = APIRouter()
 
@@ -70,6 +70,7 @@ async def healthz_runtime():
         "vector_cache": qdrant_svc.vector_cache_stats(),
         "trending_shelf": trending_shelf.stats(),
         "trending_topics": trending_topics.stats(),
+        "hacker_news": hn_svc.stats(),
         "timings": runtime_stats.timings(),
         "counters": runtime_stats.counters(),
         "sidecar_warmup": local_meta.warmup_status(),

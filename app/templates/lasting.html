@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{#
+  /trending/lasting (app/routers/trending.py, switch HN_LASTING): the papers
+  Hacker News keeps coming back to, from app/hn_svc.py. One list per page, so
+  a paper is never on it twice: "Closest to you" (the reader's interests and
+  areas, trending_shelf.rank) or "All lasting" (the whole list in order, by
+  area, LASTING_PAGE rows a page). The footnote says how a paper gets on it.
+#}
+{% block title %}Lasting on Hacker News — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--trend trending-page lasting-page">
+  <header class="issue">
+    <div class="issue-kicker">Hacker News, 2007 to today</div>
+    <h1 class="issue-title">Lasting</h1>
+    <p class="muted">Papers Hacker News keeps coming back to: each one linked by at least 3 people, in at least 3 separate months.</p>
+    {% if loaded %}
+      <div class="issue-line">
+        <span><b>{{ total | commafy }}</b> papers</span>
+        <span class="sep">·</span><span>from {{ mentions | commafy }} links to arXiv</span>
+        <span class="sep">·</span><span>updated daily</span>
+      </div>
+    {% endif %}
+  </header>
+
+  {% if trending_page %}{% set current = "lasting" %}{% include "partials/trending_views.html" %}{% endif %}
+
+  {% if not loaded %}
+    <p class="muted">The list is being loaded. It appears here a minute or so after the site starts.</p>
+  {% else %}
+    {% set notes = {
+      "you": "Lasting papers nearest what you save and the areas you picked. The number is each one's place on the whole list.",
+      "lasting": "Most months in which someone new linked them, then most people.",
+      "running": "Longest time between the first link on HN and the latest.",
+      "gems": "Lasting on HN but cited fewer than " ~ gem_max ~ " times, and at least " ~ gem_age ~ " years old.",
+      "recent": "Lasting papers HN linked most recently.",
+      "saved": "Lasting papers in your library."} %}
+    {% set titles = {"you": "Closest to your interests"} %}
+
+    <nav class="topic-chips hn-views" aria-label="Views">
+      {% if has_for_you %}
+        <a class="tchip{% if view == 'you' %} tchip--up{% endif %}" href="{{ link(view='you', sort='default') }}"
+           {% if view == 'you' %}aria-current="page"{% endif %}>Closest to you</a>
+      {% endif %}
+      {% for key, label in views %}{% if key != "saved" or signed %}
+        <a class="tchip{% if view == key %} tchip--up{% endif %}" href="{{ link(view=key) }}"
+           {% if view == key %}aria-current="page"{% endif %}>{{ label }}</a>
+      {% endif %}{% endfor %}
+    </nav>
+
+    <div class="hn-filters">
+      <div class="hn-filter" role="group" aria-label="Field">
+        <span class="hn-filter-k">Field</span>
+        <a class="hn-opt{% if not field %} is-on{% endif %}" href="{{ link(field='') }}" {% if not field %}aria-current="true"{% endif %}>All fields</a>
+        {% for key, label in fields %}
+          <a class="hn-opt{% if field == key %} is-on{% endif %}" href="{{ link(field=key) }}"
+             {% if field == key %}aria-current="true"{% endif %}>{{ label }} <span class="n">{{ by_field[key] | commafy }}</span></a>
+        {% endfor %}
+      </div>
+      <div class="hn-filter" role="group" aria-label="Published">
+        <span class="hn-filter-k">Published</span>
+        <a class="hn-opt{% if not year %} is-on{% endif %}" href="{{ link(year='') }}" {% if not year %}aria-current="true"{% endif %}>Any time</a>
+        {% for key, label, _a, _b in years %}
+          <a class="hn-opt{% if year == key %} is-on{% endif %}" href="{{ link(year=key) }}"
+             {% if year == key %}aria-current="true"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </div>
+      {% if view != "you" %}
+      <div class="hn-filter" role="group" aria-label="Sort">
+        <span class="hn-filter-k">Sort</span>
+        {% for key, label in sorts %}
+          <a class="hn-opt{% if sort == key %} is-on{% endif %}" href="{{ link(sort=key) }}"
+             {% if sort == key %}aria-current="true"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <section class="shelf" aria-labelledby="hl-list">
+      <header class="shelf-head">
+        <h2 class="shelf-title" id="hl-list">{{ titles.get(view) or dict(views).get(view) }}</h2>
+        <span class="shelf-note">{{ notes[view] }} · {{ count | commafy }} paper{{ "" if count == 1 else "s" }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}</span>
+      </header>
+      {% if papers %}
+        <ol class="hn-list">
+          {% for paper in papers %}{% include "partials/hn_row.html" %}{% endfor %}
+        </ol>
+      {% elif view == "saved" %}
+        <p class="muted">None of the papers you saved is on the list{% if field or year %} with these filters{% endif %}. Save one here and it shows up in this view.</p>
+      {% else %}
+        <p class="muted">No lasting paper matches these filters. <a href="{{ link(field='', year='') }}">Show every field and year</a>.</p>
+      {% endif %}
+      {% if pages > 1 %}
+        <nav class="hn-pager" aria-label="Pages">
+          {% if page > 1 %}<a class="btn btn-sm btn-quiet" href="{{ link(page=page - 1) }}">← Previous</a>{% endif %}
+          <span class="muted small">{{ page }} / {{ pages }}</span>
+          {% if page < pages %}<a class="btn btn-sm btn-quiet" href="{{ link(page=page + 1) }}">Next →</a>{% endif %}
+        </nav>
+      {% endif %}
+    </section>
+
+    <details class="small muted trending-method">
+      <summary>How a paper gets on this list</summary>
+      <p>Every Hacker News comment and story since 2007 that links an arXiv paper (or its alphaXiv, ar5iv or
+      Hugging Face page) is counted. A paper is listed when at least 3 different people linked it, in at least
+      3 separate months, and a month counts only when someone who had not linked it before did, so one person
+      posting the same paper every month counts once. That is Andrej Karpathy's rule for HackerTube with one
+      change, made because a single account wrote half or more of the links for about one in ten papers that
+      passed the original.</p>
+      <p>A link is not a vote. People link a paper to build on it, to make a point in an argument, or to
+      disagree with it, and all three count the same here.</p>
+      <p>Hidden gems are lasting papers cited fewer than {{ gem_max }} times by other papers (Semantic Scholar's
+      count), at least {{ gem_age }} years after they appeared: what HN keeps reading that research rarely cites.
+      Papers with no citation count are left out, since that usually means the count is missing, not zero.{% if total_all > total %}{% set missing = total_all - total %}
+      {% if missing == 1 %}One lasting paper isn't in ResearchIT's collection yet, so it isn't shown.
+      {% else %}{{ missing | commafy }} lasting papers aren't in ResearchIT's collection yet, so they aren't shown.{% endif %}{% endif %}</p>
+    </details>
+  {% endif %}
+</div>
+{% endblock %}
