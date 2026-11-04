@@ -12,19 +12,40 @@ network policy, so no new live numbers were measured.
 
 **Test suite:** 1,651 passed, 1 failed (F13, network), 11 skipped (`-m "not live and not browser"`).
 
-## Ratings (judgement, with evidence in the artifact)
+## Ratings (weighted rubric; see the artifact's "How each score was computed")
 
-| Area | Score | Main reasons |
-|---|---|---|
-| Search | 6.5 | MRR@10 0.563 on 847 known-item queries (0.618 with full abstracts); precise on technical queries, weak on landmark papers; 10 results, no paging |
-| Recommendations | 5.5 | Strong design; F2, F4, F5, F6, F7; 68.4% top-10 (simulated), AUC 0.703 (real votes); no online metrics |
-| Query rewriter | 5.5 | 45/54 queries go to the LLM; 6/26 stored rewrites exceed the 8-word cap; never measured on vs off |
-| Ask this paper | 7 | 20/20 off-topic refused, 0.72 s median; some "limitations" answers about prior work; no human ratings |
-| Plain terms / briefings | 7 | Good prompts and checks; mostly fed 500-char stumps; feed cards only show cached summaries |
-| UI/UX | 7.5 | Consistent and accessible basics; feed error state broken (F3) |
-| Code health | 5.5 | 580-line functions, ~70 one-shot DB connections, 23+ switches, 3 LLM layers, dead code |
-| Production readiness | 5 | One process on 2 vCPU, /tmp DB with 60 s backup, spoofable rate limit, cross-reader cache leak |
-| Measurement & logging | 4 | Feed exposures wiped each deploy; no feed dashboard; no scheduled quality check |
+| Area | Score | Confidence | Main reasons |
+|---|---|---|---|
+| Search | 6.3 | Medium | MRR@10 0.563 (847 queries, 0.618 with full abstracts); precise on technical queries; F15 cliff at fused rank 11; F16 boost scale; 10 results, no paging |
+| Recommendations | 5.4 | Medium | Strong design; F27 interest detection, F2, F4, F6 reproduced in the pipeline; 68.4% top-10 (simulated), AUC 0.703 (real votes); no online metrics |
+| Query rewriter | 5.3 | Medium-low | 45/54 queries to the LLM; 6/26 rewrites over the 8-word cap; never measured on vs off |
+| Ask this paper | 7.3 | Medium | 20/20 off-topic refused, 0.72 s median; ~4/19 "limitations" answers about prior work; no human ratings |
+| Plain terms / briefings | 5.7 | Medium | Good prompts; 48/50 briefings ok; fed 500-char stumps; feed shows cached only; no ratings |
+| UI/UX | 7.0 | Medium-high | Consistent, no overflow; F3 broken error state; F14 copy issues |
+| Code health | 5.6 | High | 1,651 tests + property tests pass; 580-line functions, dead code, 23+ switches, 3 LLM layers |
+| Production readiness | 4.1 | High | F1 35% cross-reader leak under concurrency, F8, F9, F10, F11, F23 reproduced |
+| Measurement & logging | 3.6 | High | Feed exposures wiped each deploy; no feed report; no scheduled quality check |
+
+## Test results (layered)
+
+- Property tests: 3,000 random fusion/MMR cases + 400 clustering cases; all invariants held.
+- Pipeline simulation (real `_build_feed`/`_build_page` on a synthetic 4,080-paper world, 3 fake shards):
+  F2 page 5/3/2 → 0/6/4 after 3 cs.LG passes; F4 the single short-term paper sits at position 31,
+  0 of 750 cards; F5 fix moves ~2% (downgraded to Low); F7 not reproduced in 40 visits (Low);
+  F19 one-save path halves paper age (4.3 → 2.1 years) and adds 2 exploration cards.
+- **F27 (new, High):** interest detection. Reader 25/4/3/3/2 → 2 interests; 30/3/3/3/3 → 2; single
+  interest of 30 → 7. A silhouette-chosen cut on the same Ward tree found the true K in 11/11 shapes
+  (20 worlds each). Pipeline: a 14/5/4/3/2/2 reader got robotics, biology, astro 0 of 1,400 cards.
+  Validate on real saved vectors before changing (`app/recommend/clustering.py`, needs owner approval).
+- F1 end-to-end: with `SEARCH_FIGURES=off`, 52/150 concurrent other readers saw a paper as Saved that
+  only another reader saved; 0/150 with the switch on (enrich copies), shared cache still corrupted.
+- F8: a raising `stop()` aborts shutdown before the Turso final flush. F9: 2,000 cookieless visits →
+  2,000 in-memory users. F10: 360/360 searches allowed with a spoofed X-Forwarded-For (224/240
+  blocked without). F11: a same-second profile write is never pushed. F15: exact-title paper at
+  fused rank ≤10 → #1, ≥11 → absent. F16: CE p 0.50 + title/citations (1.41) beats CE p 0.95 (0.97).
+- P1: 18 SQLite connections per first feed page (38 ms total locally). P3: 10 snapshot rows for
+  2 distinct cluster sets over 5 refreshes. Fuzz: 35 hostile requests, no 5xx, no reflection.
+  Local load: 60 concurrent searches p50 383 ms / p95 792 ms; 60 cold feeds p50 960 ms / p95 1.5 s.
 
 ## Findings
 
@@ -34,9 +55,9 @@ network policy, so no new live numbers were measured.
 | F2 | High | 3 Passes in one primary arXiv code in 14 days hard-filter the whole code from Tier 1, ignoring saves | `app/db.py:850-878`, `app/routers/recommendations.py:1112-1124` | **Decision needed.** Proposed: passes ≥ 3 and pass share ≥ 0.8 in that code, never for a medoid's code, soft penalty | Repro: 20 cs.LG saves + 3 passes → `{'cs.LG'}` |
 | F3 | High | Feed-unavailable fragment returned with 503; htmx doesn't swap it → skeleton forever + generic toast | `recommendations.py:289-296`, `app/static/app.js:280` | Return 200 (+ `X-Feed-State` header) or allow 503 swap for `#rec-section` | Run with `QDRANT_URL=` and 2 saves |
 | F4 | Med | Raw cluster importances mixed with the short-term supplement's share → supplement gets 2/60 slots instead of ~10 | `recommendations.py:1171-1178`, `app/recommend/fusion.py:212-220` | Normalise importances to (1 − share) first | Repro: `[39, 19, 2]` vs `[33, 17, 10]` |
-| F5 | Med | Within each interest, relevance = similarity to the global long-term profile; minority interests filled with papers leaning to the dominant one | `app/recommend/reranker.py` `heuristic_score` | **Experiment:** score on cosine to own medoid (feature 0) or blend; measure with multi-interest personas first | Simulation: bridge papers took 10/10 of B's top 10 |
+| F5 | Low | Within each interest, relevance = similarity to the global long-term profile; minority interests filled with papers leaning to the dominant one | `app/recommend/reranker.py` `heuristic_score` | **Experiment:** score on cosine to own medoid (feature 0) or blend; measure with multi-interest personas first | Simulation: bridge papers took 10/10 of B's top 10 |
 | F6 | Med | Unmatched new cluster takes smallest free id = the rejected old cluster's id | `app/recommend/clustering.py` `stabilize_cluster_ids` | Start new ids above max old id | Repro: vision got RL's id 1 (cos −0.03) |
-| F7 | Med | Seen filtering after a fixed `limit×2` fetch; small interests run dry silently | `app/qdrant_svc.py:608-630` | Server-side `must_not` MatchAny on `arxiv_id`, or `limit + |seen|`; count empty clusters | Unit test with saturated seen set |
+| F7 | Low | Seen filtering after a fixed `limit×2` fetch; small interests run dry silently | `app/qdrant_svc.py:608-630` | Server-side `must_not` MatchAny on `arxiv_id`, or `limit + |seen|`; count empty clusters | Unit test with saturated seen set |
 | F8 | Med | Unguarded sequential `stop()` calls can skip the final Turso flush | `app/main.py:104-125` | Flush first; guard each stop | Test with a raising stop |
 | F9 | Med | Unbounded `user_state._cache`; every cookieless request adds an entry | `app/user_state.py:72-90` | LRU cap; no state for anonymous GETs | Load test with no cookies |
 | F10 | Med | Rate limit keys on client-controlled left-most X-Forwarded-For; write routes unlimited and accept any `paper_id` | `app/rate_limit.py` `client_key`; `app/routers/events.py` | Use proxy-appended entry; validate arXiv ids; limit writes | `/healthz/client` from two networks |
@@ -55,6 +76,7 @@ network policy, so no new live numbers were measured.
 | F23 | High | `feed_exposures` / `feed_impressions` are local only: every deploy erases the feed metrics denominator | `app/turso_sync.py` TABLES | Replicate exposures (id watermark) or a replicated daily roll-up | Exposures present after a redeploy |
 | F24 | Med | No feed dashboard, no scheduled search-quality check | `app/analytics.py`, workflows | `/admin/feed`; nightly Action running fixed queries via `/api/space/search` (hit@10, MRR, latency) | — |
 | F25 | Low | Only 12-hourly keepalive; print logs vanish with the container | keepalive.yml, `app/errors.py` | 5-min uptime monitor; per-module error counters; daily digest in Turso | — |
+| F27 | High | Interest detection: heavy readers' side interests merged (2 found of 4–5); single-topic readers split up to 7 | `app/recommend/clustering.py` `_adaptive_threshold` | **Decision:** silhouette-chosen cut, validated on real vectors first | Clustering sweep + pipeline (see Test results) |
 | F26 | Low | Zilliz kept alive for a fallback production never uses | `app/zilliz_svc.py` | Drop service, ping and `pymilvus` (decision) | — |
 
 ## Speed
@@ -97,6 +119,6 @@ page 15 ms, keyword search 7–14 ms, feed fragment 30 ms.
 
 ## Suggested order
 
-Days 1–3: F1, F3, F4, F6, F8, F9, F10, F12, F13, F23. Week 1: baselines (847 queries, rewrite on/off,
-personas, rate 130 AI outputs), `/admin/feed`, nightly search check, uptime monitor. Week 2: F17, F15,
-F16, F2, F5, F7. Week 3: P1–P4. Week 4: X and S items. Then F18, F21, F19, P5.
+Days 1–3: F1, F3, F11, F4, F6, F8, F9, F10, F12, F13, F23. Week 1: baselines (847 queries, rewrite on/off,
+personas, rate 130 AI outputs), `/admin/feed`, nightly search check, uptime monitor. Week 2: F27 validation, F17, F15,
+F16, F2, F19. Week 3: P1–P4. Week 4: X and S items. Then F18, F21, F19, P5.
