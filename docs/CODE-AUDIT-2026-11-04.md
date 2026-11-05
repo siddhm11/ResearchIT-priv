@@ -122,3 +122,42 @@ page 15 ms, keyword search 7–14 ms, feed fragment 30 ms.
 Days 1–3: F1, F3, F11, F4, F6, F8, F9, F10, F12, F13, F23. Week 1: baselines (847 queries, rewrite on/off,
 personas, rate 130 AI outputs), `/admin/feed`, nightly search check, uptime monitor. Week 2: F27 validation, F17, F15,
 F16, F2, F19. Week 3: P1–P4. Week 4: X and S items. Then F18, F21, F19, P5.
+
+## Strategic recommendations (2026-11-05)
+
+Diagnosis: the project has outbuilt its evidence. 44% of app code is the core loop (search 8%,
+feed 19%, data 18%); the rest is paper-page AI and figures (19%), ops/analytics (14%),
+trending/HN (9%), LLM plumbing (9%) and side projects (6%), with no measure of whether readers
+return. In order of importance:
+
+1. **One weekly number, and a freeze on side features.** North star: weekly savers. Guardrails:
+   7-day return of new readers, saves per 100 feed cards, search success %, p95 time to first card.
+2. **Durable, portable libraries.** SQLite on HF persistent storage (20 GB, listed at $5/month;
+   https://huggingface.co/docs/hub/spaces-storage) with Turso as a nightly off-site copy; a private
+   "feed key" link that restores the library on any device and serves an RSS/Atom feed; later an
+   optional weekly email digest.
+3. **Repair the multi-interest core and lock it with contract tests** (F1, F2, F4, F6, F27; the
+   audit's simulation becomes CI tests of the promises).
+4. **Search basics.** arXiv IDs, arxiv.org links and author names return nothing from the keyword
+   index today (it indexes title + abstract only; tested). Add ID/URL routing, an authors column,
+   paging with year/area filters and newest-first, cross-encoder auditions (F15), full abstracts (F17).
+5. **Lead with the idea; a newcomer mode.** Nightly plain-language line per new paper in the daily
+   Action. Onboarding choice: "Learn the field" (recency 0.15, measured 73.5% top-10 hit) vs
+   "Keep up" (0.45, 68.4%, today's behaviour).
+6. **Spend AI quota per paper, not per query.** 200,000 tokens/model/day; search ≈ 1,850 tokens,
+   briefing ≈ 3,700 → ~300 uncached searches or ~160 briefings a day across three models. Overview on
+   demand; rewriter on/off test then gate or retire; quota to per-paper lines and opened briefings.
+7. **Narrow scope to AI/ML/CS** (complete coverage; partial elsewhere, labelled) and **shrink moving
+   parts**: drop Zilliz, shadow pipeline, MiniLM/LightGBM; background jobs to the daily Action;
+   benchmark an int8 HNSW of the static 1.6M papers in idle RAM (~2 GB) with Qdrant kept for
+   recent papers only (decide on recall@60 and 2-vCPU latency).
+8. **Agent process.** CLAUDE.md to ~150 lines of invariants; switch registry with CI-enforced
+   expiry; invariant tests (no mutation of cached objects, metric tables durable, contract tests);
+   harness numbers on every ranking PR.
+9. **Discoverable paper pages** (after F9): sitemap, robots.txt, canonical URL without tracking
+   params, key figure as og:image.
+
+Stop: new surfaces before the weekly number; unproven per-query LLM spend; dead fallbacks;
+history in comments. Six-week order: (1) disk + F1/F3/F8/F9/F10 + metric page + freeze;
+(2) search basics; (3) multi-interest repairs + contract tests; (4) feed key/RSS, two modes,
+nightly lines; (5) discoverability + 30–50 real readers; (6) review numbers, decide scope and index.
