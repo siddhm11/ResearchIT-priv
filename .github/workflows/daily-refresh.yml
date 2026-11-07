@@ -12,18 +12,22 @@
 #   QDRANT_RECENT_URL, QDRANT_RECENT_API_KEY, TURSO_URL, TURSO_DB_TOKEN, S2_API_KEY
 #
 # Timing: arXiv announces new papers around 00:00 UTC Sunday-Thursday. 02:30 UTC
-# gives the listing time to settle. The 3-day lookback makes a missed day, a
-# weekend or a late announcement harmless: re-runs skip stored papers, and point
-# ids come from the arXiv id, so a manual run overlapping this one cannot
+# gives the listing time to settle. The 3-day lookback makes a weekend or a late
+# announcement harmless, and a run that could not finish is caught up automatically:
+# Turso's ingest_state records the last day every set was listed to its end, and the
+# next run starts from there however long ago that was. Re-runs skip stored papers,
+# and point ids come from the arXiv id, so a manual run overlapping this one cannot
 # collide with it.
 #
 # Budget, measured: a run takes 9-77 minutes (26 Oct - 3 Nov). Encoding is the
 # smaller part: 1,123 new papers took 15 minutes of it on 2 Nov, inside a 47-minute
 # refresh; the rest is the OAI listing (arXiv's rate limits), the writes and the
 # citation refresh. A Monday brings about twice a weekday's papers, and at the old
-# 60-minute ingest limit 31 Oct and 3 Nov failed before finishing. 150 minutes
-# leaves room under the job's 300; the repository is public, so the minutes cost
-# nothing.
+# 60-minute ingest limit 31 Oct and 3 Nov failed before finishing. arXiv also stops
+# answering for hours at a time (5 and 6 Nov), and the ingest keeps trying through
+# that, so its limit is generous: 240 minutes, plus 20 before it is killed, leaves
+# 70 for setup, the lists and citations under the job's 330. The repository is
+# public, so the minutes cost nothing.
 #
 # Catching up after a gap: run it by hand with `today` set to a past day, a
 # lookback covering the days since the previous run, and a longer
@@ -47,8 +51,8 @@ on:
         description: "Run as if on this day, YYYY-MM-DD, to catch up in short windows (empty = today)"
         default: ""
       ingest_timeout_min:
-        description: "Fail the run if one ingest attempt takes longer (catch-up runs need more)"
-        default: "150"
+        description: "Stop the ingest after this long; finished pages stay stored and the next run continues"
+        default: "240"
       skip_citations:
         description: "Skip the citation refresh"
         type: boolean
@@ -68,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     # A ceiling, not the stall guard: the ingest has its own limit (above) and
     # every network call its own deadline. GitHub allows 360.
-    timeout-minutes: 300
+    timeout-minutes: 330
 
     steps:
       - uses: actions/checkout@v7
@@ -98,7 +102,7 @@ jobs:
           S2_API_KEY: ${{ secrets.S2_API_KEY }}
           INGEST_DEVICE: cpu
           TODAY: ${{ inputs.today }}     # through env, never pasted into the script
-          INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '150' }}
+          INGEST_TIMEOUT_MIN: ${{ inputs.ingest_timeout_min || '240' }}
         run: |
           python scripts/daily_refresh.py \
             --lookback-days "${{ inputs.lookback_days || '3' }}" \

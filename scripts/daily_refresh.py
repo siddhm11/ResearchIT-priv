@@ -24,8 +24,11 @@ Stages, each with a check that fails the run
                 the last run, with their threads' points, into hn_mentions,
                 hn_comments and hn_threads (scripts/hn_harvest.py; reported,
                 never fails the run)
-  4. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1);
-                re-run once if its coverage check reports a gap (exit 3)
+  4. ingest     scripts/ingest_arxiv.py over [today - lookback, today + 1), reaching
+                further back when the last complete harvest is older than that. It
+                keeps trying until its time limit when arXiv does not answer; a gap
+                fails the run, but only after stages 5 and 6 (one source's bad
+                day should not cost the others)
   5. citations  Semantic Scholar counts for papers from the last 3 months;
                 only changed rows are written
   6. verify     new Qdrant points == new Turso rows == papers the ingest
@@ -137,6 +140,17 @@ def window(today: dt.date, lookback_days: int) -> tuple[str, str]:
             (today + dt.timedelta(days=1)).isoformat())
 
 
+def catch_up_since(since: str, complete_through: str | None) -> str:
+    """`since`, or the day before the last complete harvest when that is earlier.
+
+    The lookback alone leaves a permanent hole once arXiv's bad days outlast it.
+    One day of overlap, in case papers gain that day's datestamp after the run
+    that listed it."""
+    if not complete_through:
+        return since
+    return min(since, (dt.date.fromisoformat(complete_through) - dt.timedelta(days=1)).isoformat())
+
+
 def recent_prefix(today: dt.date, months: int = 3) -> str:
     """YYMM id prefix of the first month in the citation window."""
     total = today.year * 12 + (today.month - 1) - (months - 1)
@@ -225,6 +239,14 @@ HF_HISTORY_DDL = ("CREATE TABLE IF NOT EXISTS hf_upvote_history ("
                   "PRIMARY KEY (arxiv_id, checked_on))")
 
 
+# The ingest. One table, so the watermark outlives any one run (hn_state does the same).
+INGEST_STATE_DDL = "CREATE TABLE IF NOT EXISTS ingest_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+COMPLETE_KEY = "oai_complete_through"
+# A page being encoded when the limit arrives finishes first: 466 s for 505 new
+# papers on 4 Nov, so 20 minutes before the kill.
+INGEST_OVERRUN_S = 1200
+
+
 def _count(v: object) -> int:
     return v if type(v) is int and v >= 0 else 0
 
@@ -310,29 +332,49 @@ def verify_counts(before: dict, after: dict, ingest_new: int | None) -> list[str
 
 # ── stages ───────────────────────────────────────────────────────────────────
 
-def stage_ingest(since: str, until: str, timeout_s: int = 3600) -> tuple[int | None, str]:
-    state = Path(tempfile.mkdtemp()) / "state.json"
-    cmd = [sys.executable, str(HERE / "ingest_arxiv.py"), "--source", "oai",
-           "--since", since, "--until", until, "--state", str(state)]
-    log = ""
-    for attempt in (1, 2):
-        try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
-        except subprocess.TimeoutExpired as e:
-            out = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
-            err = (e.stderr or b"").decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
-            print(out[-4000:], err[-6000:], sep="\n", flush=True)    # includes faulthandler stacks
-            raise SystemExit(f"ingest exceeded {timeout_s // 60} min; stacks above") from None
-        log += p.stdout + p.stderr
-        print(p.stdout[-4000:], p.stderr[-2000:], sep="\n", flush=True)
-        if p.returncode == 0:
-            break
-        if p.returncode != 3 or attempt == 2:
-            raise SystemExit(f"ingest failed with exit {p.returncode}")
-        print("[daily] coverage gap; resuming once", flush=True)
-    # The resumed run only reports what IT added, so sum both.
-    news = [int(n.replace(",", "")) for n in re.findall(r"done: examined [\d,]+, new ([\d,]+)", log)]
-    return (sum(news) if news else None), log
+def read_complete_through(st: Stores) -> str | None:
+    """The last day every OAI set was listed to its end. Unknown (first run, or
+    Turso refusing reads) falls back to the lookback, as before this existed."""
+    try:
+        rows = st.t(f"SELECT value FROM ingest_state WHERE key = '{COMPLETE_KEY}'")
+    except (RuntimeError, httpx.HTTPError):
+        return None
+    return rows[0][0] if rows else None
+
+
+def record_complete_through(st: Stores, day: str) -> None:
+    """Only ever forward: a manual run for a past day must not move it back."""
+    st.t(INGEST_STATE_DDL)
+    st.t("INSERT INTO ingest_state (key, value) VALUES (?, ?) "
+         "ON CONFLICT (key) DO UPDATE SET value = MAX(value, excluded.value)", (COMPLETE_KEY, day))
+
+
+def stage_ingest(since: str, until: str, time_limit_s: int = 14400) -> dict:
+    """Run the harvest with its output going straight to the log, so a run can be
+    followed live and nothing is lost if it is killed. It stops itself at the
+    limit; the kill is only for one that does not. `gap` says what is unfinished."""
+    folder = Path(tempfile.mkdtemp())
+    state, stacks = folder / "state.json", folder / "stacks.txt"
+    cmd = [sys.executable, "-u", str(HERE / "ingest_arxiv.py"), "--source", "oai",
+           "--since", since, "--until", until, "--state", str(state),
+           "--time-limit-min", str(time_limit_s / 60)]
+    sys.stdout.flush()
+    try:
+        code = subprocess.run(cmd, env={**os.environ, "INGEST_STACK_FILE": str(stacks)},
+                              timeout=time_limit_s + INGEST_OVERRUN_S).returncode
+    except subprocess.TimeoutExpired:
+        if stacks.is_file():
+            print(stacks.read_text()[-6000:], flush=True)
+        return {"new_papers": None, "failed_tries": None,
+                "gap": f"ingest killed {INGEST_OVERRUN_S // 60} min past its {time_limit_s // 60} min limit; stacks above"}
+    got = json.loads(state.read_text()) if state.is_file() else {}
+    out = {"new_papers": got.get("result", {}).get("new"), "failed_tries": got.get("oai_failed_tries", 0), "gap": None}
+    if code == 3:
+        out["gap"] = "ingest incomplete: " + ", ".join(
+            f"{k[4:]}={v}" for k, v in got.items() if k.startswith("oai:") and v != "done")
+    elif code != 0:
+        out["gap"] = f"ingest crashed with exit {code}"
+    return out
 
 
 def stage_citations(st: Stores, prefix: str) -> dict:
@@ -491,8 +533,8 @@ def main() -> int:
     ap.add_argument("--max-recent-points", type=int, default=600_000,
                     help="refuse to write past this many points (free-tier headroom)")
     ap.add_argument("--today", default="", help="YYYY-MM-DD, for re-running a past day")
-    ap.add_argument("--ingest-timeout-min", type=int, default=60,
-                    help="fail the run if one ingest attempt takes longer")
+    ap.add_argument("--ingest-timeout-min", type=int, default=240,
+                    help="stop the ingest after this long; finished pages stay stored")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--skip-citations", action="store_true")
     ap.add_argument("--hf-days", type=int, default=HF_DAYS,
@@ -515,7 +557,9 @@ def main() -> int:
     st = Stores()
 
     before = st.counts()
-    summary.update({"window": [since, until], "before": before})
+    complete_through = read_complete_through(st)
+    since = catch_up_since(since, complete_through)
+    summary.update({"window": [since, until], "complete_through": complete_through, "before": before})
     if before["recent_points"] >= args.max_recent_points:
         summary["error"] = f"recent shard at {before['recent_points']:,} points, limit {args.max_recent_points:,}"
         return _finish(summary, 4)
@@ -538,18 +582,29 @@ def main() -> int:
         return _finish(summary, 0)
 
     t0 = time.time()
-    ingest_new, _log = stage_ingest(since, until, args.ingest_timeout_min * 60)
-    summary["ingest"] = {"new_papers": ingest_new, "minutes": round((time.time() - t0) / 60, 1)}
+    ingest = stage_ingest(since, until, args.ingest_timeout_min * 60)
+    ingest_new = ingest["new_papers"]
+    summary["ingest"] = {**ingest, "minutes": round((time.time() - t0) / 60, 1)}
+    problems = [ingest["gap"]] if ingest["gap"] else []
+    if not ingest["gap"]:
+        try:
+            record_complete_through(st, today.isoformat())
+            summary["complete_through"] = today.isoformat()
+        except (RuntimeError, httpx.HTTPError) as e:     # the next run only overlaps more
+            problems.append(f"could not record the harvest: {e}"[:200])
 
     if not args.skip_citations:
         t0 = time.time()
-        summary["citations"] = stage_citations(st, recent_prefix(today, args.citation_months))
-        summary["citations"]["minutes"] = round((time.time() - t0) / 60, 1)
+        try:
+            summary["citations"] = stage_citations(st, recent_prefix(today, args.citation_months))
+            summary["citations"]["minutes"] = round((time.time() - t0) / 60, 1)
+        except (SystemExit, RuntimeError, httpx.HTTPError) as e:
+            problems.append(f"citations: {e}"[:200])
 
     after = st.counts(since_rowid=before["turso_max_rowid"])
     summary["after"] = after
     summary["licences"] = stage_licences(st, before["turso_max_rowid"])
-    problems = verify_counts(before, after, ingest_new) + stage_sample_new(st, before["turso_max_rowid"])
+    problems += verify_counts(before, after, ingest_new) + stage_sample_new(st, before["turso_max_rowid"])
     summary["problems"] = problems
     return _finish(summary, 1 if problems else 0)
 
