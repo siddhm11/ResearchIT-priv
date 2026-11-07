@@ -490,6 +490,30 @@ def _reads_like_a_reply(query: str, rewritten: str) -> bool:
     return any(w in _REPLY_WORDS and w not in asked for w in said)
 
 
+def _same_words(a: str, b: str) -> bool:
+    def norm(text: str) -> str:
+        return " ".join(text.translate(_TYPOGRAPHIC).split()).casefold()
+    return norm(a) == norm(b)
+
+
+def _settle(query: str, rewritten: str) -> str:
+    """The text to search: the rewrite, or the query when the rewrite is unusable.
+
+    A rewrite that only changes case, spacing or hyphen characters ("turso
+    switch" -> "Turso switch", live 7 Nov; 7 of 160 rewrites in the F22 eval
+    of 8 Nov) is the query again: returned as typed, so search does not pay a
+    second encode and two more retrievals for the same words.
+    """
+    if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
+        _count("search_rewrite", "discarded")
+        return query
+    if _same_words(query, rewritten):
+        _count("search_rewrite", "unchanged")
+        return query
+    _count("search_rewrite", "rewritten")
+    return rewritten
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 async def rewrite(query: str) -> str:
@@ -519,12 +543,7 @@ async def rewrite(query: str) -> str:
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": query},
         ], subject=ai_usage_query(query))
-        rewritten = _clean(result.text or "").strip('"').strip("'").strip()
-        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
-            _count("search_rewrite", "discarded")
-            return query
-        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
-        return rewritten
+        return _settle(query, _clean(result.text or "").strip('"').strip("'").strip())
 
     client = _get_client()
     if client is None:
@@ -539,15 +558,7 @@ async def rewrite(query: str) -> str:
         if result.truncated:
             _count("search_rewrite", "discarded")
             return query
-        rewritten = result.text.strip('"').strip("'").strip()
-
-        # Sanity check: rewritten should be non-empty and not absurdly long
-        if not rewritten or len(rewritten) > 200 or _reads_like_a_reply(query, rewritten):
-            _count("search_rewrite", "discarded")
-            return query
-
-        _count("search_rewrite", "unchanged" if rewritten.lower() == query.lower() else "rewritten")
-        return rewritten
+        return _settle(query, result.text.strip('"').strip("'").strip())
 
     except Exception as e:
         print(f"[groq_svc] Rewrite failed, using original query: {e}")
