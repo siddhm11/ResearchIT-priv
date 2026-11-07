@@ -308,7 +308,9 @@ async def home(
         "index.html",
         {
             "has_recs": state.has_enough_for_recs(),
-            "save_count": len(state.positives),
+            # The library, not the 20-item retrieval deque (audit F12).
+            "save_count": sum(1 for r in await db.get_current_feedback(user_id)
+                              if r["event_type"] == "save"),
             "issue_date": datetime.now().strftime("%A %-d %B %Y"),
             "issue_number": await db.count_feed_issues(user_id),
         },
