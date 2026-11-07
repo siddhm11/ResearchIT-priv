@@ -28,6 +28,15 @@ from collections import OrderedDict
 
 import pytest
 
+# A developer's .env.local points METADATA_SIDECAR_PATH at the real 3 GB
+# sidecar. local_meta reads it at import, and load_dotenv never overrides a
+# name already set, so set it here, before any app import: with the sidecar
+# live, starter and search tests took sidecar paths CI never sees and failed
+# on the developer machine only. Opt back in for sidecar experiments.
+if os.getenv("RESEARCHIT_TEST_USE_SIDECAR") != "1":
+    os.environ["METADATA_SIDECAR_PATH"] = os.path.join(
+        os.path.dirname(__file__), "no-sidecar-in-tests.sqlite")
+
 
 @pytest.fixture(autouse=True)
 def _isolate_application_state(request, tmp_path, monkeypatch):

@@ -80,6 +80,10 @@ def test_a_live_request_works_after_the_loop_is_replaced():
         # Swap in a transport so this stays offline but still exercises the
         # real client object and its loop binding.
         client._transport = transport
+        # Proxies from the environment (HTTPS_PROXY) are mounted ahead of
+        # _transport and bypass it; the 4 Nov audit's sandbox failed here with
+        # ProxyError (audit F13).
+        client._mounts = {}
         resp = await client.get("https://example.invalid/")
         await http_client.aclose()
         return resp.text
