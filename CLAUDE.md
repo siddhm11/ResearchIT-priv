@@ -217,7 +217,7 @@ Ranked-surface interactions must preserve available **`query_id`**, **`propensit
 - `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
 
-Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any position or CTR analysis by it, since two columns change how position relates to attention.
+Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any position or CTR analysis by it, since two columns change how position relates to attention. Paper titles named in a search overview link to the paper (`app/overview_links.py`, added after escaping, never model markup); those links carry the search's `query_id` and the paper's rank with `sf=search_overview`, so their clicks never pass for result-list clicks.
 
 **When adding a new recommendation tier or call path**, always include these three fields in the `paper_tags` dict. The round-trip is: `recommendations.py` → paper dict → `action_buttons.html` `hx-vals` → `events.py` Form params → `db.log_interaction()`.
 
