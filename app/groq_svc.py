@@ -427,6 +427,30 @@ _ACADEMIC_PATTERN = re.compile(
 )
 
 
+# A query with none of these words reads as a search phrase, not as talk.
+_CONVERSATIONAL = {"how", "what", "why", "which", "who", "when", "where", "can", "could",
+                   "should", "would", "does", "do", "is", "are", "i", "me", "my", "we", "our",
+                   "you", "your", "paper", "papers", "explain", "help", "find", "show", "tell",
+                   "need", "want", "looking", "best", "good", "make", "get", "about"}
+_JOINERS = {"for", "of", "in", "on", "with", "via", "using", "from", "under", "towards",
+            "to", "and"}
+
+
+def _technical_phrase(query: str) -> bool:
+    """Terms joined by a preposition, with no question or casual wording.
+
+    The model only took the joining words out of these: in the live log of
+    7 Nov 2026, 6 of 25 rewrites were "diffusion models for X" -> "diffusion
+    models X", each a model call and a second retrieval for the same meaning.
+    All 14 rewrites that changed meaning came from questions or casual
+    phrasing, which this leaves alone.
+    """
+    words = re.findall(r"[\w\-]+|\?", query.lower())
+    if "?" in words or any(w in _CONVERSATIONAL for w in words):
+        return False
+    return len(words) >= 3 and any(w in _JOINERS for w in words[1:-1])
+
+
 def _looks_academic(query: str) -> bool:
     """Heuristic: skip rewriting if query already looks academic or is very short."""
     words = query.split()
@@ -435,7 +459,10 @@ def _looks_academic(query: str) -> bool:
     # Expanding them almost always ruins the precision.
     if len(words) <= 2:
         return True
-        
+
+    if _technical_phrase(query):
+        return True
+
     if len(words) > 6:
         matches = len(_ACADEMIC_PATTERN.findall(query))
         if matches >= 2:

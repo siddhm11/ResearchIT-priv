@@ -41,6 +41,19 @@ _conn: sqlite3.Connection | None = None
 _lock = threading.Lock()
 _probed = False
 _available = False
+# Sidecars built by scripts/sidecar_full_abstracts.py carry the full text of
+# abstracts the corpus cut at 500 characters. It is served in place of the
+# stump, under the same name, so every reader of abstract_preview gets it.
+_has_full = False
+
+
+def _select(alias: str = "") -> str:
+    """The SELECT list for _COLUMNS, with the full abstract where there is one."""
+    a = f"{alias}." if alias else ""
+    return ", ".join(
+        f"COALESCE({a}abstract_full, {a}abstract_preview)"
+        if c == "abstract_preview" and _has_full else a + c
+        for c in _COLUMNS)
 # One handle per thread. A shared sqlite3 connection is NOT safe for concurrent
 # use even read-only: parallel to_thread calls failed with "bad parameter or
 # other API misuse", returned empty results, and one thread received rows from
@@ -50,7 +63,7 @@ _local = threading.local()
 
 def _probe() -> bool:
     """Open the sidecar once and confirm it is usable."""
-    global _conn, _probed, _available
+    global _conn, _probed, _available, _has_full
     if _probed:
         return _available
     with _lock:
@@ -74,6 +87,8 @@ def _probe() -> bool:
                 return False
             _conn = conn
             _available = True
+            _has_full = "abstract_full" in {
+                r[1] for r in conn.execute("PRAGMA table_info(papers)")}
             size_mb = os.path.getsize(path) / 1e6
             print(f"[local_meta] sidecar loaded: {n:,} papers, {size_mb:,.0f} MB")
         except Exception as e:
@@ -193,7 +208,7 @@ def fetch_rows(arxiv_ids: list[str]) -> list[dict]:
         ph = ",".join("?" * len(chunk))
         try:
             cur = conn.execute(
-                f"SELECT {', '.join(_COLUMNS)} FROM papers "
+                f"SELECT {_select()} FROM papers "
                 f"WHERE arxiv_id IN ({ph})", chunk)
             out += [dict(zip(_COLUMNS, r)) for r in cur.fetchall()]
         except Exception as e:
@@ -356,7 +371,7 @@ def fetch_trending(
     pool = max(2000, limit * 200)
     try:
         cur = conn.execute(
-            f"""SELECT {', '.join('p.' + c for c in _COLUMNS)}, t.cit
+            f"""SELECT {_select('p')}, t.cit
                 FROM papers p
                 JOIN (
                     SELECT arxiv_id, MAX(citation_count) AS cit

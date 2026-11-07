@@ -49,3 +49,16 @@ def test_existing_paper_is_skipped_not_renumbered(tmp_path):
     assert stats["skipped_existing"] == 1 and stats["inserted"] == 0
     assert conn.execute("SELECT rowid, title FROM papers WHERE arxiv_id='2607.00001'").fetchone() == (before[0], "Old legged locomotion")
     assert ats.verify(conn)["fts_integrity"] == "ok"
+
+
+def test_an_author_indexed_sidecar_indexes_new_authors(tmp_path):
+    """Sidecars from scripts/sidecar_full_abstracts.py index authors too; an
+    appended paper must be findable by author and keep the index consistent."""
+    conn = sqlite3.connect(tmp_path / "m.sqlite")
+    conn.executescript(SCHEMA.replace(
+        "fts5(title, abstract_preview,", "fts5(title, abstract_preview, authors,"))
+    ats.append_rows(conn, [dict(_row("2611.00001", "Satellite navigation"), authors="Jiajun Jiang")])
+    hits = conn.execute("SELECT p.arxiv_id FROM papers_fts f JOIN papers p ON p.rowid = f.rowid "
+                        "WHERE papers_fts MATCH 'Jiang'").fetchall()
+    assert hits == [("2611.00001",)]
+    assert ats.verify(conn)["fts_integrity"] == "ok"

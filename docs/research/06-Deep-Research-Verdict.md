@@ -1281,3 +1281,33 @@ policy id), labelling how each comment uses a paper (stored in `hn_comments`
 for that), and ingesting the 180 missing lasting papers (writes the vector
 store; needs the owner's OK and a shard decision, since the ingest writes
 only the recent shard).
+
+### 2026-11-07 — Audit follow-through: full abstracts, author search, rewriter gate, sync fixes
+**Decision:** Five behaviour changes from the 4 Nov code audit, each with a test
+that failed first.
+* The sidecar serves full abstracts. `scripts/sidecar_full_abstracts.py` fills
+  `papers.abstract_full` from the local Kaggle CSV for 1,439,872 of the 1,440,395
+  abstracts cut at 500 characters (73% of the corpus, all before June 2025),
+  matched on their first 120 characters. `abstract_preview` stays the opening,
+  so the keyword index keeps its size (88 logged queries: median 14 ms vs
+  19 ms). `papers_fts` now indexes authors.
+* A query that is only an arXiv id or a link to one paper opens `/p/<id>`.
+* The query rewriter skips technical phrases (three or more words joined by a
+  preposition, no question or casual wording). Live log: 6 of 25 rewrites only
+  removed "for"/"with"; on the 88 logged queries the LLM gets 40 instead of 49
+  and all 14 meaning-changing rewrites are still sent.
+* Interest ids for unmatched clusters start above every old id (F6), and the
+  Turso push replaces a reader's clusters as a set, so dropped clusters no
+  longer return on restore.
+* Text-watermark tables are pushed with `>=` plus a per-second content set
+  (F11), so a row written in the same second as the last push is not skipped.
+**Supersedes:** the 2026-10-15 action item "backfill full abstracts" (done from
+the CSV; no arXiv requests).
+**Rationale:** Full text raises the reranker's MRR@10 from 0.563 to 0.611 at
+depth 10 on the 847 known-item queries (2026-10-15 entry). The other changes fix
+measured defects; none changes fusion, quota or scoring (§3.1, §3.4).
+**Action items:** Watch `/healthz/runtime` `search.bge_rerank_time_ms` after the
+deploy: full abstracts fill the 256-token reranker window, so pairs are longer.
+If the median rises past ~1.6 s, set `RERANKER_MAX_LENGTH=192` as a Space
+variable. Then re-run `scripts/embedding_eval/search/rerank.py` on the new
+sidecar and decide on depth 20.

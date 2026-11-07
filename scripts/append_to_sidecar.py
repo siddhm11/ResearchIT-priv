@@ -65,6 +65,12 @@ def turso_rows_after(url: str, token: str, after: int, page: int = 2000):
 def append_rows(conn: sqlite3.Connection, rows) -> dict:
     """Insert papers, their category rows and their FTS entries. Returns counts."""
     stats = {"inserted": 0, "skipped_existing": 0, "category_rows": 0}
+    # The index's own columns: sidecars from sidecar_full_abstracts.py add
+    # authors, and an external-content index must be given exactly the values
+    # its content table holds or its integrity check fails.
+    fts_cols = [r[1] for r in conn.execute("PRAGMA table_info(papers_fts)")]
+    fts_sql = (f"INSERT INTO papers_fts(rowid, {', '.join(fts_cols)}) "
+               f"VALUES (?, {', '.join('?' * len(fts_cols))})")
     with conn:
         for r in rows:
             cit = int(r.get("citation_count") or 0)
@@ -84,8 +90,7 @@ def append_rows(conn: sqlite3.Connection, rows) -> dict:
             conn.executemany("INSERT INTO paper_categories VALUES (?,?,?,?)",
                              [(code, r["arxiv_id"], cit, r["update_date"]) for code in codes])
             stats["category_rows"] += len(codes)
-            conn.execute("INSERT INTO papers_fts(rowid, title, abstract_preview) VALUES (?,?,?)",
-                         (rowid, r["title"], r["abstract_preview"]))
+            conn.execute(fts_sql, (rowid, *(r[c] for c in fts_cols)))
     return stats
 
 

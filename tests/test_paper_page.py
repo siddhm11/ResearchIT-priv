@@ -352,3 +352,34 @@ def test_healthz_sources_reports_the_paper_source_layer(monkeypatch):
         body = c.get("/healthz/sources").json()
     assert body["switch"] == "shadow"
     assert body["by_status"] == {} and body["breaker_open"] is False
+
+
+# ── Old-style arXiv ids ──────────────────────────────────────────────────────
+# 115,604 sidecar papers (everything before April 2007) have ids with a slash,
+# such as hep-th/9901001. A plain {arxiv_id} path parameter cannot match a
+# slash, so their cards linked to a 404 and their Save and Pass did nothing.
+
+OLD = dict(PAPER, arxiv_id="hep-th/9901001", title="Old Style Paper")
+
+
+def test_an_old_style_paper_has_a_page():
+    meta, search = _client_with(paper=OLD)
+    with meta, search, patch.object(qdrant_svc, "get_paper_vectors", return_value={}):
+        with TestClient(app) as c:
+            r = c.get("/p/hep-th/9901001")
+    assert r.status_code == 200
+    assert "Old Style Paper" in r.text
+
+
+def test_an_old_style_paper_can_be_saved_and_unsaved():
+    from app import db
+    with TestClient(app) as c:
+        c.cookies.set("arxiv_user_id", "old-style-saver")
+        assert c.post("/api/papers/hep-th/9901001/save",
+                      data={"source": "search", "position": 0}).status_code == 200
+        import asyncio
+        rows = asyncio.run(db.get_current_feedback("old-style-saver"))
+        assert [r["paper_id"] for r in rows] == ["hep-th/9901001"]
+        assert c.post("/api/papers/hep-th/9901001/unsave").status_code == 200
+        assert c.post("/api/papers/math.AG/0301001/not-interested",
+                      data={"source": "search", "position": 0}).status_code == 200
