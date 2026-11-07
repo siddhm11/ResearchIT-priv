@@ -43,7 +43,7 @@ def _isolate_application_state(request, tmp_path, monkeypatch):
     path = str(tmp_path / "isolated-app.db")
     monkeypatch.setattr(config, "DB_PATH", path)
     monkeypatch.setattr(db, "DB_PATH", path)
-    monkeypatch.setattr(user_state, "_cache", {})
+    monkeypatch.setattr(user_state, "_cache", OrderedDict())
     monkeypatch.setattr(recommendations, "_FEED_CACHE", OrderedDict())
     asyncio.run(db.init_db())
 
