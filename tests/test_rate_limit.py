@@ -35,14 +35,27 @@ class _Req:
 
 # ── Client identification ────────────────────────────────────────────────────
 
-def test_leftmost_forwarded_address_wins():
-    """XFF is client, proxy1, proxy2 -- the visitor is leftmost."""
-    r = _Req({"x-forwarded-for": "203.0.113.7, 70.41.3.18, 150.172.238.178"})
-    assert rate_limit.client_key(r) == "203.0.113.7"
+def test_the_address_the_proxy_appended_wins():
+    """Hugging Face's proxy appends the address it saw and passes the rest
+    through from the client. Measured 7 Nov 2026: a request sending
+    `X-Forwarded-For: 1.2.3.4` arrived as "1.2.3.4, <real address>", and the
+    leftmost entry let any client pick its own bucket (audit F10)."""
+    r = _Req({"x-forwarded-for": "1.2.3.4, 5.6.7.8, 171.76.80.74"})
+    assert rate_limit.client_key(r) == "171.76.80.74"
 
 
-def test_falls_back_through_real_ip_then_socket():
-    assert rate_limit.client_key(_Req({"x-real-ip": "198.51.100.9"})) == "198.51.100.9"
+def test_a_rotated_forwarded_header_does_not_change_the_key():
+    keys = {rate_limit.client_key(_Req({"x-forwarded-for": f"10.9.{i}.1, 171.76.80.74"}))
+            for i in range(50)}
+    assert keys == {"171.76.80.74"}
+
+
+def test_x_real_ip_is_ignored_because_the_client_sets_it():
+    """The same 7 Nov request carried X-Real-IP: 9.9.9.9 straight through."""
+    assert rate_limit.client_key(_Req({"x-real-ip": "9.9.9.9"}, host="192.0.2.5")) == "192.0.2.5"
+
+
+def test_falls_back_to_the_socket_peer():
     assert rate_limit.client_key(_Req({}, host="192.0.2.5")) == "192.0.2.5"
 
 
@@ -182,11 +195,11 @@ def test_middleware_fault_does_not_break_the_request(client, monkeypatch):
 def test_healthz_client_reports_what_the_limiter_sees(client):
     """The endpoint that makes the proxy assumption verifiable after deploy."""
     resp = client.get("/healthz/client",
-                      headers={"x-forwarded-for": "203.0.113.99, 10.0.0.1"})
+                      headers={"x-forwarded-for": "1.2.3.4, 203.0.113.99"})
     assert resp.status_code == 200
     body = resp.json()
     assert body["client_key"] == "203.0.113.99"
-    assert body["sources"]["x_forwarded_for"] == "203.0.113.99, 10.0.0.1"
+    assert body["sources"]["x_forwarded_for"] == "1.2.3.4, 203.0.113.99"
     assert body["rate_limit"]["enabled"] is True
 
 
