@@ -77,21 +77,29 @@ def metadata_cache_stats() -> dict:
 # small fixed set of category combinations, and citation counts barely
 # change minute-to-minute. A short TTL converts the 15s wait into a
 # one-time hit per category combo.
+#
+# Lists computed from the sidecar are kept for the life of the process
+# instead ("lasting"): the sidecar only changes on a deploy, and at about one
+# reader a day the hourly TTL meant nearly every first feed paid for them again
+# (5.8 s of a 7.3 s feed on 7 Nov). discovery_svc.prewarm fills them at startup.
 
-_TRENDING_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_TRENDING_CACHE: dict[tuple, tuple[float, list[dict], bool]] = {}
 _TRENDING_TTL_SECONDS = 60 * 60  # 1 hour
 
 
 def _starter_get(cache_key: tuple) -> list[dict] | None:
     """A cached starter list, as copies for the caller to annotate (see F1 above)."""
     cached = _TRENDING_CACHE.get(cache_key)
-    if cached is None or (time.time() - cached[0]) >= _TRENDING_TTL_SECONDS:
+    if cached is None:
         return None
-    return [dict(p) for p in cached[1]]
+    stamp, papers, lasting = cached
+    if not lasting and (time.time() - stamp) >= _TRENDING_TTL_SECONDS:
+        return None
+    return [dict(p) for p in papers]
 
 
-def _starter_put(cache_key: tuple, papers: list[dict]) -> None:
-    _TRENDING_CACHE[cache_key] = (time.time(), [dict(p) for p in papers])
+def _starter_put(cache_key: tuple, papers: list[dict], *, lasting: bool = False) -> None:
+    _TRENDING_CACHE[cache_key] = (time.time(), [dict(p) for p in papers], lasting)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -425,7 +433,7 @@ async def fetch_trending_by_categories(
             papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
             for p in papers:
                 _cache_put(p["arxiv_id"], p)
-            _starter_put(cache_key, papers)
+            _starter_put(cache_key, papers, lasting=True)
             return papers
 
     url = config.TURSO_URL
@@ -612,7 +620,7 @@ async def fetch_fresh_by_categories(categories: set[str], limit: int = 10) -> li
     rows = await asyncio.to_thread(local_meta.fetch_fresh, set(categories), limit)
     papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
     if papers:
-        _starter_put(cache_key, papers)
+        _starter_put(cache_key, papers, lasting=True)
         for p in papers:
             _cache_put(p["arxiv_id"], p)
     return papers

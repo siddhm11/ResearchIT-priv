@@ -90,6 +90,8 @@ async def lifespan(app: FastAPI):
     from app import local_meta
     if local_meta.start_warmup():
         print("[main] sidecar page-cache warm-up started")
+    from app import discovery_svc
+    discovery_svc.start_prewarm()
     from app.discovery_runtime import DiscoveryRuntime
     app.state.discovery = DiscoveryRuntime()
     await app.state.discovery.start()
@@ -115,7 +117,7 @@ async def lifespan(app: FastAPI):
             ("trending_topics", trending_topics.stop), ("hn_svc", hn_svc.stop),
             ("ai_usage", ai_usage.stop), ("analytics", analytics.stop),
             ("abstract_svc", abstract_svc.stop), ("paper_source_svc", paper_source_svc.stop),
-            ("llm_router", llm_router.aclose),
+            ("llm_router", llm_router.aclose), ("starter_prewarm", discovery_svc.stop_prewarm),
         ):
             try:
                 await stop()
