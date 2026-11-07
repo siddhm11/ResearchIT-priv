@@ -311,3 +311,46 @@ def test_search_summary_survives_groq_failure(client, monkeypatch):
     resp = client.get("/api/search/summary?q=transformer&ids=1706.03762")
     assert resp.status_code == 200
     assert resp.text == ""
+
+
+# ── arXiv ids and links go straight to the paper ─────────────────────────────
+# The first thing a researcher tries in a new tool is their own paper. An id or
+# an arxiv.org link went through hybrid search and found nothing useful.
+
+@pytest.mark.parametrize("query, target", [
+    ("2609.31507", "/p/2609.31507"),
+    ("  2609.31507v2 ", "/p/2609.31507"),
+    ("arXiv:1706.03762", "/p/1706.03762"),
+    ("https://arxiv.org/abs/1706.03762v7", "/p/1706.03762"),
+    ("arxiv.org/pdf/1706.03762.pdf", "/p/1706.03762"),
+    ("https://www.arxiv.org/html/2501.01234v1", "/p/2501.01234"),
+    ("https://huggingface.co/papers/2501.01234", "/p/2501.01234"),
+    ("https://www.alphaxiv.org/abs/2501.01234", "/p/2501.01234"),
+    ("hep-th/9901001", "/p/hep-th/9901001"),
+    ("https://arxiv.org/abs/math.AG/0301001v1", "/p/math.AG/0301001"),
+])
+def test_an_arxiv_id_or_link_opens_the_paper(client, query, target):
+    import app.hybrid_search_svc as hs
+    with patch.object(hs, "search", AsyncMock(side_effect=AssertionError("searched"))):
+        r = client.get("/search", params={"q": query}, follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == target
+
+        # The search box submits through htmx, which must navigate rather than
+        # paste the paper page into the results list.
+        r = client.get("/search", params={"q": query}, headers={"HX-Request": "true"},
+                       follow_redirects=False)
+        assert r.headers.get("HX-Redirect") == target
+
+
+@pytest.mark.parametrize("query", [
+    "attention is all you need", "papers from 2023.1234 onwards", "GPT-4 1706 tokens",
+    "https://example.com/abs/1706.03762",
+])
+def test_ordinary_queries_still_search(client, query):
+    import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
+    with patch.object(hs, "search", AsyncMock(return_value=([], {}))) as s, \
+            patch.object(turso, "fetch_metadata_batch", AsyncMock(return_value={})):
+        client.get("/search", params={"q": query}, follow_redirects=False)
+    assert s.await_count == 1

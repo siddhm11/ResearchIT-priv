@@ -11,14 +11,31 @@ Phase 3 replaces the arXiv keyword API with:
 Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
   with arXiv API as fallback for papers not in Turso.
 """
+import re
 import uuid
 from fastapi import APIRouter, Request, Cookie
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, search_cache, turso_svc, user_state as us, hybrid_search_svc
 from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
 router = APIRouter()
+
+# A query that is only an arXiv id, or a link to one paper on arXiv, Hugging
+# Face Papers or alphaXiv, opens that paper. It is the first thing a researcher
+# tries in a new tool, and hybrid search could not answer it.
+_ARXIV_ID = r"(?:\d{4}\.\d{4,5}|[a-z][a-z\-]*(?:\.[a-z]{2})?/\d{7})"
+_PAPER_QUERY = re.compile(
+    rf"^(?:arxiv:\s*|(?:https?://)?(?:www\.|export\.)?"
+    rf"(?:arxiv\.org/(?:abs|pdf|html)|huggingface\.co/papers|alphaxiv\.org/(?:abs|overview))/)"
+    rf"?({_ARXIV_ID})(?:v\d+)?(?:\.pdf)?/?(?:[?#]\S*)?$",
+    re.IGNORECASE)
+
+
+def paper_for_query(q: str) -> str | None:
+    """The arXiv id a query names on its own, version stripped, or None."""
+    m = _PAPER_QUERY.match(q.strip())
+    return m.group(1) if m else None
 
 
 @router.get("/search", response_class=HTMLResponse)
@@ -28,6 +45,14 @@ async def search(
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     import time
+    named = paper_for_query(q)
+    if named:
+        target = f"/p/{named}"
+        if request.headers.get("HX-Request"):
+            # The box submits through htmx; navigate instead of swapping the
+            # paper page into the results list.
+            return Response(status_code=200, headers={"HX-Redirect": target})
+        return RedirectResponse(target, status_code=303)
     start_time = time.perf_counter()
     search_meta = {}
     papers = []
