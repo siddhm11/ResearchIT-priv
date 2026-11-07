@@ -18,7 +18,7 @@ ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers wit
 | b | `arxiv_dense_b` | 697,131 | in RAM |
 | recent | `arxiv_recent` | 279,778 (2026-10-21) | fanout, `SEARCH_FANOUT_RECENT`; papers from 2025-06 on, new ones daily through arXiv OAI-PMH (PHASE7 §8) |
 
-In that recorded deployment all three were float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 2.9 GB SQLite metadata sidecar (1,853,777 rows + FTS5, newest 2026-09-29, as of 2026-10-01) is baked into the image, while Turso `papers` (1,876,875 rows, current to 2026-10-20 on 2026-10-21) gets new papers daily; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
+In that recorded deployment all three were float16 + Binary Quantization, Cosine, `m=32`, `ef_construct=128`, with an `arxiv_id` payload index. A local 5.7 GB SQLite metadata sidecar (1,987,085 rows, full abstracts in `abstract_full`, FTS5 over title/abstract opening/authors, newest 2026-11-06, as of 2026-11-07) is baked into the image, while Turso `papers` (1,876,875 rows, current to 2026-10-20 on 2026-10-21) gets new papers daily; `/healthz/deep` and `/healthz/shards` are the source of truth for all of this.
 
 **Endgame:** an "Instagram for research" — multi-interest aware feed that surfaces relevant papers across a user's distinct research areas without collapsing toward a dominant interest.
 

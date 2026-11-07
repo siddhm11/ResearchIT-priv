@@ -70,14 +70,19 @@ RUN python -c "from huggingface_hub import snapshot_download; ig = ['onnx/*', 'o
 # reproducible, and publishing a new sidecar changes this line, which
 # invalidates the Docker layer below. Pointing at `main` meant a rebuild
 # silently reused the cached copy and shipped stale metadata.
+# af3a5f5 = 1,987,085 papers (newest 2026-11-06), 5.7 GB: 0d1449d plus the 14,514
+# papers Turso stored since, full abstracts (papers.abstract_full) for 1,439,872 of
+# the 1,440,395 cut at 500 characters, from the Kaggle CSV, and authors in the FTS5
+# index. Built by scripts/sidecar_full_abstracts.py then append_to_sidecar.py on
+# 2026-11-07; sha256 5e8aadf0...dbde2.
 # 0d1449d = 1,972,571 papers (newest 2026-10-23), exactly Turso's on
 # 2026-10-25 + FTS5 index (the sparse retrieval arm): 7585841 plus the 26,918
 # papers the daily job stored after 2026-09-29 and the 91,876 re-harvested for
 # June 2025 - September 2026 (missed by arXiv's 10,000-result cap; Fix Log item
 # 9), with citation counts refreshed from Semantic Scholar for every paper since
 # June 2025 on 2026-10-25. Built by scripts/append_to_sidecar.py and
-# refresh_citations.py (PHASE7 §8). Previous: 7585841, 015c096, d241ff1.
-ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/0d1449d3b9b0ca5376828d4ceb357f1233374cce/metadata.sqlite
+# refresh_citations.py (PHASE7 §8). Previous: 0d1449d, 7585841, 015c096, d241ff1.
+ENV METADATA_SIDECAR_URL=https://huggingface.co/datasets/siddhm11/researchit-metadata/resolve/af3a5f52abec1acc1fd7008b130a40b92ff69968/metadata.sqlite
 ENV METADATA_SIDECAR_PATH=/app/data/metadata.sqlite
 RUN mkdir -p /app/data && \
     if [ -n "$METADATA_SIDECAR_URL" ]; then \
