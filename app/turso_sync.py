@@ -48,6 +48,14 @@ SYNC_INTERVAL = int(__import__("os").getenv("TURSO_SYNC_INTERVAL", "60"))
 # and pushing would overwrite remote rows it never saw. See restore().
 _no_push: set[str] = set()
 
+# Text watermarks are one-second timestamps, so a row written in the same second
+# as the last pushed one is not "newer" than the watermark. Those tables are read
+# with `>=` and this remembers, per table, which rows (by content) were already
+# pushed at the watermark second, so only new or changed rows go again. Process
+# memory only: after a restart the boundary second is simply pushed once more.
+# (Audit F11: reader B's profile, written in reader A's second, was never pushed.)
+_boundary: dict[str, set[int]] = {}
+
 # local table -> (remote table, watermark column, primary key columns)
 #
 # interactions is append-only with an AUTOINCREMENT id, so an integer watermark
@@ -75,6 +83,11 @@ TABLES: dict[str, dict] = {
         "remote": "user_clusters",
         "watermark": "computed_at",
         "wm_kind": "text",
+        # save_user_clusters replaces a reader's whole set, so the push does
+        # too: delete the reader's remote rows, then insert the current ones.
+        # Upserting alone kept dropped clusters in Turso to come back on the
+        # next restore, more of them now that new interests get fresh ids.
+        "replace_by": "user_id",
         "pk": ["user_id", "cluster_idx"],
         "cols": ["user_id", "cluster_idx", "medoid_paper_id", "medoid_embedding_blob",
                  "importance", "paper_ids", "computed_at"],
@@ -563,28 +576,45 @@ async def sync_once() -> dict:
                 # cannot tell our rows from rows already on the server.
                 continue
             wm_col, kind = spec["watermark"], spec["wm_kind"]
+            wm_idx = spec["cols"].index(wm_col)
             wm = await _get_wm(conn, local)
+            settled = _boundary.get(local, set()) if kind == "text" else set()
             if wm is None:
                 where, args = "", ()
             else:
-                where = f"WHERE {wm_col} > ?"
+                where = f"WHERE {wm_col} {'>=' if kind == 'text' else '>'} ?"
                 args = (int(wm),) if kind == "int" else (wm,)
             cols = ", ".join(spec["cols"])
             cur = await conn.execute(
-                f"SELECT {cols} FROM {local} {where} ORDER BY {wm_col} LIMIT 500", args)
-            rows = await cur.fetchall()
+                f"SELECT {cols} FROM {local} {where} ORDER BY {wm_col} "
+                f"LIMIT {500 + len(settled)}", args)
+            rows = [r for r in await cur.fetchall()
+                    if not (r[wm_idx] == wm and hash(tuple(r)) in settled)]
             if not rows:
                 continue
 
             ph = ", ".join("?" * len(spec["cols"]))
-            stmts = [{
-                "sql": f"INSERT OR REPLACE INTO {spec['remote']} ({cols}) VALUES ({ph})",
-                "args": [_cell(v) for v in row],
-            } for row in rows]
+            insert = f"INSERT OR REPLACE INTO {spec['remote']} ({cols}) VALUES ({ph})"
+            stmts = []
+            key = spec.get("replace_by")
+            if key:
+                owners = sorted({r[spec["cols"].index(key)] for r in rows})
+                marks = ", ".join("?" * len(owners))
+                cur = await conn.execute(
+                    f"SELECT {cols} FROM {local} WHERE {key} IN ({marks})", owners)
+                current = await cur.fetchall()
+                stmts += [{"sql": f"DELETE FROM {spec['remote']} WHERE {key} = ?",
+                           "args": [_cell(o)]} for o in owners]
+                stmts += [{"sql": insert, "args": [_cell(v) for v in row]} for row in current]
+            else:
+                stmts += [{"sql": insert, "args": [_cell(v) for v in row]} for row in rows]
             await _execute(stmts, timeout=120)
 
-            wm_idx = spec["cols"].index(wm_col)
-            await _set_wm(conn, local, rows[-1][wm_idx])
+            new_wm = rows[-1][wm_idx]
+            await _set_wm(conn, local, new_wm)
+            if kind == "text":
+                edge = {hash(tuple(r)) for r in rows if r[wm_idx] == new_wm}
+                _boundary[local] = (settled | edge) if new_wm == wm else edge
             pushed[local] = len(rows)
         await conn.commit()
     return pushed
