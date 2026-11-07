@@ -104,19 +104,23 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        await app.state.discovery.stop()
         from app import abstract_svc, figure_prewarm, hn_svc, keep_warm, paper_source_svc, trending_shelf, trending_topics
-        await keep_warm.stop()
-        await figure_prewarm.stop()
-        await trending_shelf.stop()
-        await trending_topics.stop()
-        await hn_svc.stop()
-        await ai_usage.stop()
-        await analytics.stop()
-        await abstract_svc.stop()
-        await paper_source_svc.stop()
         from app import llm_router
-        await llm_router.aclose()
+        # Each stop is guarded on its own: one raising used to skip every stop
+        # after it and the Turso flush below, losing the last minute of saves
+        # (audit F8). The flush stays last so it carries what these write.
+        for name, stop in (
+            ("discovery", app.state.discovery.stop), ("keep_warm", keep_warm.stop),
+            ("figure_prewarm", figure_prewarm.stop), ("trending_shelf", trending_shelf.stop),
+            ("trending_topics", trending_topics.stop), ("hn_svc", hn_svc.stop),
+            ("ai_usage", ai_usage.stop), ("analytics", analytics.stop),
+            ("abstract_svc", abstract_svc.stop), ("paper_source_svc", paper_source_svc.stop),
+            ("llm_router", llm_router.aclose),
+        ):
+            try:
+                await stop()
+            except Exception as e:
+                print(f"[main] {name} stop failed: {e}")
 
     # Final flush so the last sync interval is not lost on shutdown.
     try:
