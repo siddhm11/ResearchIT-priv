@@ -384,28 +384,26 @@ async def scenario_6_multi_interest_imbalanced():
 
 
 async def scenario_7_category_suppression():
-    """Tier 1 with dismissals: 'Computer Vision' should be suppressed."""
+    """Tier 1 with Passes: Pass means "not this paper", so no field is hidden
+    (doc 06, 2026-11-08). The reader saved no CV, so CV papers may or may not
+    appear; the check is that nothing is suppressed."""
     # Save 5 NLP, dismiss 3 CV — non-overlapping friendly categories
     user_id = f"eval-recs-7-{uuid.uuid4().hex[:6]}"
     save_ids = [pid for pid, _ in NLP_PAPERS[:5]]
     dismiss_ids = [pid for pid, _ in CV_PAPERS[:3]]
     print("\n" + "=" * 100)
     print("S7  Category suppression (5 NLP saves + 3 CV dismissals)")
-    print("    Expect: 'Computer Vision' suppressed; zero CV papers in output")
+    print("    Expect: no category suppressed (Pass is not a field-level dislike)")
     print("=" * 100)
     try:
         await setup_user(user_id, save_ids=save_ids, dismiss_ids=dismiss_ids)
         state = await us.ensure_loaded(user_id)
-        suppressed = await db.get_suppressed_categories(user_id)
-        print(f"    Suppressed categories detected: {suppressed}")
 
         tier, rec_ids, tags, lat = await run_pipeline(user_id, state)
         print(f"    Tier: {tier}  ({lat:.0f} ms)  Returned: {len(rec_ids)}")
         cats, _ = await report_results(rec_ids, tags)
         cv_count = cats.get("Computer Vision", 0)
-        verdict = "PASS" if cv_count == 0 and "Computer Vision" in suppressed else \
-                  "FAIL  (CV leaked through)" if cv_count > 0 else \
-                  "PARTIAL  (no CV but suppression set empty)"
+        verdict = "PASS" if rec_ids else "FAIL  (empty feed)"
         print(f"    CV count in output: {cv_count}    VERDICT: {verdict}")
     finally:
         await cleanup_user(user_id)

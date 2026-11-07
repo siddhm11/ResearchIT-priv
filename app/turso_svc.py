@@ -302,7 +302,7 @@ def _to_paper_dict(row: dict) -> dict | None:
     # ("AI/ML", "Pure Mathematics", "Other Technical") — about 15 buckets for
     # 1.6M papers.  That broke three things at once:
     #
-    #   1. Suppression (db.get_suppressed_categories groups by this field)
+    #   1. Suppression (removed 2026-11-08) grouped by this field and
     #      operated at ~15-bucket granularity, so three dismissals inside
     #      "AI/ML" suppressed ~20% of the entire corpus.
     #   2. arxiv_svc's fallback sets this field to the real primary_category

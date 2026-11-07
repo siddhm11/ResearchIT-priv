@@ -13,7 +13,6 @@ Recommendation pipeline (cascading fallback):
 Phase 4 changes vs Phase 2b:
   - RRF replaced with importance-weighted quota fusion (doc 06 §3.1)
   - Hungarian matching stabilises cluster IDs across reclusters (4.2)
-  - Category-level suppression filters strongly disliked topics (4.3)
 """
 import asyncio
 import random
@@ -793,20 +792,32 @@ async def _multi_interest_recommend(
         # Falls back to the deque if the history read fails or comes back short,
         # so a database hiccup degrades to the previous behaviour rather than
         # dropping the user to Tier 2.
+        #
+        # Interests are built from what the reader does, not only what they
+        # save (doc 06, 2026-11-08): saves weigh 1.0, papers asked about 0.6,
+        # papers opened 0.3. The tier still needs MIN_SAVES_FOR_INTERESTS saves.
         save_times: dict[str, str] = {}
         positives = state.positive_list
+        taste = list(positives)
+        taste_weights = {pid: 1.0 for pid in positives}
         try:
-            history = await db.get_save_history(
-                user_id, limit=CLUSTER_POSITIVE_LIMIT)
-            if len(history) >= len(positives):
-                positives = [r["paper_id"] for r in history]
+            history = await db.get_taste_history(
+                user_id, save_limit=CLUSTER_POSITIVE_LIMIT)
+            saved = [r["paper_id"] for r in history if r["weight"] >= db.TASTE_WEIGHTS["save"]]
+            if len(saved) >= len(positives):
+                positives = saved
+                taste = [r["paper_id"] for r in history]
                 save_times = {r["paper_id"]: r["timestamp"] for r in history}
+                taste_weights = {r["paper_id"]: r["weight"] for r in history}
         except Exception as e:
             errors.report("recommendations",
-                          "save-history read failed, using in-memory deque", e)
+                          "taste-history read failed, using in-memory deque", e)
 
         if len(positives) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
+        # A paper the reader opened or asked about shapes an interest and may be
+        # its medoid; it is not served back to them as a recommendation.
+        seen = seen | (set(taste) - set(positives))
 
         # Per-stage timing breakdown. Every network wait has its own key, so
         # /healthz/runtime accounts for the whole build (total_ms).
@@ -814,13 +825,14 @@ async def _multi_interest_recommend(
         t0_total = time.time()
 
         # Fetch embeddings for all saved papers
-        vectors = await qdrant_svc.get_paper_vectors(positives)
+        vectors = await qdrant_svc.get_paper_vectors(taste)
         timing["saved_vectors_ms"] = int((time.time() - t0_total) * 1000)
-        if len(vectors) < MIN_SAVES_FOR_INTERESTS:
+        if sum(pid in vectors for pid in positives) < MIN_SAVES_FOR_INTERESTS:
             return [], [], {}, 0, {}
 
         # Build aligned arrays (only papers we got vectors for)
-        aligned_ids = [pid for pid in positives if pid in vectors]
+        aligned_ids = [pid for pid in taste if pid in vectors]
+        aligned_weights = [taste_weights.get(pid, 1.0) for pid in aligned_ids]
         aligned_embs = np.array(
             [vectors[pid] for pid in aligned_ids], dtype=np.float32
         )
@@ -837,9 +849,10 @@ async def _multi_interest_recommend(
         t0_cluster = time.time()
         # Too few saves to find structure: each save is its own interest, so
         # unrelated early saves are not averaged into one blurred vector.
-        clusters = (compute_clusters(aligned_ids, aligned_embs, aligned_times)
+        clusters = (compute_clusters(aligned_ids, aligned_embs, aligned_times, aligned_weights)
                     if len(aligned_ids) >= MIN_PAPERS_FOR_CLUSTERING
-                    else per_save_clusters(aligned_ids, aligned_embs, aligned_times))
+                    else per_save_clusters(aligned_ids, aligned_embs, aligned_times,
+                                           aligned_weights))
 
         # ── Step 4.2: Stabilise cluster IDs with Hungarian matching ───────
         old_clusters_data = await load_clusters_from_db(user_id)
@@ -1007,7 +1020,11 @@ async def _multi_interest_recommend(
 
         # ── Phase 6.1+: Prepare features 23-30 BEFORE rerank ─────────
         # Category suppression (moved from post-rerank to pre-rerank feature)
-        suppressed = await db.get_suppressed_categories(user_id)
+        # No category is suppressed. Three Passes in a category used to remove
+        # it from the feed for 14 days, the reader's main field included; Pass
+        # means "not this paper", which the negative profile handles (doc 06,
+        # 2026-11-08). Feature 25 stays in the schema at zero, as in training.
+        suppressed: set[str] = set()
         onboarding_categories = await db.get_user_category_filter(user_id)
 
         # User-level interaction counts (constant across all candidates)
@@ -1111,20 +1128,6 @@ async def _multi_interest_recommend(
         t1_rerank = time.time()
         rerank_time_ms = int((t1_rerank - t0_rerank) * 1000)
         timing["rerank_ms"] = rerank_time_ms
-
-        # ── Step 4.3: Category suppression (post-rerank safety net) ───────
-        # The model now sees feature 25 (is_suppressed_category), but we
-        # keep a hard filter as a safety net since the model has zero
-        # weight on this feature until retrained.
-        if suppressed:
-            kept = [
-                i for i, cid in enumerate(reranked_ids)
-                if cand_meta.get(cid, {}).get("category", "") not in suppressed
-            ]
-            if kept:
-                reranked_ids = [reranked_ids[i] for i in kept]
-                reranked_scores = [reranked_scores[i] for i in kept]
-                reranked_embs = reranked_embs[kept]
 
         # ── Step 7: MMR diversity, WITHIN each interest ───────────────────
         #

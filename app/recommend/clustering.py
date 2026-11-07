@@ -190,6 +190,7 @@ def compute_clusters(
     paper_ids: list[str],
     embeddings: np.ndarray,
     timestamps: list[str] | None = None,
+    weights: list[float] | None = None,
 ) -> list[InterestCluster]:
     """
     Cluster paper embeddings using Ward's hierarchical method.
@@ -198,6 +199,8 @@ def compute_clusters(
         paper_ids: arxiv_ids of saved papers (most recent first)
         embeddings: shape (N, 1024), the BGE-M3 vectors for each paper
         timestamps: optional ISO timestamps for recency weighting
+        weights: optional per-paper signal weight (db.TASTE_WEIGHTS: save 1.0,
+            ask 0.6, open 0.3); importance sums recency x weight
 
     Returns:
         List of InterestCluster sorted by importance (highest first).
@@ -205,6 +208,7 @@ def compute_clusters(
     """
     n = len(paper_ids)
     assert embeddings.shape == (n, 1024), f"Expected ({n}, 1024), got {embeddings.shape}"
+    signal = _signal_weights(n, weights)
 
     # Too few papers — return a single cluster with the centroid's medoid
     if n < MIN_PAPERS_FOR_CLUSTERING:
@@ -215,7 +219,7 @@ def compute_clusters(
             medoid_paper_id=paper_ids[medoid_idx],
             medoid_embedding=embeddings[medoid_idx],
             paper_ids=list(paper_ids),
-            importance=float(n),
+            importance=float(signal.sum()),
         )]
 
     # L2-normalize: Ward is Euclidean-only (Murtagh & Legendre 2014).
@@ -281,7 +285,7 @@ def compute_clusters(
     labels = _merge_singletons(labels, embeddings)
     unique_labels = np.unique(labels)
 
-    recency_weights = _recency_weights(n, timestamps)
+    recency_weights = _recency_weights(n, timestamps) * signal
 
     # Build clusters
     clusters = []
@@ -295,7 +299,7 @@ def compute_clusters(
         centroid = cluster_embs.mean(axis=0)
         medoid_local_idx = _find_medoid(cluster_embs, centroid)
 
-        # Importance: sum of recency weights for this cluster's papers
+        # Importance: sum of recency x signal weights for this cluster's papers
         importance = float(cluster_weights.sum())
 
         # Find the global paper_id index of the medoid
@@ -319,6 +323,7 @@ def per_save_clusters(
     paper_ids: list[str],
     embeddings: np.ndarray,
     timestamps: list[str] | None = None,
+    weights: list[float] | None = None,
 ) -> list[InterestCluster]:
     """One interest per saved paper, for readers with too few saves to cluster.
 
@@ -331,19 +336,27 @@ def per_save_clusters(
     """
     n = len(paper_ids)
     assert embeddings.shape == (n, 1024), f"Expected ({n}, 1024), got {embeddings.shape}"
-    weights = _recency_weights(n, timestamps)
+    importance = _recency_weights(n, timestamps) * _signal_weights(n, weights)
     clusters = [
         InterestCluster(
             cluster_idx=i,
             medoid_paper_id=paper_ids[i],
             medoid_embedding=embeddings[i],
             paper_ids=[paper_ids[i]],
-            importance=float(weights[i]),
+            importance=float(importance[i]),
         )
         for i in range(n)
     ]
     clusters.sort(key=lambda c: c.importance, reverse=True)
     return clusters
+
+
+def _signal_weights(n: int, weights: list[float] | None) -> np.ndarray:
+    """Per-paper signal weights, 1.0 each when none are given (saves only)."""
+    if weights is None:
+        return np.ones(n, dtype=np.float64)
+    assert len(weights) == n, f"Expected {n} weights, got {len(weights)}"
+    return np.asarray(weights, dtype=np.float64)
 
 
 def _find_medoid(embeddings: np.ndarray, centroid: np.ndarray) -> int:

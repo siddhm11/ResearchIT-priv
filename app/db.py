@@ -614,6 +614,68 @@ async def get_user_interactions(
         return [dict(r) for r in rows]
 
 
+# What each kind of engagement says about a reader's taste (doc 06, 2026-11-08).
+# A save is a decision; asking about a paper means working through it; opening
+# one means it caught their interest. Pass is not here: it says "not this
+# paper", which the negative profile already handles, never "not this field".
+TASTE_WEIGHTS = {"save": 1.0, "ask": 0.6, "click": 0.3, "view": 0.3}
+TASTE_WINDOW_DAYS = 30      # opens and questions older than this no longer shape interests
+TASTE_ENGAGED_LIMIT = 60    # the most recent opened or asked papers the clusterer reads
+
+
+async def get_taste_history(user_id: str, save_limit: int = 200,
+                            engaged_limit: int = TASTE_ENGAGED_LIMIT,
+                            days: int = TASTE_WINDOW_DAYS) -> list[dict]:
+    """Papers that shape a reader's interests, newest signal first.
+
+    Each row is {paper_id, timestamp, weight}: every current save at 1.0, plus
+    papers opened (0.3) or asked about (0.6) in the last `days`, a paper taking
+    its strongest signal. A paper the reader has since passed on or un-saved is
+    left out whatever else they did with it. Ordered by event id, the true
+    event order (see get_save_history).
+    """
+    if not user_id:
+        return []
+    saves = await get_save_history(user_id, limit=save_limit)
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cur = await conn.execute(
+            """SELECT paper_id, event_type, MAX(id), MAX(timestamp) FROM interactions
+                WHERE user_id = ? AND event_type IN ('click', 'view', 'ask')
+                  AND timestamp >= datetime('now', ?)
+                GROUP BY paper_id, event_type""",
+            (user_id, f"-{int(days)} days"))
+        engaged = await cur.fetchall()
+        cur = await conn.execute(
+            """SELECT i.paper_id FROM interactions i
+                WHERE i.user_id = ? AND i.event_type IN ('unsave', 'not_interested')
+                  AND i.id = (SELECT MAX(x.id) FROM interactions x
+                               WHERE x.user_id = i.user_id AND x.paper_id = i.paper_id
+                                 AND x.event_type IN ('save', 'unsave', 'not_interested'))""",
+            (user_id,))
+        declined = {r[0] for r in await cur.fetchall()}
+        cur = await conn.execute(
+            "SELECT paper_id, MAX(id) FROM interactions WHERE user_id = ? AND event_type = 'save' "
+            "GROUP BY paper_id", (user_id,))
+        save_ids = dict(await cur.fetchall())
+
+    rows = {r["paper_id"]: {"paper_id": r["paper_id"], "timestamp": r["timestamp"],
+                            "weight": TASTE_WEIGHTS["save"], "_id": save_ids.get(r["paper_id"], 0)}
+            for r in saves}
+    others: dict[str, dict] = {}
+    for pid, kind, last_id, ts in engaged:
+        if pid in rows or pid in declined:
+            continue
+        row = others.setdefault(pid, {"paper_id": pid, "timestamp": ts, "weight": 0.0, "_id": 0})
+        row["weight"] = max(row["weight"], TASTE_WEIGHTS[kind])
+        if last_id > row["_id"]:
+            row["_id"], row["timestamp"] = last_id, ts
+    recent = sorted(others.values(), key=lambda r: -r["_id"])[:engaged_limit]
+    out = sorted([*rows.values(), *recent], key=lambda r: -r["_id"])
+    for r in out:
+        del r["_id"]
+    return out
+
+
 async def get_save_history(user_id: str, limit: int = 200) -> list[dict]:
     """Currently-saved papers, newest first, with the time each was saved.
 
@@ -813,13 +875,14 @@ async def get_user_clusters(user_id: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-# ── Phase 4.3: Category suppression helpers ───────────────────────────────────
+# ── Paper metadata cache ──────────────────────────────────────────────────────
 
 async def cache_turso_metadata_batch(papers: list[dict]) -> None:
     """
     Write Turso paper dicts to the paper_metadata SQLite cache.
 
-    Called after every Turso fetch so dismissal-category JOINs work.
+    Called after every Turso fetch; interest labels read it back
+    (get_cached_metadata_batch) without a network call.
     Silently skips rows missing required fields.
     """
     if not papers:
@@ -845,37 +908,6 @@ async def cache_turso_metadata_batch(papers: list[dict]) -> None:
             except Exception:
                 pass
         await conn.commit()
-
-
-async def get_suppressed_categories(
-    user_id: str,
-    threshold: int = 3,
-    window_days: int = 14,
-) -> set[str]:
-    """
-    Return categories the user has strongly signalled disinterest in.
-
-    A category is suppressed when the user has dismissed ≥ threshold papers
-    in that category within the last window_days days.
-
-    Requires paper_metadata to be populated (via cache_turso_metadata_batch).
-    Returns an empty set if no suppressions are found.
-    """
-    async with aiosqlite.connect(DB_PATH) as conn:
-        cur = await conn.execute(
-            """SELECT pm.category, COUNT(*) AS cnt
-               FROM interactions i
-               JOIN paper_metadata pm ON i.paper_id = pm.arxiv_id
-               WHERE i.user_id = ?
-                 AND i.event_type = 'not_interested'
-                 AND i.timestamp >= datetime('now', ? || ' days')
-                 AND pm.category != ''
-               GROUP BY pm.category
-               HAVING COUNT(*) >= ?""",
-            (user_id, f"-{window_days}", threshold),
-        )
-        rows = await cur.fetchall()
-        return {row[0] for row in rows}
 
 
 # ── Phase 5: Onboarding helpers ───────────────────────────────────────────────

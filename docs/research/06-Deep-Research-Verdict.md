@@ -1311,3 +1311,30 @@ deploy: full abstracts fill the 256-token reranker window, so pairs are longer.
 If the median rises past ~1.6 s, set `RERANKER_MAX_LENGTH=192` as a Space
 variable. Then re-run `scripts/embedding_eval/search/rerank.py` on the new
 sidecar and decide on depth 20.
+
+### 2026-11-08 — Interests from what readers do; Pass no longer hides a field
+**Decision:** (owner's decision, 8 Nov.)
+* Interests are clustered from a reader's taste history: saves (weight 1.0),
+  papers asked about (0.6) and papers opened (0.3), the last two from the past
+  30 days, at most 60. Importance is recency × weight. A paper since passed on
+  or un-saved is excluded; opened and asked papers are excluded from candidates.
+* Asking a question writes an `ask` interaction (paper id, never the text).
+* Category suppression is removed. Pass means "not this paper" or "wrong match"
+  and updates the negative profile only.
+* Next, not built: scale each interest's quota share by the reader's engagement
+  with it (opens + saves against impressions), clamped 0.5×–1.5×, keeping the
+  `F_min = 3` floor, so a skipped topic shrinks but never reaches zero. Needs
+  per-reader exposure history that survives deploys.
+**Supersedes:** CLAUDE.md §3.7 item 4 (category-level suppression); the Phase
+4.3 suppression design; the "saves only" input to §3.3 clustering.
+**Rationale:** The owner's feed: 7 saves, all on attention, gave 2 interests,
+both attention, while 38 opened papers spanned LLM reasoning, vision, robotics
+and economics. Replayed on the owner's current history, the new input gives 5
+interests (attention 68%, vision 12%, ML for economics 8.5%, RL for LLMs 5.7%,
+robotics 5.6%). Readers open far more than they save, so saves alone starve the
+clusterer. Three Passes in cs.LG removed cs.LG from a multi-interest reader's
+feed (tests/test_taste_signals.py reproduces it).
+**Action items:** Done: `db.get_taste_history`, `compute_clusters` /
+`per_save_clusters` take weights, `ask` events, suppression removed. Watch the
+number of interests per reader and per-interest click/save rates; the 0.6/0.3
+weights are a starting point, not measured.
