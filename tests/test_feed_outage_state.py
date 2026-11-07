@@ -53,6 +53,8 @@ def test_user_with_saves_is_told_it_is_an_outage():
     assert "library is safe" in r.text, "no reassurance that nothing was lost"
     assert r.status_code == 503, (
         "an outage should not be reported as a successful empty feed")
+    # htmx drops error responses unless told otherwise; app.js swaps this one in.
+    assert r.headers.get("X-Feed-State") == "unavailable"
 
 
 def test_genuinely_new_user_still_gets_the_onboarding_prompt():

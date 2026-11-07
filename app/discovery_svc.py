@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections import Counter
 from collections.abc import Mapping
 from itertools import zip_longest
@@ -119,3 +120,67 @@ async def starter_papers(
         if len(papers) == limit:
             break
     return papers
+
+
+# ── Prewarm ──────────────────────────────────────────────────────────────────
+# Starter lists from the sidecar never change between deploys (turso_svc keeps
+# them for the life of the process), so compute the ones the app asks for once,
+# at startup, instead of on a reader's first feed. On 7 Nov this lookup was
+# 5.8 s of a 7.3 s first feed. One shape per interest covers every reader:
+# starter_papers caches per arXiv code and per interest, not per combination.
+# The limits are the callers' own: onboarding's suggestions (12), the
+# exploration pool and cold-start pool without a sidecar (30), and the
+# cold-start pool with one (200). tests/test_starter_prewarm.py keeps them in step.
+PREWARM_LIMITS = (12, 30, 200)
+_PREWARM_DELAY_S = 15.0
+_prewarm_task: asyncio.Task | None = None
+_prewarm: dict = {"status": "not started"}
+
+
+async def prewarm(limits: tuple[int, ...] = PREWARM_LIMITS) -> int:
+    """Fill the starter caches for every interest; returns lists computed."""
+    if not local_meta.is_available():
+        _prewarm["status"] = "no sidecar"
+        return 0
+    from app.config import DEFAULT_TRENDING_CATEGORIES, expand_category_groups
+    shapes: list = [{key: expand_category_groups([key])} for key in CATEGORY_GROUPS]
+    shapes.append(set(DEFAULT_TRENDING_CATEGORIES))
+    started, done = time.monotonic(), 0
+    _prewarm.update(status="running", lists=0)
+    for limit in limits:
+        for shape in shapes:
+            try:
+                await starter_papers(shape, limit=limit)
+                done += 1
+            except Exception as e:  # a bad lane costs only its own speed-up
+                print(f"[discovery] prewarm failed for {shape} @ {limit}: {e}")
+            _prewarm["lists"] = done
+    _prewarm.update(status="done", seconds=round(time.monotonic() - started, 1))
+    print(f"[discovery] prewarmed {done} starter lists in {_prewarm['seconds']} s")
+    return done
+
+
+async def _delayed_prewarm() -> None:
+    await asyncio.sleep(_PREWARM_DELAY_S)   # let startup and the first requests through
+    await prewarm()
+
+
+def start_prewarm() -> None:
+    global _prewarm_task
+    if _prewarm_task is None and local_meta.is_available():
+        _prewarm_task = asyncio.create_task(_delayed_prewarm())
+
+
+async def stop_prewarm() -> None:
+    global _prewarm_task
+    if _prewarm_task is not None:
+        _prewarm_task.cancel()
+        try:
+            await _prewarm_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        _prewarm_task = None
+
+
+def prewarm_status() -> dict:
+    return dict(_prewarm)

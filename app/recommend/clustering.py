@@ -420,7 +420,7 @@ def stabilize_cluster_ids(
       2. Solve with scipy linear_sum_assignment (O(K³), trivial for K ≤ 7)
       3. Matched pairs with cosine_sim >= min_cosine_sim inherit the old idx
       4. Weak matches (cosine_sim < min_cosine_sim) and unmatched new clusters
-         get the next available index
+         get a fresh index above every old one
 
     Args:
         new_clusters:   freshly computed clusters (cluster_idx values ignored)
@@ -459,7 +459,10 @@ def stabilize_cluster_ids(
             new_to_stable[int(r)] = old_clusters[int(c)].cluster_idx
 
     used_ids: set[int] = set(new_to_stable.values())
-    next_id = 0
+    # Fresh ids start above every old one. Starting at 0 handed an unmatched
+    # cluster the id of the old cluster it had just been rejected as unrelated
+    # to (audit F6), joining two interests in snapshots and analytics.
+    next_id = max([c.cluster_idx for c in old_clusters] + list(used_ids)) + 1
 
     result: list[InterestCluster] = []
     for i, cluster in enumerate(new_clusters):

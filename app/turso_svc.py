@@ -37,6 +37,9 @@ from app import http_client
 #     so we don't TTL-expire metadata. citation_count drifts but is only
 #     used for display ranking; staleness is fine.
 #   - 50K capacity at ~1KB per row -> ~50MB RAM ceiling.
+#   - Copies in and out. Routes write per-reader fields (saved, query_id,
+#     position) onto the papers they render; sharing the stored dicts leaked
+#     one reader's saves and search attribution to the next (audit F1).
 
 _METADATA_CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _METADATA_CACHE_MAX = 50_000
@@ -44,13 +47,15 @@ _METADATA_CACHE_MAX = 50_000
 
 def _cache_get(arxiv_id: str) -> dict | None:
     val = _METADATA_CACHE.get(arxiv_id)
-    if val is not None:
-        # Mark as MRU
-        _METADATA_CACHE.move_to_end(arxiv_id)
-    return val
+    if val is None:
+        return None
+    # Mark as MRU
+    _METADATA_CACHE.move_to_end(arxiv_id)
+    return dict(val)
 
 
 def _cache_put(arxiv_id: str, paper: dict) -> None:
+    paper = dict(paper)
     if arxiv_id in _METADATA_CACHE:
         _METADATA_CACHE.move_to_end(arxiv_id)
         _METADATA_CACHE[arxiv_id] = paper
@@ -72,9 +77,29 @@ def metadata_cache_stats() -> dict:
 # small fixed set of category combinations, and citation counts barely
 # change minute-to-minute. A short TTL converts the 15s wait into a
 # one-time hit per category combo.
+#
+# Lists computed from the sidecar are kept for the life of the process
+# instead ("lasting"): the sidecar only changes on a deploy, and at about one
+# reader a day the hourly TTL meant nearly every first feed paid for them again
+# (5.8 s of a 7.3 s feed on 7 Nov). discovery_svc.prewarm fills them at startup.
 
-_TRENDING_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_TRENDING_CACHE: dict[tuple, tuple[float, list[dict], bool]] = {}
 _TRENDING_TTL_SECONDS = 60 * 60  # 1 hour
+
+
+def _starter_get(cache_key: tuple) -> list[dict] | None:
+    """A cached starter list, as copies for the caller to annotate (see F1 above)."""
+    cached = _TRENDING_CACHE.get(cache_key)
+    if cached is None:
+        return None
+    stamp, papers, lasting = cached
+    if not lasting and (time.time() - stamp) >= _TRENDING_TTL_SECONDS:
+        return None
+    return [dict(p) for p in papers]
+
+
+def _starter_put(cache_key: tuple, papers: list[dict], *, lasting: bool = False) -> None:
+    _TRENDING_CACHE[cache_key] = (time.time(), [dict(p) for p in papers], lasting)
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -384,9 +409,9 @@ async def fetch_trending_by_categories(
         return []
 
     cache_key = (tuple(sorted(categories)), limit)
-    cached = _TRENDING_CACHE.get(cache_key)
-    if cached is not None and (time.time() - cached[0]) < _TRENDING_TTL_SECONDS:
-        return cached[1]
+    cached = _starter_get(cache_key)
+    if cached is not None:
+        return cached
 
     # Sidecar first.  This is the query that hurts most: on Turso it is a
     # LIKE '%code%' full scan plus a temp B-tree sort over 1.6M rows, and it
@@ -408,7 +433,7 @@ async def fetch_trending_by_categories(
             papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
             for p in papers:
                 _cache_put(p["arxiv_id"], p)
-            _TRENDING_CACHE[cache_key] = (time.time(), papers)
+            _starter_put(cache_key, papers, lasting=True)
             return papers
 
     url = config.TURSO_URL
@@ -569,7 +594,7 @@ async def fetch_trending_by_categories(
 
     print(f"[turso] trending: {len(papers)} papers in {len(categories)} categories")
     if papers:
-        _TRENDING_CACHE[cache_key] = (time.time(), papers)
+        _starter_put(cache_key, papers)
         # Also seed metadata cache — these papers are likely to be
         # fetched again as part of recommendations / display.
         for p in papers:
@@ -586,16 +611,16 @@ async def fetch_fresh_by_categories(categories: set[str], limit: int = 10) -> li
     if not categories:
         return []
     cache_key = ("fresh", tuple(sorted(categories)), limit)
-    cached = _TRENDING_CACHE.get(cache_key)
-    if cached is not None and (time.time() - cached[0]) < _TRENDING_TTL_SECONDS:
-        return cached[1]
+    cached = _starter_get(cache_key)
+    if cached is not None:
+        return cached
     from app import local_meta
     if not local_meta.is_available():
         return []
     rows = await asyncio.to_thread(local_meta.fetch_fresh, set(categories), limit)
     papers = [p for p in (_to_paper_dict(r) for r in rows) if p]
     if papers:
-        _TRENDING_CACHE[cache_key] = (time.time(), papers)
+        _starter_put(cache_key, papers, lasting=True)
         for p in papers:
             _cache_put(p["arxiv_id"], p)
     return papers

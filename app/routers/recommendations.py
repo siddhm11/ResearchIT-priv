@@ -287,9 +287,12 @@ async def _serve_recommendations(
         Turso, independent of the vector store.
         """
         if state.positive_list:
+            # 503 so monitoring sees the outage; the header tells app.js to show
+            # this message anyway, since htmx drops error responses by default
+            # and the reader was left on a skeleton (audit F3).
             return _with_cookie(templates.TemplateResponse(
                 request, "partials/feed_unavailable.html", {},
-                status_code=503,
+                status_code=503, headers={"X-Feed-State": "unavailable"},
             ))
         return _with_cookie(templates.TemplateResponse(
             request, "partials/empty_recs.html", {"min_saves": REC_MIN_POSITIVES},

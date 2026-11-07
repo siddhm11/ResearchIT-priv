@@ -465,3 +465,27 @@ def test_per_save_clusters_make_each_save_an_interest():
     assert [c.medoid_paper_id for c in clusters] == ["t0_0", "t1_0", "t2_0"]
     assert clusters[0].importance > clusters[1].importance > clusters[2].importance
     assert np.allclose(clusters[1].medoid_embedding, embs[1])
+
+
+def test_a_new_interest_does_not_inherit_a_rejected_interests_id():
+    """Audit F6. Old interests NLP (0) and RL (1); the reader's new clusters are
+    NLP and vision. Hungarian matching pairs vision with RL, rejects the pair
+    for low similarity, and vision then took the smallest free id -- RL's 1 --
+    so snapshots, analytics and card colour joined two unrelated interests."""
+    rng = np.random.default_rng(6)
+    nlp, rl, vision = (rng.normal(size=1024) for _ in range(3))
+    vision -= (vision @ rl) / (rl @ rl) * rl     # orthogonal to RL: cos 0
+
+    old = [InterestCluster(cluster_idx=0, medoid_paper_id="nlp", medoid_embedding=nlp,
+                           paper_ids=["nlp"], importance=5.0),
+           InterestCluster(cluster_idx=1, medoid_paper_id="rl", medoid_embedding=rl,
+                           paper_ids=["rl"], importance=3.0)]
+    new = [InterestCluster(cluster_idx=0, medoid_paper_id="nlp2", medoid_embedding=nlp + 0.01,
+                           paper_ids=["nlp2"], importance=5.0),
+           InterestCluster(cluster_idx=1, medoid_paper_id="vision", medoid_embedding=vision,
+                           paper_ids=["vision"], importance=3.0)]
+
+    ids = {c.medoid_paper_id: c.cluster_idx for c in stabilize_cluster_ids(new, old)}
+
+    assert ids["nlp2"] == 0
+    assert ids["vision"] not in {0, 1}, f"vision reused an old id: {ids}"

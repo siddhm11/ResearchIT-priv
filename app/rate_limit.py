@@ -112,20 +112,20 @@ _SWEEP_EVERY = 300.0
 def client_key(request) -> str | None:
     """Best-effort stable identifier for the caller, or None if unknown.
 
-    Returns the leftmost X-Forwarded-For entry, which is the original client
-    where the header is set by a trusted proxy. It is spoofable, but this is
-    abuse mitigation rather than access control -- an attacker willing to rotate
-    the header is equally able to rotate source addresses.
+    Returns the rightmost X-Forwarded-For entry: Hugging Face's proxy appends
+    the address it saw and passes everything to its left through from the
+    client. Measured 7 Nov 2026 via /healthz/client, a request sending
+    `X-Forwarded-For: 1.2.3.4` and `X-Real-IP: 9.9.9.9` arrived with both
+    intact and the real address appended to XFF only. Keying on the leftmost
+    entry let one header buy a fresh bucket per request (audit F10), and
+    X-Real-IP is ignored for the same reason.
     """
     try:
         xff = request.headers.get("x-forwarded-for", "")
         if xff:
-            first = xff.split(",")[0].strip()
-            if first:
-                return first
-        real = request.headers.get("x-real-ip", "").strip()
-        if real:
-            return real
+            last = xff.split(",")[-1].strip()
+            if last:
+                return last
         client = request.client
         return client.host if client and client.host else None
     except Exception:

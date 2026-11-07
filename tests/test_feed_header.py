@@ -233,3 +233,14 @@ def test_feed_fragment_does_not_repeat_the_masthead(client):
     client.post("/api/onboarding/skip")
     frag = client.get("/api/recommendations").text
     assert "issue-title" not in frag
+
+
+def test_the_masthead_counts_the_whole_library_not_the_last_twenty(client):
+    """Audit F12: the count read the 20-item retrieval deque, so a reader with
+    25 saves was told they had 20."""
+    client.get("/")
+    client.post("/api/onboarding/skip")
+    for i in range(25):
+        client.post(f"/api/papers/2401.{i:05d}/save", data={"source": "search", "position": 0})
+
+    assert "<b>25</b> saved" in client.get("/").text

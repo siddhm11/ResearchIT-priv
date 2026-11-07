@@ -11,7 +11,7 @@ Thread-safety: asyncio is single-threaded; no locks needed.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from collections import deque
+from collections import OrderedDict, deque
 
 from app import db, config
 
@@ -69,14 +69,25 @@ class UserState:
 
 # ── Global in-process cache ───────────────────────────────────────────────────
 
-_cache: dict[str, UserState] = {}
+# Bounded LRU. Every cookieless visit mints a user id, so crawlers on public
+# paper pages grew an unbounded dict for the life of the process (audit F9:
+# 2,000 visits, 2,000 states). An evicted reader is simply re-hydrated from the
+# database on their next request; nothing here is the only copy.
+MAX_CACHED_USERS = 5_000
+
+_cache: "OrderedDict[str, UserState]" = OrderedDict()
 
 
 def get_user_state(user_id: str) -> UserState:
     """Return the in-memory state for a user (creates if missing)."""
-    if user_id not in _cache:
-        _cache[user_id] = UserState()
-    return _cache[user_id]
+    state = _cache.get(user_id)
+    if state is not None:
+        _cache.move_to_end(user_id)
+        return state
+    state = _cache[user_id] = UserState()
+    while len(_cache) > MAX_CACHED_USERS:
+        _cache.popitem(last=False)
+    return state
 
 
 async def ensure_loaded(user_id: str) -> UserState:
