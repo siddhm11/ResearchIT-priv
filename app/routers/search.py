@@ -187,6 +187,7 @@ async def search_summary(
     request: Request,
     q: str = "",
     ids: str = "",
+    qid: str = "",
 ):
     """
     Generate an AI Overview for a given search query and set of arXiv IDs.
@@ -236,6 +237,13 @@ async def search_summary(
 
     if not summary_html:
         return ""
+
+    # Titles the overview names link to their papers. Done here, not before
+    # caching, so overviews cached before this existed get links too, and the
+    # cache never holds one reader's query_id.
+    from app import overview_links
+    summary_html = overview_links.link_titles(
+        summary_html, papers, qid=qid, positions={aid: i for i, aid in enumerate(arxiv_ids)})
 
     return templates.TemplateResponse(
         request,

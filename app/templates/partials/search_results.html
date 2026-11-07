@@ -29,7 +29,7 @@
     {% if query and papers %}
       {% set arxiv_ids = papers | map(attribute='arxiv_id') | join(',') %}
       <div id="ai-summary-container"
-           hx-get="/api/search/summary?q={{ query | urlencode }}&amp;ids={{ arxiv_ids }}"
+           hx-get="/api/search/summary?q={{ query | urlencode }}&amp;ids={{ arxiv_ids }}{% if papers[0].query_id %}&amp;qid={{ papers[0].query_id }}{% endif %}"
            hx-trigger="load"
            hx-swap="innerHTML">
         <div class="ai-summary">
