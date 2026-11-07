@@ -387,3 +387,21 @@ def test_no_horizontal_overflow_on_mobile(page, browser):
         assert p.locator(".botnav").is_visible()
     finally:
         ctx.close()
+
+
+def test_a_feed_outage_shows_its_own_message_not_a_skeleton(page):
+    """The server explains an outage with a 503 and X-Feed-State: unavailable.
+    htmx drops error responses by default, so readers were left on grey
+    placeholders and a generic toast (audit F3)."""
+    outage = ('<div class="empty"><p class="empty-title">'
+              'The feed can\'t be built right now</p></div>')
+    page.route("**/api/recommendations*", lambda route: route.fulfill(
+        status=503, body=outage, content_type="text/html",
+        headers={"X-Feed-State": "unavailable"}))
+
+    _onboard(page)
+    page.goto(f"{BASE_URL}/")
+    page.wait_for_selector("#rec-section .empty-title", timeout=SWAP_TIMEOUT_MS)
+
+    assert page.locator("#rec-section .skeleton, #rec-section .skel").count() == 0
+    assert "Something went wrong" not in (page.locator("#toasts").inner_text() or "")

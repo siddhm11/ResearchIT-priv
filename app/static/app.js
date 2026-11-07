@@ -277,6 +277,16 @@
     var elt = e.detail && e.detail.elt;
     return !!(elt && elt.closest && elt.closest('[data-quiet]'));
   }
+  /* A feed outage answers 503 with its own explanation (X-Feed-State:
+     unavailable). htmx drops error responses, which left the skeleton up and a
+     generic toast; show the server's message instead. */
+  document.body.addEventListener('htmx:beforeSwap', function (e) {
+    var xhr = e.detail.xhr;
+    if (xhr && xhr.status === 503 && xhr.getResponseHeader('X-Feed-State') === 'unavailable') {
+      e.detail.shouldSwap = true;
+      e.detail.isError = false;
+    }
+  });
   document.body.addEventListener('htmx:responseError', function (e) {
     if (quiet(e)) return;
     showError('Something went wrong. Please try again.');
