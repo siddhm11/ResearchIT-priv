@@ -246,9 +246,9 @@ async def profile_recs_tier1(user_id: str, save_ids: list[str]) -> list[tuple[st
         lt_vec = await profiles.load_profile(user_id, "long_term")
         neg_vec = await profiles.load_profile(user_id, "negative")
 
-    # 13. SQLite reads (suppression + onboarding)
-    with stage("13. Suppression + onboarding lookup (SQLite)", timings):
-        suppressed = await db.get_suppressed_categories(user_id)
+    # 13. SQLite read (onboarding). Category suppression was removed 2026-11-08.
+    with stage("13. Onboarding lookup (SQLite)", timings):
+        suppressed: set[str] = set()
         onboarding_categories = await db.get_user_category_filter(user_id)
 
     # 14. Build feature arrays (CPU)

@@ -286,18 +286,20 @@ def test_injected_instructions_and_markup_come_out_as_text(world):
     assert "&lt;script&gt;" in html and "<img src=x" not in html
 
 
-def test_asking_writes_no_interaction_and_logs_no_question_text(world):
+def test_asking_records_the_paper_but_never_the_question_text(world):
+    """Asking is a taste signal (one `ask` interaction, doc 06 2026-11-08); the
+    question itself is stored nowhere."""
     llm.fake_reply(answer_from())
     post({"q": "A very particular question about drones"})
 
     async def rows():
         async with aiosqlite.connect(config.DB_PATH) as conn:
-            inter = (await (await conn.execute("SELECT COUNT(*) FROM interactions")).fetchone())[0]
+            inter = await (await conn.execute("SELECT * FROM interactions")).fetchall()
             logged = await (await conn.execute("SELECT * FROM ask_log")).fetchall()
             return inter, logged
     inter, logged = asyncio.run(rows())
-    assert inter == 0 and len(logged) == 1
-    assert "particular question" not in json.dumps(logged)
+    assert len(inter) == 1 and "ask" in inter[0] and len(logged) == 1
+    assert "particular question" not in json.dumps(logged) + json.dumps(inter)
 
 
 def test_a_paper_without_full_text_answers_from_the_abstract(world, monkeypatch):
@@ -345,3 +347,15 @@ def test_ai_daily_counts_cache_use_and_answers(world, monkeypatch):
     got = asyncio.run(read())
     assert got["cache_miss"] == 1 and got["cache_hit"] == 1 and got["answer"] == 2
 
+
+
+def test_asking_about_a_paper_is_recorded_as_a_taste_signal(world):
+    """A question means the reader is working through the paper; the feed
+    builds interests from it at weight 0.6 (doc 06, 2026-11-08)."""
+    from app import db
+    llm.fake_reply(answer_from("S6"))
+    post({"q": "What are the limitations?"}, cookie="asker")
+    post({"q": "x" * 501}, cookie="refused-asker")
+    rows = asyncio.run(db.get_user_interactions("asker", event_types=["ask"]))
+    assert [r["paper_id"] for r in rows] == [AID]
+    assert asyncio.run(db.get_user_interactions("refused-asker", event_types=["ask"])) == []

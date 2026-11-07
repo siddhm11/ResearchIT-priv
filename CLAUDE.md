@@ -111,6 +111,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **No fixed K.** Cut the dendrogram by adaptive gap-based threshold (see `_adaptive_threshold()`). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist) and at ceil(N/2) (`AVG_CLUSTER_SIZE_FLOOR = 2`). Take the finest cut within the cap that leaves no singleton; never fold a split pair into another cluster (doc 06, 2026-09-30).
 - **From 2 saves, not 5.** Below `MIN_PAPERS_FOR_CLUSTERING = 5` each save is its own interest (`per_save_clusters`) on the same quota/MMR path. Do not average unrelated early saves into one vector; Tier 2 EWMA is only the fallback.
 - **Medoid, not centroid.** Medoid = arg min over cluster members of sum of squared distances. Cache medoid paper IDs. This is implemented in `_find_medoid()`.
+- **Interests come from what readers do, not only saves** (doc 06, 2026-11-08). `db.get_taste_history` feeds the clusterer saves (1.0), papers asked about (0.6) and papers opened (0.3, click or view) from the last 30 days, at most 60 opened/asked papers; a paper since passed on or un-saved is left out. Importance is recency × signal weight. Opened and asked-about papers are excluded from that reader's candidates. Tier 1 still requires `MIN_SAVES_FOR_INTERESTS` saves.
 - **Hungarian-match cluster IDs across reclusterings** — implemented via `stabilize_cluster_ids`.
 - Recompute on each feed request currently (not nightly batch — no batch job infrastructure yet).
 
@@ -168,6 +169,7 @@ Behavioral takes over once the user crosses **~10 saved papers**. Subject catego
 ### 3.6b Signal integrity
 
 - **Un-saving is not disliking.** `POST /api/papers/{id}/unsave` removes a paper without writing negative signal; `/not-interested` is for genuine dislike only. Conflating them poisons the negative EWMA profile and the interaction log any future ranker trains on.
+- **Pass is not a field-level dislike.** Pass means "not this paper" or "wrong match". It updates the negative profile only; it never hides a category (2026-11-08: three Passes used to remove a reader's own main field for 14 days). Reducing a topic's share belongs to engagement-scaled quota or an explicit reader control, never to a hard filter.
 - **Profile updates are serialised per user** (`profiles._lock_for`). They are read-modify-write across awaits, and unserialised, ten concurrent saves left `interaction_count` at 1.
 - **Background tasks must be strongly referenced.** asyncio holds only a weak reference; use `events._spawn`, not a bare `asyncio.create_task`.
 - **Never call `local_meta` directly from a coroutine.** It is synchronous sqlite3 over 2.7GB; wrap in `asyncio.to_thread`. Guarded by `tests/test_event_loop_blocking.py`.
@@ -182,7 +184,7 @@ The negative EWMA profile is wired into reranking (feature 22 in the current 37-
 1. **Session hard filter** — never re-show dismissed items (`seen` set in `recommendations.py`). DONE.
 2. **Short-term item penalty** at rerank: `score -= alpha * exp(-dt / tau_neg)` — NOT YET (needs per-item decay tracking).
 3. **Long-term EWMA negative profile** — wired as feature 22 with 0.15 heuristic penalty weight. DONE.
-4. **Category-level suppression** — DONE (db category suppression + rec filter).
+4. **Category-level suppression** — REMOVED 2026-11-08. Pass is not a field-level dislike (§3.6b); feature 25 stays in the schema at 0. Planned instead: per-interest share scaled by engagement, clamped 0.5×–1.5× of quota, keeping the `F_min` floor.
 5. **LightGBM dismissal labels** — NOT YET (Phase 6, needs 10K+ dismissals).
 
 ### 3.8 Latency budget
@@ -210,7 +212,7 @@ so id and list position diverge. Look up through a `{cluster_idx: cluster}` map.
 
 ### 3.11 Interaction instrumentation invariants (Phase 6.5)
 
-Ranked-surface interactions must preserve available **`query_id`**, **`propensity`**, and **`policy_id`**. Direct paper visits are `view` events without invented attribution; they do not contribute to ranked-click CTR or EWMA updates. These are required for Phase 7 evaluation:
+Ranked-surface interactions must preserve available **`query_id`**, **`propensity`**, and **`policy_id`**. Direct paper visits are `view` events without invented attribution; they do not contribute to ranked-click CTR or EWMA updates (they do shape interests at weight 0.3, §3.3). Asking a question about a paper writes an `ask` event (paper id only, never the question text). These are required for Phase 7 evaluation:
 - `query_id` (UUID): links all papers in a single feed request for per-feed CTR. A reader returning to the same cached search results keeps the `query_id` they were first shown (`app/search_cache.py`).
 - `propensity` (float): probability the serving policy chose to show this paper (1.0 for deterministic, `n_explore/pool_size` for exploration).
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
@@ -488,7 +490,7 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Reranker? | Personalized heuristic by default; optional LightGBM/auto. |
 | Latency budget? | <30ms end-to-end (compute only; metadata I/O excluded). |
 | Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). Author import removed from current roadmap. |
-| When does behavioral take over? | ~10 saved papers. Currently: 1 save = similar-to, 2–4 = one interest per save, 5+ = Ward clustering; EWMA single-vector is a fallback. |
+| When does behavioral take over? | ~10 saved papers. Currently: 1 save = similar-to, 2+ saves = interests built from saves, asks and opens (one interest per paper below 5 papers, Ward from 5); EWMA single-vector is a fallback. |
 | When to add CF? | 500+ users (Phase 9). |
 | Current status? | Local implementation and validation are distinct from deployed status. See `docs/CURRENT-STATE.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
