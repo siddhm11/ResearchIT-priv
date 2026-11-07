@@ -108,7 +108,7 @@ async def _related(arxiv_id: str, seen: set[str]) -> list[dict]:
     return [meta[i] for i in ids if i in meta]
 
 
-@router.get("/p/{arxiv_id}", response_class=HTMLResponse)
+@router.get("/p/{arxiv_id:path}", response_class=HTMLResponse)
 async def paper_page(
     arxiv_id: str,
     request: Request,
@@ -352,7 +352,7 @@ def _summary_for_card(paper: dict) -> str:
     return text[:200].rsplit(" ", 1)[0] + "…"
 
 
-@router.get("/api/papers/{arxiv_id}/explain", response_class=HTMLResponse)
+@router.get("/api/papers/{arxiv_id:path}/explain", response_class=HTMLResponse)
 async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     """Plain-language explanation of one paper.
 
@@ -429,7 +429,7 @@ def _checked_recently(checked_at: str) -> bool:
     return time.time() - stamp < CODE_RECHECK_S
 
 
-@router.get("/api/papers/{arxiv_id}/code", response_class=HTMLResponse)
+@router.get("/api/papers/{arxiv_id:path}/code", response_class=HTMLResponse)
 async def code_link(arxiv_id: str, request: Request):
     """The paper's GitHub repository as a chip, or nothing.
 
@@ -477,7 +477,7 @@ async def _known_paper(arxiv_id: str) -> dict | None:
     return (await abstract_svc.overlay([paper]))[0] if paper else None
 
 
-@router.get("/api/papers/{arxiv_id}/briefing", response_class=HTMLResponse)
+@router.get("/api/papers/{arxiv_id:path}/briefing", response_class=HTMLResponse)
 async def briefing(arxiv_id: str, request: Request):
     """The briefing fragment, or nothing.
 
@@ -506,7 +506,7 @@ async def briefing(arxiv_id: str, request: Request):
                                       {"briefing": result, "paper_source": source})
 
 
-@router.post("/api/papers/{arxiv_id}/report", response_class=HTMLResponse)
+@router.post("/api/papers/{arxiv_id:path}/report", response_class=HTMLResponse)
 async def report_problem(arxiv_id: str, request: Request, feature: str = Form(default=""),
                          reason: str = Form(default=""),
                          user_id: str | None = Cookie(default=None, alias=COOKIE_NAME)):
@@ -522,7 +522,7 @@ async def report_problem(arxiv_id: str, request: Request, feature: str = Form(de
 
 # ── Ask this paper ───────────────────────────────────────────────────────────
 
-@router.post("/api/papers/{arxiv_id}/ask", response_class=HTMLResponse)
+@router.post("/api/papers/{arxiv_id:path}/ask", response_class=HTMLResponse)
 async def ask(arxiv_id: str, request: Request, q: str = Form(default=""), key: str = Form(default=""),
               user_id: str | None = Cookie(default=None, alias=COOKIE_NAME)):
     """One answer bubble for the chat log (app/ask_svc.py).

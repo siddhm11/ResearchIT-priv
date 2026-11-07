@@ -46,7 +46,7 @@ def _cluster_id(value: str) -> int | None:
 router = APIRouter(prefix="/api/papers")
 
 
-@router.post("/{paper_id}/save", response_class=HTMLResponse)
+@router.post("/{paper_id:path}/save", response_class=HTMLResponse)
 async def save_paper(
     paper_id: str,
     request: Request,
@@ -110,7 +110,7 @@ async def save_paper(
     return resp
 
 
-@router.post("/{paper_id}/not-interested", response_class=HTMLResponse)
+@router.post("/{paper_id:path}/not-interested", response_class=HTMLResponse)
 async def not_interested(
     paper_id: str,
     request: Request,
@@ -150,7 +150,7 @@ async def not_interested(
     return resp
 
 
-@router.post("/{paper_id}/unsave", response_class=HTMLResponse)
+@router.post("/{paper_id:path}/unsave", response_class=HTMLResponse)
 async def unsave(
     paper_id: str,
     request: Request,
