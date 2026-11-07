@@ -229,6 +229,26 @@ class TestGroqRewriter:
         from app.groq_svc import _looks_academic
         assert _looks_academic("Mastering the game of Go with deep Neural Networks and tree search")
 
+    def test_a_technical_phrase_is_searched_as_typed(self):
+        """Live log, 7 Nov 2026: 9 of 25 rewrites only dropped "for" or "with"
+        ("diffusion models for image super-resolution"), each costing a model
+        call and a second retrieval for no change in meaning."""
+        from app.groq_svc import _looks_academic
+        for q in ["diffusion models for image super-resolution",
+                  "contrastive learning for sentence embeddings",
+                  "protein structure prediction with contrastive pretraining",
+                  "retrieval augmented generation for scientific question answering"]:
+            assert _looks_academic(q), q
+
+    def test_questions_and_casual_phrasing_still_get_rewritten(self):
+        """Every useful rewrite in the same log came from one of these."""
+        from app.groq_svc import _looks_academic
+        for q in ["how do I make LLMs hallucinate less", "papers for doctors",
+                  "rag can you explain", "what is the alternative for attention mechanism ?",
+                  "economics papers with ai ?", "ISRO mangalya launch", "make AI more safe",
+                  "deepseek paper on ocr size reduction around 100x smaller"]:
+            assert not _looks_academic(q), q
+
     def test_rewrite_empty_query(self):
         """Empty query returns empty string."""
         import asyncio
