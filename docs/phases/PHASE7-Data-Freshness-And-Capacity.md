@@ -326,13 +326,13 @@ the sidecar, are still manual.
 | Stage | What it does | Fails the run when |
 |---|---|---|
 | Preflight | counts `arxiv_recent` points and Turso rows | a secret is missing, or the shard is at `--max-recent-points` (600,000) |
-| Ingest | `ingest_arxiv.py --source oai` over [today − `lookback_days`, today], arXiv's OAI-PMH feed (about 10 requests a day); licences to Turso `paper_licences` | an attempt passes `ingest_timeout_min`, or coverage stays short after one retry |
-| Citations | Semantic Scholar counts for the last three months; only changed rows written | the fetch errors |
+| Ingest | `ingest_arxiv.py --source oai` over [today − `lookback_days`, today], arXiv's OAI-PMH feed (about 10 requests a day); licences to Turso `paper_licences` | a set is still unfinished at `ingest_timeout_min`, but only after Citations and Verify have run; `complete_through` then stays put and the next run starts from it |
+| Citations | Semantic Scholar counts for the last three months; only changed rows written | the fetch errors (Verify still runs) |
 | Verify | new points == new Turso rows == papers the ingest reported; 5 sampled vectors are 1024-dim unit vectors with complete rows | any mismatch |
 | Licences | new papers with a licence row, how many are open, how many may show figures | never (reported only) |
 
 Manual runs take four inputs: `lookback_days` (default 3), `today` (run as if on a past day),
-`ingest_timeout_min` (default 60) and `skip_citations`.
+`ingest_timeout_min` (default 240) and `skip_citations`.
 
 **Measured 2026-10-20/21** (the 2026-09-29 → 10-20 catch-up):
 
@@ -349,11 +349,22 @@ Both stores grew by exactly 23,098 (`arxiv_recent` 256,680 → 279,778; Turso ma
 Rules learned:
 - A GitHub runner encodes about 2,400–2,900 papers an hour on CPU, and the 43 categories add
   about 770 (late September) to 1,140 (mid-October) new papers a day. A daily run takes
-  10–30 minutes; a gap of more than two days needs a longer `ingest_timeout_min`.
+  10–30 minutes.
 - Catch up one run at a time. The `daily-refresh` concurrency group keeps one run going and one
   pending, and a newer dispatch replaces the pending one. Size each window to about 2–3 hours:
   `today=<last day>`, `lookback_days=<days since the previous window>`, `ingest_timeout_min=240`,
   citations skipped on all but the last.
+- arXiv's OAI can stop answering for hours while the status page shows it up. On 5 and 6 Nov
+  2026 almost every request timed out or got `503: first byte timeout` for the whole of both runs
+  (from about 09:40 UTC to 12:54 and 13:30); both failed and 2,320 papers waited, all added by a manual run that evening (65 min, every set finished). That evening the same requests took about 6 s each from a laptop
+  and about 9 s from a GitHub runner, so GitHub's addresses were not blocked at that time. So the harvest moves to the next set after each failed try, keeps its
+  place in every list, backs off from 30 s to 5 minutes, and stops only at its time limit.
+- Catching up is automatic. Turso's `ingest_state` holds `oai_complete_through`, the last day
+  every set was listed to its end. A run starts from the day before it when that is further back
+  than the lookback, and only a run with no gap moves it. Check it with
+  `SELECT value FROM ingest_state`; the run summary shows it as `complete_through`.
+- The ingest's output now goes straight to the job log, with one line per failed try and how long
+  it took. Stack dumps stay out of the log unless the ingest has to be killed.
 - A run that hits its limit is not wasted: every finished page is saved, and the next run skips
   stored papers. Re-running a window is always safe.
 - `actions/cache` saves the 2.2 GB model only when a run succeeds.

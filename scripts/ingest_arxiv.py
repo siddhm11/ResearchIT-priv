@@ -45,6 +45,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 from collections import deque
 import os
@@ -52,6 +53,7 @@ import re
 import sys
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -154,6 +156,15 @@ def parse_entry(entry) -> dict | None:
 FETCH_ATTEMPTS = 6
 
 
+def oai_wait(error: Exception, failures: int) -> float:
+    """Seconds before the next try: the server's Retry-After when it sends one,
+    else an exponential back-off from 30 s, capped at 5 min."""
+    after = (getattr(error, "headers", None) or {}).get("Retry-After", "")
+    if str(after).strip().isdigit():
+        return min(300.0, float(after))
+    return min(300.0, 30.0 * 2 ** failures)
+
+
 def retry_wait(error: Exception, attempt: int) -> float:
     """Seconds to wait before retrying a failed arXiv request.
 
@@ -162,12 +173,8 @@ def retry_wait(error: Exception, attempt: int) -> float:
     10 and 15 s apart failed every time once arXiv had started throttling.
     Other errors (timeouts, resets) retry sooner.
     """
-    code = getattr(error, "code", None)
-    if code in SOFT_BLOCK:
-        after = (getattr(error, "headers", None) or {}).get("Retry-After", "")
-        if str(after).strip().isdigit():
-            return min(300.0, float(after))
-        return min(300.0, 30.0 * 2 ** attempt)
+    if getattr(error, "code", None) in SOFT_BLOCK:
+        return oai_wait(error, attempt)
     return 5.0 * (attempt + 1)
 
 
@@ -344,30 +351,39 @@ def parse_oai_record(rec) -> dict | None:
     }
 
 
+# What a failed OAI request can raise that is worth trying again: timeouts, resets
+# and HTTP errors (all OSError), a connection dropped mid-reply, a garbled page.
+OAI_TRANSIENT = (OSError, http.client.HTTPException, ET.ParseError)
+
+
+class ResumptionExpired(Exception):
+    """arXiv's tokens expire at the next UTC midnight; the list starts again."""
+
+
 def fetch_oai_page(set_spec: str, since: str, until: str, token: str | None):
-    """One ListRecords page: (papers, next_token, complete_list_size, records).
+    """One try at one ListRecords page: (papers, next_token, complete_list_size, records).
 
     `records` counts every record on the page (deleted ones too, as arXiv's
-    completeListSize does); it is None when the request failed."""
+    completeListSize does); it is None when the request can never succeed.
+    Anything worth trying again raises (OAI_TRANSIENT): harvest() decides when."""
     params = ({"verb": "ListRecords", "resumptionToken": token} if token else
               {"verb": "ListRecords", "metadataPrefix": "arXiv", "set": set_spec,
                "from": since, "until": until})
     url = f"{OAI_API}?" + urllib.parse.urlencode(params)
-    for attempt in range(FETCH_ATTEMPTS):
-        try:
-            with deadline(240, f"OAI {set_spec}"), _arxiv_get(url, 180) as r:
-                xml = r.read()
-            break
-        except Exception as e:
-            if _permanent(e) or attempt == FETCH_ATTEMPTS - 1:
-                print(f"    [oai {set_spec}] fetch failed: {str(e)[:90]}")
-                return [], None, None, None
-            time.sleep(retry_wait(e, attempt))
-    root = ET.fromstring(xml)
+    try:
+        with deadline(240, f"OAI {set_spec}"), _arxiv_get(url, 180) as r:
+            root = ET.fromstring(r.read())
+    except urllib.error.HTTPError as e:
+        if not _permanent(e):
+            raise
+        print(f"    [oai {set_spec}] fetch failed: {str(e)[:90]}")
+        return [], None, None, None
     err = root.find("oai:error", OAI_NS)
     if err is not None:
         if err.get("code") == "noRecordsMatch":
             return [], None, 0, 0
+        if err.get("code") == "badResumptionToken":
+            raise ResumptionExpired((err.text or "")[:90])
         print(f"    [oai {set_spec}] error {err.get('code')}: {(err.text or '')[:90]}")
         return [], None, None, None
     papers = [p for p in (parse_oai_record(r) for r in root.iter(f"{{{OAI_NS['oai']}}}record")) if p]
@@ -379,7 +395,7 @@ def fetch_oai_page(set_spec: str, since: str, until: str, token: str | None):
 
 
 def harvest(cats, since: str, until: str, min_month: str, state: dict, handle_page, save_state,
-            *, fetch=None, delay: float = ARXIV_DELAY, log=print) -> tuple[int, int]:
+            *, fetch=None, delay: float = ARXIV_DELAY, log=print, stop_at: float | None = None) -> tuple[int, int]:
     """Harvest every archive set holding `cats`; returns (examined, new).
 
     Keeps records with at least one of `cats` and a new-style id from
@@ -387,35 +403,76 @@ def harvest(cats, since: str, until: str, min_month: str, state: dict, handle_pa
     revised papers (1810.04449 showed 2026-09-10), so the id decides "new".
     A set is complete only when its last page carries no resumption token;
     `state["oai:<set>"]` records that for the coverage report.
+
+    arXiv can stop answering most requests for hours while still serving some:
+    on 6 Nov 2026 cs failed six tries in about 18 minutes, econ then answered within
+    a minute, and eess failed six more. So a failed try moves on to the next unfinished set
+    and every set keeps its place in its list. Tries back off while nothing answers,
+    and only `stop_at` (time.monotonic) ends the attempt; a try already running may
+    finish after it.
     """
     fetch = fetch or fetch_oai_page
     wanted = set(cats)
-    seen = new = 0
-    for set_spec in sorted({oai_set(c) for c in cats}):
-        state[f"oai:{set_spec}"] = "started"
-        token, records, expected = None, 0, None
-        while True:
-            papers, token, size, got = fetch(set_spec, since, until, token)
+    seen = new = failures = 0
+    pending = deque({"set": s, "token": None, "records": 0, "expected": None}
+                    for s in sorted({oai_set(c) for c in cats}))
+    for job in pending:
+        state[f"oai:{job['set']}"] = "started"
+    while pending:
+        if stop_at is not None and time.monotonic() >= stop_at:
+            for job in pending:
+                state[f"oai:{job['set']}"] = f"unfinished {job['records']}/{job['expected'] or '?'}"
+            log(f"  oai time limit reached with {len(pending)} sets unfinished")
+            save_state()
+            break
+        job = pending[0]
+        set_spec = job["set"]
+        started = time.monotonic()
+        try:
+            papers, token, size, got = fetch(set_spec, since, until, job["token"])
+        except ResumptionExpired:
+            log(f"  oai {set_spec:<8} token expired; starting this set again")
+            job.update(token=None, records=0, expected=None)
             if delay:
                 time.sleep(delay)
-            if got is None:
-                state[f"oai:{set_spec}"] = "failed"
-                break
-            records += got
-            expected = size if size is not None else expected
-            keep = [p for p in papers
-                    if wanted & set(p["categories"].split())
-                    and re.match(r"\d{4}\.\d{4,5}$", p["arxiv_id"]) and p["arxiv_id"][:4] >= min_month]
-            seen += len(keep)
-            if keep:
-                new += handle_page(keep)
-            log(f"  oai {set_spec:<8} records={records:,}{'/' + format(expected, ',') if expected else ''} "
-                f"kept={seen:,} new={new:,}")
-            if not token:
-                ok = expected is None or records == expected
-                state[f"oai:{set_spec}"] = "done" if ok else f"short {records}/{expected}"
-                break
-        save_state()
+            continue
+        except OAI_TRANSIENT as e:
+            now = time.monotonic()
+            wait = oai_wait(e, failures)
+            if stop_at is not None:
+                wait = max(0.0, min(wait, stop_at - now))
+            failures += 1
+            state["oai_failed_tries"] = state.get("oai_failed_tries", 0) + 1
+            log(f"  oai {set_spec:<8} failed after {now - started:.0f} s: {str(e)[:90]}; "
+                f"next try in {wait:.0f} s")
+            pending.rotate(-1)
+            time.sleep(wait)
+            continue
+        failures = 0
+        if delay:
+            time.sleep(delay)
+        if got is None:
+            state[f"oai:{set_spec}"] = "failed"
+            pending.popleft()
+            save_state()
+            continue
+        job["token"] = token
+        job["records"] += got
+        job["expected"] = size if size is not None else job["expected"]
+        records, expected = job["records"], job["expected"]
+        keep = [p for p in papers
+                if wanted & set(p["categories"].split())
+                and re.match(r"\d{4}\.\d{4,5}$", p["arxiv_id"]) and p["arxiv_id"][:4] >= min_month]
+        seen += len(keep)
+        if keep:
+            new += handle_page(keep)
+        log(f"  oai {set_spec:<8} records={records:,}{'/' + format(expected, ',') if expected else ''} "
+            f"kept={seen:,} new={new:,}")
+        if not token:
+            ok = expected is None or records == expected
+            state[f"oai:{set_spec}"] = "done" if ok else f"short {records}/{expected}"
+            pending.popleft()
+            save_state()
     return seen, new
 
 
@@ -423,7 +480,7 @@ def report_oai_coverage(cats, state: dict) -> int:
     sets = sorted({oai_set(c) for c in cats})
     bad = [f"{s}={state.get(f'oai:{s}')}" for s in sets if state.get(f"oai:{s}") != "done"]
     if bad:
-        print(f"coverage: {len(bad)} OAI sets incomplete -> re-run: " + ", ".join(bad))
+        print(f"coverage: {len(bad)} OAI sets incomplete -> re-run: " + ", ".join(bad), flush=True)
         return 3
     print(f"coverage: all {len(sets)} OAI sets harvested to the end")
     return 0
@@ -492,12 +549,17 @@ def main() -> int:
     ap.add_argument("--state", default="data/ingest_state.json")
     ap.add_argument("--source", choices=("search", "oai"), default="search",
                     help="search: per-category query API (backfills); oai: OAI-PMH (daily)")
+    ap.add_argument("--time-limit-min", type=float, default=240,
+                    help="oai: stop trying after this long; finished pages stay stored, exit 3")
     args = ap.parse_args()
+    stop_at = time.monotonic() + args.time_limit_min * 60
 
     # If a run stalls, its log names the line: dump every thread's stack every
-    # INGEST_STACK_DUMP_S seconds (default 10 min) for as long as it runs.
+    # INGEST_STACK_DUMP_S seconds (default 10 min) for as long as it runs. The daily
+    # job keeps them in INGEST_STACK_FILE, since they read like a crash in a healthy log.
     import faulthandler
-    faulthandler.dump_traceback_later(int(os.getenv("INGEST_STACK_DUMP_S", "600")), repeat=True)
+    stacks = open(os.environ["INGEST_STACK_FILE"], "w") if os.getenv("INGEST_STACK_FILE") else sys.stderr
+    faulthandler.dump_traceback_later(int(os.getenv("INGEST_STACK_DUMP_S", "600")), repeat=True, file=stacks)
 
     cats = ([c.strip() for c in args.categories.split(",") if c.strip()]
             or DEFAULT_CATEGORIES)
@@ -566,7 +628,9 @@ def main() -> int:
         oai_until = (date.fromisoformat(args.until) - timedelta(days=1)).isoformat()
         first = date.fromisoformat(args.since).replace(day=1) - timedelta(days=1)
         seen_total, new_total = harvest(cats, args.since, oai_until, first.strftime("%y%m"), state,
-                                        handle_page, save_state, log=stamp)
+                                        handle_page, save_state, log=stamp, stop_at=stop_at)
+        state["result"] = {"examined": seen_total, "new": new_total}
+        save_state()
     else:
         seen_total, new_total = walk(cats, args.since, args.until, state, handle_page, save_state,
                                      limit=args.limit, log=stamp)

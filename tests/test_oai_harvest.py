@@ -144,3 +144,236 @@ def test_progress_lines_carry_their_utc_time(capsys):
     import re
     ia.stamp("  oai cs       records=1,300")
     assert re.fullmatch(r"\d\d:\d\d:\d\d   oai cs       records=1,300\n", capsys.readouterr().out)
+
+
+# ── arXiv not answering (5 and 6 Nov 2026: most requests timed out for hours) ──
+
+class _Clock:
+    """time.monotonic and time.sleep for a harvest: sleeping moves the clock, and
+    a fetch that fails costs its own time, as a 180 s timeout does."""
+
+    def __init__(self, monkeypatch):
+        self.now, self.sleeps = 0.0, []
+        monkeypatch.setattr(ia.time, "monotonic", lambda: self.now)
+        monkeypatch.setattr(ia.time, "sleep", self._sleep)
+
+    def _sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _run(cats, fetch, state, stop_at=None):
+    logs = []
+    out = ia.harvest(cats, "2026-11-03", "2026-11-06", "2610", state,
+                     lambda ps: len(ps), lambda: None, fetch=fetch, delay=0, log=logs.append,
+                     stop_at=stop_at)
+    return out, logs
+
+
+def test_a_set_that_gets_no_answer_does_not_hold_up_the_others(monkeypatch):
+    """6 Nov: cs spent about 18 minutes failing six tries before econ, which answered, got a turn."""
+    clock = _Clock(monkeypatch)
+    calls = []
+
+    def fetch(s, since, until, tok):
+        calls.append(s)
+        if s == "cs" and calls.count("cs") < 3:
+            clock.now += 180
+            raise TimeoutError("The read operation timed out")
+        return [_paper("2611.00001", "cs.CL" if s == "cs" else "econ.TH")], None, 1, 1
+
+    state = {}
+    (seen, new), _ = _run(["cs.CL", "econ.TH"], fetch, state, stop_at=10_000)
+    assert calls == ["cs", "econ", "cs", "cs"]           # econ went straight after the first failure
+    assert state == {"oai:cs": "done", "oai:econ": "done", "oai_failed_tries": 2}
+    assert seen == new == 2
+
+
+def test_a_list_carries_on_from_its_page_after_a_failure(monkeypatch):
+    clock = _Clock(monkeypatch)
+    requested = []
+    answers = {None: ([_paper("2611.00001", "cs.CL")], "tok1", 2, 1),
+               "tok1": ([_paper("2611.00002", "cs.CL")], None, 2, 1)}
+    failed = []
+
+    def fetch(s, since, until, tok):
+        requested.append(tok)
+        if tok == "tok1" and not failed:
+            failed.append(1)
+            raise ConnectionResetError("reset")
+        return answers[tok]
+
+    state = {}
+    _run(["cs.CL"], fetch, state, stop_at=10_000)
+    assert requested == [None, "tok1", "tok1"]           # page 1 is not fetched again
+    assert state["oai:cs"] == "done"
+
+
+def test_waits_grow_while_nothing_answers_and_reset_when_something_does(monkeypatch):
+    clock = _Clock(monkeypatch)
+    results = iter([TimeoutError("t"), TimeoutError("t"), TimeoutError("t"),
+                    ([], None, 0, 0), TimeoutError("t")])
+
+    def fetch(s, since, until, tok):
+        r = next(results, ([], None, 0, 0))
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    _run(["cs.CL", "econ.TH"], fetch, {}, stop_at=100_000)
+    assert clock.sleeps == [30, 60, 120, 30]             # not 5, 10, 15 s: that hammers a struggling server
+
+
+def test_a_retry_after_is_honoured_but_capped():
+    def http(code, after=None):
+        return ia.urllib.error.HTTPError("u", code, "x", {"Retry-After": after} if after else {}, None)
+
+    assert ia.oai_wait(http(503, "45"), 3) == 45
+    assert ia.oai_wait(http(503, "9000"), 0) == 300
+    assert ia.oai_wait(http(503), 1) == 60
+    assert ia.oai_wait(TimeoutError("t"), 0) == 30
+    assert ia.oai_wait(TimeoutError("t"), 20) == 300
+
+
+def test_the_time_limit_stops_cleanly_and_reports_what_is_unfinished(monkeypatch):
+    clock = _Clock(monkeypatch)
+
+    def fetch(s, since, until, tok):
+        if s == "econ":
+            return [_paper("2611.00001", "econ.TH")], None, 1, 1
+        if tok is None:
+            return [_paper("2611.00002", "cs.CL")], "tok1", 9, 4
+        clock.now += 180
+        raise TimeoutError("The read operation timed out")
+
+    state, saves = {}, []
+    logs = []
+    seen, new = ia.harvest(["cs.CL", "econ.TH"], "2026-11-03", "2026-11-06", "2610", state,
+                           lambda ps: len(ps), lambda: saves.append(dict(state)),
+                           fetch=fetch, delay=0, log=logs.append, stop_at=1_000)
+    assert clock.now <= 1_000 + 180                      # a try in flight may finish; none starts after
+    assert state["oai:cs"] == "unfinished 4/9" and state["oai:econ"] == "done"
+    assert seen == new == 2                              # what was stored still counts
+    assert saves[-1]["oai:cs"] == "unfinished 4/9"       # saved, so the job can report it
+    assert ia.report_oai_coverage(["cs.CL", "econ.TH"], state) == 3
+
+
+def test_a_wait_never_runs_past_the_time_limit(monkeypatch):
+    clock = _Clock(monkeypatch)
+
+    def fetch(s, since, until, tok):
+        raise TimeoutError("t")
+
+    _run(["cs.CL"], fetch, {}, stop_at=40)
+    assert clock.now == 40 and clock.sleeps == [30, 10]
+
+
+def test_every_failed_try_is_logged_with_how_long_it_took(monkeypatch):
+    """The old log kept only each set's last error, which is why nobody could tell
+    afterwards how long arXiv took to fail."""
+    clock = _Clock(monkeypatch)
+
+    def fetch(s, since, until, tok):
+        clock.now += 180
+        raise TimeoutError("The read operation timed out")
+
+    _, logs = _run(["cs.CL"], fetch, {}, stop_at=200)
+    assert any("cs" in m and "180 s" in m and "timed out" in m for m in logs)
+
+
+def test_a_permanent_failure_ends_that_set_without_waiting(monkeypatch):
+    clock = _Clock(monkeypatch)
+    state = {}
+    _run(["cs.CL", "econ.TH"],
+         lambda s, a, b, t: ([], None, None, None) if s == "cs" else ([], None, 0, 0), state, stop_at=1_000)
+    assert state == {"oai:cs": "failed", "oai:econ": "done"} and clock.sleeps == []
+
+
+def test_an_expired_token_restarts_that_set(monkeypatch):
+    """arXiv's tokens expire at the next UTC midnight, so a long wait can outlive one."""
+    _Clock(monkeypatch)
+    requested = []
+
+    def fetch(s, since, until, tok):
+        requested.append(tok)
+        if tok is None:
+            return [_paper("2611.00001", "cs.CL")], ("old" if requested.count(None) == 1 else None), 1, 1
+        raise ia.ResumptionExpired("badResumptionToken")
+
+    state = {}
+    _run(["cs.CL"], fetch, state, stop_at=1_000)
+    assert requested == [None, "old", None] and state["oai:cs"] == "done"
+
+
+def _urlopen_returning(body: bytes):
+    return lambda req, timeout: io.BytesIO(body)
+
+
+def test_fetch_treats_a_garbled_reply_as_a_failed_try(monkeypatch):
+    """Parsing sat outside the retry block, so an HTML error page crashed the whole ingest."""
+    import pytest
+    monkeypatch.setattr(ia.urllib.request, "urlopen", _urlopen_returning(b"<html>Service Unavailable"))
+    with pytest.raises(ET.ParseError):
+        ia.fetch_oai_page("cs", "2026-11-03", "2026-11-06", None)
+
+
+def test_fetch_raises_what_is_worth_trying_again(monkeypatch):
+    import urllib.error
+    import pytest
+
+    def busy(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 503, "first byte timeout", {}, None)
+
+    monkeypatch.setattr(ia.urllib.request, "urlopen", busy)
+    with pytest.raises(urllib.error.HTTPError):
+        ia.fetch_oai_page("cs", "2026-11-03", "2026-11-06", None)
+
+
+def test_fetch_reports_an_expired_token(monkeypatch):
+    import pytest
+    body = (b'<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">'
+            b'<error code="badResumptionToken">expired</error></OAI-PMH>')
+    monkeypatch.setattr(ia.urllib.request, "urlopen", _urlopen_returning(body))
+    with pytest.raises(ia.ResumptionExpired):
+        ia.fetch_oai_page("cs", "2026-11-03", "2026-11-06", "old")
+
+
+def test_a_real_outage_end_to_end_through_the_real_fetch(monkeypatch):
+    """Real sockets, real HTTP errors, real parsing: 503s, a garbled page and a dropped
+    connection, then arXiv recovers and every set finishes."""
+    import http.server
+    import threading
+
+    answers = iter(["503", "html", "drop", "ok", "ok"])
+
+    class Fake(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            kind = next(answers, "ok")
+            if kind == "drop":
+                self.close_connection = True
+                return
+            if kind == "503":
+                self.send_response(503, "first byte timeout")
+                self.send_header("Retry-After", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"<html>Service Unavailable" if kind == "html" else PAGE.encode())
+
+        def log_message(self, *a):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        monkeypatch.setattr(ia, "OAI_API", f"http://127.0.0.1:{server.server_port}/oai")
+        monkeypatch.setattr(ia, "oai_wait", lambda e, n: 0)
+        state, stored = {}, []
+        ia.harvest(["cs.LG", "stat.ML"], "2026-09-28", "2026-09-30", "2608", state,
+                   lambda ps: stored.extend(ps) or len(ps), lambda: None, delay=0, log=lambda m: None,
+                   stop_at=ia.time.monotonic() + 30)
+    finally:
+        server.shutdown()
+    assert state == {"oai:cs": "done", "oai:stat": "done", "oai_failed_tries": 3}
+    assert [p["arxiv_id"] for p in stored] == ["2609.02991", "2609.02991"]
