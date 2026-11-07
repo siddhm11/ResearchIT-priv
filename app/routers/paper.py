@@ -560,6 +560,13 @@ async def ask(arxiv_id: str, request: Request, q: str = Form(default=""), key: s
         context["answer"] = {"kind": "invalid",
                              "answer": f"Questions can be up to {ask_svc.MAX_QUESTION} characters."}
         return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context, status_code=400)
+    # Asking about a paper is a taste signal (weight 0.6, db.TASTE_WEIGHTS). One
+    # row per question, written before the answer so a failed answer still counts.
+    try:
+        await db.log_interaction(user_id=user_id, paper_id=arxiv_id,
+                                 event_type="ask", source="paper_page")
+    except Exception as e:   # a lost signal must never cost the answer
+        print(f"[paper] ask log failed for {arxiv_id}: {e}")
     context["answer"] = await ask_svc.answer(arxiv_id, paper, question, user_id=user_id, suggested=suggested)
     context["paper_source"] = await paper_source_svc.get(arxiv_id)
     return templates.TemplateResponse(request, "partials/paper/ask_answer.html", context)
