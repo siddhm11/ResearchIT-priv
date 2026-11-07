@@ -216,6 +216,26 @@
     }
   }
 
+  /* ── Dates in the reader's time zone ─────────────────────────────────
+     The server writes its own date (UTC), which is yesterday for a reader in
+     India until 05:30 (audit F12). Rewrite each <time class="local-date">
+     from its datetime, in the browser's zone, as "Sunday 8 November 2026". */
+
+  function localDates(root) {
+    var els = (root || document).querySelectorAll('time.local-date[datetime]');
+    if (!els.length || !window.Intl) return;
+    var fmt = new Intl.DateTimeFormat('en-GB', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    els.forEach(function (el) {
+      var d = new Date(el.getAttribute('datetime'));
+      if (isNaN(d)) return;
+      var p = {};
+      fmt.formatToParts(d).forEach(function (x) { p[x.type] = x.value; });
+      el.textContent = p.weekday + ' ' + p.day + ' ' + p.month + ' ' + p.year;
+    });
+  }
+  localDates();
+
   /* Each appended page brings its own loader, so re-arm after every swap. */
   document.body.addEventListener('htmx:afterSwap', watchLoader);
   document.addEventListener('DOMContentLoaded', watchLoader);

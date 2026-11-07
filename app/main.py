@@ -11,7 +11,7 @@ Routes:
 """
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, Cookie
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
@@ -305,6 +305,7 @@ async def home(
     #
     # Both facts the masthead needs are cheap and available here: the date is
     # local, and count_feed_issues() is one indexed SQLite count.
+    issue_now = datetime.now(timezone.utc)
     resp = templates.TemplateResponse(
         request,
         "index.html",
@@ -313,7 +314,11 @@ async def home(
             # The library, not the 20-item retrieval deque (audit F12).
             "save_count": sum(1 for r in await db.get_current_feedback(user_id)
                               if r["event_type"] == "save"),
-            "issue_date": datetime.now().strftime("%A %-d %B %Y"),
+            # The server's date is UTC, a day behind a reader in India until
+            # 05:30 (audit F12). app.js rewrites each <time class="local-date">
+            # in the reader's own time zone; this text is the no-script fallback.
+            "issue_date": issue_now.strftime("%A %-d %B %Y"),
+            "issue_iso": issue_now.isoformat(timespec="seconds"),
             "issue_number": await db.count_feed_issues(user_id),
         },
     )

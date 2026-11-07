@@ -1338,3 +1338,36 @@ feed (tests/test_taste_signals.py reproduces it).
 `per_save_clusters` take weights, `ask` events, suppression removed. Watch the
 number of interests per reader and per-interest click/save rates; the 0.6/0.3
 weights are a starting point, not measured.
+
+### 2026-11-08 — The search rewriter measured on and off (audit F22)
+**Decision:** Keep the LLM rewriter as it is. Add no word cap below the
+existing 12-word reply guard. A rewrite that only changes case, spacing or
+hyphen characters now counts as no rewrite, so it no longer pays a second
+encode and two more retrievals.
+**Supersedes:** The audit's (4 Nov) proposals to cap rewrites at 8 words and
+to gate on "looks conversational". Both are measured here and change nothing.
+**Rationale:** 200 queries with known answers. 50 each from LitSearch inline,
+LitSearch manual, synthetic keyword and synthetic question, all sent to the
+rewriter by today's gate. Each ran through the real `hybrid_search_svc.search`,
+with rewrite off, on, and on with `SEARCH_REWRITE_KEYWORDS=on`; the named-paper
+pin was off.
+* **Rewrite on vs off:** MRR@10 0.289 vs 0.286, hit@10 52% vs 50%. 14 queries
+  better, 18 worse, 128 the same (sign test p = 0.60). No effect on precise
+  research questions or keyword queries.
+* **Rewrite length:** only 3 of 160 rewrites ran past 8 words, all faithful
+  ("Sgr B 6.4 keV Fe I line cosmic ray electrons"). An 8-word cap scores the
+  same as no cap, and none of the 23 live rewrites in search_log runs past 6
+  words.
+* **Echoes:** 7 of 160 "rewrites" were the query with ASCII hyphens or
+  different case.
+* **`SEARCH_REWRITE_KEYWORDS`:** MRR@10 0.301 but hit@10 45%. The known paper
+  left the top 10 in 15 queries and entered it in 1. LitSearch manual fell from
+  40% to 26%, synthetic questions from 72% to 62%. The 2026-10-23 entry
+  measured it on 12 casual logged questions. On researcher-style questions it
+  costs recall.
+* The rewriter's measured gain is on casual, vague queries (2026-10-30: nDCG@10
+  0.729 → 0.799 over 10 logged rewrites). This set has few of those, so the
+  result supports keeping it, not dropping it.
+**Action items:** Done: `groq_svc._settle`. For the owner: check whether
+`SEARCH_REWRITE_KEYWORDS` is on in the Space variables, and decide whether to
+turn it off given the recall loss above.

@@ -206,6 +206,19 @@ async def test_a_rewrite_that_answers_the_reader_is_discarded(monkeypatch):
     assert await groq_svc.rewrite("HI HOW ARE YOU >") == "HI HOW ARE YOU >"
 
 
+async def test_a_rewrite_that_only_changes_case_is_the_query(monkeypatch):
+    # Production, 2026-11-07: "turso switch check world models" came back
+    # capitalised and paid a second encode and two retrievals for the same words.
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only("Turso switch  check world models"))
+    assert await groq_svc.rewrite("turso switch check world models") == \
+        "turso switch check world models"
+
+    # The model also echoes a question with ASCII hyphens for typographic ones.
+    monkeypatch.setattr(groq_svc, "_get_client", lambda: _only("high-Q SiN membranes at room temperature"))
+    assert await groq_svc.rewrite("high\u2011Q SiN membranes at room temperature") == \
+        "high\u2011Q SiN membranes at room temperature"
+
+
 @pytest.mark.parametrize("query,rewritten,reply", [
     ("when AI makes up fake facts", "LLM hallucination factual errors", False),
     ("papers like attention is all you need", "attention is all you need", False),
