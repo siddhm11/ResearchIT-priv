@@ -6,7 +6,7 @@ GET /search?q=<query>
   – Returns partial <div id="search-results"> on HTMX request (hx-target swap)
 
 Phase 3 replaces the arXiv keyword API with:
-  LLM rewrite → BGE-M3 encode → Qdrant dense + Zilliz sparse → RRF → rerank
+  LLM rewrite → BGE-M3 encode → Qdrant dense + FTS5 keyword → RRF → rerank
 
 Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
   with arXiv API as fallback for papers not in Turso.
@@ -16,7 +16,7 @@ import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, search_cache, turso_svc, user_state as us, hybrid_search_svc
-from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
 router = APIRouter()
@@ -64,7 +64,7 @@ async def search(
         search_meta["cached"] = True
         search_meta["total_time_ms"] = int((time.perf_counter() - start_time) * 1000)
     elif q.strip():
-        # Phase 3: Hybrid semantic search (BGE-M3 + Qdrant + Zilliz + RRF)
+        # Hybrid semantic search (BGE-M3 + Qdrant dense + FTS5 keyword + RRF)
         try:
             arxiv_ids, search_meta = await hybrid_search_svc.search(
                 q.strip(), limit=ARXIV_MAX_RESULTS, return_meta=True
@@ -178,7 +178,7 @@ async def search(
             },
         )
 
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -220,7 +220,7 @@ async def search_summary(
     #
     # The overview is strictly additive, so every failure mode degrades to
     # "no overview" -- the same contract every other optional service in this
-    # app follows (BGE-M3, the cross-encoder, Zilliz, the sidecar).
+    # app follows (BGE-M3, the cross-encoder, the sidecar).
     # The same query over the same top papers reuses the overview shown before
     # (app/analytics.py), instead of asking the model again.
     from app import ai_usage

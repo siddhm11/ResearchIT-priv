@@ -13,7 +13,7 @@ import pytest
 import numpy as np
 
 from app.recommend.reranker import compute_features, heuristic_score, rerank_candidates
-from app.recommend.diversity import mmr_rerank, inject_exploration
+from app.recommend.diversity import mmr_rerank
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -236,37 +236,3 @@ def test_mmr_matches_reference_implementation():
         scores = rng.rand(n).tolist()
         assert mmr_rerank(E[0], E, ids, scores, 0.6, k) == \
             reference(E[0], E, ids, scores, 0.6, k), f"diverged at n={n}, k={k}"
-
-
-# ── Exploration injection tests ───────────────────────────────────────────────
-
-def test_exploration_adds_papers():
-    """Exploration should add papers not in the selected list."""
-    selected = ["a", "b", "c"]
-    all_candidates = ["a", "b", "c", "d", "e", "f"]
-
-    result = inject_exploration(selected, all_candidates, n_explore=2, seed=42)
-    assert len(result) == 5  # 3 selected + 2 exploration
-    # First 3 should be the original selection
-    assert result[:3] == selected
-    # Last 2 should be from the unselected pool
-    for paper in result[3:]:
-        assert paper not in selected
-
-
-def test_exploration_no_duplicates():
-    """Exploration papers should not duplicate selected papers."""
-    selected = ["a", "b"]
-    all_candidates = ["a", "b", "c", "d"]
-
-    result = inject_exploration(selected, all_candidates, n_explore=2, seed=42)
-    assert len(result) == len(set(result)), "Duplicates found"
-
-
-def test_exploration_handles_empty_pool():
-    """If all candidates are already selected, no exploration added."""
-    selected = ["a", "b", "c"]
-    all_candidates = ["a", "b", "c"]
-
-    result = inject_exploration(selected, all_candidates, n_explore=2)
-    assert len(result) == 3

@@ -4,7 +4,7 @@ Hybrid search orchestrator — Phase 3.
 Orchestrates the full pipeline:
   1. LLM rewrite (optional, via Groq)
   2. BGE-M3 encode → dense + sparse
-  3. Parallel search: Qdrant dense + Zilliz sparse
+  3. Parallel search: Qdrant dense + FTS5 keyword (BM25 over the sidecar)
   4. RRF fusion (K=60)
   5. Title-match boost (exact/substring against Turso titles)
   6. Return ranked arxiv_ids
@@ -28,7 +28,6 @@ from app import runtime_stats
 from app import config
 from app import embed_svc
 from app import qdrant_svc
-from app import zilliz_svc
 from app import fts_svc
 from app import groq_svc
 from app import turso_svc
@@ -142,7 +141,7 @@ async def search(
     # concurrent request and would also stop the rewrite task above from making
     # progress. It belongs in an executor, as the cross-encoder stage already is.
     use_fts = config.SPARSE_BACKEND == "fts" and fts_svc.is_available()
-    search_meta["sparse_backend"] = "fts5" if use_fts else "zilliz"
+    search_meta["sparse_backend"] = "fts5" if use_fts else "none"
     # How many candidates to fetch before reranking
     fetch_k = limit * config.SEARCH_FETCH_K_MULTIPLIER
 
@@ -164,13 +163,10 @@ async def search(
             task_labels.append(f"fts_q{i}")
 
     def start_vector(i: int, pair: tuple) -> None:
-        dense_vec, sparse_dict = pair
+        dense_vec, _sparse = pair
         tasks.append(asyncio.create_task(
             qdrant_svc.search_dense_merged(dense_vec.tolist(), limit=fetch_k)))
         task_labels.append(f"qdrant_q{i}")
-        if not use_fts:
-            tasks.append(asyncio.create_task(zilliz_svc.search_sparse(sparse_dict, limit=fetch_k)))
-            task_labels.append(f"zilliz_q{i}")
 
     # BM25 needs only the text, so it runs alongside the encode.
     start_lexical(0, query)
@@ -281,7 +277,6 @@ async def search(
         return ([], search_meta) if return_meta else []
 
     # ── Step 4.5: BGE Cross-Encoder Reranking ──────────────────────────
-    t0_bge = time.perf_counter()
     bge_time_ms = 0
     trend_mode = features.mode(TRENDING_SWITCH)
     trend: dict = {}
@@ -426,20 +421,6 @@ def rerank_depth() -> int:
 
 
 # ── RRF fusion ───────────────────────────────────────────────────────────────
-
-def _rrf_fuse(
-    dense_results: list[dict],
-    sparse_results: list[dict],
-    k: int = 60,
-) -> list[dict]:
-    """
-    Reciprocal Rank Fusion of two result lists (dense + sparse).
-
-    Kept for callers that pass exactly two lists; new code (and the
-    hybrid pipeline itself) should call _rrf_fuse_multi instead.
-    """
-    return _rrf_fuse_multi([dense_results, sparse_results], k=k)
-
 
 def _rrf_fuse_multi(
     result_lists: list[list[dict]],

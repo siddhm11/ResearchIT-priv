@@ -20,7 +20,7 @@ HEAVY_CALLS = {("arxiv_html", "parse"), ("Image", "open")}
 SAFE_ALLOWED = {"partials/ai_summary.html"}
 
 # Modules that predate the strong-reference rule and keep their own task sets.
-CREATE_TASK_ALLOWED = {"hybrid_search_svc.py", "discovery_runtime.py", "turso_sync.py", "events.py"}
+CREATE_TASK_ALLOWED = {"hybrid_search_svc.py", "turso_sync.py", "events.py"}
 # figure_prewarm.py stores its one task in a module global, which is a strong reference.
 
 

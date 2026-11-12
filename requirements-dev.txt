@@ -12,5 +12,8 @@
 # reachable, so the unit suite still runs in an environment without either.
 -r requirements.txt
 
+pytest>=8.0
+pytest-asyncio>=1.4.0
+anyio[asyncio]
 playwright>=1.63.0
 pytest-playwright>=0.9.0

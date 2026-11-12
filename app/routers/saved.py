@@ -10,7 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
 from app import arxiv_svc, db, turso_svc
-from app.config import COOKIE_NAME
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 
 router = APIRouter()
@@ -45,7 +45,7 @@ async def reading_history(
         "dismissed": row["paper_id"] in dismissed_ids,
     } for row in rows]
     resp = templates.TemplateResponse(request, "history.html", {"papers": papers, "view": view})
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -87,5 +87,5 @@ async def saved_papers(
             "count": len(papers),
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp

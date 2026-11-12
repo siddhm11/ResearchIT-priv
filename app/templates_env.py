@@ -307,11 +307,24 @@ def _static_version() -> str:
 
 templates.env.globals["static_version"] = _static_version()
 
+
+def corpus_label() -> str:
+    """"1.9M" from the sidecar's own count, rather than a number typed into
+    three templates that went stale as the corpus grew (audit F14)."""
+    from app import local_meta
+    n = local_meta.paper_count()
+    return f"{n / 1e6:.1f}M" if n >= 1_000_000 else (f"{n:,}" if n else "millions of")
+
+
+templates.env.globals["corpus_label"] = corpus_label
+
 # Redesign switches (app/features.py). Templates ask `feature_visible("ASK",
 # request)` rather than reading the environment themselves.
 from app import features  # noqa: E402
 
 templates.env.globals["feature_visible"] = features.visible
+# Developer-only details (search stage timings) for a browser holding the preview token.
+templates.env.globals["is_owner"] = features.has_preview
 
 
 def one_in(share: float) -> str:

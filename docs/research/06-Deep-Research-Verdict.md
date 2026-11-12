@@ -1435,3 +1435,27 @@ migration, `analytics.feed_report`, `/admin/feed`. Not replicated, on purpose:
 `cluster_snapshots` (4 KB per interest per build; rebuilt from history),
 `ui_events`, `ask_log` (local, pruned at 30 days). Revisit volume if exposures
 pass ~100k rows a month.
+
+### 2026-11-13 — Zilliz removed; audit clean-up (F26, X1–X7, F14)
+**Decision:** The Zilliz sparse arm is removed: `zilliz_svc`, its `/healthz/deep`
+ping, the ingest writer (already off by default), `pymilvus`, and the `ZILLIZ_*`
+settings. Search fuses Qdrant dense and FTS5 keyword lists; without an FTS index
+it is dense-only. Also removed: the RRF-over-interests helper
+(`multi_interest_search`, forbidden by §3.1, used only by the benchmark, which
+now runs the real per-interest quota path), the point-ID mapping
+(`lookup_qdrant_ids`, `paper_qdrant_map`, unsafe under sharding), the HF
+discovery shadow pipeline (never served, superseded by the trending shelf),
+dead helpers and settings, and two stale diagnostic scripts built on Zilliz.
+Test packages move to `requirements-dev.txt`. Cookie lifetime uses
+`COOKIE_MAX_AGE` everywhere.
+**Supersedes:** CLAUDE.md §3.1 "Zilliz is the fallback when FTS is unavailable"
+and its Zilliz schema rule; the 2026-08-12 decision to keep a sparse fallback.
+**Rationale:** The image always ships the sidecar with FTS, so production never
+used Zilliz, and it indexed only the pre-2025-06 snapshot. Its token is in git
+history; removing the service is what retires it. Each removed helper had no
+production caller (checked with grep across app, tests, scripts, templates).
+**Action items:** Done in code. For the owner: revoke the Zilliz token in the
+Zilliz console (or delete the cluster), then delete the `ZILLIZ_*` secrets from
+the Space. Kept on purpose: the uint8 path (X8, verified a no-op on all three
+float16 shards but tied to `/healthz/ab` and two eval scripts) and the MiniLM /
+LightGBM rollbacks (X9, documented options in §3.4).

@@ -4,7 +4,6 @@ SQLite database layer.
 Tables
 ──────
 interactions        – every user action (save, not_interested, click, view)
-paper_qdrant_map    – arxiv_id → integer Qdrant point ID (cached lazily)
 paper_metadata      – arXiv API response cache (title, abstract, …)
 
 Phase 4.5 instrumentation columns (interactions table):
@@ -42,13 +41,6 @@ CREATE INDEX IF NOT EXISTS idx_ui_user_ts
     ON interactions(user_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_ui_user_paper
     ON interactions(user_id, paper_id);
-
--- Maps arxiv_id -> Qdrant integer point ID (populated lazily on first save)
-CREATE TABLE IF NOT EXISTS paper_qdrant_map (
-    arxiv_id        TEXT PRIMARY KEY,
-    qdrant_point_id INTEGER NOT NULL,
-    mapped_at       TEXT    NOT NULL DEFAULT (datetime('now'))
-);
 
 -- Cache of paper metadata fetched from the arXiv API
 CREATE TABLE IF NOT EXISTS paper_metadata (
@@ -740,42 +732,6 @@ async def get_current_feedback(user_id: str) -> list[dict]:
         return [dict(row) for row in await cur.fetchall()]
 
 
-# ── Qdrant map helpers ────────────────────────────────────────────────────────
-
-async def get_qdrant_id(arxiv_id: str) -> int | None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute(
-            "SELECT qdrant_point_id FROM paper_qdrant_map WHERE arxiv_id = ?",
-            (arxiv_id,),
-        )
-        row = await cur.fetchone()
-        return row[0] if row else None
-
-
-async def save_qdrant_id(arxiv_id: str, qdrant_point_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """INSERT OR REPLACE INTO paper_qdrant_map (arxiv_id, qdrant_point_id)
-               VALUES (?, ?)""",
-            (arxiv_id, qdrant_point_id),
-        )
-        await db.commit()
-
-
-async def get_qdrant_ids_batch(arxiv_ids: list[str]) -> dict[str, int]:
-    """Return {arxiv_id: qdrant_point_id} for all IDs found in cache."""
-    if not arxiv_ids:
-        return {}
-    async with aiosqlite.connect(DB_PATH) as db:
-        placeholders = ",".join("?" * len(arxiv_ids))
-        cur = await db.execute(
-            f"SELECT arxiv_id, qdrant_point_id FROM paper_qdrant_map WHERE arxiv_id IN ({placeholders})",
-            arxiv_ids,
-        )
-        rows = await cur.fetchall()
-        return {r[0]: r[1] for r in rows}
-
-
 # ── Metadata cache helpers ────────────────────────────────────────────────────
 
 async def get_cached_metadata(arxiv_id: str) -> dict | None:
@@ -1215,26 +1171,6 @@ async def get_recent_papers(
         return [dict(row) for row in await cur.fetchall()]
 
 
-async def forget_oldest_impressions(user_id: str, keep: int = 0) -> int:
-    """Drop this user's oldest impressions, keeping the `keep` most recent.
-
-    Called when the candidate pool is exhausted. Without it the feed would go
-    empty for anyone who has worked through everything their categories offer,
-    which is a far worse failure than showing an older paper again.
-    """
-    if not user_id:
-        return 0
-    async with aiosqlite.connect(DB_PATH) as conn:
-        cur = await conn.execute(
-            "DELETE FROM feed_impressions WHERE user_id = ? AND paper_id NOT IN ("
-            "    SELECT paper_id FROM feed_impressions WHERE user_id = ?"
-            "    ORDER BY shown_at DESC LIMIT ?)",
-            (user_id, user_id, max(0, int(keep))),
-        )
-        await conn.commit()
-        return cur.rowcount
-
-
 async def prune_impressions(retention_days: int = 90) -> int:
     """Delete impressions older than retention_days. Returns rows deleted."""
     async with aiosqlite.connect(DB_PATH) as conn:
@@ -1308,10 +1244,3 @@ async def save_explanation(cache_key: str, arxiv_id: str, explanation: str,
             "(cache_key, arxiv_id, explanation, model) VALUES (?, ?, ?, ?)",
             (cache_key, arxiv_id, explanation, model))
         await db.commit()
-
-
-async def explanation_stats() -> dict:
-    """For /healthz: how much of the corpus has been explained, and at what cost."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        cur = await db.execute("SELECT COUNT(*) FROM paper_explanations")
-        return {"cached": (await cur.fetchone())[0]}

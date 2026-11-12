@@ -26,7 +26,7 @@ from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
 from app import card_data, config, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, trending_shelf, turso_svc, user_state as us
 from app.config import (
-    COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
+    COOKIE_NAME, COOKIE_MAX_AGE, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
 )
 from app.templates_env import templates
@@ -47,9 +47,8 @@ from app.recommend.fusion import (
 )
 from app.recommend.labels import label_clusters, cluster_tone
 from app.recommend.reranker import rerank_candidates
-# inject_exploration is no longer imported here: exploration is now drawn per
-# page in _build_page() from a pre-shuffled pool, so that doc 06 §3.5's "two
-# serendipitous papers per feed" holds for every page rather than once per pool.
+# Exploration is drawn per page in _build_page() from a pre-shuffled pool, so
+# doc 06 §3.5's "two serendipitous papers per feed" holds for every page.
 from app.recommend.diversity import mmr_rerank
 
 router = APIRouter(prefix="/api")
@@ -279,7 +278,7 @@ async def _serve_recommendations(
     page = max(1, page)
 
     def _with_cookie(resp):
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
     def _empty_resp():
@@ -1230,8 +1229,7 @@ async def _multi_interest_recommend(
         # serendipitous papers per FEED, and with pagination a "feed" is one
         # page — so the injection happens per page in _build_page(), against
         # this pool. Injecting once over a 60-deep pool would have both diluted
-        # the ratio and stranded every exploration pick on the last page,
-        # because inject_exploration appends.
+        # the ratio and stranded every exploration pick on the last page.
         mmr_set = set(mmr_selected)
         explore_pool = [aid for aid in reranked_ids if aid not in mmr_set]
 

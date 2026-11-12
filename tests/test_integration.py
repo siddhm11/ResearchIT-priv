@@ -146,12 +146,6 @@ def test_recommendations_after_save(client, monkeypatch):
     import app.qdrant_svc as qs
     import app.db as db_mod
 
-    # Pre-seed the Qdrant map so recommend() can find the paper
-    import asyncio
-    asyncio.run(
-        db_mod.save_qdrant_id("0704.0002", 0)
-    )
-
     # Mock recommend to return a known paper ID
     async def fake_recommend(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit, **_):
         return ["1706.03762"]
