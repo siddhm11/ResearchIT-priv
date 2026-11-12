@@ -420,10 +420,14 @@ CREATE TABLE IF NOT EXISTS paper_abstracts (
     fetched_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- An unfollow keeps the row with active = 0, so replication can carry it
+-- (turso_sync pushes rows changed since its watermark; a deleted row is not one).
 CREATE TABLE IF NOT EXISTS collection_follows (
     user_id     TEXT NOT NULL,
     slug        TEXT NOT NULL,
     followed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    active      INTEGER NOT NULL DEFAULT 1,
+    updated_at  TEXT,
     PRIMARY KEY (user_id, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_follow_user
@@ -482,6 +486,12 @@ _MIGRATION_SEARCH_TIMES = [
     "ALTER TABLE search_log ADD COLUMN gap_s INTEGER",
 ]
 
+# ── Follows replicated (2026-11-13): soft unfollow + a change time ───────────
+_MIGRATION_FOLLOWS = [
+    "ALTER TABLE collection_follows ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE collection_follows ADD COLUMN updated_at TEXT",
+]
+
 LAYOUTS = ("list", "grid2")
 
 
@@ -511,11 +521,14 @@ async def init_db() -> None:
                 await db.execute(stmt)
             except Exception:
                 pass  # Column already exists — safe to ignore
-        for stmt in _MIGRATION_REDESIGN + _MIGRATION_AI_USAGE + _MIGRATION_SEARCH_TIMES:
+        for stmt in (_MIGRATION_REDESIGN + _MIGRATION_AI_USAGE + _MIGRATION_SEARCH_TIMES
+                     + _MIGRATION_FOLLOWS):
             try:
                 await db.execute(stmt)
             except Exception:
                 pass  # Column already exists — safe to ignore
+        await db.execute("UPDATE collection_follows SET updated_at = followed_at "
+                         "WHERE updated_at IS NULL")
         await db.commit()
         await _rebuild_explanations_with_id(db)
 
@@ -1244,9 +1257,10 @@ async def follow_collection(user_id: str, slug: str) -> None:
         return
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
-            "INSERT INTO collection_follows (user_id, slug, followed_at) "
-            "VALUES (?, ?, datetime('now')) "
-            "ON CONFLICT(user_id, slug) DO UPDATE SET followed_at = datetime('now')",
+            "INSERT INTO collection_follows (user_id, slug, followed_at, active, updated_at) "
+            "VALUES (?, ?, datetime('now'), 1, datetime('now')) "
+            "ON CONFLICT(user_id, slug) DO UPDATE SET followed_at = datetime('now'), "
+            "active = 1, updated_at = datetime('now')",
             (user_id, slug),
         )
         await conn.commit()
@@ -1257,7 +1271,8 @@ async def unfollow_collection(user_id: str, slug: str) -> None:
         return
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
-            "DELETE FROM collection_follows WHERE user_id = ? AND slug = ?",
+            "UPDATE collection_follows SET active = 0, updated_at = datetime('now') "
+            "WHERE user_id = ? AND slug = ? AND active = 1",
             (user_id, slug),
         )
         await conn.commit()
@@ -1268,7 +1283,7 @@ async def get_followed_slugs(user_id: str) -> set[str]:
         return set()
     async with aiosqlite.connect(DB_PATH) as conn:
         cur = await conn.execute(
-            "SELECT slug FROM collection_follows WHERE user_id = ?", (user_id,))
+            "SELECT slug FROM collection_follows WHERE user_id = ? AND active = 1", (user_id,))
         return {r[0] for r in await cur.fetchall()}
 
 

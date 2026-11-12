@@ -120,3 +120,33 @@ def test_history_shows_each_paper_and_search_with_what_was_written():
     assert 'href="/p/2609.31507">SatNav</a>' in html and "Plain words." in html and "<b>words" not in html
     assert "2 calls · written" in html and "4,480" in html          # two briefing calls; tokens summed
     assert "drone navigation" in html and "UAV vision-language navigation" in html
+
+
+# ── feed ─────────────────────────────────────────────────────────────────────
+
+def seed_feed():
+    ex = ("INSERT INTO feed_exposures (user_id, paper_id, query_id, position, tier, candidate_source, shown_at) "
+          "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))")
+    ix = "INSERT INTO interactions (user_id, paper_id, event_type, source, query_id, timestamp) VALUES (?, ?, ?, 'recommendation', ?, datetime('now'))"
+    run((ex, ("alice", "p1", "q1", 0, 1, "cluster")), (ex, ("alice", "p2", "q1", 1, 1, "cluster")),
+        (ex, ("alice", "p3", "q1", 12, 1, "exploration")), (ex, ("bob", "p1", "q2", 0, 0, "starter")),
+        (ex, ("me", "p9", "q3", 0, 1, "cluster")),
+        (ix, ("alice", "p1", "click", "q1")), (ix, ("alice", "p1", "save", "q1")),
+        (ix, ("alice", "p2", "not_interested", "q1")),
+        (ix, ("alice", "p3", "save", "q-other")),          # another feed's save is not this card's
+        ("INSERT INTO reader_days (day, user_id, owner) VALUES (date('now'), 'me', 1)", ()),
+        (ix, ("me", "p9", "save", "q3")))
+
+
+def test_feed_page_shows_cards_and_what_readers_did_with_them():
+    seed_feed()
+    page = get("/admin/feed" + TOKEN)
+    assert page.status_code == 200 and get("/admin/feed").status_code == 404
+    html = " ".join(page.text.split())
+    assert '<span class="ai-kpi-label">Cards shown</span><span class="ai-kpi-value">4</span>' in html
+    assert '<span class="ai-kpi-label">Saved</span><span class="ai-kpi-value">25.0%</span>' in html
+    assert '<span class="ai-kpi-label">Passed</span><span class="ai-kpi-value">25.0%</span>' in html
+    assert '<th scope="row">1–3</th><td>3</td><td>33.3%</td> <td>33.3%</td><td>33.3%</td>' in html
+    assert "Starter (no saves yet)" in html and "Interests" in html
+    with_me = get("/admin/feed?me=1&preview=owner-token").text
+    assert '<span class="ai-kpi-label">Cards shown</span><span class="ai-kpi-value">5</span>' in with_me

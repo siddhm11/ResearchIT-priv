@@ -1,0 +1,115 @@
+{#
+  Feed (/admin/feed), owner only; data from app/analytics.py:feed_report().
+  Cards the feed served (feed_exposures) and what readers did with the same paper
+  under the same feed (interactions.query_id). Speed is since the last restart.
+#}
+{% extends "base.html" %}
+{% from "partials/admin/bars.html" import bars %}
+
+{% block title %}Feed — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% macro pct(part, whole) -%}{{ ((100 * part / whole) | round(1)) ~ "%" if whole else "—" }}{%- endmacro %}
+{% macro ms(stat) -%}{{ ("%.1f / %.1f s" % (stat.p50 / 1000, stat.p95 / 1000)) if stat else "—" }}{%- endmacro %}
+
+{% macro acted_table(rows, first) %}
+  <div class="ai-table-wrap">
+    <table class="ai-table">
+      <thead><tr><th scope="col">{{ first }}</th><th scope="col">Cards shown</th><th scope="col">Opened</th>
+        <th scope="col">Saved</th><th scope="col">Passed</th></tr></thead>
+      <tbody>
+        {% for r in rows %}
+          <tr><th scope="row">{{ r.label }}</th><td>{{ r.shown | commafy }}</td><td>{{ pct(r.opened, r.shown) }}</td>
+            <td>{{ pct(r.saved, r.shown) }}</td><td>{{ pct(r.passed, r.shown) }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
+
+  <header class="ai-head">
+    <h1>Feed</h1>
+    <p class="ai-sub">Last 30 days. {{ "Your own use is included." if include_owner else "Your own use is left out." }}
+      A card counts as opened, saved or passed when the reader did that to the same paper from the same feed.</p>
+  </header>
+
+  <section class="ai-kpis" aria-label="The feed at a glance">
+    <div class="ai-kpi"><span class="ai-kpi-label">Readers served</span><span class="ai-kpi-value">{{ totals.readers | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Cards shown</span><span class="ai-kpi-value">{{ totals.shown | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Opened</span><span class="ai-kpi-value">{{ pct(totals.opened, totals.shown) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Saved</span><span class="ai-kpi-value">{{ pct(totals.saved, totals.shown) }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Passed</span><span class="ai-kpi-value">{{ pct(totals.passed, totals.shown) }}</span></div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="f-daily-h">
+    <h2 id="f-daily-h">What readers did with the feed, per day</h2>
+    {{ bars(chart, "Feed cards saved, opened and passed per day") }}
+    <details class="ai-tableview">
+      <summary>Show as a table</summary>
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Day</th><th scope="col">Readers</th><th scope="col">Feeds</th><th scope="col">Cards shown</th>
+            <th scope="col">Opened</th><th scope="col">Saved</th><th scope="col">Passed</th></tr></thead>
+          <tbody>
+            {% for d in days | reverse %}
+              <tr><th scope="row">{{ d.day }}</th><td>{{ d.readers }}</td><td>{{ d.feeds }}</td><td>{{ d.shown }}</td>
+                <td>{{ d.opened }}</td><td>{{ d.saved }}</td><td>{{ d.passed }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="f-pos-h">
+    <h2 id="f-pos-h">By position on the page</h2>
+    <p class="ai-note">Raw rates: cards higher up are seen more, so these mix position with quality.</p>
+    {% if totals.shown %}{{ acted_table(positions, "Position") }}{% else %}<p class="ai-empty">No feed cards recorded yet.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="f-tier-h">
+    <h2 id="f-tier-h">By how the feed was built</h2>
+    {% if tiers %}
+      {{ acted_table(tiers, "Feed") }}
+      <h3 class="ai-h3">By where the card came from</h3>
+      {{ acted_table(sources, "Source") }}
+    {% else %}<p class="ai-empty">No feed cards recorded yet.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="f-speed-h">
+    <h2 id="f-speed-h">Speed</h2>
+    <p class="ai-note">Since the last restart, median / slowest 5%. {{ builds }} personalised feed{{ "" if builds == 1 else "s" }} built.</p>
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr><th scope="col">Step</th><th scope="col">Time</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">First page, whole request</th><td>{{ ms(speed.page) }}</td></tr>
+          <tr><th scope="row">Personalised feed build</th><td>{{ ms(speed.build) }}</td></tr>
+          <tr><th scope="row">Of which, interest searches</th><td>{{ ms(speed.searches) }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 class="ai-h3">Each shard's searches</h3>
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr><th scope="col">Shard</th><th scope="col">Time</th><th scope="col">Missed the deadline</th></tr></thead>
+        <tbody>
+          {% for name, s in shards.items() %}
+            <tr><th scope="row">{{ name }}</th>
+              <td>{{ ("%d / %d ms" % (s.time.p50, s.time.p95)) if s.time else "—" }}</td><td>{{ s.late }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="/static/admin.js?v={{ static_version }}"></script>
+{% endblock %}
