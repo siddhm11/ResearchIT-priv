@@ -50,7 +50,7 @@ def world(monkeypatch):
     async def get_paper_vectors(ids):
         return {a: VECTORS[a] for a in ids if a in VECTORS}
 
-    async def search(query_vector, limit, exclude_ids=None):
+    async def search(query_vector, limit, exclude_ids=None, **_):
         q = np.asarray(query_vector, dtype=np.float32)
         pool = [a for a in POOL + OPENS if a not in (exclude_ids or ())]
         hits = sorted(((float(VECTORS[a] @ q), a) for a in pool), reverse=True)[:limit]
