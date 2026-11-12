@@ -125,10 +125,12 @@ saved papers
   └─[2] Ward clustering          MIN_PAPERS_FOR_CLUSTERING = 5
   └─[3] Hungarian stabilise      against persisted medoids
   └─[4] quota allocation         total_slots=100, min_slots=3, by importance
-  └─[5] per-cluster ANN          limit = quota × _OVERSAMPLE(3), parallel
-  └─[6] short-term supplement    _ST_SUPPLEMENT = 20
+  └─[5] per-cluster ANN          limit = quota × _OVERSAMPLE(3), parallel; seen papers
+                                 filtered inside Qdrant, FEED_OVERSAMPLING = 2,
+                                 FEED_SHARD_DEADLINE_S = 2.5 (doc 06, 2026-11-13)
+  └─[6] short-term supplement    _ST_SUPPLEMENT = 20, same settings as [5]
   └─[7] scoring                  heuristic (default) | LightGBM      [LIVE]
-  └─[8] category suppression     ≥3 dismissals / 14 days, arXiv codes [LIVE]
+  └─[8] category suppression     REMOVED 2026-11-08 (Pass is not a field-level dislike)
   └─[9] MMR diversity            lambda_param = 0.6, top_k = 10
   └─[10] exploration injection   n_explore = 2  → returns limit + 2
 ```

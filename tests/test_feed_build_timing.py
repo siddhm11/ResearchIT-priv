@@ -50,7 +50,7 @@ def install(monkeypatch, *, vectors_wait: float = 0.0, details_wait: float = 0.0
             await asyncio.sleep(vectors_wait)
         return {a: VECTORS[a] for a in ids if a in VECTORS}
 
-    async def search(query_vector, limit, exclude_ids=None):
+    async def search(query_vector, limit, exclude_ids=None, **_):
         q = np.asarray(query_vector, dtype=np.float32)
         hits = sorted(((float(VECTORS[a] @ q), a) for a in POOL if a not in (exclude_ids or ())),
                       reverse=True)[:limit]
@@ -116,3 +116,18 @@ async def test_which_fetch_finishes_first_does_not_change_the_feed(monkeypatch):
     install(monkeypatch, details_wait=0.15)
     details_last = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
     assert vectors_last[0] == details_last[0] and vectors_last[2] == details_last[2]
+
+
+async def test_every_feed_search_uses_the_feed_settings(monkeypatch):
+    """Oversampling and the shard deadline reach each interest's search (doc 06, 2026-11-13)."""
+    install(monkeypatch)
+    plain, asked = qdrant_svc.search_by_vector_with_scores, []
+
+    async def spy(*a, **kw):
+        asked.append((kw.get("oversampling"), kw.get("deadline_s")))
+        return await plain(*a, **kw)
+    monkeypatch.setattr(qdrant_svc, "search_by_vector_with_scores", spy)
+    state = await reader()
+    ranked, *_ = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
+    assert ranked and len(asked) >= TOPICS
+    assert set(asked) == {(recs.config.FEED_OVERSAMPLING, recs.config.FEED_SHARD_DEADLINE_S)}
