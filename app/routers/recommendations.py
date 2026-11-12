@@ -70,7 +70,11 @@ router = APIRouter(prefix="/api")
 # v11 (2026-10-16): rescaled lt/st similarities, recency 0.45, age from first
 # publication (doc 06, 2026-10-09). Those shipped on 2026-10-16 19:27 UTC under
 # the v10 label; rows logged between then and this deploy need a time split.
-_RANKER_VERSION = "v11_rescaled_pubdate"
+# v12 (2026-11-13): interests from saves, questions and opens, no category
+# suppression (doc 06, 2026-11-08: shipped under the v11 label, so rows from
+# 8 Nov to this deploy need a time split), and the feed's own Qdrant settings
+# (seen papers filtered inside Qdrant, oversampling 2; doc 06, 2026-11-13).
+_RANKER_VERSION = "v12_taste_feedq"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
