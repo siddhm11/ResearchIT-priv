@@ -2,13 +2,13 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-10-21
+> **Last updated**: 2026-11-13
 
 ---
 
 ## 1. What this codebase is
 
-ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud for dense vectors, local FTS5 for lexical search, and Zilliz Cloud (`arxiv_bgem3_sparse`) as the sparse fallback, SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Current traffic and deployment state must be verified; this file describes code and recorded architecture, not live telemetry.
+ResearchIT is a personalized arXiv paper recommendation engine. ~1.8M papers with pre-computed BGE-M3 (1024-dim) dense embeddings. CPU-only (zero GPU). FastAPI + HTMX + Jinja2 on the front, Qdrant Cloud for dense vectors, local FTS5 for lexical search (Zilliz removed 2026-11-13), SQLite for interactions/profiles/clusters/metadata cache, Hugging Face Spaces (Docker SDK, free tier: 16GB RAM, 2 vCPUs) for deployment. Current traffic and deployment state must be verified; this file describes code and recorded architecture, not live telemetry.
 
 **Configured production sharding recorded on 2026-08-12 (historical measurement):** code supports primary + B + recent fanout. Actual collections depend on environment configuration. Re-verify `/healthz/shards`:
 
@@ -79,8 +79,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 
 - **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
 - **Search results are kept in memory for 10 minutes** (`app/search_cache.py`; 2 when a retrieval arm was missing). Callers get copies, so per-reader fields (saved, `query_id`, position) never reach the shared entry. A reader returning to the same cached results keeps their `query_id` and is not logged again (doc 06, 2026-10-21).
-- **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Zilliz is the fallback when FTS is unavailable and encoding succeeds. RRF fuses actual available result lists; do not confuse configured backends with successful retrieval. One exception, switch `SEARCH_REWRITE_KEYWORDS`: a query the rewriter changed whose words no single paper contains leaves its own keyword list out (doc 06, 2026-10-23); its dense list and the title boost stay.
-- **Zilliz collection schema** for Phase 3: collection `arxiv_bgem3_sparse`, fields: `id` (INT64, auto_id PK), `arxiv_id` (VARCHAR), `sparse_vector` (SPARSE_FLOAT_VECTOR). Index: SPARSE_INVERTED_INDEX, metric_type=IP. Sparse format uses **integer token IDs** as keys (from BGE-M3 tokenizer), NOT string words. Example: `{29: 0.0427, 6083: 0.1852, ...}`.
+- **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Without an FTS index search is dense-only; the Zilliz sparse fallback was removed (doc 06, 2026-11-13). RRF fuses actual available result lists; do not confuse configured backends with successful retrieval. One exception, switch `SEARCH_REWRITE_KEYWORDS`: a query the rewriter changed whose words no single paper contains leaves its own keyword list out (doc 06, 2026-10-23); its dense list and the title boost stay.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
 - **Never use RRF to merge multi-medoid recommendation results.** This is the most common mistake to avoid in this codebase.
 - **Quota binds the SERVED order, not just the candidate pool.** Enforced at two points: `merge_quota_results` interleaves clusters on a proportional stride schedule (never concatenates their blocks), and `enforce_quota_on_ranking` re-derives the cross-cluster arrangement after rerank + MMR. Order *within* a cluster is the ranker's; order *across* clusters is quota's. Removing either point collapses a multi-interest feed to a single interest — see the 2026-08-16 entry in doc 06.
@@ -138,7 +137,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **Personalized tiers exclude the last seven days of impressions before retrieval**, preserving quota/MMR over eligible candidates. If no ranked result remains, retry once without impression exclusion and label repeats. Saves/dismissals remain excluded. Per-user serving locks include the impression write; cached cursors must belong to that user. Recently opened/discovered papers remain available at `/history`.
 - **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` records the conditional probability at the selected slot. This is not automatically a marginal inclusion probability or a validated IPS estimator; document conditioning before counterfactual analysis.
 - Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
-- `feed_impressions` is **not** replicated to Turso — high volume, low value per row, and losing it degrades to repeats rather than to anything broken.
+- `feed_impressions`, `feed_exposures` and `collection_follows` **are** replicated to Turso (doc 06, 2026-11-13). Before that every deploy showed returning readers last week's papers again, dropped follows, and restarted the exposure log. An unfollow keeps its row with `active = 0` so replication carries it.
 
 ### 3.5 Diversity
 
@@ -229,7 +228,7 @@ Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any
 plan and release gates are in `docs/DISCOVERY-PLAN.md`. Historical phase numbers
 and test counts are not a live status tracker.
 
-Implemented: hybrid search with FTS5 preference and Zilliz fallback; Qdrant shard
+Implemented: hybrid search (Qdrant dense + FTS5 keyword, RRF); Qdrant shard
 fanout; 4-tier recommendation cascade; heuristic default with optional LightGBM;
 quota fusion, Hungarian matching and within-cluster MMR; category/seed onboarding;
 editable interests; mostly-fresh refresh; recent-paper history; paper explanations;
@@ -237,8 +236,10 @@ collections; map backend; instrumentation; partial Turso replication; local CI.
 
 Not established by implementation alone: current corpus freshness, full abstract
 coverage, live relevance/latency, complete recovery semantics, and user retention.
-Exposure logs and follows still lack remote replication. Existing evaluation
-scripts are starting points for a held-out quality framework.
+Exposure logs, impressions and follows are replicated since 2026-11-13; cluster
+snapshots, ui_events and ask_log are not. Existing evaluation scripts are
+starting points for a held-out quality framework; `/admin/feed` reads the
+exposure log against interactions.
 
 **Out of scope until later phases — do not build:**
 - S2/ORCID author import for onboarding (removed — not the direction we want).
@@ -293,7 +294,7 @@ If a request asks for one of these, surface that it is out of scope per doc 06 p
 - Every new function in `app/recommend/` gets a unit test.
 - Every new endpoint gets at least one integration test.
 - Use `pytest` + `pytest-asyncio` (asyncio_mode = auto, configured in `pytest.ini`).
-- Test files go in `tests/`. No `tests/fixtures/` directory exists yet — inline fixtures or use `tmp_path`.
+- Test files go in `tests/`. `tests/fixtures/` holds static inputs (arXiv HTML pages); otherwise inline fixtures or use `tmp_path`.
 - Run tests: `python -m pytest tests/ -v`
 - Run the live recommendation benchmark: `python scripts/benchmark_recommendations.py`
 
@@ -301,10 +302,9 @@ Recommendation diagnostics: `.venv/bin/python scripts/run_recommendation_audit.p
 --live --encode` generates `reports/recommendations/index.html` with temporary
 user storage and replication disabled. Live/semantic gaps must be reported, not
 filled with synthetic success. `app/hf_papers_svc.py` never supplies feed
-candidates; its Daily Papers lists feed only the separate trending shelf.
-`scripts/hf_discovery.py` now supports local collection/preparation scheduling,
-scratch-profile baseline capture and offline comparison. See
-`docs/HF-DISCOVERY-OPERATIONS.md`; shadow-ready does not mean production-indexed.
+candidates; its Daily Papers lists feed only the separate trending shelf. The
+HF discovery shadow pipeline (never served, superseded by the shelf) was removed
+on 2026-11-13.
 
 ### 5.5 File and folder conventions
 
@@ -332,7 +332,6 @@ ResearchIT-Final/
 |   |-- groq_svc.py              # LLM query rewriter (Phase 3)
 |   |-- hybrid_search_svc.py     # Hybrid search orchestrator (Phase 3)
 |   |-- turso_svc.py             # Turso metadata client (Phase 3.5)
-|   |-- zilliz_svc.py            # Zilliz sparse search client (Phase 3)
 |   |-- routers/                 # FastAPI route handlers
 |   |   |-- search.py            # GET /search — hybrid semantic search
 |   |   |-- recommendations.py   # GET /api/recommendations — 3-tier cascade + quota
@@ -347,7 +346,7 @@ ResearchIT-Final/
 |   |   |-- clustering.py        # Ward clustering + medoids + adaptive threshold
 |   |   |-- fusion.py            # Quota fusion (Phase 4)
 |   |   |-- reranker.py          # LightGBM reranker + heuristic fallback
-|   |   |-- diversity.py         # MMR reranking + exploration injection
+|   |   |-- diversity.py         # MMR reranking (exploration is drawn in recommendations.py)
 |   |
 |   |-- static/                  # CSS, images
 |   |-- templates/               # Jinja2 + HTMX templates
@@ -378,10 +377,8 @@ ResearchIT-Final/
 |       |-- 04-Next-Steps-and-Phase-Plan.md               # MASTER ROADMAP
 |
 |-- notebooks/                   # Kaggle/Jupyter notebooks (reference only)
-|   |-- README.md                # Notebook index + extracted schema details
-|   |-- 01-bme-upload.ipynb      # BGE-M3 encode + upload to Qdrant/Zilliz (1.6M papers)
-|   |-- 02-bme-arxiv-test.ipynb  # Search quality tests + BGE-M3 prototype
-|   |-- 03-check-search-bq-prm.ipynb  # BQ vs PRM quantization benchmark
+|   |-- README.md                # Notebook index + extracted schema details (the
+|                                #   .ipynb files themselves are not in the repo)
 |
 |-- tests/                       # pytest suite: ~1,400 tests in 97 files (2026-10-21)
     |-- test_profiles.py         # EWMA profile tests (11)
@@ -426,7 +423,7 @@ pip install -r requirements.txt
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`.
 - If a commit implements a decision from a doc, reference it: `feat(fusion): implement importance-weighted quota per doc 06`.
 - Never commit secrets. Environment variables are read from `app/config.py` via `os.getenv()`.
-- Phase 3 env vars: `ZILLIZ_URI`, `ZILLIZ_TOKEN`, `ZILLIZ_COLLECTION`, `GROQ_API_KEY`, `BGE_M3_MODEL`, `BGE_M3_DEVICE`. These are set in HF Spaces Secrets, not hardcoded.
+- Phase 3 env vars: `GROQ_API_KEY`, `BGE_M3_MODEL`, `BGE_M3_DEVICE` (the `ZILLIZ_*` secrets are unused since 2026-11-13 and can be deleted). These are set in HF Spaces Secrets, not hardcoded.
 - Qdrant env vars (already in config.py): `QDRANT_URL`, `QDRANT_API_KEY`, `QDRANT_COLLECTION`.
 
 ---
@@ -497,10 +494,10 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. |
+| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows) and the paid-for caches. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-10-21. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-11-13. Update this date when CLAUDE.md changes.*

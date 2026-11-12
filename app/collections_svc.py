@@ -83,10 +83,6 @@ def anchor_ids(slug: str) -> list[str]:
     return [a["id"] for a in c["anchors"]] if c else []
 
 
-def all_anchor_ids() -> set[str]:
-    return {a["id"] for c in load_all() for a in c["anchors"]}
-
-
 async def medoid(slug: str) -> np.ndarray | None:
     """The centre of a collection, as the medoid of its anchor vectors.
 

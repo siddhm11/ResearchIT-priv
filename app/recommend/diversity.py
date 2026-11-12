@@ -1,5 +1,5 @@
 """
-MMR diversity enforcement + exploration injection.
+MMR diversity enforcement. (Exploration is drawn in recommendations._build_page.)
 
 Maximal Marginal Relevance (Carbonell & Goldstein, 1998) selects items
 that are both relevant to the query AND diverse from each other.
@@ -16,7 +16,6 @@ Reference: Research-MultiInterest_Recommender_Architecture.md §4
 """
 from __future__ import annotations
 
-import random
 import numpy as np
 
 
@@ -114,38 +113,3 @@ def mmr_rerank(
         np.maximum(max_sim, sim_matrix[:, best_idx], out=max_sim)
 
     return [candidate_ids[i] for i in selected_indices]
-
-
-def inject_exploration(
-    selected_ids: list[str],
-    all_candidate_ids: list[str],
-    n_explore: int = 2,
-    seed: int | None = None,
-) -> list[str]:
-    """
-    Inject exploration papers from candidates not already selected.
-
-    Picks n_explore random papers from the unselected pool and appends
-    them to the end of the list.  This follows TikTok's 15-25% exploration
-    allocation principle for breaking filter bubbles.
-
-    Args:
-        selected_ids: the MMR-selected arxiv_ids
-        all_candidate_ids: the full candidate pool (before MMR selection)
-        n_explore: how many exploration papers to inject
-        seed: optional random seed for reproducibility
-
-    Returns:
-        selected_ids with exploration papers appended
-    """
-    selected_set = set(selected_ids)
-    pool = [cid for cid in all_candidate_ids if cid not in selected_set]
-
-    if not pool:
-        return list(selected_ids)
-
-    rng = random.Random(seed)
-    n_pick = min(n_explore, len(pool))
-    exploration = rng.sample(pool, n_pick)
-
-    return list(selected_ids) + exploration

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import config, groq_svc, local_meta, map_locate_svc, qdrant_svc, zilliz_svc
+from app import config, groq_svc, local_meta, map_locate_svc, qdrant_svc
 from app.routers import health
 
 CHAIN = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
@@ -73,8 +73,6 @@ def _healthy_everything_else(monkeypatch):
     monkeypatch.setattr(config, "TURSO_DB_TOKEN", "")
     monkeypatch.setattr(qdrant_svc, "_client", lambda: SimpleNamespace(
         get_collection=lambda name: SimpleNamespace(points_count=100)))
-    monkeypatch.setattr(zilliz_svc, "_get_client", lambda: SimpleNamespace(
-        list_collections=lambda: ["papers"]))
     monkeypatch.setattr(local_meta, "stats", lambda: {"available": True})
 
     async def map_stats():

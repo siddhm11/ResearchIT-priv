@@ -34,8 +34,6 @@ def _test_override(name: str, default: str) -> str:
 
 ARXIV_API_URL = _test_override("ARXIV_API_URL", "https://export.arxiv.org/api/query")
 ARXIV_MAX_RESULTS = 10          # results per search page
-METADATA_CACHE_TTL_DAYS = 30    # re-fetch metadata after this many days
-
 # arXiv and Hugging Face ask clients to identify themselves. On 2026-10-01
 # oaipmh.arxiv.org answered an anonymous harvester with 406 for a while; the
 # same request with a User-Agent went through. Every outside request the app
@@ -194,18 +192,11 @@ def fanout_enabled() -> bool:
     return SEARCH_FANOUT_RECENT and qdrant_recent_configured()
 
 
-# ── Sparse retrieval backend ──────────────────────────────────────────────────
-# "fts"    -- BM25 over the local metadata sidecar (covers all 1.8M papers)
-# "zilliz" -- BGE-M3 lexical weights on Zilliz (covers only the 1.6M snapshot)
-#
-# Coverage is the reason to prefer "fts". RRF sums 1/(k+rank) across lists, so a
-# paper missing from one list scores half of one present in both. With Zilliz
-# indexing only the pre-2025-06 snapshot, every newer paper was penalised for
-# being absent from a list that could never have contained it — at k=60, a new
-# paper at dense rank 1 lost to any old paper above rank 62 in both lists.
-#
-# Falls back to Zilliz automatically when the sidecar has no FTS index, so an
-# older sidecar keeps working.
+# ── Keyword retrieval ─────────────────────────────────────────────────────────
+# "fts" -- BM25 over the local metadata sidecar (every paper it holds). Anything
+# else, or a sidecar without an FTS index, leaves search dense-only. The Zilliz
+# sparse fallback was removed on 2026-11-13 (doc 06): production never used it,
+# and it covered only the pre-2025-06 snapshot.
 SPARSE_BACKEND = os.getenv("SPARSE_BACKEND", "fts").strip().lower()
 
 
@@ -282,17 +273,6 @@ DEFAULT_TRENDING_CATEGORIES: set[str] = {
     "math.PR", "math.CO",                # mathematics
     "q-bio.QM", "econ.TH",               # life sciences, social sciences
 }
-
-# ── Zilliz Cloud (BGE-M3 sparse vectors) — Phase 3 ────────────────────────────
-ZILLIZ_URI = os.getenv("ZILLIZ_URI", "").strip()
-ZILLIZ_TOKEN = os.getenv("ZILLIZ_TOKEN", "").strip()
-ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
-
-# Zilliz schema (confirmed from notebooks/01-bme-upload.ipynb):
-#   id            INT64  (auto_id, primary key)
-#   arxiv_id      VARCHAR
-#   sparse_vector SPARSE_FLOAT_VECTOR  (BGE-M3 lexical weights, int token IDs)
-#   Index: SPARSE_INVERTED_INDEX, metric_type="IP"
 
 # ── Groq (query rewrite, search overview, paper explanations) ───────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
@@ -441,6 +421,18 @@ SEARCH_BGE_RERANK = os.getenv("SEARCH_BGE_RERANK", "1").strip().lower() in (
 # Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
 SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
 
+# The feed's own oversampling (2026-11-13). A feed sends one query per interest
+# to every shard, together asking for ~300 candidates, and rescoring each at 8x
+# read the stored vectors from disk: measured cold against the live shards, a
+# 3-interest reader's searches took 9.1 s and a 6-interest reader's 13.8 s. At
+# 2x, with seen papers filtered inside Qdrant: 2.0 s and 1.9 s, and 97-99% of
+# each interest's top 30 unchanged. Search keeps SEARCH_OVERSAMPLING: its
+# recall@60 caps what the reranker can find.
+FEED_OVERSAMPLING = float(os.getenv("FEED_OVERSAMPLING", "2.0"))
+# A shard that has not answered a feed search by then is left out of that page,
+# rather than holding it for the client's 30 s timeout. 0 turns it off.
+FEED_SHARD_DEADLINE_S = float(os.getenv("FEED_SHARD_DEADLINE_S", "2.5"))
+
 # Time budget for one FTS5 lexical search (AND attempt + OR fallback together).
 # Over budget the lexical arm returns nothing and the dense arm answers alone.
 # With ranking inside FTS before the `papers` join (fts_svc._SQL, 2026-10-16) the
@@ -457,8 +449,6 @@ SEARCH_CACHE_DEGRADED_TTL_S = int(os.getenv("SEARCH_CACHE_DEGRADED_TTL_S", "120"
 # ── Hybrid search tuning — Phase 3 ───────────────────────────────────────────
 SEARCH_RRF_K = 60                  # RRF denominator
 SEARCH_FETCH_K_MULTIPLIER = 6     # candidates = top_k × 6 before rerank
-SEARCH_SEMANTIC_WEIGHT = 0.80     # RRF contribution to final score
-SEARCH_RECENCY_WEIGHT = 0.20      # recency contribution to final score
 
 # ── App ───────────────────────────────────────────────────────────────────────
 APP_TITLE = "ResearchIT"
@@ -630,9 +620,6 @@ def map_store_is_dedicated() -> bool:
 SPACE_APP_URL = os.getenv("SPACE_APP_URL", "").strip().rstrip("/")
 
 
-def space_app_enabled() -> bool:
-    return bool(SPACE_APP_URL)
-
 
 def space_paper_url(arxiv_id: str) -> str:
     """
@@ -650,7 +637,7 @@ def space_paper_url(arxiv_id: str) -> str:
 
 
 # ── Rate limiting ────────────────────────────────────────────────────────────
-# Guards the Groq/Qdrant/Zilliz quotas and 2 vCPU against automated traffic.
+# Guards the Groq/Qdrant quotas and 2 vCPU against automated traffic.
 # See app/rate_limit.py for the limits, the fail-open design, and how to verify
 # client identification against the deployed Space (GET /healthz/client).
 #

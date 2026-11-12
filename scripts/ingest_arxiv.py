@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ingest new arXiv papers into Qdrant + Zilliz + Turso.
+Ingest new arXiv papers into Qdrant (recent shard) + Turso.
 
 Why this exists
 ---------------
@@ -33,7 +33,7 @@ Design notes
 
 Usage
 -----
-    export QDRANT_RECENT_URL=... QDRANT_RECENT_API_KEY=... ZILLIZ_URI=... ZILLIZ_TOKEN=...
+    export QDRANT_RECENT_URL=... QDRANT_RECENT_API_KEY=...
     export TURSO_URL=... TURSO_DB_TOKEN=...
 
     # see what would be fetched, no model load, no writes

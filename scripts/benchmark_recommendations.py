@@ -17,7 +17,7 @@ from app import qdrant_svc, arxiv_svc, db, config
 from app.recommend import profiles
 from app.recommend.clustering import compute_clusters
 from app.recommend.reranker import rerank_candidates
-from app.recommend.diversity import mmr_rerank, inject_exploration
+from app.recommend.diversity import mmr_rerank
 
 
 def _timer():
@@ -164,31 +164,27 @@ def run():
     timings["2. Ward clustering"] = t2
     print(f"  2. Ward clustering ({len(aligned_ids)} papers -> {len(clusters)} clusters):  {t2:.2f} ms")
 
-    # Stage 3: Multi-interest retrieval (Qdrant prefetch + RRF)
+    # Stage 3: per-interest retrieval, the way the feed does it: one search per
+    # interest with the feed's settings, merged by quota (never RRF, §3.1).
     async def bench_retrieval():
-        interest_vectors = []
-        limits = [40, 30, 25]
-        for i, c in enumerate(clusters):
-            lim = limits[i] if i < len(limits) else 15
-            interest_vectors.append((c.medoid_embedding.tolist(), lim))
-
+        from app.recommend.fusion import allocate_quotas, merge_quota_results
+        from app.routers.recommendations import _feed_query, _OVERSAMPLE
+        quotas = allocate_quotas([c.importance for c in clusters], total_slots=100, min_slots=3)
         lt = await profiles.load_profile(user_id, "long_term")
         st = await profiles.load_profile(user_id, "short_term")
-        st_list = st.tolist() if st is not None else None
         seen = set(all_saved)
 
         t = _timer()
-        candidates = await qdrant_svc.multi_interest_search(
-            interest_vectors=interest_vectors,
-            short_term_vector=st_list,
-            exclude_ids=seen,
-            total_limit=100,
-        )
+        per_cluster = await asyncio.gather(*(
+            qdrant_svc.search_by_vector_with_scores(
+                c.medoid_embedding.tolist(), limit=q * _OVERSAMPLE, exclude_ids=seen, **_feed_query())
+            for c, q in zip(clusters, quotas)))
+        candidates = merge_quota_results([[h["arxiv_id"] for h in hits] for hits in per_cluster], quotas)
         elapsed = t.elapsed_ms()
         return candidates, lt, st, elapsed
     candidates, lt_vec, st_vec, t3 = loop.run_until_complete(bench_retrieval())
-    timings["3. Prefetch + RRF retrieval"] = t3
-    print(f"  3. Prefetch + RRF ({len(clusters)} clusters + session):  {t3:.1f} ms  ({len(candidates)} candidates)")
+    timings["3. Per-interest retrieval"] = t3
+    print(f"  3. Per-interest retrieval ({len(clusters)} interests):  {t3:.1f} ms  ({len(candidates)} candidates)")
 
     # Stage 4: Fetch candidate vectors + metadata for re-ranking
     async def bench_cand_fetch():
@@ -232,13 +228,6 @@ def run():
     t6 = t.elapsed_ms()
     timings["6. MMR diversity selection"] = t6
     print(f"  6. MMR diversity selection (top 10):  {t6:.2f} ms")
-
-    # Stage 7: Exploration injection
-    t = _timer()
-    final = inject_exploration(mmr_selected, reranked_ids, n_explore=2)
-    t7 = t.elapsed_ms()
-    timings["7. Exploration injection"] = t7
-    print(f"  7. Exploration injection:  {t7:.3f} ms")
 
     # Stage 8: Template rendering (end-to-end HTTP)
     t = _timer()

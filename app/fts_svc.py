@@ -14,7 +14,7 @@ rather than correcting for it afterwards.
 Being local is a secondary win: sparse search drops from a ~600 ms network round
 trip to single-digit milliseconds, and one paid dependency goes away.
 
-Returns the same {'arxiv_id', 'score'} shape as zilliz_svc.search_sparse, so the
+Returns the same {'arxiv_id', 'score'} shape as the old Zilliz sparse search, so the
 fusion step is unchanged.
 """
 from __future__ import annotations
@@ -178,7 +178,7 @@ def _search_sync(query: str, limit: int) -> list[dict]:
 async def search_sparse(query: str, limit: int = 50) -> list[dict]:
     """BM25 search over title + abstract.
 
-    Takes the query TEXT, unlike zilliz_svc.search_sparse which takes BGE-M3
+    Takes the query TEXT, unlike the old Zilliz sparse search, which took BGE-M3
     lexical weights. Both are lexical retrieval and RRF is rank-based, so the
     fusion step does not care which produced the ranking.
 

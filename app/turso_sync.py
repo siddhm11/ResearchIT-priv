@@ -26,18 +26,16 @@ Incremental rather than write-through, deliberately: it needs no changes to the
 six existing write paths and cannot coupling-break when their SQL changes. The
 cost is a bounded loss window equal to the sync interval.
 
-Only user data is replicated. paper_metadata and paper_qdrant_map are caches
+Only user data is replicated. paper_metadata is a cache
 rebuildable from Turso and Qdrant, so copying them would waste quota.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import time
 
 import aiosqlite
-import httpx
 
 from app import config
 from app import http_client
@@ -175,7 +173,42 @@ TABLES: dict[str, dict] = {
         "cols": ["id", "arxiv_id", "feature", "reason", "user_id", "created_at"],
         "blobs": [],
         "paged": True,
-    },    "search_log": {
+    },
+    # What the feed showed and which collections a reader follows (2026-11-13,
+    # doc 06). These were local only, so every deploy forgot them: a returning
+    # reader was shown last week's papers again, follows vanished, and the
+    # exposure log any evaluation or engagement-scaled quota needs began again
+    # at zero. At current traffic they are a few hundred rows a day.
+    "feed_exposures": {
+        "remote": "feed_exposures",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "user_id", "paper_id", "query_id", "position", "tier", "candidate_source",
+                 "cluster_id", "propensity", "policy_id", "shown_at"],
+        "blobs": [],
+        "paged": True,
+    },
+    # Upserted on every re-show, so a re-shown paper is pushed again. Rows the
+    # container deletes (pruning, recycling an exhausted pool) stay remote and
+    # come back on restore; the 7-day window that reads them ignores old ones.
+    "feed_impressions": {
+        "remote": "feed_impressions",
+        "watermark": "shown_at",
+        "wm_kind": "text",
+        "pk": ["user_id", "paper_id"],
+        "cols": ["user_id", "paper_id", "shown_at"],
+        "blobs": [],
+    },
+    "collection_follows": {
+        "remote": "collection_follows",
+        "watermark": "updated_at",
+        "wm_kind": "text",
+        "pk": ["user_id", "slug"],
+        "cols": ["user_id", "slug", "followed_at", "active", "updated_at"],
+        "blobs": [],
+    },
+    "search_log": {
         "remote": "search_log",
         "watermark": "id",
         "wm_kind": "int",
@@ -260,6 +293,17 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS content_reports (
         id INTEGER PRIMARY KEY, arxiv_id TEXT NOT NULL, feature TEXT NOT NULL,
         reason TEXT, user_id TEXT, created_at TEXT)""",
+    """CREATE TABLE IF NOT EXISTS feed_exposures (
+        id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, paper_id TEXT NOT NULL, query_id TEXT,
+        position INTEGER, tier INTEGER, candidate_source TEXT, cluster_id INTEGER, propensity REAL,
+        policy_id TEXT, shown_at TEXT)""",
+    "CREATE INDEX IF NOT EXISTS idx_fe_user ON feed_exposures(user_id)",
+    """CREATE TABLE IF NOT EXISTS feed_impressions (
+        user_id TEXT NOT NULL, paper_id TEXT NOT NULL, shown_at TEXT,
+        PRIMARY KEY (user_id, paper_id))""",
+    """CREATE TABLE IF NOT EXISTS collection_follows (
+        user_id TEXT NOT NULL, slug TEXT NOT NULL, followed_at TEXT, active INTEGER,
+        updated_at TEXT, PRIMARY KEY (user_id, slug))""",
     """CREATE TABLE IF NOT EXISTS search_log (
         id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
         mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER, encode_ms INTEGER, rerank_ms INTEGER,

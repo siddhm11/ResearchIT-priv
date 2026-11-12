@@ -1478,6 +1478,8 @@ a.card-title:hover { color: var(--accent); }
 .card-id {
   font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
   color: var(--text-3); font-variant-numeric: tabular-nums;
+  /* 24 px tap target (WCAG 2.5.8) without changing the line's look (audit F14). */
+  display: inline-flex; align-items: center; min-height: 24px;
 }
 .card-id:hover { color: var(--accent); }
 
@@ -1939,6 +1941,7 @@ a.src:hover { text-decoration: underline; }
 .ai-sub, .ai-note { margin: .25rem 0 0; font-size: .84rem; color: var(--text-2); }
 .ai-sec h2 { font-family: var(--font-mono); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase;
   color: var(--text-2); margin: 0 0 .65rem; }
+.ai-sec .ai-h3 { margin: 1.25rem 0 .5rem; font-size: .84rem; font-weight: 600; color: var(--text-2); }
 .ai-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; }
 .ai-kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: .8rem .95rem; display: flex; flex-direction: column; gap: .2rem; }

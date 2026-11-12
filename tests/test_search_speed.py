@@ -23,7 +23,6 @@ def world(monkeypatch):
     monkeypatch.setattr(hs.embed_svc, "encode_query", lambda q: (np.ones(1024, np.float32), {}))
     monkeypatch.setattr(hs.turso_svc, "fetch_metadata_batch", AsyncMock(return_value={}))
     monkeypatch.setattr(hs.arxiv_svc, "fetch_metadata_batch", AsyncMock(return_value={}))
-    monkeypatch.setattr(hs.zilliz_svc, "search_sparse", AsyncMock(return_value=[]))
     monkeypatch.setattr(hs.fts_svc, "search_sparse",
                         AsyncMock(return_value=[{"arxiv_id": "2601.00002", "score": 1.0}]))
 
