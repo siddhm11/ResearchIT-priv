@@ -6,7 +6,7 @@ What this protects
 Not CPU, primarily. The binding resource is the Groq free-tier quota: it is a
 single shared bucket, /search and /api/search/summary both draw on it, and one
 crawler can drain it in minutes. When it is gone, query rewriting and overviews
-fail for every real user. Qdrant and Zilliz quotas have the same shape, and the
+fail for every real user. Qdrant quotas have the same shape, and the
 Space has 2 vCPU to absorb any of it.
 
 So the limits below are deliberately generous -- they are sized to stop

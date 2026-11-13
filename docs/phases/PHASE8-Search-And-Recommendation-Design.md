@@ -52,7 +52,7 @@ query
 | 3b | Zilliz sparse | same limit | ~network |
 | 4 | RRF | `SEARCH_RRF_K = 60`, `1/(k+rank)` summed over all lists | ~0 ms |
 | 5 | Cross-encoder | `mxbai-rerank-xsmall-v1`, 256 tokens, logits → sigmoid → [0,1]; top `SEARCH_RERANK_TOP_N = 10`; `SEARCH_RERANK_TOP_N_IDLE` (default 10) deepens it when the inference pool is idle, to be raised to 20 after the abstract backfill; `SEARCH_BGE_RERANK=0` disables. Was MiniLM-L-6 until 2026-10-14 (doc 06) | MiniLM 139–182 ms at n=10 (Space); mxbai 246 / 479 ms at n=10 / 20 on a laptop, ~1.5× that on the Space (estimate) |
-| 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2 | ~1 ms |
+| 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2; after the cross-encoder all but an exact title ×0.3, citations ×5 more for "seminal"-style queries; title matches from fused 11–50 audition for the window (doc 06, 2026-11-13) | ~1 ms |
 | 7 | Return | `ARXIV_MAX_RESULTS = 10` | |
 
 ### Rules that must not change
@@ -125,10 +125,12 @@ saved papers
   └─[2] Ward clustering          MIN_PAPERS_FOR_CLUSTERING = 5
   └─[3] Hungarian stabilise      against persisted medoids
   └─[4] quota allocation         total_slots=100, min_slots=3, by importance
-  └─[5] per-cluster ANN          limit = quota × _OVERSAMPLE(3), parallel
-  └─[6] short-term supplement    _ST_SUPPLEMENT = 20
+  └─[5] per-cluster ANN          limit = quota × _OVERSAMPLE(3), parallel; seen papers
+                                 filtered inside Qdrant, FEED_OVERSAMPLING = 2,
+                                 FEED_SHARD_DEADLINE_S = 2.5 (doc 06, 2026-11-13)
+  └─[6] short-term supplement    _ST_SUPPLEMENT = 20, same settings as [5]
   └─[7] scoring                  heuristic (default) | LightGBM      [LIVE]
-  └─[8] category suppression     ≥3 dismissals / 14 days, arXiv codes [LIVE]
+  └─[8] category suppression     REMOVED 2026-11-08 (Pass is not a field-level dislike)
   └─[9] MMR diversity            lambda_param = 0.6, top_k = 10
   └─[10] exploration injection   n_explore = 2  → returns limit + 2
 ```

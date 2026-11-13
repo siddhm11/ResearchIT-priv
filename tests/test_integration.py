@@ -146,14 +146,8 @@ def test_recommendations_after_save(client, monkeypatch):
     import app.qdrant_svc as qs
     import app.db as db_mod
 
-    # Pre-seed the Qdrant map so recommend() can find the paper
-    import asyncio
-    asyncio.run(
-        db_mod.save_qdrant_id("0704.0002", 0)
-    )
-
     # Mock recommend to return a known paper ID
-    async def fake_recommend(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit):
+    async def fake_recommend(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit, **_):
         return ["1706.03762"]
     monkeypatch.setattr(qs, "recommend", fake_recommend)
 
@@ -239,7 +233,7 @@ def test_quota_pipeline_preserves_minority_cluster(client, monkeypatch, saved_id
 
     # search_by_vector_with_scores returns candidates with cosine scores,
     # aligned with whichever centre the query is closer to
-    async def fake_search_by_vector_with_scores(query_vector, limit, exclude_ids=None):
+    async def fake_search_by_vector_with_scores(query_vector, limit, exclude_ids=None, **_):
         qv = np.array(query_vector, dtype=np.float32)
         qv /= np.linalg.norm(qv)
         if float(qv @ nlp_center) > float(qv @ rl_center):
@@ -336,7 +330,7 @@ def test_full_pipeline_smoke(client, monkeypatch):
     assert resp.status_code == 200
 
     # Step 4: Recommendations (mock to avoid full Qdrant integration here)
-    async def fake_rec(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit):
+    async def fake_rec(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit, **_):
         return ["2302.11382"]
     monkeypatch.setattr(qs, "recommend", fake_rec)
 

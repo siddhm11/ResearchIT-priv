@@ -71,7 +71,7 @@ def _get_client():
             return _client
 
         # Returning None rather than raising when the package is absent. Every
-        # other optional dependency here degrades quietly — BGE-M3, Zilliz,
+        # other optional dependency here degrades quietly — BGE-M3,
         # LightGBM and the metadata sidecar all fall back — but this one raised
         # ModuleNotFoundError straight out of the request, so /api/search/summary
         # answered 500 and the page showed "Something went wrong" instead of

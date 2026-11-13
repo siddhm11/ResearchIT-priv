@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 import aiosqlite
 
-from app import config, errors
+from app import config
 
 
 @dataclass
@@ -45,10 +45,6 @@ class Call:
     model_rank: int | None = None   # 0 = the primary model answered
     truncated: bool = False         # the reply hit the token cap (status is then "failed")
     subject: str | None = None      # the paper this call was about (arXiv id)
-
-
-class BudgetExceeded(Exception):
-    pass
 
 
 # ── fake provider (tests only) ───────────────────────────────────────────────

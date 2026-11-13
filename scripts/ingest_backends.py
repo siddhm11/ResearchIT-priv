@@ -15,9 +15,7 @@ Consistency requirements, in order of how badly getting them wrong hurts:
 2. Qdrant point IDs are integers, and the payload carries `arxiv_id`. New
    points must continue past the existing maximum id rather than collide.
 
-3. Zilliz uses auto_id, so only (arxiv_id, sparse_vector) is written.
-
-4. Turso stores the FULL abstract. The original loader truncated at 500 chars,
+3. Turso stores the FULL abstract. The original loader truncated at 500 chars,
    which is why 90% of existing rows are cut off mid-sentence; the mean arXiv
    abstract is ~1,244 chars, so that discarded roughly 60% of the text the
    cross-encoder needs. New rows keep all of it. The column is still called
@@ -45,14 +43,7 @@ BGE_REVISION = os.getenv("BGE_M3_REVISION", "") or (
 # exists. This used to read QDRANT_URL/QDRANT_COLLECTION, so with the app's own
 # environment an ingest would have written straight into the full primary.
 QDRANT_COLLECTION = os.getenv("QDRANT_RECENT_COLLECTION", "arxiv_recent")
-ZILLIZ_COLLECTION = os.getenv("ZILLIZ_COLLECTION", "arxiv_bgem3_sparse")
 MAX_LENGTH = 512  # must match the original ingest
-
-# Zilliz holds only the 2025-05 snapshot (1,596,587 rows); the 202,251 papers
-# ingested after it were never written there, and its schema carries a
-# point_id field this writer does not set. Sparse retrieval is served by the
-# sidecar's FTS5 index; Zilliz is only its fallback. Off unless asked for.
-WRITE_ZILLIZ = os.getenv("INGEST_WRITE_ZILLIZ", "0") == "1"
 
 _LABELS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "topic_labels.json")
 
@@ -159,7 +150,7 @@ def licence_stmts(papers: list[dict]) -> list[dict]:
 
 
 class Upserter:
-    """Writes to Qdrant, Zilliz and Turso."""
+    """Writes to Qdrant and Turso."""
 
     _licence_table = False                  # created on the run's first licence write
 
@@ -172,10 +163,6 @@ class Upserter:
                 "writes only to the recent-papers shard (see QDRANT_COLLECTION).")
         if self.qurl == os.environ.get("QDRANT_URL", "").rstrip("/"):
             raise SystemExit("QDRANT_RECENT_URL points at the primary cluster; refusing.")
-        self.zuri = os.environ.get("ZILLIZ_URI", "").rstrip("/")
-        self.ztok = os.environ.get("ZILLIZ_TOKEN", "")
-        if WRITE_ZILLIZ and not (self.zuri and self.ztok):
-            raise SystemExit("INGEST_WRITE_ZILLIZ=1 needs ZILLIZ_URI and ZILLIZ_TOKEN")
         self.turl = os.environ["TURSO_URL"].replace("libsql://", "https://", 1).rstrip("/")
         self.ttok = os.environ["TURSO_DB_TOKEN"]
 
@@ -196,15 +183,6 @@ class Upserter:
                 return {}
             raise
 
-
-    # ── Zilliz ───────────────────────────────────────────────────────────
-    def _z(self, path, body, timeout=180):
-        req = urllib.request.Request(
-            f"{self.zuri}{path}", data=json.dumps(body).encode(),
-            headers={"Authorization": f"Bearer {self.ztok}",
-                     "Content-Type": "application/json"})
-        with deadline(timeout + 30, path), urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
 
     # ── Turso ────────────────────────────────────────────────────────────
     def _t(self, stmts, timeout=180):
@@ -268,14 +246,6 @@ class Upserter:
         if points:
             self._q(f"/collections/{QDRANT_COLLECTION}/points?wait=true",
                     {"points": points}, method="PUT")
-
-        # Zilliz: sparse vectors, auto_id primary key. Off by default (above).
-        if WRITE_ZILLIZ:
-            rows = [{"arxiv_id": p["arxiv_id"],
-                     "sparse_vector": {str(k): v for k, v in sparse.items()}}
-                    for p, (_d, sparse) in zip(papers, vecs)]
-            self._z("/v2/vectordb/entities/insert",
-                    {"collectionName": ZILLIZ_COLLECTION, "data": rows})
 
         # Turso: full metadata, full abstract.
         stmts = []

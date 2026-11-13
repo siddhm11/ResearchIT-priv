@@ -1,31 +1,21 @@
 """
 Layer 2: Live service integration tests — Phase 3.
 
-Tests real Qdrant Cloud, Zilliz Cloud, and Groq API calls.
+Tests real Qdrant Cloud and Groq API calls.
 These require network access and valid credentials in config.py.
 
 Run:   python -m pytest tests/test_live_search.py -v
 Skip:  These tests connect to live services — they will fail if
        credentials are invalid or services are down.
 """
-import importlib.util
-
 import pytest
 import numpy as np
 
 # Every test in this file hits a real cloud service. The `live` marker lets CI
-# deselect them (`-m "not live"`) so a Zilliz outage or an expired token fails
+# deselect them (`-m "not live"`) so a service outage or an expired token fails
 # the deploy check rather than the unit suite.
 pytestmark = pytest.mark.live
 
-# pymilvus is deliberately absent from the local dev venv, and zilliz_svc
-# swallows the ImportError and returns [] -- which reads as "Zilliz returned
-# no results" rather than "the client isn't installed". Skip explicitly so the
-# distinction is visible.
-_HAS_PYMILVUS = importlib.util.find_spec("pymilvus") is not None
-requires_pymilvus = pytest.mark.skipif(
-    not _HAS_PYMILVUS, reason="pymilvus not installed locally"
-)
 
 
 # ── Qdrant dense search (live) ───────────────────────────────────────────────
@@ -68,64 +58,6 @@ async def test_qdrant_dense_search_scores_are_ordered():
         assert scores == sorted(scores, reverse=True), "Results not sorted by score"
 
 
-# ── Zilliz sparse search (live) ──────────────────────────────────────────────
-
-@pytest.mark.asyncio
-@requires_pymilvus
-async def test_zilliz_sparse_search_returns_results():
-    """
-    search_sparse() with a synthetic sparse dict should return results
-    from the live Zilliz collection.
-
-    We use token IDs that are likely to exist in BGE-M3's vocabulary
-    (common English tokens have IDs in the thousands range).
-    """
-    from app.zilliz_svc import search_sparse, _reset_client
-    _reset_client()  # Fresh connection
-
-    # Synthetic sparse dict — token IDs that likely exist in BGE-M3 vocab
-    sparse_dict = {
-        6:    0.3,     # Common token
-        29:   0.25,    # Common token
-        1600: 0.2,     # Mid-range token
-        6083: 0.15,    # Another token
-    }
-
-    results = await search_sparse(sparse_dict, limit=5)
-
-    assert isinstance(results, list)
-    assert len(results) > 0, "Zilliz returned no results for sparse search"
-    for r in results:
-        assert "arxiv_id" in r
-        assert "score" in r
-        assert isinstance(r["arxiv_id"], str)
-        assert r["score"] > 0, "Sparse IP score should be positive"
-
-
-@pytest.mark.asyncio
-async def test_zilliz_empty_sparse_returns_empty():
-    """Empty sparse dict should return empty results (no crash)."""
-    from app.zilliz_svc import search_sparse
-
-    results = await search_sparse({}, limit=5)
-    assert results == []
-
-
-@pytest.mark.asyncio
-async def test_zilliz_search_arxiv_ids_are_valid():
-    """Returned arxiv_ids should look like real arXiv IDs."""
-    from app.zilliz_svc import search_sparse, _reset_client
-    _reset_client()
-
-    sparse_dict = {6: 0.3, 29: 0.25, 1600: 0.2}
-    results = await search_sparse(sparse_dict, limit=3)
-
-    for r in results:
-        aid = r["arxiv_id"]
-        # arXiv IDs are either YYMM.NNNNN or category/NNNNNNN
-        assert ("." in aid or "/" in aid), f"Invalid arxiv_id format: {aid}"
-
-
 # ── Groq rewriter (live) ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -161,37 +93,3 @@ async def test_groq_rewrite_academic_bypass():
     assert result == academic
 
 
-# ── Cross-service: Qdrant + Zilliz parallel ──────────────────────────────────
-
-@pytest.mark.asyncio
-@requires_pymilvus
-async def test_parallel_search_both_return():
-    """
-    Both Qdrant and Zilliz should return results when called in parallel,
-    matching the hybrid search pattern.
-    """
-    import asyncio
-    from app.qdrant_svc import search_dense, _client
-    from app.zilliz_svc import search_sparse, _reset_client
-
-    _client.cache_clear()
-    _reset_client()
-
-    query_vec = np.random.rand(1024).astype(np.float32).tolist()
-    sparse_dict = {6: 0.3, 29: 0.25, 1600: 0.2}
-
-    dense_results, sparse_results = await asyncio.gather(
-        search_dense(query_vec, limit=5),
-        search_sparse(sparse_dict, limit=5),
-    )
-
-    assert len(dense_results) > 0, "Dense search returned nothing"
-    assert len(sparse_results) > 0, "Sparse search returned nothing"
-
-    # There should be SOME overlap between the two result sets
-    # (not guaranteed but likely for a real corpus)
-    dense_ids = {r["arxiv_id"] for r in dense_results}
-    sparse_ids = {r["arxiv_id"] for r in sparse_results}
-    print(f"[test] Dense IDs:  {dense_ids}")
-    print(f"[test] Sparse IDs: {sparse_ids}")
-    print(f"[test] Overlap:    {dense_ids & sparse_ids}")

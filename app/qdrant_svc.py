@@ -1,17 +1,19 @@
 """
 Qdrant service layer.
 
-Phase 1: Recommend API (BEST_SCORE with positive/negative IDs)
-Phase 2a: Vector search using EWMA profile embeddings
-Phase 2b: Multi-interest prefetch + RRF fusion (multiple ANN queries in one call)
+Recommend API (BEST_SCORE over raw vectors), vector search for the feed's
+interests and profiles, dense search for hybrid search, and vector fetch by
+arxiv_id, each fanned out across the shards.
 
-The collection is 'arxiv_bgem3_dense' with integer point IDs and 1024-dim BGE-M3 vectors.
+Collections hold 1024-dim BGE-M3 vectors with an `arxiv_id` payload; point IDs are
+only unique within a collection, so papers are always looked up by arxiv_id.
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import contextvars
+import time
 from collections import OrderedDict
 from functools import lru_cache
 
@@ -22,18 +24,14 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchAny,
-    MatchValue,
     RecommendStrategy,
     RecommendQuery,
     RecommendInput,
-    Prefetch,
-    FusionQuery,
-    Fusion,
     SearchParams,
     QuantizationSearchParams,
 )
 
-from app import config, db, errors
+from app import config, errors, runtime_stats
 
 
 # ── Quantization search params ───────────────────────────────────────────────
@@ -89,6 +87,30 @@ _SEARCH_PARAMS = SearchParams(
         rescore=True, oversampling=config.SEARCH_OVERSAMPLING
     ),
 )
+
+
+@lru_cache(maxsize=8)
+def _params_at(oversampling: float) -> SearchParams:
+    return SearchParams(quantization=QuantizationSearchParams(
+        rescore=True, oversampling=oversampling))
+
+
+def _search_params(oversampling: float | None) -> SearchParams:
+    """_SEARCH_PARAMS, or the same at another oversampling (the feed's)."""
+    return _SEARCH_PARAMS if oversampling is None else _params_at(float(oversampling))
+
+
+# Papers to leave out are sent to Qdrant as a filter, so each shard returns the
+# full limit of papers that are left. Filtering afterwards meant asking for twice
+# the limit, and every extra result is another stored vector read from disk at
+# rescoring. A set larger than this is filtered afterwards, the old way.
+_INLINE_EXCLUDE_MAX = 5000
+
+
+def _exclude_filter(exclude) -> Filter | None:
+    if not exclude:
+        return None
+    return Filter(must_not=[FieldCondition(key="arxiv_id", match=MatchAny(any=sorted(exclude)))])
 
 
 # ── uint8 collection support ─────────────────────────────────────────────────
@@ -172,7 +194,7 @@ def _active_backends() -> list[str]:
     return backends
 
 
-async def _fanout(make_coro, label: str) -> list:
+async def _fanout(make_coro, label: str, deadline_s: float | None = None) -> list:
     """Run make_coro() once per active backend, concurrently.
 
     `make_coro` is a zero-arg callable returning a NEW coroutine per call --
@@ -181,14 +203,24 @@ async def _fanout(make_coro, label: str) -> list:
     Returns one result per backend, with failures replaced by []. A failing
     shard costs its share of the corpus, never the whole response: freshness
     must never be able to take search down.
+
+    With `deadline_s`, a shard that has not answered by then is treated the
+    same way, so one slow shard cannot hold the response for the client's 30 s
+    timeout. If no shard has answered, the first answer is waited for instead:
+    a late result beats an empty one. Each shard's time is kept per label in
+    /healthz/runtime, and each late shard is counted.
     """
     backends = _active_backends()
 
     async def one(backend: str):
         # Each gather() branch becomes a Task with its own copy of the context,
         # so these use_backend() scopes cannot observe each other's ContextVar.
+        t0 = time.monotonic()
         with use_backend(backend):
-            return await make_coro()
+            res = await make_coro()
+        runtime_stats.record(f"shard:{label}",
+                             {f"{backend}_ms": int((time.monotonic() - t0) * 1000)})
+        return res
 
     if len(backends) == 1:
         try:
@@ -197,15 +229,23 @@ async def _fanout(make_coro, label: str) -> list:
             errors.report("qdrant_svc", f"{label}: backend {backends[0]} failed", e)
             return [[]]
 
-    settled = await asyncio.gather(
-        *(one(b) for b in backends), return_exceptions=True)
+    tasks = [asyncio.ensure_future(one(b)) for b in backends]
+    done, pending = await asyncio.wait(tasks, timeout=deadline_s or None)
+    if not done:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
     out = []
-    for backend, res in zip(backends, settled):
-        if isinstance(res, BaseException):
-            print(f"[qdrant_svc] {label}: shard {backend} failed: {res}")
+    for backend, task in zip(backends, tasks):
+        if task in pending:
+            # The worker thread finishes its call regardless; only the wait ends.
+            task.cancel()
+            runtime_stats.count(f"shard_late_{backend}")
+            print(f"[qdrant_svc] {label}: shard {backend} missed the {deadline_s} s deadline")
+            out.append([])
+        elif task.exception() is not None:
+            print(f"[qdrant_svc] {label}: shard {backend} failed: {task.exception()}")
             out.append([])
         else:
-            out.append(res)
+            out.append(task.result())
     return out
 
 
@@ -286,57 +326,6 @@ _client.cache_clear = _client_for.cache_clear
 _client.cache_info = _client_for.cache_info
 
 
-# ── ID lookup ─────────────────────────────────────────────────────────────────
-
-async def lookup_qdrant_ids(arxiv_ids: list[str]) -> dict[str, int]:
-    """
-    Return {arxiv_id: qdrant_point_id} for every id that exists in the
-    collection.  Checks the local SQLite cache first; fetches missing ones
-    via Qdrant payload filter (requires the arxiv_id keyword index).
-    """
-    if not arxiv_ids:
-        return {}
-
-    # 1. Pull what we already know from SQLite
-    cached = await db.get_qdrant_ids_batch(arxiv_ids)
-    missing = [aid for aid in arxiv_ids if aid not in cached]
-
-    if missing:
-        # 2. Ask Qdrant: filter by arxiv_id
-        loop = asyncio.get_event_loop()
-        try:
-            results = await _in_executor(_scroll_by_arxiv_ids,
-                missing,
-            )
-        except Exception:
-            results = {}
-
-        # 3. Persist new mappings
-        for arxiv_id, point_id in results.items():
-            await db.save_qdrant_id(arxiv_id, point_id)
-            cached[arxiv_id] = point_id
-
-    return cached
-
-
-def _scroll_by_arxiv_ids(arxiv_ids: list[str]) -> dict[str, int]:
-    """
-    Sync helper: scroll Qdrant filtering by arxiv_id payload.
-    Requires the keyword index created during setup.
-    """
-    client = _client()
-    pts, _ = client.scroll(
-        collection_name=_collection(),
-        scroll_filter=Filter(
-            must=[FieldCondition(key="arxiv_id", match=MatchAny(any=arxiv_ids))]
-        ),
-        limit=len(arxiv_ids),
-        with_payload=True,
-        with_vectors=False,
-    )
-    return {p.payload["arxiv_id"]: p.id for p in pts}
-
-
 # ── Recommend ─────────────────────────────────────────────────────────────────
 
 async def recommend(
@@ -344,12 +333,16 @@ async def recommend(
     negative_arxiv_ids: list[str],
     seen_arxiv_ids: set[str],
     limit: int = config.REC_LIMIT,
+    *,
+    oversampling: float | None = None,
+    deadline_s: float | None = None,
 ) -> list[str]:
     """
     Call Qdrant Recommend API.
 
     Returns a list of arxiv_ids (up to `limit`) sorted by Qdrant score,
-    excluding papers the user has already seen.
+    excluding papers the user has already seen. `oversampling` and
+    `deadline_s` are the feed's (see search_by_vector_with_scores).
     """
     # Resolve arxiv_ids to VECTORS, not point IDs.
     #
@@ -371,11 +364,14 @@ async def recommend(
         return []
 
     # BEST_SCORE stays correct under sharding: the max over per-shard bests is
-    # the global best. Seen papers are filtered in Python -- the payload holds
-    # no per-user state to filter on.
+    # the global best. Seen papers go to Qdrant as a filter on arxiv_id, and are
+    # filtered again here in case a shard ignores it.
+    inline = len(seen_arxiv_ids) <= _INLINE_EXCLUDE_MAX
+    excl = seen_arxiv_ids if inline else None
+    fetch = limit if inline else limit * 2
     per_backend = await _fanout(
-        lambda: _in_executor(_run_recommend, pos, neg, limit * 2),
-        "recommend",
+        lambda: _in_executor(_run_recommend, pos, neg, fetch, excl, oversampling),
+        "recommend", deadline_s,
     )
 
     scored = [
@@ -392,6 +388,8 @@ def _run_recommend(
     pos_vectors: list[list[float]],
     neg_vectors: list[list[float]],
     limit: int,
+    exclude=None,
+    oversampling: float | None = None,
 ) -> list:
     """Sync helper — RecommendQuery over raw vectors, not point IDs.
 
@@ -409,9 +407,10 @@ def _run_recommend(
             )
         ),
         limit=limit,
+        query_filter=_exclude_filter(exclude),
         with_payload=True,
         with_vectors=False,
-        search_params=_SEARCH_PARAMS,
+        search_params=_search_params(oversampling),
     )
     return result.points
 
@@ -554,22 +553,11 @@ def _scroll_vectors_by_arxiv_ids(arxiv_ids: list[str]) -> list:
     return points
 
 
-def _get_vectors_by_ids(point_ids: list[int]) -> list:
-    """Sync helper: retrieve points with their vectors."""
-    client = _client()
-    points = client.retrieve(
-        collection_name=_collection(),
-        ids=point_ids,
-        with_payload=True,
-        with_vectors=True,
-    )
-    return points
-
-
 async def search_by_vector(
     query_vector: list[float],
     limit: int = 20,
     exclude_ids: set[str] | None = None,
+    **kw,
 ) -> list[str]:
     """
     Raw vector search — find papers similar to a given embedding.
@@ -580,7 +568,7 @@ async def search_by_vector(
     Implemented on top of the scored variant so the shard merge happens in one
     place: ordering across shards needs scores, which the id-only form discards.
     """
-    scored = await search_by_vector_with_scores(query_vector, limit, exclude_ids)
+    scored = await search_by_vector_with_scores(query_vector, limit, exclude_ids, **kw)
     return [r["arxiv_id"] for r in scored]
 
 
@@ -589,6 +577,9 @@ async def search_by_vector_with_scores(
     limit: int = 20,
     exclude_ids: set[str] | None = None,
     with_vectors: bool = False,
+    *,
+    oversampling: float | None = None,
+    deadline_s: float | None = None,
 ) -> list[dict]:
     """
     Vector search returning both arxiv_ids AND cosine scores.
@@ -604,11 +595,18 @@ async def search_by_vector_with_scores(
     Fans out across shards. Each shard is asked for the full limit rather than
     a share of it: the age boundary between shards is arbitrary with respect to
     relevance, so pre-allocating slots would starve whichever era matched best.
+
+    `exclude_ids` are left out inside Qdrant (see _INLINE_EXCLUDE_MAX) and again
+    here. The feed passes its own `oversampling` (config.FEED_OVERSAMPLING) and
+    a shard `deadline_s`; other callers keep the search defaults.
     """
-    fetch = (limit * 2) if exclude_ids else limit
+    inline = len(exclude_ids or ()) <= _INLINE_EXCLUDE_MAX
+    excl = exclude_ids if inline else None
+    fetch = (limit * 2) if exclude_ids and not inline else limit
     per_backend = await _fanout(
-        lambda: _in_executor(_run_vector_search, query_vector, fetch, with_vectors),
-        "search_by_vector_with_scores",
+        lambda: _in_executor(_run_vector_search, query_vector, fetch, with_vectors,
+                             excl, oversampling),
+        "search_by_vector_with_scores", deadline_s,
     )
 
     exclude = exclude_ids or set()
@@ -654,16 +652,18 @@ async def search_recent(
 
 def _run_vector_search(
     query_vector: list[float], limit: int, with_vectors: bool = False,
+    exclude=None, oversampling: float | None = None,
 ) -> list:
-    """Sync helper: nearest-neighbour search by vector."""
+    """Sync helper: nearest-neighbour search by vector, leaving out `exclude`."""
     client = _client()
     result = client.query_points(
         collection_name=_collection(),
         query=_quantize_query(query_vector),
         limit=limit,
+        query_filter=_exclude_filter(exclude),
         with_payload=True,
         with_vectors=with_vectors,
-        search_params=_SEARCH_PARAMS,
+        search_params=_search_params(oversampling),
     )
     return result.points
 
@@ -681,10 +681,8 @@ async def search_dense(
     score desc.  Different from search_by_vector() which returns only
     arxiv_ids — this version returns scores needed for RRF fusion.
     """
-    loop = asyncio.get_event_loop()
     try:
-        results = await _in_executor(_run_dense_search, dense_vec, limit,
-        )
+        results = await _in_executor(_run_dense_search, dense_vec, limit)
     except Exception as e:
         print(f"[qdrant_svc] search_dense error: {e}")
         return []
@@ -694,29 +692,6 @@ async def search_dense(
         for r in results
         if r.payload.get("arxiv_id")
     ]
-
-
-def _merge_scored(lists: list[list[dict]], limit: int) -> list[dict]:
-    """Merge scored hits from several collections into one ranking.
-
-    A plain sort is only valid because the shards share a storage datatype,
-    distance and quantization config. Were one uint8, its scores would sit in a
-    much narrower band from the DC offset and the merge would silently favour
-    the other shard.
-
-    Deduplicates by arxiv_id keeping the better score. The backfill was filtered
-    against the main corpus so an overlap should not exist, but a paper
-    appearing twice in results is a visible bug and cheap to prevent here.
-    """
-    best: dict[str, dict] = {}
-    for lst in lists:
-        for r in lst:
-            a = r.get("arxiv_id")
-            if not a:
-                continue
-            if a not in best or r["score"] > best[a]["score"]:
-                best[a] = r
-    return sorted(best.values(), key=lambda r: r["score"], reverse=True)[:limit]
 
 
 async def search_dense_merged(
@@ -734,7 +709,7 @@ async def search_dense_merged(
     with weak hits. Merging full result sets lets score decide.
     """
     lists = await _fanout(lambda: search_dense(dense_vec, limit), "search_dense")
-    return _merge_scored(lists, limit)
+    return _merge_by_score(lists, limit)
 
 
 def _run_dense_search(query_vector: list[float], limit: int) -> list:
@@ -743,85 +718,6 @@ def _run_dense_search(query_vector: list[float], limit: int) -> list:
     result = client.query_points(
         collection_name=_collection(),
         query=_quantize_query(query_vector),
-        limit=limit,
-        with_payload=True,
-        with_vectors=False,
-        search_params=_SEARCH_PARAMS,
-    )
-    return result.points
-
-
-# ── Phase 2b: Multi-interest prefetch + RRF fusion ───────────────────────────
-
-async def multi_interest_search(
-    interest_vectors: list[tuple[list[float], int]],
-    short_term_vector: list[float] | None = None,
-    exclude_ids: set[str] | None = None,
-    total_limit: int = 100,
-) -> list[str]:
-    """
-    Multi-interest retrieval using Qdrant prefetch + RRF fusion.
-
-    Sends multiple ANN queries (one per interest cluster + optional session
-    vector) in a SINGLE API call.  Qdrant runs them in parallel server-side
-    and fuses results via Reciprocal Rank Fusion (k=60).
-
-    Args:
-        interest_vectors: list of (medoid_embedding, per_cluster_limit) tuples,
-                          ordered by importance (highest first)
-        short_term_vector: optional EWMA short-term session embedding
-        exclude_ids: arxiv_ids to filter out (already seen)
-        total_limit: how many candidates to return after fusion
-
-    Returns:
-        list of arxiv_ids sorted by fused relevance
-
-    Latency: ~15-25ms for 3-4 prefetch queries (single network round-trip)
-    """
-    # Build prefetch queries — one per interest cluster
-    prefetches = []
-    for vec, limit in interest_vectors:
-        prefetches.append(Prefetch(
-            query=_quantize_query(vec),
-            limit=limit,
-        ))
-
-    # Add short-term session vector if available
-    if short_term_vector is not None:
-        prefetches.append(Prefetch(
-            query=_quantize_query(short_term_vector),
-            limit=25,
-        ))
-
-    if not prefetches:
-        return []
-
-    loop = asyncio.get_event_loop()
-    try:
-        results = await _in_executor(_run_prefetch_rrf,
-            prefetches,
-            total_limit * 2 if exclude_ids else total_limit,
-        )
-    except Exception as e:
-        print(f"[qdrant_svc] multi_interest_search error: {e}")
-        return []
-
-    exclude = exclude_ids or set()
-    filtered = [
-        r.payload["arxiv_id"]
-        for r in results
-        if r.payload.get("arxiv_id") and r.payload["arxiv_id"] not in exclude
-    ]
-    return filtered[:total_limit]
-
-
-def _run_prefetch_rrf(prefetches: list[Prefetch], limit: int) -> list:
-    """Sync helper: execute prefetch queries with RRF fusion."""
-    client = _client()
-    result = client.query_points(
-        collection_name=_collection(),
-        prefetch=prefetches,
-        query=FusionQuery(fusion=Fusion.RRF),
         limit=limit,
         with_payload=True,
         with_vectors=False,

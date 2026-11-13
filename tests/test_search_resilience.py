@@ -14,7 +14,6 @@ def search_world(monkeypatch):
     monkeypatch.setattr(hs.fts_svc, 'is_available', lambda: True)
     monkeypatch.setattr(hs.groq_svc, 'rewrite', AsyncMock(return_value='rewritten topic'))
     monkeypatch.setattr(hs.qdrant_svc, 'search_dense_merged', AsyncMock(return_value=[]))
-    monkeypatch.setattr(hs.zilliz_svc, 'search_sparse', AsyncMock(return_value=[]))
     monkeypatch.setattr(hs.turso_svc, 'fetch_metadata_batch', AsyncMock(return_value={}))
     monkeypatch.setattr(hs.arxiv_svc, 'fetch_metadata_batch', AsyncMock(return_value={}))
     lexical = AsyncMock(return_value=[{'arxiv_id':'2601.00001','score':1.0}])
@@ -75,4 +74,4 @@ async def test_without_fts_or_embeddings_returns_empty_for_router_fallback(searc
     monkeypatch.setattr(hs.embed_svc, 'encode_query', fail)
     ids, meta = await hs.search('original topic', return_meta=True)
     assert ids == [] and meta['retrieval_mode'] == 'unavailable'
-    hs.zilliz_svc.search_sparse.assert_not_awaited()
+    hs.fts_svc.search_sparse.assert_not_awaited()

@@ -1,0 +1,7 @@
+{# A later page of search results, swapped in where the "More results" button was. #}
+{% for paper in papers %}
+  {% set position = start + loop.index0 %}
+  {% set source = "search" %}
+  {% include "partials/paper_card.html" %}
+{% endfor %}
+{% include "partials/search_more_button.html" %}

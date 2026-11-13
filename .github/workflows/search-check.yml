@@ -1,0 +1,45 @@
+# Nightly search-quality check (audit F24).
+#
+# 100 fixed known-answer searches through the live Space's /search page; the run
+# fails when hit@10 or MRR@10 falls below the floors in scripts/search_check.py,
+# so a dead retrieval arm, a broken reranker or an empty index shows up within a
+# day instead of when a reader notices. Results are kept as a run artifact.
+#
+# Cost: ~6 minutes of Actions time a night (private repo: ~180 of the 2,000 free
+# minutes a month) and ~5 minutes of the Space's CPU at a quiet hour. About 80
+# of the searches call the Groq rewriter, well inside its free daily quota.
+#
+# Secret PREVIEW_TOKEN (the Space's owner token): makes these the owner's
+# searches, so /admin/readers and /admin/searches leave them out. Without it the
+# check still runs, counted as one ordinary reader.
+name: Search check
+
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: search-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Run 100 known-answer searches against the Space
+        env:
+          PREVIEW_TOKEN: ${{ secrets.PREVIEW_TOKEN }}
+        run: python scripts/search_check.py --out search_check.json
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: search-check-${{ github.run_id }}
+          path: search_check.json
+          retention-days: 90
