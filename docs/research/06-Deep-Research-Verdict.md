@@ -1459,3 +1459,39 @@ Zilliz console (or delete the cluster), then delete the `ZILLIZ_*` secrets from
 the Space. Kept on purpose: the uint8 path (X8, verified a no-op on all three
 float16 shards but tied to `/healthz/ab` and two eval scripts) and the MiniLM /
 LightGBM rollbacks (X9, documented options in §3.4).
+
+### 2026-11-13 — Search: boosts sized for the cross-encoder, title auditions, landmark queries, more results and filters, a nightly check (audit F15, F16, F18, F24)
+**Decision:**
+* After the cross-encoder, the title boost (except an exact title, which keeps
+  2.0) and the citation boost are scaled by 0.3 (`_BOOST_SCALE_AFTER_CE`).
+  Without a cross-encoder pass they stay at full strength.
+* A query with "seminal", "popular", "most cited" and the like multiplies the
+  citation boost by 5, and those words are no longer required FTS terms.
+* Up to two papers from fused ranks 11–50 whose title the query names (exact
+  title, or a query of 3+ words found whole in the title) take the last places
+  in the cross-encoder's window, so they can be shown at all.
+* A search keeps its fused top 50 (`more_ids`). "More results" pages through
+  it and the year/area filters narrow it, with no new search; pages after the
+  first are in fused order. Positions continue across pages (§3.11).
+* `.github/workflows/search-check.yml` runs 100 fixed known-answer searches
+  against the live Space nightly and fails below floor hit@10 / MRR@10.
+**Supersedes:** The boost calibration "against max_rrf" for the post-cross-
+encoder ranking; the boosts were sized for RRF scores, which have no meaning
+of their own.
+**Rationale:** Replayed on 847 known-answer queries (LitSearch + synthetic)
+with the production cross-encoder's cached scores (mxbai-xsmall, 256 tokens,
+full abstracts) and the app's own `_title_match_rerank`:
+* Boosts ×0.3 after the cross-encoder: MRR@10 0.584 → 0.612 (95% CI of the gain
+  +0.018 to +0.038), top-1 50.5% → 55.3%, 83 queries better and 39 worse; every
+  query set gains (broad 0.381 → 0.409, specific 0.506 → 0.513, keyword
+  0.656 → 0.712, question 0.813 → 0.855). ×0.2 scores the same, ×0 is noisier.
+* Citations ×5 for landmark queries, every query read as asking for landmarks:
+  MRR@10 0.425 → 0.459 where the known paper has 500+ citations, 0.634 → 0.603
+  where it has fewer; ×8 gains nothing more.
+* Title auditions change nothing on this set (research questions, not titles);
+  they are for the known-item case the audit reproduced (an exact title at
+  fused rank 11 never shown). A cross-encoder window of 20 instead of 10 scores
+  the same MRR at twice the cost and is not done.
+**Action items:** Done in code. For the owner: add the Space's owner token as
+the GitHub secret `PREVIEW_TOKEN`, so the nightly check's searches stay out of
+the dashboards, and read the first run's numbers to set real floors.

@@ -91,7 +91,12 @@ _FILLER = frozenset("""a an the of for and or in on to with by is are was were b
 when where do does did there any some that this these those it its as at from into about than such can could would
 should may might will their they them we our you your i me my papers paper studies study research works work
 literature exist exists existing available explore explores exploring looking find finding examples example
-show shows give gives use used using approach approaches method methods technique techniques""".split())
+show shows give gives use used using approach approaches method methods technique techniques
+seminal landmark foundational influential famous popular classic groundbreaking iconic canonical
+highly most cited well known""".split())
+# The last two lines (2026-11-13): words asking for well-known papers. As required
+# terms they matched almost nothing, so "seminal paper on attention" lost its
+# keyword list; hybrid_search_svc.wants_landmarks weighs citations instead.
 
 
 def _terms(query: str) -> list[str]:
