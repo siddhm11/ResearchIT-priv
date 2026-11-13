@@ -131,3 +131,18 @@ async def test_every_feed_search_uses_the_feed_settings(monkeypatch):
     ranked, *_ = await recs._multi_interest_recommend(READER, state, set(), 60, query_id="q")
     assert ranked and len(asked) >= TOPICS
     assert set(asked) == {(recs.config.FEED_OVERSAMPLING, recs.config.FEED_SHARD_DEADLINE_S)}
+
+
+async def test_one_save_gets_the_scored_interest_feed(monkeypatch):
+    """Audit F19: the first personalised page used to be raw nearest neighbours
+    (Tier 3). From one save it is the interest path: scored, diversified, with
+    exploration picks."""
+    install(monkeypatch)
+    await db.init_db()
+    us._cache.clear()
+    await db.log_interaction("one-save-reader", SAVES[0], "save")
+    state = await us.ensure_loaded("one-save-reader")
+    ranked, explore, tags, _ms, timing = await recs._multi_interest_recommend(
+        "one-save-reader", state, set(), 60, query_id="q")
+    assert ranked and explore and "rerank_ms" in timing
+    assert {t["candidate_source"] for t in tags.values()} - {"exploration", "short_term_supplement"}

@@ -58,7 +58,7 @@ async def healthz_runtime():
     builds since the last restart. Search stage times overlap (the rewrite runs
     alongside encoding and retrieval), so they do not sum to `total_ms`.
     """
-    from app import abstract_svc, compute_pool, discovery_svc, local_meta, runtime_stats, turso_sync
+    from app import abstract_svc, compute_pool, discovery_svc, local_meta, ops_digest, plain_prewarm, runtime_stats, turso_sync
     # Whether user data is being copied to Turso. Only whether there was an
     # error: its text stays in the logs, since it can name the database host.
     replication = turso_sync.status()
@@ -75,6 +75,10 @@ async def healthz_runtime():
         "counters": runtime_stats.counters(),
         "sidecar_warmup": local_meta.warmup_status(),
         "starter_prewarm": discovery_svc.prewarm_status(),
+        # Errors per module since the restart and the last 20 (audit F25); the
+        # daily counts survive restarts in ops_daily.
+        "errors": {"by_module": ops_digest.by_module(), "recent": list(ops_digest.recent)},
+        "plain_prewarm": plain_prewarm.stats(),
         "full_abstracts": abstract_svc.stats(),
         "replication": replication,
     }

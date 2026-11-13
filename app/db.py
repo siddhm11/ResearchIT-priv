@@ -319,6 +319,16 @@ CREATE TABLE IF NOT EXISTS ai_daily (
     UNIQUE (day, feature, metric)
 );
 
+-- The daily operations digest (app/ops_digest.py): errors per module, boots,
+-- search and feed times, one number per UTC day per metric. Replicated.
+CREATE TABLE IF NOT EXISTS ops_daily (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    day     TEXT NOT NULL,
+    metric  TEXT NOT NULL,
+    n       INTEGER,
+    UNIQUE (day, metric)
+);
+
 -- Briefings ("Three things to know", "How it works", "Where you'd use this"),
 -- one per paper version, parser, prompt and model (app/briefing_svc.py).
 -- status: ok | insufficient | failed. Replicated: each costs a model call.

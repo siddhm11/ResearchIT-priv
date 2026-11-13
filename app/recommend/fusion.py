@@ -154,6 +154,27 @@ def merge_quota_results(
     return result
 
 
+def group_weights(sizes: dict[int, int], importance_of: dict[int, float]) -> dict[int, float]:
+    """Shares for interest groups and the short-term supplement (key -1), on one scale.
+
+    The supplement has no importance of its own, so it earns the share of the
+    pool it already holds; the interests split the rest by importance. Before
+    2026-11-13 raw importances (sums of recency weights, e.g. 4.0 and 2.0) were
+    allocated next to the supplement's share (e.g. 0.17), which demoted the
+    reader's recent session about 5x: 2 of 60 slots instead of ~10, its first
+    paper around card 31 (audit F4). A group without an importance entry
+    counts at its pool share, like the supplement.
+    """
+    total = sum(sizes.values()) or 1
+    supplement = sizes.get(-1, 0) / total
+    raw = {k: float(importance_of.get(k, n / total)) for k, n in sizes.items() if k >= 0}
+    s = sum(raw.values())
+    out = {k: ((v / s) if s > 0 else 1 / len(raw)) * (1 - supplement) for k, v in raw.items()}
+    if -1 in sizes:
+        out[-1] = supplement
+    return out
+
+
 def enforce_quota_on_ranking(
     ranked_ids: list[str],
     cluster_of: dict[str, int],
@@ -210,13 +231,10 @@ def enforce_quota_on_ranking(
         return list(ranked_ids)
 
     total = len(ranked_ids)
+    shares = group_weights({k: len(v) for k, v in groups.items()}, importance_of)
 
     def weight(key: int) -> float:
-        if key < 0:
-            # No importance to read; a supplement earns the share it already
-            # holds, so this stage neither promotes nor demotes it.
-            return len(groups[key]) / total
-        return float(importance_of.get(key, 0.0))
+        return shares[key]
 
     keys = sorted(groups, key=lambda k: (-weight(k), k))
     quotas = allocate_quotas([weight(k) for k in keys], total, min_slots=min_slots)

@@ -1495,3 +1495,42 @@ full abstracts) and the app's own `_title_match_rerank`:
 **Action items:** Done in code. For the owner: add the Space's owner token as
 the GitHub secret `PREVIEW_TOKEN`, so the nightly check's searches stay out of
 the dashboards, and read the first run's numbers to set real floors.
+
+### 2026-11-13 — Feed repairs: session share, one-save interests, interest count; Ask, plain terms, ops digest (audit F4, F19, F27, F20, F21, F25)
+**Decision:**
+* **F4** Interests and the short-term supplement share one scale
+  (`fusion.group_weights`), in the per-interest MMR budgets and in
+  `enforce_quota_on_ranking`: the supplement keeps its pool share, the
+  interests split the rest by importance. 60 slots for importances 4.0/2.0 and
+  a 10-paper session: [39, 19, 2] → [33, 17, 10]; the first session paper moves
+  from card 30 to the first page.
+* **F19** `MIN_SAVES_FOR_INTERESTS = 1`: one save runs the interest path
+  (scoring, recency, MMR, exploration); Tiers 2 and 3 are fallbacks only.
+* **F27** The number of interests is the Ward cut with the best mean
+  silhouette, one interest below `SILHOUETTE_MIN = 0.12`; the no-singleton
+  descent and singleton merge stay. Replaces the largest-gap cut.
+* **F20** Ask prompt `a2`: limitations are the paper's own, anchors never in
+  the answer; leaked LaTeXML ids are removed from answers.
+* **F21** `app/plain_prewarm.py` writes "In plain terms" ahead for each area's
+  starter first page and the week's trending papers, at most
+  `PLAIN_PREWARM_DAILY = 150` a day, stopping after 3 failed calls.
+* **F25** `ops_daily` (replicated): errors per module, boots, search/feed p50
+  and p95, late shards, per UTC day; `/healthz/runtime` `errors` shows counts
+  since the restart and the last 20; `/admin/feed` shows the last 7 days.
+**Supersedes:** CLAUDE.md §3.3 "adaptive gap-based threshold" and "From 2
+saves"; the 2026-09-30 entry's gap cut (its no-singleton rule stays).
+**Rationale:**
+* F27 measured on real paper neighbourhoods from the live shards (14 fields,
+  a seed paper and its 60 nearest each; same-interest cosine 0.63–0.76), 13
+  reader shapes × 20 readers: exactly the right number of interests 30% → 67%,
+  mean miscount 1.59 → 0.58. Single-topic readers: 20 papers → 5.2 interests
+  today, 1.8 now; 40 papers → 4.2, now 1.0. Main field plus side interests
+  (25/4/3/3/2): 2.9 → 3.4 of 5. On the owner's real history (26 papers) both
+  cuts give the same five interests.
+* F19 from the audit's pipeline run on 15 one-save readers: mean paper age
+  4.32 → 2.07 years, exploration 0 → 2 papers a page.
+* F4 is the comment's own intent ("neither promoted nor demoted") made true.
+**Action items:** Done in code. S7 (the interleave before
+`enforce_quota_on_ranking`) kept: it orders the backfilled tail, so removing
+it is not output-neutral. Engagement-scaled quota waits for exposure data from
+real readers (replicated since this date).

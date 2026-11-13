@@ -237,6 +237,15 @@ TABLES: dict[str, dict] = {
         "blobs": [],
         "paged": True,
     },
+    "ops_daily": {
+        "remote": "ops_daily",
+        "watermark": "id",
+        "wm_kind": "int",
+        "pk": ["id"],
+        "cols": ["id", "day", "metric", "n"],
+        "blobs": [],
+        "paged": True,
+    },
     "ai_daily": {
         "remote": "ai_daily",
         "watermark": "id",
@@ -315,6 +324,9 @@ REMOTE_DDL = [
         id INTEGER PRIMARY KEY, day TEXT NOT NULL, user_id TEXT NOT NULL, owner INTEGER, pages INTEGER,
         searches INTEGER, feed_pages INTEGER, opens INTEGER, saves INTEGER, passes INTEGER, asks INTEGER,
         UNIQUE (day, user_id))""",
+    """CREATE TABLE IF NOT EXISTS ops_daily (
+        id INTEGER PRIMARY KEY, day TEXT NOT NULL, metric TEXT NOT NULL, n INTEGER,
+        UNIQUE (day, metric))""",
     """CREATE TABLE IF NOT EXISTS ai_daily (
         id INTEGER PRIMARY KEY, day TEXT NOT NULL, feature TEXT NOT NULL, metric TEXT NOT NULL,
         n INTEGER, UNIQUE (day, feature, metric))""",

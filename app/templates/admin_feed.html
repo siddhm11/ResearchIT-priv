@@ -107,6 +107,28 @@
       </table>
     </div>
   </section>
+
+  <section class="ai-sec" aria-labelledby="f-ops-h">
+    <h2 id="f-ops-h">Restarts and errors, last 7 days</h2>
+    <p class="ai-note">Kept per day in Turso, so a night's outage is still here in the morning. Times are the
+      slowest 5% since the latest restart that day.</p>
+    {% if ops %}
+      <div class="ai-table-wrap">
+        <table class="ai-table">
+          <thead><tr><th scope="col">Day</th><th scope="col">Restarts</th><th scope="col">Errors</th>
+            <th scope="col">Most from</th><th scope="col">Search</th><th scope="col">First feed page</th></tr></thead>
+          <tbody>
+            {% for d in ops %}
+              <tr><th scope="row">{{ d.day }}</th><td>{{ d.boots }}</td><td>{{ d.errors }}</td>
+                <td>{{ ("%s (%d)" % d.worst) if d.worst else "—" }}</td>
+                <td>{{ ("%.1f s" % (d.search_p95 / 1000)) if d.search_p95 else "—" }}</td>
+                <td>{{ ("%.1f s" % (d.feed_p95 / 1000)) if d.feed_p95 else "—" }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}<p class="ai-empty">Nothing recorded yet.</p>{% endif %}
+  </section>
 </div>
 {% endblock %}
 
