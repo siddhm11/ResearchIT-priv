@@ -36,7 +36,7 @@ from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, briefing_svc, confi
                  hf_papers_svc, hn_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
-from app.config import COOKIE_NAME
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
 
@@ -221,7 +221,7 @@ async def paper_page(
         template = "paper_v2.html"
         context.update(await _v2_context(paper, related, request, back=back_link(request, sf, qid)))
     resp = templates.TemplateResponse(request, template, context)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
     # replaced: /healthz/runtime reports p50/p95 of the last 200 visits.
     runtime_stats.record("paper_page", {

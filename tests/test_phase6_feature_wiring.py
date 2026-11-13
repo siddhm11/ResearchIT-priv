@@ -297,7 +297,9 @@ def test_cluster_idx_is_not_a_list_position():
         centre = rng.normal(size=1024)
         centre /= np.linalg.norm(centre)
         for j in range(n):
-            v = centre + 0.25 * rng.normal(size=1024)
+            # Same-cluster cosine ~0.7, like real papers in one interest; 0.25 here
+            # was ~8x the centre's norm, i.e. random points with no clusters at all.
+            v = centre + 0.02 * rng.normal(size=1024)
             v /= np.linalg.norm(v)
             embs.append(v.astype(np.float32))
             ids.append(f"c{ci}.{j}")

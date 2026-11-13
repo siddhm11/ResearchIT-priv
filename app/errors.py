@@ -70,6 +70,15 @@ def report(module: str, message: str, exc: BaseException) -> None:
     "turso", …) so existing log filters keep working.
     """
     print(f"[{module}] {message}: {describe(exc)}")
+    # Counted per module (/healthz/runtime) and in the daily digest, which
+    # survives restarts (audit F25). Imported here: errors is imported by
+    # nearly everything, and must not import them back at module load.
+    try:
+        from app import ops_digest, runtime_stats
+        runtime_stats.count(f"error:{module}")
+        ops_digest.error(module, f"{message}: {describe(exc)}")
+    except Exception:
+        pass
 
     frames = traceback.extract_tb(exc.__traceback__)
     if not _FULL:

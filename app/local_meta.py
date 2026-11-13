@@ -63,7 +63,7 @@ _local = threading.local()
 
 def _probe() -> bool:
     """Open the sidecar once and confirm it is usable."""
-    global _conn, _probed, _available, _has_full
+    global _conn, _probed, _available, _has_full, _paper_count
     if _probed:
         return _available
     with _lock:
@@ -87,6 +87,7 @@ def _probe() -> bool:
                 return False
             _conn = conn
             _available = True
+            _paper_count = n
             _has_full = "abstract_full" in {
                 r[1] for r in conn.execute("PRAGMA table_info(papers)")}
             size_mb = os.path.getsize(path) / 1e6
@@ -169,6 +170,14 @@ def start_warmup(chunk: int = 8 << 20) -> bool:
 
 def warmup_status() -> dict:
     return dict(_warmup)
+
+
+_paper_count = 0
+
+
+def paper_count() -> int:
+    """Papers in the sidecar, counted once when it was opened (0 without one)."""
+    return _paper_count if _probe() else 0
 
 
 def stats() -> dict:

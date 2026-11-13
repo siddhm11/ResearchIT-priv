@@ -83,7 +83,7 @@
     {% elif basis.computed_at %}
       <p class="muted">No topic has risen or cooled clearly enough over the last {{ basis.weeks }} weeks to name.</p>
     {% elif basis.failed %}
-      <p class="muted">Topics can't be worked out right now. The papers above are still this week's.</p>
+      <p class="muted">Topics can't be worked out right now.{% if for_you or top or hn_lately %} The papers above are still this week's.{% endif %}</p>
     {% else %}
       <p class="muted">Topics are being worked out. They appear here a minute or so after the site starts.</p>
     {% endif %}

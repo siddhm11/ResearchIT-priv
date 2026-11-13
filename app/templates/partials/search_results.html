@@ -10,6 +10,27 @@
 {% if with_title %}
   <title>{% if query %}{{ query }} — Search{% else %}Search{% endif %} — ResearchIT</title>
 {% endif %}
+{% set start = start | default(0) %}
+{% macro search_filters() %}
+  {# Year and area narrow the search's top 50; no new search runs (audit F18). #}
+  {# The query comes from the search box (hx-include), so it is written once on the page. #}
+  <form class="search-filters" hx-get="/search" hx-target="#search-results" hx-push-url="true"
+        hx-trigger="change" hx-include="#search-q" hx-indicator="#search-loading"
+        aria-label="Narrow these results">
+    <label>Published
+      <select name="since">
+        <option value="0">any year</option>
+        {% for y in years %}<option value="{{ y }}"{% if since == y %} selected{% endif %}>{{ y }} or later</option>{% endfor %}
+      </select>
+    </label>
+    <label>Area
+      <select name="area">
+        <option value="">all areas</option>
+        {% for key, label in areas.items() %}<option value="{{ key }}"{% if area == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+{% endmacro %}
 {% if papers %}
   <div class="stack stack-4"{% if search_meta and search_meta.cached %} data-cached{% endif %}>
 
@@ -22,6 +43,10 @@
         <span>searched as &ldquo;{{ search_meta.rewritten_query }}&rdquo;</span>
       {% endif %}
     </div>
+    {% if query and years is defined %}{{ search_filters() }}{% endif %}
+    {% if since or area %}
+      <p class="small muted" role="status">Narrowed from this search's 50 best matches.</p>
+    {% endif %}
     {% if search_meta and search_meta.retrieval_mode in ['keyword', 'arxiv_keyword'] %}
       <p class="small muted" role="status">Showing keyword matches. Semantic matches are unavailable for this search.</p>
     {% endif %}
@@ -45,10 +70,11 @@
 
     <div class="feed">
       {% for paper in papers %}
-        {% set position = loop.index0 %}
+        {% set position = start + loop.index0 %}
         {% set source = "search" %}
         {% include "partials/paper_card.html" %}
       {% endfor %}
+      {% include "partials/search_more_button.html" %}
     </div>
   </div>
 
@@ -58,7 +84,7 @@
     page's content. Note groq_time_ms OVERLAPS encode_time_ms — the stages run
     concurrently, so these do not sum to the total.
   #}
-  {% if search_meta %}
+  {% if search_meta and is_owner(request) %}
     <details class="stack" style="margin-top:1.25rem">
       <summary class="small muted" style="cursor:pointer">Pipeline timings</summary>
       <div class="search-meta" style="margin-top:.5rem">
@@ -82,6 +108,13 @@
     </details>
   {% endif %}
 
+{% elif query and (since or area) %}
+  {% if years is defined %}{{ search_filters() }}{% endif %}
+  <div class="empty">
+    <p class="empty-title">None of this search's 50 best matches fits</p>
+    <p class="empty-body">Try another year or area, or
+      <a href="/search?q={{ query | urlencode }}" hx-get="/search?q={{ query | urlencode }}" hx-target="#search-results" hx-push-url="true">show every result</a>.</p>
+  </div>
 {% elif query %}
   <div class="empty">
     <p class="empty-title">No papers matched this search</p>

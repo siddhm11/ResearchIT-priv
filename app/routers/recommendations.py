@@ -24,9 +24,9 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import card_data, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, trending_shelf, turso_svc, user_state as us
+from app import card_data, config, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, trending_shelf, turso_svc, user_state as us
 from app.config import (
-    COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
+    COOKIE_NAME, COOKIE_MAX_AGE, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
 )
 from app.templates_env import templates
@@ -43,13 +43,13 @@ from app.recommend.clustering import (
 from app.recommend.fusion import (
     allocate_quotas,
     enforce_quota_on_ranking,
+    group_weights,
     merge_quota_results,
 )
 from app.recommend.labels import label_clusters, cluster_tone
 from app.recommend.reranker import rerank_candidates
-# inject_exploration is no longer imported here: exploration is now drawn per
-# page in _build_page() from a pre-shuffled pool, so that doc 06 §3.5's "two
-# serendipitous papers per feed" holds for every page rather than once per pool.
+# Exploration is drawn per page in _build_page() from a pre-shuffled pool, so
+# doc 06 §3.5's "two serendipitous papers per feed" holds for every page.
 from app.recommend.diversity import mmr_rerank
 
 router = APIRouter(prefix="/api")
@@ -71,7 +71,11 @@ router = APIRouter(prefix="/api")
 # v11 (2026-10-16): rescaled lt/st similarities, recency 0.45, age from first
 # publication (doc 06, 2026-10-09). Those shipped on 2026-10-16 19:27 UTC under
 # the v10 label; rows logged between then and this deploy need a time split.
-_RANKER_VERSION = "v11_rescaled_pubdate"
+# v12 (2026-11-13): interests from saves, questions and opens, no category
+# suppression (doc 06, 2026-11-08: shipped under the v11 label, so rows from
+# 8 Nov to this deploy need a time split), and the feed's own Qdrant settings
+# (seen papers filtered inside Qdrant, oversampling 2; doc 06, 2026-11-13).
+_RANKER_VERSION = "v12_taste_feedq"
 
 # Minimum EWMA interactions before switching from ID-based to vector-based recs
 _MIN_EWMA_INTERACTIONS = 3
@@ -81,6 +85,15 @@ _OVERSAMPLE = 3
 
 # Short-term session context: fixed supplementary pool size
 _ST_SUPPLEMENT = 20
+
+
+def _feed_query() -> dict:
+    """How the feed asks Qdrant: its own oversampling and a shard deadline
+    (config.FEED_OVERSAMPLING; doc 06, 2026-11-13). Read per call, so a test
+    can patch config."""
+    return {"oversampling": config.FEED_OVERSAMPLING,
+            "deadline_s": config.FEED_SHARD_DEADLINE_S or None}
+
 
 # ── Paginated feed ───────────────────────────────────────────────────────────
 #
@@ -270,7 +283,7 @@ async def _serve_recommendations(
     page = max(1, page)
 
     def _with_cookie(resp):
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
     def _empty_resp():
@@ -540,6 +553,7 @@ async def _build_feed(
             negative_arxiv_ids=state.negative_list,
             seen_arxiv_ids=seen,
             limit=_FEED_POOL,
+            **_feed_query(),
         )
         explore, tags = [], {
             aid: {
@@ -592,11 +606,11 @@ _TIER_BY_SOURCE = {
     "ewma_longterm": 2,
 }
 
-# What the user gets at each step up, keyed by the tier they are ON now.
+# What the user gets at each step up, keyed by the tier they are ON now. From one
+# save the multi-interest feed runs (MIN_SAVES_FOR_INTERESTS = 1), so Tiers 2 and
+# 3 serve only when it failed and have nothing to promise (doc 06, 2026-11-13).
 _NEXT_UNLOCK = {
     0: (REC_MIN_POSITIVES, "papers matched to your library"),
-    3: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
-    2: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
 }
 
 
@@ -926,6 +940,7 @@ async def _multi_interest_recommend(
                 query_vector=c.medoid_embedding.tolist(),
                 limit=quota * _OVERSAMPLE,
                 exclude_ids=seen,
+                **_feed_query(),
             )
             for c, quota in zip(clusters, quotas)
         ]
@@ -957,6 +972,7 @@ async def _multi_interest_recommend(
                 query_vector=st_vec.tolist(),
                 limit=_ST_SUPPLEMENT,
                 exclude_ids=seen | candidate_set,
+                **_feed_query(),
             )
             timing["st_search_ms"] = int((time.time() - t0_st) * 1000)
             for hit in st_scored:
@@ -1171,17 +1187,12 @@ async def _multi_interest_recommend(
                 top_k=limit,
             )
         else:
-            # The short-term supplement (-1) has no importance of its own, so
-            # it earns the share of the pool it already holds — neither
-            # promoted nor demoted relative to the real interests.
-            total_cands = len(reranked_ids)
+            # One scale for interests and the short-term supplement (-1): the
+            # supplement keeps the share of the pool it holds, the interests
+            # split the rest by importance (fusion.group_weights; audit F4).
             keys = list(groups)
-            weights = [
-                importance_by_idx.get(k, len(groups[k]) / total_cands)
-                if k >= 0 else len(groups[k]) / total_cands
-                for k in keys
-            ]
-            budgets = allocate_quotas(weights, total_slots=limit, min_slots=1)
+            shares = group_weights({k: len(v) for k, v in groups.items()}, importance_by_idx)
+            budgets = allocate_quotas([shares[k] for k in keys], total_slots=limit, min_slots=1)
 
             per_group: list[list[str]] = []
             for k, budget in zip(keys, budgets):
@@ -1218,8 +1229,7 @@ async def _multi_interest_recommend(
         # serendipitous papers per FEED, and with pagination a "feed" is one
         # page — so the injection happens per page in _build_page(), against
         # this pool. Injecting once over a 60-deep pool would have both diluted
-        # the ratio and stranded every exploration pick on the last page,
-        # because inject_exploration appends.
+        # the ratio and stranded every exploration pick on the last page.
         mmr_set = set(mmr_selected)
         explore_pool = [aid for aid in reranked_ids if aid not in mmr_set]
 
@@ -1375,4 +1385,5 @@ async def _ewma_recommend(
         query_vector=query_vec,
         limit=limit,
         exclude_ids=seen,
+        **_feed_query(),
     )

@@ -359,3 +359,22 @@ def test_asking_about_a_paper_is_recorded_as_a_taste_signal(world):
     rows = asyncio.run(db.get_user_interactions("asker", event_types=["ask"]))
     assert [r["paper_id"] for r in rows] == [AID]
     assert asyncio.run(db.get_user_interactions("refused-asker", event_types=["ask"])) == []
+
+
+# ── Audit F20: anchors in prose, and whose limitations ───────────────────────
+
+def test_paragraph_ids_never_reach_the_reader():
+    from app.ask_svc import strip_anchors, verify
+    assert strip_anchors("It fails on long inputs (S5.SS1.p3).") == "It fails on long inputs."
+    assert strip_anchors("As shown in S2.F1, accuracy drops [S4.p2, S4.p3] sharply.") == \
+        "As shown in the paper, accuracy drops sharply."
+    assert strip_anchors("GPT-4, version 2.1, on S3 storage.") == "GPT-4, version 2.1, on S3 storage."
+    out = verify({"answer": "Training needs 8 GPUs (S4.p2).", "cites": ["S4.p2"], "quotes": []},
+                 [{"anchor": "S4.p2", "text": "We train on 8 GPUs.", "label": "§4"}])
+    assert out["kind"] == "answer" and out["answer"] == "Training needs 8 GPUs."
+
+
+def test_the_prompt_asks_for_the_papers_own_limitations():
+    from app.ask_svc import SYSTEM
+    assert "THIS paper's own" in SYSTEM and "never the limitations it describes in earlier work" in SYSTEM
+    assert "Never write an anchor" in SYSTEM

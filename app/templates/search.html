@@ -22,7 +22,7 @@
     #}
     <h1 class="issue-title">Find papers</h1>
     <div class="issue-line">
-      <span>1.8M arXiv papers</span>
+      <span>{{ corpus_label() }} arXiv papers</span>
       <span class="sep">·</span>
       <span>matched by meaning, not keywords</span>
     </div>
@@ -38,7 +38,7 @@
       <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
     </svg>
     <input type="search" name="q" id="search-q" value="{{ query }}"
-           placeholder="Search 1.8M papers…"
+           placeholder="Search {{ corpus_label() }} papers…"
            aria-label="Search papers"
            {% if not query %}autofocus{% endif %} />
     <button class="btn btn-primary btn-sm" type="submit">Search</button>
@@ -56,7 +56,7 @@
   <div id="search-loading" class="htmx-indicator htmx-indicator--block">
     <div class="search-status" role="status" aria-live="polite">
       <span class="spinner"></span>
-      <span>Searching 1.8M papers…</span>
+      <span>Searching {{ corpus_label() }} papers…</span>
       <span class="search-status-time" data-search-elapsed aria-hidden="true">0.0s</span>
     </div>
     <p class="search-status-hint" data-search-hint>

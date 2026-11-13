@@ -19,7 +19,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from app import db
-from app.config import APP_TITLE, COOKIE_NAME
+from app.config import APP_TITLE, COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
                          health, collections, paper, figures, trending)
@@ -47,7 +47,7 @@ async def lifespan(app: FastAPI):
         await loop.run_in_executor(None, embed_svc.get_model)
         print("[main] BGE-M3 model loaded -- hybrid search ready")
     except Exception as e:
-        print(f"[main] BGE-M3 not loaded ({e}) -- search will fall back to arXiv API")
+        print(f"[main] BGE-M3 not loaded ({e}) -- search will be keyword-only (FTS5)")
     
     # Eagerly warm up Cross-Encoder Reranker at startup (graceful fallback)
     try:
@@ -92,9 +92,6 @@ async def lifespan(app: FastAPI):
         print("[main] sidecar page-cache warm-up started")
     from app import discovery_svc
     discovery_svc.start_prewarm()
-    from app.discovery_runtime import DiscoveryRuntime
-    app.state.discovery = DiscoveryRuntime()
-    await app.state.discovery.start()
     from app import ai_usage, analytics, figure_prewarm, hn_svc, keep_warm, trending_shelf, trending_topics
     await keep_warm.start()
     await figure_prewarm.start()
@@ -103,6 +100,9 @@ async def lifespan(app: FastAPI):
     await hn_svc.start()
     await ai_usage.start()
     await analytics.start()
+    from app import ops_digest, plain_prewarm
+    await ops_digest.start()
+    await plain_prewarm.start()
     try:
         yield
     finally:
@@ -112,10 +112,11 @@ async def lifespan(app: FastAPI):
         # after it and the Turso flush below, losing the last minute of saves
         # (audit F8). The flush stays last so it carries what these write.
         for name, stop in (
-            ("discovery", app.state.discovery.stop), ("keep_warm", keep_warm.stop),
+            ("keep_warm", keep_warm.stop),
             ("figure_prewarm", figure_prewarm.stop), ("trending_shelf", trending_shelf.stop),
             ("trending_topics", trending_topics.stop), ("hn_svc", hn_svc.stop),
-            ("ai_usage", ai_usage.stop), ("analytics", analytics.stop),
+            ("ai_usage", ai_usage.stop), ("analytics", analytics.stop), ("ops_digest", ops_digest.stop),
+            ("plain_prewarm", plain_prewarm.stop),
             ("abstract_svc", abstract_svc.stop), ("paper_source_svc", paper_source_svc.stop),
             ("llm_router", llm_router.aclose), ("starter_prewarm", discovery_svc.stop_prewarm),
         ):
@@ -284,11 +285,11 @@ async def home(
         else:
             # Brand new user → onboarding
             resp = RedirectResponse("/onboarding", status_code=302)
-            resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+            resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
             return resp
     elif not onboarding_state["onboarding_completed"]:
         resp = RedirectResponse("/onboarding", status_code=302)
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
     from app import user_state as us
@@ -322,7 +323,7 @@ async def home(
             "issue_number": await db.count_feed_issues(user_id),
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 

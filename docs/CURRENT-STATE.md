@@ -153,22 +153,10 @@ vector/HTTP probes, exact-vs-ANN agreement and optional human relevance metrics.
 See `reports/recommendations/README.md`. Missing model/service prerequisites
 are reported as blocked, never as successful semantic evaluations.
 
-### Local source pipeline implementation
+### HF discovery shadow pipeline (removed 2026-11-13)
 
-`discovery_store.py`, `discovery_worker.py`, `discovery_shadow.py` and
-`scripts/hf_discovery.py` implement persistent dated source observations, a
-single-host periodic worker, bounded metadata/embedding preparation, freshness
-eligibility, scratch-profile baseline capture and source-capped offline comparison.
-See HF-DISCOVERY-OPERATIONS.md. Readiness is local/shadow only; no cloud indexing
-or serving integration is enabled. The attempted live collection failed with
-ConnectError. Synthetic demonstrations never count as real relevance evidence.
+The opt-in shadow pipeline (`discovery_store/worker/shadow/runtime`,
+`scripts/hf_discovery.py`, `/healthz/discovery`) was never served and was
+superseded by the trending shelf. Removed in the audit clean-up (X3); see git
+history for the code.
 
-### Shadow worker lifecycle follow-up (2026-09-25)
-
-The FastAPI lifespan now starts/stops an opt-in shadow scheduler via
-`HF_DISCOVERY_MODE=shadow`, with the same store lock as the CLI. The new
-`/healthz/discovery` endpoint reports cached scheduler/collection/preparation
-status and explicitly reports `serving_enabled=false`. Shared model-loading
-failures no longer consume candidate retry budgets. Local network/runtime
-restrictions still block live validation; production settings were not changed.
-See `HF-DISCOVERY-OPERATIONS.md` for configuration and remaining serving gates.

@@ -6,7 +6,7 @@ GET /search?q=<query>
   – Returns partial <div id="search-results"> on HTMX request (hx-target swap)
 
 Phase 3 replaces the arXiv keyword API with:
-  LLM rewrite → BGE-M3 encode → Qdrant dense + Zilliz sparse → RRF → rerank
+  LLM rewrite → BGE-M3 encode → Qdrant dense + FTS5 keyword → RRF → rerank
 
 Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
   with arXiv API as fallback for papers not in Turso.
@@ -16,7 +16,7 @@ import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, search_cache, turso_svc, user_state as us, hybrid_search_svc
-from app.config import COOKIE_NAME, ARXIV_MAX_RESULTS
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
 router = APIRouter()
@@ -32,6 +32,48 @@ _PAPER_QUERY = re.compile(
     re.IGNORECASE)
 
 
+# ── More results and filters (audit F18) ─────────────────────────────────────
+# A search keeps the fused top 50 (search_meta["more_ids"]). Later pages and the
+# year/area filters read that list, so they cost a metadata read from the local
+# sidecar and nothing else: no encode, no rewrite, no cross-encoder. Pages after
+# the first are in fused order; only the first was cross-encoded.
+AREAS = {"cs": "Computer science", "math": "Mathematics", "stat": "Statistics", "physics": "Physics",
+         "q-bio": "Quantitative biology", "eess": "Electrical engineering", "econ": "Economics",
+         "q-fin": "Quantitative finance"}
+_PHYSICS = ("physics", "astro-ph", "cond-mat", "gr-qc", "hep-", "math-ph", "nlin", "nucl-",
+            "quant-ph")
+YEARS = (2025, 2023, 2020)
+
+
+def _in_area(paper: dict, area: str) -> bool:
+    cats = (paper.get("arxiv_categories") or paper.get("category") or "").replace(",", " ").split()
+    if area == "physics":
+        return any(c.startswith(_PHYSICS) for c in cats)
+    return any(c.split(".")[0] == area for c in cats)
+
+
+def _keeps(paper: dict, since: int, area: str) -> bool:
+    from app.local_meta import pub_year_month
+    if since:
+        ym = pub_year_month(paper.get("arxiv_id", ""))
+        if ym is None or ym[0] < since:
+            return False
+    return not area or _in_area(paper, area)
+
+
+async def _pool(papers: list[dict], meta: dict) -> list[dict]:
+    """The shown results followed by the rest of the fused top 50, as paper dicts."""
+    more = [a for a in (meta.get("more_ids") or []) if a not in {p["arxiv_id"] for p in papers}]
+    if not more:
+        return papers
+    try:
+        rows = await turso_svc.fetch_metadata_batch(more)
+    except Exception as e:
+        print(f"[search] more results unavailable: {e}")
+        return papers
+    return papers + [dict(rows[a]) for a in more if a in rows]
+
+
 def paper_for_query(q: str) -> str | None:
     """The arXiv id a query names on its own, version stripped, or None."""
     m = _PAPER_QUERY.match(q.strip())
@@ -42,9 +84,15 @@ def paper_for_query(q: str) -> str | None:
 async def search(
     request: Request,
     q: str = "",
+    page: int = 1,
+    since: int = 0,
+    area: str = "",
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     import time
+    page = max(1, min(page, 5))
+    since = since if since in YEARS else 0
+    area = area if area in AREAS else ""
     named = paper_for_query(q)
     if named:
         target = f"/p/{named}"
@@ -64,7 +112,7 @@ async def search(
         search_meta["cached"] = True
         search_meta["total_time_ms"] = int((time.perf_counter() - start_time) * 1000)
     elif q.strip():
-        # Phase 3: Hybrid semantic search (BGE-M3 + Qdrant + Zilliz + RRF)
+        # Hybrid semantic search (BGE-M3 + Qdrant dense + FTS5 keyword + RRF)
         try:
             arxiv_ids, search_meta = await hybrid_search_svc.search(
                 q.strip(), limit=ARXIV_MAX_RESULTS, return_meta=True
@@ -128,7 +176,19 @@ async def search(
     saved_ids = {r["paper_id"] for r in feedback if r["event_type"] == "save"}
     dismissed_ids = {r["paper_id"] for r in feedback if r["event_type"] == "not_interested"}
 
-    for idx, p in enumerate(papers):
+    # Pages and filters read the kept top 50; the first unfiltered page is the
+    # search itself.
+    per_page = ARXIV_MAX_RESULTS
+    if page > 1 or since or area:
+        pool = await _pool(papers, search_meta)
+        if since or area:
+            pool = [p for p in pool if _keeps(p, since, area)]
+        start = (page - 1) * per_page
+        papers, has_more = pool[start:start + per_page], len(pool) > start + per_page
+    else:
+        start, has_more = 0, bool(search_meta.get("more_ids"))
+
+    for idx, p in enumerate(papers, start=start):
         p["saved"] = p["arxiv_id"] in saved_ids
         p["dismissed"] = p["arxiv_id"] in dismissed_ids
         p["query_id"] = query_id
@@ -151,7 +211,7 @@ async def search(
     if features.visible("SEARCH_FIGURES", request):
         papers = await card_data.enrich(papers, request)
     figure_prewarm.enqueue([p["arxiv_id"] for p in papers[:figure_prewarm.SEARCH_TOP] if p.get("arxiv_id")])
-    if q.strip() and repeat_qid is None:
+    if q.strip() and repeat_qid is None and page == 1:
         await analytics.log_search(q, query_id, len(papers), search_meta.get("retrieval_mode") or "hybrid",
                                    search_meta.get("rewritten_query"), search_meta.get("total_time_ms") or 0,
                                    features.has_preview(request),
@@ -160,11 +220,13 @@ async def search(
 
     # htmx restoring a page it has no snapshot of asks with HX-Request too, and
     # swaps the answer in as the whole body, so it gets the whole page.
+    paging = {"page": page, "since": since, "area": area, "has_more": has_more, "start": start,
+              "years": YEARS, "areas": AREAS}
     if request.headers.get("HX-Request") and not request.headers.get("HX-History-Restore-Request"):
         resp = templates.TemplateResponse(
             request,
-            "partials/search_results.html",
-            {"papers": papers, "query": q, "search_meta": search_meta, "with_title": True},
+            "partials/search_more.html" if page > 1 else "partials/search_results.html",
+            {"papers": papers, "query": q, "search_meta": search_meta, "with_title": True, **paging},
         )
     else:
         resp = templates.TemplateResponse(
@@ -175,10 +237,11 @@ async def search(
                 "query": q,
                 "has_recs": state.has_enough_for_recs(),
                 "search_meta": search_meta,
+                **paging,
             },
         )
 
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -220,7 +283,7 @@ async def search_summary(
     #
     # The overview is strictly additive, so every failure mode degrades to
     # "no overview" -- the same contract every other optional service in this
-    # app follows (BGE-M3, the cross-encoder, Zilliz, the sidecar).
+    # app follows (BGE-M3, the cross-encoder, the sidecar).
     # The same query over the same top papers reuses the overview shown before
     # (app/analytics.py), instead of asking the model again.
     from app import ai_usage

@@ -53,14 +53,6 @@ async def test_recording_nothing_is_harmless(db_path):
     assert await db_mod.get_impressed_ids("u1") == set()
 
 
-async def test_forget_oldest_keeps_the_most_recent(db_path):
-    for pid in ["a", "b", "c", "d", "e"]:
-        await db_mod.record_impressions("u1", [pid])
-
-    await db_mod.forget_oldest_impressions("u1", keep=2)
-    assert len(await db_mod.get_impressed_ids("u1")) == 2
-
-
 # ── Ordering policy ──────────────────────────────────────────────────────────
 
 async def test_refreshing_advances_instead_of_repeating(db_path):

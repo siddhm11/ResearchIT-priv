@@ -1371,3 +1371,166 @@ pin was off.
 **Action items:** Done: `groq_svc._settle`. For the owner: check whether
 `SEARCH_REWRITE_KEYWORDS` is on in the Space variables, and decide whether to
 turn it off given the recall loss above.
+
+### 2026-11-13 — The feed's Qdrant searches: seen papers filtered inside Qdrant, oversampling 2, a shard deadline (audit P2, P4)
+**Decision:** The feed's interest, session and fallback searches send the
+reader's seen papers to Qdrant as a `must_not` filter on `arxiv_id` and ask for
+exactly their limit, not twice it (sets over 5,000 ids keep the old way). They
+rescore at `FEED_OVERSAMPLING = 2` instead of search's 8, and give each shard
+`FEED_SHARD_DEADLINE_S = 2.5` s: a shard that has not answered is left out of
+that page, as a failed shard already was; if none has answered, the first
+answer is waited for. Every fan-out records each shard's time
+(`/healthz/runtime` `shard:<label>`), and late shards are counted
+(`shard_late_<shard>`). Search keeps `SEARCH_OVERSAMPLING = 8` and no deadline.
+**Supersedes:** The audit's (4 Nov) P2, one batched request per shard. Measured,
+it is no faster: the time is Qdrant's work, not the number of requests.
+**Rationale:** On the Space, 14 Tier 1 builds since 8 Nov took 3.3 s at the
+median and 11.9 s at p95, and 2.6 s / 10.7 s of that was the per-interest
+searches. Rescoring reads each candidate's stored vector from disk, and the
+feed read about 1,600 per query per shard (limit up to 100, doubled for the
+seen filter, times oversampling 8). Cold, against the live shards, with fresh
+paper vectors each run:
+* One call per search vs one batch per shard: 9.2 s vs 9.3 s (3 interests),
+  14.2 s vs 14.1 s (6 interests).
+* The real code, today vs this change: 8.9 s → 1.9 s (3 interests),
+  14.2 s → 1.9 s (6 interests). No shard missed the deadline.
+* Each interest's top 30 against today's lists: 97–99% the same papers at 2x,
+  98–100% at 4x (4x costs 3.4–3.6 s). Recall of the 200 nearest against exact
+  search on a single shard: 0.93 at 2x, 0.98 at 4x, 0.99 at 8x.
+* Each shard applies the filter itself: the two nearest papers, excluded, never
+  came back from a, b or recent.
+The feed's candidates are rescored, quota-arranged and diversified afterwards,
+so a 2–3% change at the edge of each interest's pool is not what a reader
+sees; a 9–14 s first page is.
+**Action items:** Done: `qdrant_svc` (`_exclude_filter`, `_search_params`,
+`_fanout(deadline_s)`), `recommendations._feed_query`, PHASE8 Tier 1 list. After
+deploy: read `shard:search_by_vector_with_scores` and `shard_late_*` in
+`/healthz/runtime`, and set `FEED_OVERSAMPLING=4` in the Space if a reader's
+feed looks thinner (no rebuild needed).
+
+### 2026-11-13 — What the feed showed and who follows what survive a deploy (audit F23)
+**Decision:** `feed_exposures` (append-only, id watermark, paged restore),
+`feed_impressions` (upserted, `shown_at` watermark) and `collection_follows`
+(`updated_at` watermark) are replicated to Turso with the existing
+`turso_sync` machinery. An unfollow keeps its row with `active = 0`, so the
+change replicates; `get_followed_slugs` reads `active = 1`. `/admin/feed`
+shows cards shown per day, what readers did with them (same paper, same
+`query_id`), rates by position, tier and source, and the feed's and each
+shard's speed.
+**Supersedes:** CLAUDE.md §3.4b "`feed_impressions` is not replicated" and the
+`feed_exposures` schema comment's "not replicated, highest-volume table". The
+audit's proposed daily roll-up table: replicating the log itself keeps every
+analysis possible, where a roll-up fixes the questions in advance.
+**Rationale:** On a free Space the local database starts empty on every
+deploy, and these three tables were never restored: a returning reader's
+seven-day "already shown" memory, their follows, and the only record of what
+the feed showed (the denominator for click and save rates, propensities for
+§3.11, and the input the planned engagement-scaled quota needs). The volume
+argument was made before there was traffic to measure: 1–3 readers a day now
+write a few hundred rows, against a free Turso allowance in the millions.
+`collections_svc.py` and `db.py` already said follows were replicated; they
+were not.
+**Action items:** Done: `turso_sync.TABLES` + `REMOTE_DDL`, the follows
+migration, `analytics.feed_report`, `/admin/feed`. Not replicated, on purpose:
+`cluster_snapshots` (4 KB per interest per build; rebuilt from history),
+`ui_events`, `ask_log` (local, pruned at 30 days). Revisit volume if exposures
+pass ~100k rows a month.
+
+### 2026-11-13 — Zilliz removed; audit clean-up (F26, X1–X7, F14)
+**Decision:** The Zilliz sparse arm is removed: `zilliz_svc`, its `/healthz/deep`
+ping, the ingest writer (already off by default), `pymilvus`, and the `ZILLIZ_*`
+settings. Search fuses Qdrant dense and FTS5 keyword lists; without an FTS index
+it is dense-only. Also removed: the RRF-over-interests helper
+(`multi_interest_search`, forbidden by §3.1, used only by the benchmark, which
+now runs the real per-interest quota path), the point-ID mapping
+(`lookup_qdrant_ids`, `paper_qdrant_map`, unsafe under sharding), the HF
+discovery shadow pipeline (never served, superseded by the trending shelf),
+dead helpers and settings, and two stale diagnostic scripts built on Zilliz.
+Test packages move to `requirements-dev.txt`. Cookie lifetime uses
+`COOKIE_MAX_AGE` everywhere.
+**Supersedes:** CLAUDE.md §3.1 "Zilliz is the fallback when FTS is unavailable"
+and its Zilliz schema rule; the 2026-08-12 decision to keep a sparse fallback.
+**Rationale:** The image always ships the sidecar with FTS, so production never
+used Zilliz, and it indexed only the pre-2025-06 snapshot. Its token is in git
+history; removing the service is what retires it. Each removed helper had no
+production caller (checked with grep across app, tests, scripts, templates).
+**Action items:** Done in code. For the owner: revoke the Zilliz token in the
+Zilliz console (or delete the cluster), then delete the `ZILLIZ_*` secrets from
+the Space. Kept on purpose: the uint8 path (X8, verified a no-op on all three
+float16 shards but tied to `/healthz/ab` and two eval scripts) and the MiniLM /
+LightGBM rollbacks (X9, documented options in §3.4).
+
+### 2026-11-13 — Search: boosts sized for the cross-encoder, title auditions, landmark queries, more results and filters, a nightly check (audit F15, F16, F18, F24)
+**Decision:**
+* After the cross-encoder, the title boost (except an exact title, which keeps
+  2.0) and the citation boost are scaled by 0.3 (`_BOOST_SCALE_AFTER_CE`).
+  Without a cross-encoder pass they stay at full strength.
+* A query with "seminal", "popular", "most cited" and the like multiplies the
+  citation boost by 5, and those words are no longer required FTS terms.
+* Up to two papers from fused ranks 11–50 whose title the query names (exact
+  title, or a query of 3+ words found whole in the title) take the last places
+  in the cross-encoder's window, so they can be shown at all.
+* A search keeps its fused top 50 (`more_ids`). "More results" pages through
+  it and the year/area filters narrow it, with no new search; pages after the
+  first are in fused order. Positions continue across pages (§3.11).
+* `.github/workflows/search-check.yml` runs 100 fixed known-answer searches
+  against the live Space nightly and fails below floor hit@10 / MRR@10.
+**Supersedes:** The boost calibration "against max_rrf" for the post-cross-
+encoder ranking; the boosts were sized for RRF scores, which have no meaning
+of their own.
+**Rationale:** Replayed on 847 known-answer queries (LitSearch + synthetic)
+with the production cross-encoder's cached scores (mxbai-xsmall, 256 tokens,
+full abstracts) and the app's own `_title_match_rerank`:
+* Boosts ×0.3 after the cross-encoder: MRR@10 0.584 → 0.612 (95% CI of the gain
+  +0.018 to +0.038), top-1 50.5% → 55.3%, 83 queries better and 39 worse; every
+  query set gains (broad 0.381 → 0.409, specific 0.506 → 0.513, keyword
+  0.656 → 0.712, question 0.813 → 0.855). ×0.2 scores the same, ×0 is noisier.
+* Citations ×5 for landmark queries, every query read as asking for landmarks:
+  MRR@10 0.425 → 0.459 where the known paper has 500+ citations, 0.634 → 0.603
+  where it has fewer; ×8 gains nothing more.
+* Title auditions change nothing on this set (research questions, not titles);
+  they are for the known-item case the audit reproduced (an exact title at
+  fused rank 11 never shown). A cross-encoder window of 20 instead of 10 scores
+  the same MRR at twice the cost and is not done.
+**Action items:** Done in code. For the owner: add the Space's owner token as
+the GitHub secret `PREVIEW_TOKEN`, so the nightly check's searches stay out of
+the dashboards, and read the first run's numbers to set real floors.
+
+### 2026-11-13 — Feed repairs: session share, one-save interests, interest count; Ask, plain terms, ops digest (audit F4, F19, F27, F20, F21, F25)
+**Decision:**
+* **F4** Interests and the short-term supplement share one scale
+  (`fusion.group_weights`), in the per-interest MMR budgets and in
+  `enforce_quota_on_ranking`: the supplement keeps its pool share, the
+  interests split the rest by importance. 60 slots for importances 4.0/2.0 and
+  a 10-paper session: [39, 19, 2] → [33, 17, 10]; the first session paper moves
+  from card 30 to the first page.
+* **F19** `MIN_SAVES_FOR_INTERESTS = 1`: one save runs the interest path
+  (scoring, recency, MMR, exploration); Tiers 2 and 3 are fallbacks only.
+* **F27** The number of interests is the Ward cut with the best mean
+  silhouette, one interest below `SILHOUETTE_MIN = 0.12`; the no-singleton
+  descent and singleton merge stay. Replaces the largest-gap cut.
+* **F20** Ask prompt `a2`: limitations are the paper's own, anchors never in
+  the answer; leaked LaTeXML ids are removed from answers.
+* **F21** `app/plain_prewarm.py` writes "In plain terms" ahead for each area's
+  starter first page and the week's trending papers, at most
+  `PLAIN_PREWARM_DAILY = 150` a day, stopping after 3 failed calls.
+* **F25** `ops_daily` (replicated): errors per module, boots, search/feed p50
+  and p95, late shards, per UTC day; `/healthz/runtime` `errors` shows counts
+  since the restart and the last 20; `/admin/feed` shows the last 7 days.
+**Supersedes:** CLAUDE.md §3.3 "adaptive gap-based threshold" and "From 2
+saves"; the 2026-09-30 entry's gap cut (its no-singleton rule stays).
+**Rationale:**
+* F27 measured on real paper neighbourhoods from the live shards (14 fields,
+  a seed paper and its 60 nearest each; same-interest cosine 0.63–0.76), 13
+  reader shapes × 20 readers: exactly the right number of interests 30% → 67%,
+  mean miscount 1.59 → 0.58. Single-topic readers: 20 papers → 5.2 interests
+  today, 1.8 now; 40 papers → 4.2, now 1.0. Main field plus side interests
+  (25/4/3/3/2): 2.9 → 3.4 of 5. On the owner's real history (26 papers) both
+  cuts give the same five interests.
+* F19 from the audit's pipeline run on 15 one-save readers: mean paper age
+  4.32 → 2.07 years, exploration 0 → 2 papers a page.
+* F4 is the comment's own intent ("neither promoted nor demoted") made true.
+**Action items:** Done in code. S7 (the interleave before
+`enforce_quota_on_ranking`) kept: it orders the backfilled tail, so removing
+it is not output-neutral. Engagement-scaled quota waits for exposure data from
+real readers (replicated since this date).
