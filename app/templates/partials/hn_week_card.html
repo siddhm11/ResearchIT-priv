@@ -1,0 +1,26 @@
+{#
+  "Back on HN this week" on /trending/lasting: a lasting paper HN linked in the
+  last hn_svc.WEEK_DAYS days and the thread that brought it up. Expects `paper`
+  (hn_svc.week_cards, instrumented by the route) and `source`. The tag says
+  why it is here: back after years without a link, new to the list, or its
+  place on the list.
+#}
+{% set _q = ["qid=" ~ paper.query_id, "sf=" ~ source, "pos=" ~ paper.position,
+             "src=" ~ paper.candidate_source, "prop=" ~ paper.propensity,
+             "pol=" ~ paper.policy_id] %}
+{% set wt = paper.week_thread %}
+<li class="hn-wk">
+  {% if paper.comeback_days %}
+    {% set yrs = (paper.comeback_days / 365.25) | round(0, 'floor') | int %}
+    <span class="hn-tag hn-tag--back">Back after {{ "a year" if yrs <= 1 else yrs ~ " years" }}</span>
+  {% elif paper.just_joined %}
+    <span class="hn-tag">New to the list</span>
+  {% else %}
+    <span class="hn-tag hn-tag--quiet">#{{ paper.rank }} on the list</span>
+  {% endif %}
+  <a class="hn-wk-title tex" href="/p/{{ paper.arxiv_id }}?{{ _q | join('&') }}">{{ paper.title }}</a>
+  {% if wt %}
+    <p class="hn-wk-via"><a href="{{ wt.url }}" target="_blank" rel="noopener">{% if wt.submitted %}posted to HN{% else %}in “{{ (wt.title or "an HN thread") | truncate(70) }}”{% endif %} ↗</a>{% if wt.points and wt.points > 1 %} · {{ wt.points | commafy }} points{% endif %}</p>
+  {% endif %}
+  <p class="hn-wk-m">{{ paper.week_people }} {{ "person" if paper.week_people == 1 else "people" }} this week · {{ paper.hn.people | commafy }} since {{ paper.hn.first_year }}</p>
+</li>

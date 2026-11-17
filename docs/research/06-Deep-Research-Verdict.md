@@ -1371,3 +1371,50 @@ pin was off.
 **Action items:** Done: `groq_svc._settle`. For the owner: check whether
 `SEARCH_REWRITE_KEYWORDS` is on in the Space variables, and decide whether to
 turn it off given the recall loss above.
+
+### 2026-11-17 — Lasting, redesigned: the chart, this week, comebacks, quotes and the story
+**Decision:** `/trending/lasting` (switch `HN_LASTING`) leads with what changes
+and shows why people link a paper. Same counting rule, same list order.
+* **The chart:** every listed lasting paper as one line from its first HN link
+  to its latest, a dot per month someone new linked it, stacked by first link.
+  `hn_svc.strata` builds it once a load; `static/lasting.js` fetches
+  `/trending/lasting/strata.json` (77 KB gzipped for 1,815 papers) after the
+  page has drawn. Hover, tap or keyboard names a paper; opening one is a plain
+  `/p/<id>` visit with no ranking fields, so §3.11 click attribution is not
+  invented. Shown on page 1 of Most lasting / Closest to you, unfiltered.
+* **Back on HN this week:** lasting papers linked in the last 7 days (up to 8):
+  comebacks first, then new to the list, then by people this week. Policy
+  `hn_lasting_week_v1`, own query_id, exposures recorded with the list's.
+* **Two views:** Comebacks (linked in the last 30 days after 365+ days with no
+  link: 18 of 2,034 on 17 Nov) and Just joined (third new-voice month within
+  92 days: 79). Policies `hn_lasting_comebacks_v1`, `hn_lasting_joined_v1`.
+* **The lifeline:** a tick per new-voice month on one shared axis (January 2007
+  to now) and one height scale (sqrt of new people, full at 6, the 99th
+  percentile month), never the paper's own maximum: rows compare only when
+  their scales agree.
+* **The quote:** at most one passage per paper, cut word for word from a
+  comment that links it, links removed, linking back to the comment. Shown only
+  when it praises or explains the paper; never a question, a quotation of
+  someone else, a bibliography line, a reading list (2+ links or 3+ papers), a
+  rude comment, or a sentence the removed link was part of. On the top 100,
+  17 get a quote. A plain "sentence around the link" rule gave a weak or
+  off-topic quote for about 10 of the top 30, including #1, which is why
+  coverage was traded for quality. Comment text is read at load, used and
+  dropped.
+* **The story:** first link, busiest year (5+ people), the largest thread it
+  came up in (labelled as that thread's points, never the paper's) and its
+  latest link.
+* Filters are three menus on one line; Save on these rows is outlined, not solid.
+**Supersedes:** The 2026-11-03 entry's row design (bar per year, chips in three
+rows). The counting rule, the list order and the other views are unchanged.
+**Rationale:** The page had the right data and showed the least interesting
+part of it. The ranking barely moves day to day; "this week" and comebacks
+change weekly, which is a reason to return (the 17 Nov plan named retention as
+the problem). DAIR.AI's Hacker Papers shows counts and dated threads but no
+voice; the quote is what this page adds.
+**Action items:** Done in `app/hn_svc.py`, `app/routers/trending.py`,
+`lasting.html`, `partials/hn_row.html`, `partials/hn_week_card.html`,
+`static/lasting.js`; tests `tests/test_hn_lasting_v2.py`,
+`tests/test_e2e_lasting.py` (needs a server with HN data). Next: have the Groq
+chain pick a quote from the candidates (no rewriting) and store picks in a new
+Turso table, for coverage beyond 17%. That needs the owner's OK.

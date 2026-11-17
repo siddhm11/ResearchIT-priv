@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {#
   /trending/lasting (app/routers/trending.py, switch HN_LASTING): the papers
-  Hacker News keeps coming back to, from app/hn_svc.py. One list per page, so
-  a paper is never on it twice: "Closest to you" (the reader's interests and
-  areas, trending_shelf.rank) or "All lasting" (the whole list in order, by
-  area, LASTING_PAGE rows a page). The footnote says how a paper gets on it.
+  Hacker News keeps coming back to, from app/hn_svc.py.
+
+  Top to bottom: the chart of every lasting paper (static/lasting.js draws it
+  from /trending/lasting/strata.json; the page is whole without it), "Back on
+  HN this week" (a reason to come back: the list changes every week, the
+  ranking hardly at all), the views as tabs, the filters as three menus on
+  one line, then the list, one view per page so a paper is on it once.
 #}
 {% block title %}Lasting on Hacker News — ResearchIT{% endblock %}
 {% block content %}
@@ -12,7 +15,7 @@
   <header class="issue">
     <div class="issue-kicker">Hacker News, 2007 to today</div>
     <h1 class="issue-title">Lasting</h1>
-    <p class="muted">Papers Hacker News keeps coming back to: each one linked by at least 3 people, in at least 3 separate months.</p>
+    <p class="muted hn-dek">The papers Hacker News keeps coming back to, some of them for nineteen years.</p>
     {% if loaded %}
       <div class="issue-line">
         <span><b>{{ total | commafy }}</b> papers</span>
@@ -27,55 +30,97 @@
   {% if not loaded %}
     <p class="muted">The list is being loaded. It appears here a minute or so after the site starts.</p>
   {% else %}
+    {% if page == 1 and not field and not year and view in ("lasting", "you") %}
+      <figure class="hn-strata" data-src="/trending/lasting/strata.json">
+        <figcaption class="hn-strata-head">
+          <span>Every lasting paper is one line, from its first link on HN to its latest, stacked by when HN found it. A dot is a month in which someone new linked it.</span>
+          <span class="hn-strata-key" aria-hidden="true"><i class="k-line"></i>first to latest link <i class="k-dot"></i>someone new</span>
+        </figcaption>
+        <div class="hn-strata-plot">
+          <canvas class="hn-strata-canvas" role="img"
+                  aria-label="{{ total | commafy }} lasting papers, each a line from its first Hacker News link to its latest, 2007 to today. Most began after 2016; links crowd into 2023 and later."></canvas>
+          <div class="hn-strata-tip" hidden></div>
+        </div>
+        <div class="hn-strata-axis" aria-hidden="true"></div>
+      </figure>
+    {% endif %}
+
+    {% if week %}
+      <section class="hn-week" aria-labelledby="hn-week-h">
+        <header class="shelf-head">
+          <h2 class="shelf-title" id="hn-week-h">Back on HN this week</h2>
+          <span class="shelf-note">Lasting papers someone linked in the last 7 days</span>
+        </header>
+        <ol class="hn-week-list">
+          {% for paper in week %}{% include "partials/hn_week_card.html" %}{% endfor %}
+        </ol>
+      </section>
+    {% endif %}
+
     {% set notes = {
       "you": "Lasting papers nearest what you save and the areas you picked. The number is each one's place on the whole list.",
       "lasting": "Most months in which someone new linked them, then most people.",
+      "comebacks": "Linked again in the last 30 days after a year or more without a single link. Longest silence first.",
+      "joined": "Made the list in the last three months: their third month with someone new. Newest first.",
       "running": "Longest time between the first link on HN and the latest.",
       "gems": "Lasting on HN but cited fewer than " ~ gem_max ~ " times, and at least " ~ gem_age ~ " years old.",
       "recent": "Lasting papers HN linked most recently.",
       "saved": "Lasting papers in your library."} %}
     {% set titles = {"you": "Closest to your interests"} %}
 
-    <nav class="topic-chips hn-views" aria-label="Views">
+    <div class="hn-browse">
+    <nav class="hn-tabs" aria-label="Views">
       {% if has_for_you %}
-        <a class="tchip{% if view == 'you' %} tchip--up{% endif %}" href="{{ link(view='you', sort='default') }}"
+        <a class="hn-tab{% if view == 'you' %} is-on{% endif %}" href="{{ link(view='you', sort='default') }}"
            {% if view == 'you' %}aria-current="page"{% endif %}>Closest to you</a>
       {% endif %}
       {% for key, label in views %}{% if key != "saved" or signed %}
-        <a class="tchip{% if view == key %} tchip--up{% endif %}" href="{{ link(view=key) }}"
-           {% if view == key %}aria-current="page"{% endif %}>{{ label }}</a>
+        <a class="hn-tab{% if view == key %} is-on{% endif %}" href="{{ link(view=key) }}"
+           {% if view == key %}aria-current="page"{% endif %}>{{ label }}{% if key in ("comebacks", "joined", "gems") %} <span class="n">{{ view_counts[key] | commafy }}</span>{% endif %}</a>
       {% endif %}{% endfor %}
     </nav>
 
-    <div class="hn-filters">
-      <div class="hn-filter" role="group" aria-label="Field">
-        <span class="hn-filter-k">Field</span>
-        <a class="hn-opt{% if not field %} is-on{% endif %}" href="{{ link(field='') }}" {% if not field %}aria-current="true"{% endif %}>All fields</a>
-        {% for key, label in fields %}
-          <a class="hn-opt{% if field == key %} is-on{% endif %}" href="{{ link(field=key) }}"
-             {% if field == key %}aria-current="true"{% endif %}>{{ label }} <span class="n">{{ by_field[key] | commafy }}</span></a>
-        {% endfor %}
-      </div>
-      <div class="hn-filter" role="group" aria-label="Published">
-        <span class="hn-filter-k">Published</span>
-        <a class="hn-opt{% if not year %} is-on{% endif %}" href="{{ link(year='') }}" {% if not year %}aria-current="true"{% endif %}>Any time</a>
-        {% for key, label, _a, _b in years %}
-          <a class="hn-opt{% if year == key %} is-on{% endif %}" href="{{ link(year=key) }}"
-             {% if year == key %}aria-current="true"{% endif %}>{{ label }}</a>
-        {% endfor %}
-      </div>
+    {% set field_label = dict(fields).get(field) or "All fields" %}
+    {% set ns = namespace(year_label="Any time") %}
+    {% for key, label, _a, _b in years %}{% if key == year %}{% set ns.year_label = label %}{% endif %}{% endfor %}
+    <div class="hn-menus">
+      <details class="hn-menu">
+        <summary><span class="k">Field</span> {{ field_label }}</summary>
+        <div class="hn-menu-pop" role="group" aria-label="Field">
+          <a class="hn-opt{% if not field %} is-on{% endif %}" href="{{ link(field='') }}" {% if not field %}aria-current="true"{% endif %}>All fields</a>
+          {% for key, label in fields %}
+            <a class="hn-opt{% if field == key %} is-on{% endif %}" href="{{ link(field=key) }}"
+               {% if field == key %}aria-current="true"{% endif %}>{{ label }} <span class="n">{{ by_field[key] | commafy }}</span></a>
+          {% endfor %}
+        </div>
+      </details>
+      <details class="hn-menu">
+        <summary><span class="k">Published</span> {{ ns.year_label }}</summary>
+        <div class="hn-menu-pop" role="group" aria-label="Published">
+          <a class="hn-opt{% if not year %} is-on{% endif %}" href="{{ link(year='') }}" {% if not year %}aria-current="true"{% endif %}>Any time</a>
+          {% for key, label, _a, _b in years %}
+            <a class="hn-opt{% if year == key %} is-on{% endif %}" href="{{ link(year=key) }}"
+               {% if year == key %}aria-current="true"{% endif %}>{{ label }}</a>
+          {% endfor %}
+        </div>
+      </details>
       {% if view != "you" %}
-      <div class="hn-filter" role="group" aria-label="Sort">
-        <span class="hn-filter-k">Sort</span>
-        {% for key, label in sorts %}
-          <a class="hn-opt{% if sort == key %} is-on{% endif %}" href="{{ link(sort=key) }}"
-             {% if sort == key %}aria-current="true"{% endif %}>{{ label }}</a>
-        {% endfor %}
-      </div>
+      <details class="hn-menu">
+        <summary><span class="k">Sort</span> {{ dict(sorts).get(sort) }}</summary>
+        <div class="hn-menu-pop" role="group" aria-label="Sort">
+          {% for key, label in sorts %}
+            <a class="hn-opt{% if sort == key %} is-on{% endif %}" href="{{ link(sort=key) }}"
+               {% if sort == key %}aria-current="true"{% endif %}>{{ label }}</a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+      {% if field or year or (sort != "default" and view != "you") %}
+        <a class="hn-clear" href="{{ link(field='', year='', sort='default') }}">Clear</a>
       {% endif %}
     </div>
 
-    <section class="shelf" aria-labelledby="hl-list">
+    <section class="shelf hn-listing" aria-labelledby="hl-list">
       <header class="shelf-head">
         <h2 class="shelf-title" id="hl-list">{{ titles.get(view) or dict(views).get(view) }}</h2>
         <span class="shelf-note">{{ notes[view] }} · {{ count | commafy }} paper{{ "" if count == 1 else "s" }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}</span>
@@ -86,6 +131,10 @@
         </ol>
       {% elif view == "saved" %}
         <p class="muted">None of the papers you saved is on the list{% if field or year %} with these filters{% endif %}. Save one here and it shows up in this view.</p>
+      {% elif view == "comebacks" and not (field or year) %}
+        <p class="muted">No lasting paper came back after a year away this month. Check again next week.</p>
+      {% elif view == "joined" and not (field or year) %}
+        <p class="muted">No paper made the list in the last three months.</p>
       {% else %}
         <p class="muted">No lasting paper matches these filters. <a href="{{ link(field='', year='') }}">Show every field and year</a>.</p>
       {% endif %}
@@ -97,6 +146,7 @@
         </nav>
       {% endif %}
     </section>
+    </div>
 
     <details class="small muted trending-method">
       <summary>How a paper gets on this list</summary>
@@ -107,7 +157,12 @@
       change, made because a single account wrote half or more of the links for about one in ten papers that
       passed the original.</p>
       <p>A link is not a vote. People link a paper to build on it, to make a point in an argument, or to
-      disagree with it, and all three count the same here.</p>
+      disagree with it, and all three count the same here. The quotes are cut word for word from a comment that
+      links the paper, with only the links removed, and are shown only when a passage explains or praises it;
+      points belong to a thread, never to the paper.</p>
+      <p>The lifeline under each paper has a tick for every month someone new linked it, on the same axis and
+      the same scale for every paper, from 2007 to now. A comeback was linked again in the last 30 days after a
+      year or more with no link at all.</p>
       <p>Hidden gems are lasting papers cited fewer than {{ gem_max }} times by other papers (Semantic Scholar's
       count), at least {{ gem_age }} years after they appeared: what HN keeps reading that research rarely cites.
       Papers with no citation count are left out, since that usually means the count is missing, not zero.{% if total_all > total %}{% set missing = total_all - total %}
@@ -117,3 +172,4 @@
   {% endif %}
 </div>
 {% endblock %}
+{% block scripts %}<script src="/static/lasting.js?v={{ static_version }}" defer></script>{% endblock %}

@@ -19,7 +19,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Cookie, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 
 from datetime import date as Date, datetime, timezone
 
@@ -231,6 +231,7 @@ async def _hn_lately(user_id: str | None, exclude: set[str]) -> list[dict]:
 LASTING_SOURCE = "hn_lasting"
 LASTING_FOR_YOU = 30
 LASTING_PAGE = 25
+LASTING_WEEK_POLICY = "hn_lasting_week_v1"
 
 
 async def _reader_rank(user_id: str | None, candidates: list[dict], exclude: set[str], size: int) -> list[dict]:
@@ -313,6 +314,13 @@ async def lasting_page(
     policy = {"you": "hn_lasting_for_you_v1", "lasting": "hn_lasting_list_v1"}.get(view, f"hn_lasting_{view}_v1")
     exposures = _instrument(shown, user_id, policy, LASTING_SOURCE, query_id,
                             start=0 if view == "you" else (page - 1) * LASTING_PAGE)
+    # "Back on HN this week": the lasting papers HN linked in the last seven
+    # days, narrowed by the same field and years, on the first page only. Its own query_id, so its
+    # positions never collide with the list's.
+    week: list[dict] = []
+    if page == 1 and view not in ("saved",):
+        week = hn_svc.week_cards(exclude=decided, year=year, field=field, this_year=this_year)
+        exposures += _instrument(week, user_id, LASTING_WEEK_POLICY, LASTING_SOURCE, str(uuid.uuid4()))
     if user_id and exposures:
         try:
             await db.record_exposures(exposures)
@@ -334,7 +342,8 @@ async def lasting_page(
     stats = hn_svc.stats()
     runtime_stats.record("hn_lasting", {"request_ms": int((time.perf_counter() - t0) * 1000)})
     return templates.TemplateResponse(request, "lasting.html", {
-        **current, "papers": shown, "page": page, "pages": pages, "count": total,
+        **current, "papers": shown, "page": page, "pages": pages, "count": total, "week": week,
+        "view_counts": {k: len(hn_svc.browse(cards, k, "default", "", "", saved, this_year)) for k, _ in hn_svc.VIEWS},
         "views": hn_svc.VIEWS, "sorts": hn_svc.SORTS, "years": buckets, "fields": hn_svc.FIELDS,
         "by_field": by_field, "has_for_you": bool(closest), "signed": bool(user_id), "link": link,
         "gem_max": hn_svc.GEM_MAX_CITATIONS, "gem_age": hn_svc.GEM_MIN_AGE,
@@ -343,6 +352,17 @@ async def lasting_page(
         "total": stats["lasting"], "total_all": stats["lasting_all"], "mentions": stats["mentions"],
         "loaded": bool(stats["loaded_at"]), "query_id": query_id, "source": LASTING_SOURCE,
         "trending_page": features.visible(trending_topics.SWITCH, request)})
+
+
+@router.get("/trending/lasting/strata.json")
+async def lasting_strata(request: Request):
+    """The chart on /trending/lasting: every listed lasting paper as a line,
+    serialised once a load (hn_svc.strata). Fetched by static/lasting.js after
+    the page has drawn; the list works without it."""
+    if not features.visible(hn_svc.SWITCH_LASTING, request):
+        return Response(status_code=404)
+    return Response(hn_svc.strata_json(), media_type="application/json",
+                     headers={"Cache-Control": "public, max-age=900"})
 
 
 # ── /trending/topics/<id>: one topic ─────────────────────────────────────────
