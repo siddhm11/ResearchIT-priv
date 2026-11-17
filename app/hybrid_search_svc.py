@@ -356,6 +356,9 @@ async def search(
                 except OverflowError:
                     bge_prob = 0.0 if bge_score < 0 else 1.0
                 bge_scores_by_id[p["arxiv_id"]] = bge_prob
+            if bge_scores_by_id:
+                # How well the best paper matches at all, for the weak-match notice.
+                search_meta["ce_top"] = round(max(bge_scores_by_id.values()), 4)
 
             # Narrow to the cross-encoded window.
             #

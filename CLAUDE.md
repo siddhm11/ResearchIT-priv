@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-11-13
+> **Last updated**: 2026-11-17
 
 ---
 
@@ -78,6 +78,7 @@ These are the hard architectural commitments. **Violating any of these is a regr
 ### 3.1 Fusion
 
 - **Search uses RRF.** (Different retrievers — dense + sparse — answering the same query. Rank fusion needs no score calibration across retrievers.) **Retained for robustness, not because it measures better** — OpenSearch's BEIR comparison puts RRF 3.86% below tuned score normalization on average and 4.81% below on SciDocs, the closest dataset to this corpus. Do not switch on that evidence alone: normalization only wins *tuned*, and this project has no ground truth to tune against yet. Land the sparse arm and an eval harness first, then settle it on our own data. See the 2026-08-12 entry in doc 06's changelog.
+- **A search with no close match says so** (best cross-encoded probability below `SEARCH_WEAK_MATCH = 0.15`): results stay, the AI overview is skipped (doc 06, 2026-11-17).
 - **Search results are kept in memory for 10 minutes** (`app/search_cache.py`; 2 when a retrieval arm was missing). Callers get copies, so per-reader fields (saved, `query_id`, position) never reach the shared entry. A reader returning to the same cached results keeps their `query_id` and is not logged again (doc 06, 2026-10-21).
 - **Search uses independent FTS5 lexical retrieval by default** when the sidecar is available. Failed BGE encodings must not disable FTS5. Without an FTS index search is dense-only; the Zilliz sparse fallback was removed (doc 06, 2026-11-13). RRF fuses actual available result lists; do not confuse configured backends with successful retrieval. One exception, switch `SEARCH_REWRITE_KEYWORDS`: a query the rewriter changed whose words no single paper contains leaves its own keyword list out (doc 06, 2026-10-23); its dense list and the title boost stay.
 - **Recommendations use importance-weighted quota with a floor.** (Different queries — K medoid queries — over the same user. RRF would let the dominant cluster dominate; quota preserves minor interests.)
@@ -138,6 +139,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` records the conditional probability at the selected slot. This is not automatically a marginal inclusion probability or a validated IPS estimator; document conditioning before counterfactual analysis.
 - Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
 - `feed_impressions`, `feed_exposures` and `collection_follows` **are** replicated to Turso (doc 06, 2026-11-13). Before that every deploy showed returning readers last week's papers again, dropped follows, and restarted the exposure log. An unfollow keeps its row with `active = 0` so replication carries it.
+- **A reader's library opens elsewhere from one private link** (`/l/<token>`, `app/routers/library.py`; doc 06, 2026-11-17). The token is never the user id. A browser with saves of its own is asked before switching, then its saves are added; switching POSTs must be same-site. `library_links` replicates; a replaced link keeps its row with `revoked = 1`.
 
 ### 3.5 Diversity
 
@@ -156,7 +158,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 
 ### 3.6 Cold start / onboarding (the hybrid verdict)
 
-IMPLEMENTED: category/seed onboarding, starter suggestions, a described interest ("In a sentence": suggests areas and opens the seed step on its papers; doc 06, 2026-10-23), and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
+IMPLEMENTED: a front page at `/` for visitors without a finished onboarding (search, the week's papers, "Personalise your feed"; never a redirect to the form; doc 06, 2026-11-17), category/seed onboarding, starter suggestions, a described interest ("In a sentence": suggests areas and opens the seed step on its papers; doc 06, 2026-10-23), and editable `/interests`. ORCID / Scholar import was removed from the current roadmap. The right onboarding is **three-layer hybrid**:
 
 1. arXiv category multi-select — used as a **filter and LightGBM feature**, NOT as the primary user vector.
 2. Author import is historical context, not a currently planned implementation.
@@ -217,6 +219,8 @@ Ranked-surface interactions must preserve available **`query_id`**, **`propensit
 - `policy_id` (string): identifies the pipeline version (`_RANKER_VERSION`).
 
 Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any position or CTR analysis by it, since two columns change how position relates to attention. Paper titles named in a search overview link to the paper (`app/overview_links.py`, added after escaping, never model markup); those links carry the search's `query_id` and the paper's rank with `sf=search_overview`, so their clicks never pass for result-list clicks.
+
+The front page's week cards are a ranked surface too (`policy_id = welcome_top_v1`, logged to `feed_exposures`).
 
 **When adding a new recommendation tier or call path**, always include these three fields in the `paper_tags` dict. The round-trip is: `recommendations.py` → paper dict → `action_buttons.html` `hx-vals` → `events.py` Form params → `db.log_interaction()`.
 
@@ -494,10 +498,10 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows) and the paid-for caches. |
+| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows, library links) and the paid-for caches. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-11-13. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-11-17. Update this date when CLAUDE.md changes.*

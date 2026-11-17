@@ -34,18 +34,32 @@
     no description — which for a product whose growth loop is people sharing
     papers is the cheapest win available.
 
-    No og:image yet: shipping one means shipping a real asset, and a card with
-    a broken image reference is worse than a card with none. summary_large_image
-    would be the card type to switch to once that exists.
+    The image is a real asset (app/static/og.png) or a paper's own figure.
   #}
+  {#
+    Links that leave the site are built from config.PUBLIC_URL: behind the
+    Space's proxy request.url says http://. The picture is the paper's first
+    figure when the page passes one (og_image), else app/static/og.png
+    (scripts/build_og_image.py). Personal pages and search results are not
+    for search engines (see also /robots.txt).
+  #}
+  {% set _path = request.url.path if request else '/' %}
+  {% set _og_image = og_image | default(public_url ~ "/static/og.png") %}
+  {% if _path.startswith(('/search', '/saved', '/history', '/interests', '/library', '/l/', '/admin', '/onboarding')) %}
+  <meta name="robots" content="noindex" />
+  {% else %}
+  <link rel="canonical" href="{{ public_url }}{{ _path }}" />
+  {% endif %}
   <meta property="og:site_name" content="ResearchIT" />
   <meta property="og:type" content="{{ og_type | default('website') }}" />
   <meta property="og:title" content="{{ _og_title }}" />
   <meta property="og:description" content="{{ _og_description }}" />
-  {% if request %}<meta property="og:url" content="{{ request.url }}" />{% endif %}
-  <meta name="twitter:card" content="summary" />
+  <meta property="og:url" content="{{ public_url }}{{ _path }}" />
+  <meta property="og:image" content="{{ _og_image }}" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{{ _og_title }}" />
   <meta name="twitter:description" content="{{ _og_description }}" />
+  <meta name="twitter:image" content="{{ _og_image }}" />
 
   <link rel="stylesheet" href="/static/styles.css?v={{ static_version }}" />
 

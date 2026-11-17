@@ -15,7 +15,8 @@ import re
 import uuid
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from app import analytics, arxiv_svc, card_data, db, features, figure_prewarm, search_cache, turso_svc, user_state as us, hybrid_search_svc
+from app import (analytics, arxiv_svc, card_data, config, db, features, figure_prewarm, runtime_stats,
+                 search_cache, turso_svc, user_state as us, hybrid_search_svc)
 from app.config import COOKIE_NAME, COOKIE_MAX_AGE, ARXIV_MAX_RESULTS
 from app.templates_env import templates
 
@@ -204,6 +205,12 @@ async def search(
     named = (search_meta.get("named_paper") or {}).get("arxiv_id")
     for p in papers:
         p["named_paper"] = bool(named) and p.get("arxiv_id") == named
+    # Nothing here is a close match (often a search that isn't about research):
+    # say so, and spend no model call on an overview of the wrong papers.
+    ce_top = search_meta.get("ce_top")
+    weak_match = bool(papers and ce_top is not None and ce_top < config.SEARCH_WEAK_MATCH and not named)
+    if weak_match and page == 1 and repeat_qid is None:
+        runtime_stats.count("search_weak_match")
 
     # A small figure beside each result that already has one saved (switch
     # SEARCH_FIGURES; local reads only, order and instrumentation untouched),
@@ -221,7 +228,7 @@ async def search(
     # htmx restoring a page it has no snapshot of asks with HX-Request too, and
     # swaps the answer in as the whole body, so it gets the whole page.
     paging = {"page": page, "since": since, "area": area, "has_more": has_more, "start": start,
-              "years": YEARS, "areas": AREAS}
+              "years": YEARS, "areas": AREAS, "weak_match": weak_match}
     if request.headers.get("HX-Request") and not request.headers.get("HX-History-Restore-Request"):
         resp = templates.TemplateResponse(
             request,

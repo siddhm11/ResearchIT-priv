@@ -79,6 +79,10 @@ LIMITS: dict[str, tuple[int, int]] = {
     "/fig": (600, 60),
     "/api/ui-event": (60, 60),
     "/api/space/search": (30, 60),
+    # Library links (app/routers/library.py): a person opens or makes one now
+    # and then; anything faster is someone guessing tokens.
+    "/l": (20, 60),
+    "/api/library-link": (10, 60),
     "/api/space": (120, 60),
 }
 

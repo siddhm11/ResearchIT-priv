@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{#
+  Opening a library link (app/routers/library.py, GET /l/{token}).
+  state "confirm": this browser has saves of its own, so ask before switching.
+  state "gone": the link was replaced, turned off or never existed.
+#}
+
+{% block title %}{{ "Open this library?" if state == "confirm" else "Link no longer works" }} — ResearchIT{% endblock %}
+
+{% block content %}
+<div class="wrap wrap--feed">
+  <section class="devlink devlink--open">
+    {% if state == "confirm" %}
+      <div class="issue-kicker">Library link</div>
+      <h1 class="issue-title">Open this library here?</h1>
+      <p class="devlink-p">This browser already has its own library with <b>{{ mine }}</b> saved paper{{ "s" if mine != 1 }}.
+        The link opens a library with <b>{{ theirs }}</b> saved paper{{ "s" if theirs != 1 }}. If you open it, this browser's saved papers and followed
+        collections are added to it, and this browser shows that library from now on.</p>
+      <p class="devlink-note">Only open library links you made yourself. Anyone with the link sees that library.</p>
+      <div class="devlink-actions">
+        <form method="post" action="/l/{{ token }}">
+          <button type="submit" class="btn btn-primary">Open it and add my {{ mine }} paper{{ "s" if mine != 1 }}</button>
+        </form>
+        <a class="btn btn-ghost" href="/saved">Keep this browser's library</a>
+      </div>
+    {% else %}
+      <div class="issue-kicker">Library link</div>
+      <h1 class="issue-title">This link no longer works</h1>
+      <p class="devlink-p">Its owner made a new link or turned it off. On the device where the library is, open
+        Library, then Other devices, to get the current link.</p>
+      <div class="devlink-actions"><a class="btn btn-primary" href="/">Go to ResearchIT</a></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

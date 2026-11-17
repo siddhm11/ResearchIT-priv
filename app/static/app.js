@@ -418,6 +418,23 @@
       }
       return;
     }
+    /* Share a paper: the phone's share sheet where there is one, else copy the link. */
+    var share = target.closest && target.closest('[data-share]');
+    if (share) {
+      e.preventDefault();
+      var url = share.getAttribute('data-share');
+      var copied = function () {
+        var t = makeToast('Link copied');
+        if (t) setTimeout(function () { closeToast(t); }, 2000);
+      };
+      if (navigator.share) {
+        navigator.share({ title: share.getAttribute('data-share-title') || 'ResearchIT', url: url })
+          .catch(function () {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(copied, function () {});
+      }
+      return;
+    }
     var copy = target.closest && target.closest('[data-copy]');
     if (copy) {
       e.preventDefault();

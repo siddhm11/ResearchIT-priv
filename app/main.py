@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, Cookie
-from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
+from fastapi.responses import (HTMLResponse, JSONResponse,
                                PlainTextResponse)
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -22,7 +22,7 @@ from app import db
 from app.config import APP_TITLE, COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
-                         health, collections, paper, figures, trending)
+                         health, collections, paper, figures, trending, library, seo)
 
 
 @asynccontextmanager
@@ -253,6 +253,8 @@ app.include_router(collections.router)
 app.include_router(paper.router)
 app.include_router(figures.router)
 app.include_router(admin.router)
+app.include_router(library.router)
+app.include_router(seo.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.
@@ -270,27 +272,24 @@ async def home(
 ):
     user_id = user_id or str(uuid.uuid4())
 
-    # Phase 5: Redirect new users to onboarding.
-    # Existing users (any interaction history) are auto-marked as onboarded.
+    # A visitor without a finished onboarding gets the front page, not the
+    # form (doc 06, 2026-11-17): search and the week's papers first, with
+    # "Personalise your feed" one click away. Anyone who has made a decision
+    # (saved, un-saved or passed, from the front page too) is marked onboarded
+    # and gets the feed.
     onboarding_state = await db.get_onboarding_state(user_id)
-    if onboarding_state is None:
-        # Existing user = has made an explicit decision. Opens do not count: a
-        # direct /p/ visit logs a `view`, and treating that as history sent
-        # shared-link visitors straight past onboarding for good.
+    if onboarding_state is None or not onboarding_state["onboarding_completed"]:
+        # Opens do not count: a direct /p/ visit logs a `view`, and treating
+        # that as history sent shared-link visitors past onboarding for good.
         interactions = await db.get_user_interactions(
             user_id, event_types=["save", "unsave", "not_interested"], limit=1)
         if interactions:
-            # Auto-mark as onboarded — don't interrupt returning users
             await db.complete_onboarding(user_id)
         else:
-            # Brand new user → onboarding
-            resp = RedirectResponse("/onboarding", status_code=302)
+            from app.routers import welcome
+            resp = await welcome.render(request, user_id, started=onboarding_state is not None)
             resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
             return resp
-    elif not onboarding_state["onboarding_completed"]:
-        resp = RedirectResponse("/onboarding", status_code=302)
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
-        return resp
 
     from app import user_state as us
     state = await us.ensure_loaded(user_id)

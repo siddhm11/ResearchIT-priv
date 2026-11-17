@@ -1534,3 +1534,58 @@ saves"; the 2026-09-30 entry's gap cut (its no-singleton rule stays).
 `enforce_quota_on_ranking`) kept: it orders the backfilled tail, so removing
 it is not output-neutral. Engagement-scaled quota waits for exposure data from
 real readers (replicated since this date).
+
+### 2026-11-17 — The front door: a front page, library links, weak-match notice, search-engine basics
+**Decision:**
+* `/` shows a front page to any visitor without a finished onboarding and
+  without a save, un-save or pass (`app/routers/welcome.py`): what ResearchIT
+  is, a search box, example searches, "Personalise your feed" (the unchanged
+  onboarding), "How the feed works", and the week's 7 most upvoted Daily
+  Papers as trending cards with Save and Pass. It replaces the redirect to
+  `/onboarding`. A save there marks onboarding done on the next visit, as
+  any decision always did. The cards are a ranked surface: `query_id`,
+  position, `propensity = 1.0` and `policy_id = welcome_top_v1` ride on each
+  and go to `feed_exposures` (§3.11).
+* A reader's library opens in another browser from one private link,
+  `/l/<token>` (128 random bits, not the user id): Library > Other devices
+  makes, replaces or turns it off. A browser with no saves of its own
+  switches at once; one with saves is asked, then its saves (where the
+  library has no decision on the paper) and follows are added. Switching
+  POSTs must come from this site (Sec-Fetch-Site / Origin). `library_links`
+  replicates to Turso. Rate limits: `/l` 20 and `/api/library-link` 10 a
+  minute per address.
+* A search whose best cross-encoded match is below `SEARCH_WEAK_MATCH = 0.15`
+  says "None of these is a close match", keeps the results, and skips the AI
+  overview. Not shown when a named paper was pinned.
+* `/robots.txt` (keeps crawlers off search, `/api/`, personal pages and
+  library links) and `/sitemap.xml` (public pages, collections, this week's
+  papers, Hacker News lasting papers, collection papers and papers with a
+  plain-language summary; at most 5,000). Links that leave the site use
+  `PUBLIC_URL` (https) for `og:url` and the canonical link; every page has a
+  preview picture, the paper's first raster figure or `static/og.png`;
+  personal pages and search results are `noindex`. Paper pages have Share.
+* Onboarding cards for High Energy Physics, Astrophysics, Condensed Matter,
+  Physics (general) and Mathematics say how much of their pre-mid-2025
+  literature the corpus holds (`AREA_COVERAGE_NOTES`).
+**Supersedes:** the Phase 5 rule "redirect new users to onboarding".
+**Rationale:**
+* Of the first 18 outside readers (24 Oct – 16 Nov), 8 never reached a feed,
+  15 came only once. The form was the whole first impression; the feed,
+  which 6 of them used heavily (25 saves), was behind it.
+* A reader is a cookie; a new device or cleared cookies lost everything, and
+  there are no accounts or email to fall back on.
+* Weak-match threshold from the top cross-encoder probability over the dense
+  top 10 (production text format, mxbai-xsmall, 256 tokens): below 0.15 are
+  10 of 30 everyday web searches ("recipe for butter chicken", "Paytm product
+  manager questions"), 1 of 100 known-answer research queries and none of 30
+  short real queries ("lora", "mamba", "black massive holes"). Short
+  everyday searches with real papers behind them ("bitcoin price today",
+  0.76) are not flagged, and should not be.
+* Coverage notes from the sidecar: papers from 2024 against the 12 months
+  from 2025-07 by primary category (hep 18%, cond-mat 32%, astro-ph 40%,
+  physics.* 49%, the five maths categories 57% with algebraic geometry and
+  PDE analysis near 25%); these fields grow a few percent a year, so the
+  ratio is close to the share held.
+**Action items:** Done in code (branch `feat/front-door`). Next: email
+digest and sign-in by email link (needs a sending address), then invite
+readers and read `/admin/feed`.

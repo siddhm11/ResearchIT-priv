@@ -288,6 +288,7 @@ templates.env.filters["is_truncated"] = _is_truncated
 from app import config  # noqa: E402  (after `templates` exists, avoids a cycle)
 
 templates.env.globals["space_app_url"] = config.SPACE_APP_URL
+templates.env.globals["public_url"] = config.PUBLIC_URL
 
 # Versioned static URLs. /static/ responses are cached for an hour, so without
 # a version in the URL a deploy could serve new HTML with the old stylesheet and

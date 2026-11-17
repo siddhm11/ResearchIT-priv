@@ -322,3 +322,18 @@ def test_fragments_that_load_after_paint_are_marked_quiet(page):
     html = get("/p/2609.31507").text
     for marker in ('class="code-slot" data-quiet', 'id="panel-plain" role="tabpanel" aria-labelledby="tab-plain" data-quiet'):
         assert marker in html
+
+
+def test_a_shared_paper_link_previews_with_its_figure_and_has_a_share_button(page, monkeypatch):
+    """doc 06, 2026-11-17: links leave the site as https, with the key figure as their picture."""
+    monkeypatch.setenv("FIGURES", "on")
+    save_source(figures=2)
+    html = get("/p/2609.31507").text
+    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/fig/2609.31507/0-' in html
+    assert f'<meta property="og:url" content="{config.PUBLIC_URL}/p/2609.31507"' in html
+    assert f'data-share="{config.PUBLIC_URL}/p/2609.31507"' in html
+
+
+def test_a_paper_without_figures_previews_with_the_site_picture(page):
+    html = get("/p/2609.31507").text
+    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/static/og.png"' in html
