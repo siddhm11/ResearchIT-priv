@@ -354,8 +354,9 @@ async def test_rows_carry_the_year_record_and_dated_threads(world, monkeypatch):
     monkeypatch.setenv("HN_LASTING", "on")
     async with client() as c:
         html = (await c.get("/trending/lasting")).text
-    assert 'class="hn-spark"' in html and 'aria-label="People who linked it each year: 2017 2, 2019 2"' in html
-    assert "<summary>3 threads</summary>" in html
+    # The year record is now the lifeline: a tick per month someone new linked it (tests/test_hn_lasting_v2.py).
+    assert 'class="hn-life-svg"' in html and "Months in which someone new linked it: 4, from Jun 2017 to 15 Apr 2019" in html
+    assert "<summary>The story · 3 threads</summary>" in html
     assert html.index("Attention is all you need (arxiv.org)") < html.index("Transformers, explained")
 
 

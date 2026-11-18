@@ -32,12 +32,17 @@ efficient iff P=NP" used it as a rebuttal), so nothing here calls a paper
 
 Reads: the mentions and threads, paged by rowid, when the daily job has
 written new ones (hn_state.loaded_at), polled every REFRESH_S. About 50,000 +
-30,000 rows a load, once a day and at each start.
+39,000 rows a load, once a day and at each start, plus the ~23,000 comments
+that link at most QUOTE_MAX_PAPERS papers, read to pick quotes and then
+dropped (doc 06, 2026-11-17).
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import math
 import os
+import re
 import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -58,8 +63,13 @@ SUBMISSION_FIRST = 50       # a submission with fewer points is listed after the
 PAGE_ROWS = 5000
 VECTOR_BATCH = 500
 THREADS_SHOWN = 3
+WEEK_DAYS = 7               # "Back on HN this week"
+WEEK_SHOWN = 8
+COMEBACK_DAYS = 365         # a comeback: linked lately after at least this long without a link
+JOINED_DAYS = 92            # "Just joined": became lasting in about the last three months
 
 _state: dict = {"papers": {}, "threads": {}, "canon": [], "canon_rank": {}, "fresh": [], "cards": [],
+                "quotes": {}, "strata": {"lines": [], "months": 0},
                 "meta": {}, "vectors": {}, "loaded_at": None, "refreshed_at": None,
                 "rows": 0, "error": None, "scheduler": "off"}
 _task: asyncio.Task | None = None
@@ -71,6 +81,11 @@ def _refresh_seconds() -> int:
 
 # ── Counting (pure) ──────────────────────────────────────────────────────────
 
+def month_index(year: int, month: int) -> int:
+    """Months since January 2007, when HN began: the shared x axis of every lifeline and the chart."""
+    return (year - HN_FIRST_YEAR) * 12 + month - 1
+
+
 def aggregate(rows: list[tuple], threads: dict[str, dict], now: int) -> dict[str, dict]:
     """Per-paper counts from mention rows (arxiv_id, item_id, kind, author,
     created_at, story_id). Mentions by a deleted account (no author) count as
@@ -79,6 +94,7 @@ def aggregate(rows: list[tuple], threads: dict[str, dict], now: int) -> dict[str
     for r in rows:
         by_paper[r[0]].append(r)
     cutoff = now - FRESH_DAYS * 86400
+    week_cutoff = now - WEEK_DAYS * 86400
     out = {}
     for aid, ms in by_paper.items():
         ms.sort(key=lambda m: (m[4], m[1]))
@@ -90,6 +106,12 @@ def aggregate(rows: list[tuple], threads: dict[str, dict], now: int) -> dict[str
         submitted: set[str] = set()
         recent_people: set[str] = set()
         recent_points, recent_last = 0, 0
+        voices: Counter = Counter()            # month index -> people linking it for the first time
+        joined = 0                             # when its third new-voice month began
+        week_people: set[str] = set()
+        week_story, week_last = "", 0
+        before_window = 0                      # the latest link before the last FRESH_DAYS ...
+        first_recent = 0                       # ... and the first one inside them
         for _aid, _item, kind, author, ts, story in ms:
             d = datetime.fromtimestamp(ts, timezone.utc)
             month = (d.year, d.month)
@@ -97,8 +119,20 @@ def aggregate(rows: list[tuple], threads: dict[str, dict], now: int) -> dict[str
             if author:
                 if author not in people:
                     people.add(author)
+                    if month not in voice and len(voice) == MIN_MONTHS - 1:
+                        joined = ts
                     voice.add(month)
+                    voices[month_index(d.year, d.month)] += 1
                 years[d.year].add(author)
+            if ts < cutoff:
+                before_window = ts
+            elif not first_recent:
+                first_recent = ts
+            if ts >= week_cutoff:
+                if author:
+                    week_people.add(author)
+                if ts >= week_last:
+                    week_last, week_story = ts, story
             per_thread[story] += 1
             if kind == "story":
                 submitted.add(story)
@@ -110,10 +144,15 @@ def aggregate(rows: list[tuple], threads: dict[str, dict], now: int) -> dict[str
                     recent_points = max(recent_points, (threads.get(story) or {}).get("points") or 0)
         out[aid] = {
             "arxiv_id": aid, "people": len(people), "months": len(voice), "any_months": len(months),
+            "first_story": ms[0][5], "first_kind": ms[0][2], "last_story": ms[-1][5], "last_kind": ms[-1][2],
             "mentions": len(ms), "threads": len(per_thread), "first": ms[0][4], "last": ms[-1][4],
             "years": {y: len(s) for y, s in years.items()}, "per_thread": per_thread,
             "submitted": submitted, "recent_people": len(recent_people), "recent_points": recent_points,
-            "recent_last": recent_last,
+            "recent_last": recent_last, "voices": dict(voices), "joined": joined,
+            "week_people": len(week_people), "week_story": week_story,
+            # Days of silence before HN linked it again in the last FRESH_DAYS
+            # (0 when it was not linked lately, or never before).
+            "quiet_days": int((first_recent - before_window) / 86400) if first_recent and before_window else 0,
             "lasting": len(people) >= MIN_PEOPLE and len(voice) >= MIN_MONTHS,
         }
     return out
@@ -245,14 +284,50 @@ async def refresh(force: bool = False) -> dict:
                    key=lambda a: (-papers[a]["recent_people"], -papers[a]["recent_points"], a))
     meta, vectors = await _describe(canon + fresh)
     listed = [a for a in canon if a in meta]
+    quotes = await _quotes(listed, rows, meta, threads)
     _state.update(papers=papers, threads=threads, canon=listed,
                   canon_rank={a: i + 1 for i, a in enumerate(listed)},
                   canon_all=len(canon), fresh=[a for a in fresh if a in meta], meta=meta, vectors=vectors,
+                  quotes=quotes,
                   loaded_at=loaded_at, rows=len(rows), error=None,
                   refreshed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     # Built once a load, not per request: the whole list is ~2,000 entries.
     _state["cards"] = [c for c in (card(a, "lasting") for a in listed) if c is not None]
+    _state["strata"] = strata(_state["cards"], now)
+    _state["strata_json"] = json.dumps(_state["strata"], separators=(",", ":"))
     return stats()
+
+
+async def _quotes(listed: list[str], rows: list[tuple], meta: dict, threads: dict) -> dict[str, dict]:
+    """One quote per lasting paper from the comments that link it (pick_quote).
+    The comment texts are read, used and dropped; only the picks are kept. A
+    failed read costs the quotes, never the lists."""
+    want = set(listed)
+    by_item: dict[str, list[tuple[str, str, int]]] = defaultdict(list)
+    for aid, item, kind, _author, ts, story in rows:
+        if kind == "comment" and aid in want:
+            by_item[item].append((aid, story, ts))
+    if not by_item:
+        return {}
+    try:
+        comment_rows = await _paged("SELECT rowid AS rid, item_id, text FROM hn_comments "
+                                    f"WHERE rowid > ? AND papers <= {QUOTE_MAX_PAPERS} ORDER BY rowid LIMIT ?")
+    except Exception as e:  # quotes are optional: any failed read (HTTP, timeout, missing table) costs only them
+        print(f"[hn] comments unavailable, no quotes: {type(e).__name__}: {str(e)[:120]}")
+        return {}
+    candidates: dict[str, list[dict]] = defaultdict(list)
+    for r in comment_rows:
+        for aid, story, ts in by_item.get(r["item_id"], ()):
+            candidates[aid].append({"text": r["text"] or "", "story_id": story, "created_at": ts,
+                                    "item_id": r["item_id"]})
+    out = {}
+    for aid, cands in candidates.items():
+        q = pick_quote(aid, meta[aid]["title"], cands)
+        if q:
+            t = threads.get(q["story_id"]) or {}
+            q["thread"] = t.get("title") if (t.get("title") or "").strip() not in _GONE else ""
+            out[aid] = q
+    return out
 
 
 def id_year(arxiv_id: str) -> int | None:
@@ -355,6 +430,8 @@ def card(arxiv_id: str, kind: str) -> dict | None:
     if p is None or m is None:
         return None
     best = top_threads(p, _state["threads"], 1)
+    now_dt = datetime.now(timezone.utc)
+    now_ts, now_month = int(now_dt.timestamp()), month_index(now_dt.year, now_dt.month)
     first = datetime.fromtimestamp(p["first"], timezone.utc)
     last = datetime.fromtimestamp(p["last"], timezone.utc)
     out = {"arxiv_id": arxiv_id, **m, "hn": facts(p), "thread": best[0] if best else None,
@@ -365,6 +442,13 @@ def card(arxiv_id: str, kind: str) -> dict | None:
            "best_post": max([(_state["threads"].get(t) or {}).get("points") or 0 for t in p["submitted"]] or [0]),
            "spark": spark(p, last_year=max(last.year, datetime.now(timezone.utc).year)),
            "dated": dated_threads(p, _state["threads"]), "n_threads": p["threads"],
+           "life": lifeline(p, now_month), "beats": beats(p, _state["threads"]),
+           "quote": (_state.get("quotes") or {}).get(arxiv_id),
+           "joined": p.get("joined") or 0, "just_joined": bool(p.get("joined")) and p["joined"] >= now_ts - JOINED_DAYS * 86400,
+           "joined_label": datetime.fromtimestamp(p["joined"], timezone.utc).strftime("%b %Y") if p.get("joined") else "",
+           "comeback_days": p.get("quiet_days") if (p.get("quiet_days") or 0) >= COMEBACK_DAYS else 0,
+           "week_people": p.get("week_people", 0),
+           "week_thread": _week_thread(p),
            # trending_shelf.rank's popularity term: tenfold more people is
            # worth UPVOTE_WEIGHT of closeness.
            "people": p["recent_people"] if kind == "fresh" else p["people"]}
@@ -408,6 +492,215 @@ def dated_threads(p: dict, threads: dict[str, dict], n: int = THREADS_DATED) -> 
     return out
 
 
+# ── The row's record: lifeline, story, quote; the chart ──────────────────────
+#
+# Every lifeline shares one x axis (January 2007 to this month) and one height
+# scale, so rows can be compared at a glance: small multiples only compare
+# when their scales agree. The height is the square root of the people who
+# linked it for the first time that month, full at LIFE_FULL, so a month with
+# one new person still shows and a launch spike does not flatten the rest.
+
+LIFE_FULL = 6               # new people in a month for a full-height tick
+LIFE_MIN_H = 22             # % of full height for a month with one new person
+
+
+def lifeline(p: dict, now_month: int) -> dict:
+    """A tick per month someone new linked the paper, on the shared axis."""
+    ticks = [{"i": i, "n": n, "h": max(LIFE_MIN_H, round(100 * min(1.0, math.sqrt(n / LIFE_FULL))))}
+             for i, n in sorted((p.get("voices") or {}).items())]
+    first, last = datetime.fromtimestamp(p["first"], timezone.utc), datetime.fromtimestamp(p["last"], timezone.utc)
+    return {"months": now_month + 1, "ticks": ticks,
+            "first": month_index(first.year, first.month), "last": month_index(last.year, last.month)}
+
+
+BEAT_BUSY = 5               # a "busiest year" needs at least this many people
+BEAT_BIG = 100              # a large thread needs at least this many points
+
+
+def _link_beat(kind: str, story: str, threads: dict, label: str, ts: int) -> dict:
+    t = threads.get(story) or {}
+    title = (t.get("title") or "").strip()
+    posted = kind == "story"
+    return {"ts": ts, "when": datetime.fromtimestamp(ts, timezone.utc).strftime("%b %Y"), "k": label,
+            "posted": posted, "title": "" if posted or title in _GONE else title,
+            "points": t.get("points") if posted else None,
+            "url": f"https://news.ycombinator.com/item?id={story}"}
+
+
+def beats(p: dict, threads: dict[str, dict]) -> list[dict]:
+    """The paper's HN story in up to four moments, oldest first: its first
+    link, its busiest year, the largest thread it came up in (that thread's
+    points, never the paper's) and its latest link. Written from the counts."""
+    out = [_link_beat(p["first_kind"], p["first_story"], threads, "First link", p["first"])]
+    if p["years"]:
+        year, n = max(p["years"].items(), key=lambda kv: (kv[1], -kv[0]))
+        if n >= BEAT_BUSY and len(p["years"]) > 1:
+            out.append({"ts": int(datetime(year, 7, 1, tzinfo=timezone.utc).timestamp()), "when": str(year),
+                        "k": "Busiest year", "people": n, "year": year})
+    big = None
+    for story in p["per_thread"]:
+        t = threads.get(story) or {}
+        if (t.get("title") or "").strip() in _GONE or not t.get("created_at"):
+            continue
+        if (t.get("points") or 0) >= BEAT_BIG and story not in (p["first_story"], p["last_story"]):
+            if big is None or t["points"] > big[1]["points"]:
+                big = (story, t)
+    if big:
+        story, t = big
+        out.append({"ts": t["created_at"], "when": datetime.fromtimestamp(t["created_at"], timezone.utc).strftime("%b %Y"),
+                    "k": "Largest thread it came up in", "posted": story in p["submitted"], "title": t["title"],
+                    "points": t["points"], "url": f"https://news.ycombinator.com/item?id={story}"})
+    if p["last_story"] != p["first_story"]:
+        out.append(_link_beat(p["last_kind"], p["last_story"], threads, "Latest link", p["last"]))
+    out.sort(key=lambda b: b["ts"])
+    return out
+
+
+def _week_thread(p: dict) -> dict | None:
+    """The thread of the paper's latest link this week."""
+    story = p.get("week_story")
+    if not story or not p.get("week_people"):
+        return None
+    t = _state["threads"].get(story) or {}
+    title = (t.get("title") or "").strip()
+    return {"title": "" if title in _GONE else title, "points": t.get("points"),
+            "submitted": story in p["submitted"], "url": f"https://news.ycombinator.com/item?id={story}"}
+
+
+# Quotes. One sentence (or two) from a comment that links the paper, so a
+# reader sees why people reach for it. Nothing is rewritten: a quote is cut
+# from the comment, with only links removed, and links back to the comment.
+# Measured on the 30 most lasting papers (17 Nov 2026), a plain "sentence
+# around the link" rule gave weak quotes for about a third (a bibliography
+# line, half an argument, the title alone); the rules below drop those, and
+# no quote is better than a bad one.
+
+QUOTE_MAX_PAPERS = 2        # comments linking more papers than this are reading lists, not a voice
+QUOTE_MIN, QUOTE_MAX = 60, 240
+QUOTE_MIN_SCORE = 2.0
+_URL = re.compile(r"https?://\S+|www\.\S+")
+_SENT = re.compile(r"(?<=[.!?])\s+(?=[\"“(\[A-Z0-9])")
+_PRAISE = re.compile(r"\b(recommend\w*|classic|seminal|landmark|must[- ]read|favou?rite|excellent|brilliant|"
+                     r"fascinating|beautiful|elegant|influential|well worth|worth (?:a )?read\w*|great (?:paper|read)|"
+                     r"changed how|eye[- ]opening|one of the best)\b", re.I)
+_EXPLAIN = re.compile(r"\b(shows? that|showed that|argues? that|proves? that|proved that|found that|demonstrat\w+|"
+                      r"the (?:key )?idea|tl;?dr|in short|the gist|the point is|they show|it shows)\b", re.I)
+_JUNK = re.compile(r"arxiv preprint|arxiv:\s*\d|et al\.,|\bpp\.\s*\d|\bvol\.\s*\d|\bdoi\b|\[non|"
+                   r"\bpdf\b|abs/\d|^\s*\W*\s*$|\b(?:19|20)\d\d\)\.", re.I)
+_RUDE = re.compile(r"\b(fuck\w*|shit\w*|idiot\w*|stupid|crap\w*|dumb|moron\w*|bullshit|retard\w*)\b", re.I)
+_WORDS = re.compile(r"[A-Za-z]{4,}")
+_QUOTED = re.compile(r'"[^"]*"|“[^”]*”')
+_ASKS = re.compile(r"^(?:wasn't|isn't|aren't|doesn't|didn't|don't|couldn't|wouldn't|shouldn't|hasn't|haven't|"
+                   r"is there|are there|does anyone|has anyone|did anyone)\b", re.I)
+_LINK_AS_WORD = re.compile(r"[:,]\s*(?:https?://|www\.)\S+\s+[a-z]")
+
+
+def _balanced(text: str) -> str:
+    """Drops a bracket left open or closed alone, as a removed link leaves them."""
+    out, stack = list(text), []
+    for i, ch in enumerate(text):
+        if ch in "([":
+            stack.append(i)
+        elif ch in ")]":
+            if stack and text[stack[-1]] == "([" [")]".index(ch)]:
+                stack.pop()
+            else:
+                out[i] = ""
+    for i in stack:
+        out[i] = ""
+    return "".join(out)
+
+
+def _clean(text: str) -> str:
+    text = _URL.sub("", text)
+    text = re.sub(r"\(\s*[,;:.]?\s*\)|\[\s*\d*\s*\]", "", text)
+    text = _balanced(text)
+    text = re.sub(r"\(\s+", "(", text)
+    text = re.sub(r"\s+([,.;:!?)])", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip(" :;-–—")
+
+
+def _trim(text: str) -> str:
+    if len(text) <= QUOTE_MAX:
+        return text
+    cut = max((m.end() for m in re.finditer(r"[.!?](?=\s)", text[:QUOTE_MAX + 1])), default=0)
+    if cut >= QUOTE_MIN:
+        return text[:cut].strip()
+    return text[:QUOTE_MAX - 1].rsplit(" ", 1)[0].rstrip(",;:-–— ") + "…"
+
+
+def quote_score(text: str, title: str) -> float | None:
+    """How well a cut sentence speaks for the paper; None when it must not be shown."""
+    if (len(text) < QUOTE_MIN or text[0] in ">)]" or text[0].islower()
+            or not text.endswith((".", "!", '"', "”", ")", "…", "'"))
+            or _JUNK.search(text) or _RUDE.search(text) or "?" in text
+            # an odd quotation mark: the comment was quoting someone else (often the abstract)
+            or text.count('"') % 2 or text.count("“") != text.count("”")
+            or sum(len(m) for m in _QUOTED.findall(text)) > len(text) / 2     # mostly someone else's words
+            or _ASKS.search(text)):
+        return None
+    words = {w.lower() for w in _WORDS.findall(text)}
+    own = words - {w.lower() for w in _WORDS.findall(title)}
+    if len(own) < 6:                          # the title and little else
+        return None
+    score = 3.0 * bool(_PRAISE.search(text)) + 2.0 * bool(_EXPLAIN.search(text))
+    score += 1.0 if len(words & {w.lower() for w in _WORDS.findall(title)}) >= 2 else 0.0
+    score += 0.5 if 90 <= len(text) <= 210 else 0.0
+    score -= 1.0 if len(re.findall(r"\bI\b", text)) > 2 else 0.0
+    return score
+
+
+def pick_quote(arxiv_id: str, title: str, candidates: list[dict]) -> dict | None:
+    """The best passage around a link to the paper among `candidates`
+    ({"text", "story_id", "item_id", "created_at"}), or None. The passage is
+    the sentence with the link, with the next one when it explains it."""
+    best: tuple | None = None
+    bare = arxiv_id.split("v")[0] if "/" not in arxiv_id else arxiv_id
+    for c in candidates:
+        for para in (c.get("text") or "").split("\n"):
+            if bare not in para:
+                continue
+            sents = _SENT.split(para)
+            for i, sent in enumerate(sents):
+                if bare not in sent:
+                    continue
+                options = [sent]
+                if i + 1 < len(sents):
+                    options.append(sent + " " + sents[i + 1])
+                if i > 0:
+                    options.append(sents[i - 1] + " " + sent)
+                for raw in options:
+                    # More than one link is a reading list; a link that was a
+                    # word of the sentence ("I recommend: <link> and ...")
+                    # leaves it broken once removed.
+                    if len(_URL.findall(raw)) > 1 or _LINK_AS_WORD.search(raw):
+                        continue
+                    opt = _trim(_clean(raw))
+                    sc = quote_score(opt, title)
+                    if sc is None or sc < QUOTE_MIN_SCORE:
+                        continue
+                    key = (sc, -abs(len(opt) - 150), c["created_at"])
+                    if best is None or key > best[0]:
+                        best = (key, opt, c)
+    if best is None:
+        return None
+    _key, text, c = best
+    return {"text": text, "story_id": c["story_id"], "item_id": c["item_id"],
+            "url": f"https://news.ycombinator.com/item?id={c['item_id']}",
+            "when": datetime.fromtimestamp(c["created_at"], timezone.utc).strftime("%b %Y")}
+
+
+def strata(cards: list[dict], now: int) -> dict:
+    """The chart on /trending/lasting: every listed lasting paper as a line
+    from its first link to its latest, with its new-voice months, stacked by
+    when HN first linked it. [first, last, [months], rank, title, id]."""
+    lines = sorted(([c["life"]["first"], c["life"]["last"], [t["i"] for t in c["life"]["ticks"]],
+                     c["rank"], (c["title"] if len(c["title"]) <= 90 else c["title"][:88] + "…"), c["arxiv_id"]]
+                    for c in cards), key=lambda l: (l[0], l[1], l[3] or 0))
+    d = datetime.fromtimestamp(now, timezone.utc)
+    return {"lines": lines, "months": month_index(d.year, d.month) + 1}
+
+
 # ── Browsing the list: fields, years, views, sorts ───────────────────────────
 #
 # The controls DAIR.AI's Hacker Papers offers, filled from our counts. Fields
@@ -449,8 +742,9 @@ def year_buckets(this_year: int) -> list[tuple[str, str, int, int]]:
 GEM_MAX_CITATIONS = 50      # hidden gem: lasting on HN, cited fewer times than this ...
 GEM_MIN_AGE = 2             # ... and old enough (years) for citations to have arrived
 
-VIEWS = (("lasting", "Most lasting"), ("running", "Longest running"), ("gems", "Hidden gems"),
-         ("recent", "Recently mentioned"), ("saved", "Saved"))
+VIEWS = (("lasting", "Most lasting"), ("comebacks", "Comebacks"), ("joined", "Just joined"),
+         ("running", "Longest running"), ("gems", "Hidden gems"), ("recent", "Recently mentioned"),
+         ("saved", "Saved"))
 SORTS = (("default", "Default"), ("newest", "Newest papers"), ("oldest", "Oldest papers"),
          ("people", "Most people"), ("threads", "Most threads"))
 
@@ -478,6 +772,12 @@ def browse(cards: list[dict], view: str = "lasting", sort: str = "default", year
         out = [c for c in out if is_gem(c, this_year)]
     elif view == "saved":
         out = [c for c in out if c["arxiv_id"] in saved]
+    elif view == "comebacks":
+        out = [c for c in out if c.get("comeback_days")]
+        out.sort(key=lambda c: (-c["comeback_days"], c["rank"] or 0))
+    elif view == "joined":
+        out = [c for c in out if c.get("just_joined")]
+        out.sort(key=lambda c: (-c["joined"], c["rank"] or 0))
     if view == "running":
         out.sort(key=lambda c: (-c["span_years"], c["rank"] or 0))
     elif view == "recent":
@@ -491,6 +791,23 @@ def browse(cards: list[dict], view: str = "lasting", sort: str = "default", year
     elif sort == "threads":
         out.sort(key=lambda c: (-c["hn"]["threads"], c["rank"] or 0))
     return out
+
+
+def week_cards(exclude: frozenset[str] | set[str] = frozenset(), year: str = "", field: str = "",
+               this_year: int | None = None) -> list[dict]:
+    """Lasting papers HN linked in the last WEEK_DAYS, narrowed like the list
+    below them: comebacks first (longest silence), then papers that just
+    joined the list, then by people this week. Copies, like lasting_cards."""
+    week = [dict(c) for c in _state.get("cards") or [] if c.get("week_people") and c["arxiv_id"] not in exclude]
+    week = browse(week, "lasting", "default", year, field, this_year=this_year)
+    week.sort(key=lambda c: (-(c["comeback_days"] or 0), -(c["joined"] if c["just_joined"] else 0),
+                             -c["week_people"], c["rank"] or 0))
+    return week[:WEEK_SHOWN]
+
+
+def strata_json() -> str:
+    """The chart's data, serialised once a load (about 200 KB before gzip)."""
+    return _state.get("strata_json") or '{"lines":[],"months":0}'
 
 
 def lasting_cards() -> list[dict]:
