@@ -30,7 +30,6 @@ async def test_init_db_creates_tables(tmp_db):
         )
         tables = {r[0] for r in await cur.fetchall()}
     assert "interactions" in tables
-    assert "paper_qdrant_map" in tables
     assert "paper_metadata" in tables
 
 
@@ -59,25 +58,6 @@ async def test_filter_interactions_by_event_type(tmp_db):
     saves = await db.get_user_interactions("u2", event_types=["save"])
     assert len(saves) == 1
     assert saves[0]["paper_id"] == "aaa"
-
-
-@pytest.mark.asyncio
-async def test_qdrant_id_roundtrip(tmp_db):
-    import app.db as db
-    await db.init_db()
-    await db.save_qdrant_id("1706.03762", 42)
-    assert await db.get_qdrant_id("1706.03762") == 42
-    assert await db.get_qdrant_id("unknown") is None
-
-
-@pytest.mark.asyncio
-async def test_qdrant_id_batch(tmp_db):
-    import app.db as db
-    await db.init_db()
-    await db.save_qdrant_id("a1", 10)
-    await db.save_qdrant_id("a2", 20)
-    result = await db.get_qdrant_ids_batch(["a1", "a2", "a3"])
-    assert result == {"a1": 10, "a2": 20}
 
 
 @pytest.mark.asyncio

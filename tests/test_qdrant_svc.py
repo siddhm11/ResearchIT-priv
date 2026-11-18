@@ -6,56 +6,6 @@ Tests for qdrant_svc.py.
 import pytest
 
 
-# ── Unit: SQLite cache hit avoids Qdrant call ─────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_lookup_returns_cached_ids_without_qdrant(tmp_path, monkeypatch):
-    import app.config as cfg
-    import app.db as db_mod
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(cfg, "DB_PATH", db_path)
-    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
-    await db_mod.init_db()
-
-    # Pre-populate cache
-    await db_mod.save_qdrant_id("1706.03762", 999)
-    await db_mod.save_qdrant_id("0704.0002",  0)
-
-    # Patch _scroll_by_arxiv_ids to assert it is NOT called
-    import app.qdrant_svc as qs
-    def should_not_be_called(ids):
-        raise AssertionError("Qdrant should not be called when cache is warm")
-    monkeypatch.setattr(qs, "_scroll_by_arxiv_ids", should_not_be_called)
-
-    result = await qs.lookup_qdrant_ids(["1706.03762", "0704.0002"])
-    assert result == {"1706.03762": 999, "0704.0002": 0}
-
-
-@pytest.mark.asyncio
-async def test_lookup_calls_qdrant_for_missing(tmp_path, monkeypatch):
-    import app.config as cfg
-    import app.db as db_mod
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(cfg, "DB_PATH", db_path)
-    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
-    await db_mod.init_db()
-
-    import app.qdrant_svc as qs
-    called_with = {}
-    def fake_scroll(ids):
-        called_with["ids"] = ids
-        return {"1706.03762": 12345}
-    monkeypatch.setattr(qs, "_scroll_by_arxiv_ids", fake_scroll)
-
-    result = await qs.lookup_qdrant_ids(["1706.03762"])
-    assert result == {"1706.03762": 12345}
-    assert called_with["ids"] == ["1706.03762"]
-
-    # Mapping should now be cached in SQLite
-    cached = await db_mod.get_qdrant_id("1706.03762")
-    assert cached == 12345
-
-
 @pytest.mark.asyncio
 async def test_recommend_returns_empty_when_no_positive_ids(tmp_path, monkeypatch):
     import app.config as cfg
@@ -66,8 +16,10 @@ async def test_recommend_returns_empty_when_no_positive_ids(tmp_path, monkeypatc
     await db_mod.init_db()
 
     import app.qdrant_svc as qs
-    # Even if Qdrant scroll finds nothing, should not crash
-    monkeypatch.setattr(qs, "_scroll_by_arxiv_ids", lambda ids: {})
+    # A paper with no stored vector anywhere: nothing to recommend from, no crash.
+    async def no_vectors(ids, remember=True):
+        return {}
+    monkeypatch.setattr(qs, "get_paper_vectors", no_vectors)
 
     result = await qs.recommend(
         positive_arxiv_ids=["unknown_paper"],
@@ -86,28 +38,6 @@ async def test_recommend_returns_empty_when_no_positive_ids(tmp_path, monkeypatc
 
 @pytest.mark.live
 @pytest.mark.asyncio
-async def test_lookup_real_qdrant(tmp_path, monkeypatch):
-    """Lookup a known arxiv_id in the live Qdrant collection."""
-    import app.config as cfg
-    import app.db as db_mod
-    db_path = str(tmp_path / "test.db")
-    monkeypatch.setattr(cfg, "DB_PATH", db_path)
-    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
-    await db_mod.init_db()
-
-    # Reset the lru_cache so the patched config is used
-    from app.qdrant_svc import _client
-    _client.cache_clear()
-
-    from app.qdrant_svc import lookup_qdrant_ids
-    # Point ID 0 has arxiv_id "0704.0002" per our earlier inspection
-    result = await lookup_qdrant_ids(["0704.0002"])
-    assert "0704.0002" in result
-    assert isinstance(result["0704.0002"], int)
-
-
-@pytest.mark.live
-@pytest.mark.asyncio
 async def test_recommend_with_real_qdrant(tmp_path, monkeypatch):
     """
     End-to-end Qdrant recommend call.
@@ -120,10 +50,6 @@ async def test_recommend_with_real_qdrant(tmp_path, monkeypatch):
     monkeypatch.setattr(cfg, "DB_PATH", db_path)
     monkeypatch.setattr(db_mod, "DB_PATH", db_path)
     await db_mod.init_db()
-
-    # Pre-seed qdrant map so lookup doesn't need scroll
-    await db_mod.save_qdrant_id("0704.0002", 0)
-    await db_mod.save_qdrant_id("0704.0004", 1)
 
     from app.qdrant_svc import _client
     _client.cache_clear()

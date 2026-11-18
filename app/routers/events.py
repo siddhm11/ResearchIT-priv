@@ -10,7 +10,7 @@ import numpy as np
 from fastapi import APIRouter, Request, Cookie, Form
 from fastapi.responses import HTMLResponse
 from app import db, errors, user_state as us, qdrant_svc
-from app.config import COOKIE_NAME
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.recommend import profiles
 
@@ -106,7 +106,7 @@ async def save_paper(
             "policy_id": policy_id,
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -146,7 +146,7 @@ async def not_interested(
     _spawn(_update_profile_on_dismiss(user_id, paper_id))
 
     resp = HTMLResponse(content="")
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -203,7 +203,7 @@ async def unsave(
     us.drop_positive(user_id, paper_id)
 
     resp = HTMLResponse(content="")
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 

@@ -17,7 +17,6 @@ Reference: models/reranker-phase6/production_model/feature_schema.json
 """
 from __future__ import annotations
 
-import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -111,15 +110,6 @@ NUM_FEATURES = 37
 
 # ── Utility Functions ────────────────────────────────────────────────────────
 
-def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-    """Cosine similarity between two vectors."""
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-    if norm_a < 1e-10 or norm_b < 1e-10:
-        return 0.0
-    return float(np.dot(a, b) / (norm_a * norm_b))
-
-
 def _cosine_sim_batch(
     candidate_embeddings: np.ndarray,
     profile_vec: np.ndarray,
@@ -175,21 +165,6 @@ def _parse_age_days(date_str: str) -> int:
         return max(0, (now - pub_date).days)
     except (ValueError, TypeError):
         return 365  # default 1 year
-
-
-def _parse_authors(authors_field) -> list[str]:
-    """Parse authors from various formats (JSON string, list, comma-sep)."""
-    if isinstance(authors_field, list):
-        return authors_field
-    if not authors_field:
-        return []
-    s = str(authors_field)
-    if s.startswith("["):
-        try:
-            return json.loads(s)
-        except (json.JSONDecodeError, ValueError):
-            pass
-    return [a.strip() for a in s.split(",") if a.strip()]
 
 
 # ── Feature Computation (37 features) ────────────────────────────────────────

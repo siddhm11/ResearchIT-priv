@@ -14,7 +14,7 @@ rather than correcting for it afterwards.
 Being local is a secondary win: sparse search drops from a ~600 ms network round
 trip to single-digit milliseconds, and one paid dependency goes away.
 
-Returns the same {'arxiv_id', 'score'} shape as zilliz_svc.search_sparse, so the
+Returns the same {'arxiv_id', 'score'} shape as the old Zilliz sparse search, so the
 fusion step is unchanged.
 """
 from __future__ import annotations
@@ -91,7 +91,12 @@ _FILLER = frozenset("""a an the of for and or in on to with by is are was were b
 when where do does did there any some that this these those it its as at from into about than such can could would
 should may might will their they them we our you your i me my papers paper studies study research works work
 literature exist exists existing available explore explores exploring looking find finding examples example
-show shows give gives use used using approach approaches method methods technique techniques""".split())
+show shows give gives use used using approach approaches method methods technique techniques
+seminal landmark foundational influential famous popular classic groundbreaking iconic canonical
+highly most cited well known""".split())
+# The last two lines (2026-11-13): words asking for well-known papers. As required
+# terms they matched almost nothing, so "seminal paper on attention" lost its
+# keyword list; hybrid_search_svc.wants_landmarks weighs citations instead.
 
 
 def _terms(query: str) -> list[str]:
@@ -178,7 +183,7 @@ def _search_sync(query: str, limit: int) -> list[dict]:
 async def search_sparse(query: str, limit: int = 50) -> list[dict]:
     """BM25 search over title + abstract.
 
-    Takes the query TEXT, unlike zilliz_svc.search_sparse which takes BGE-M3
+    Takes the query TEXT, unlike the old Zilliz sparse search, which took BGE-M3
     lexical weights. Both are lexical retrieval and RRF is rank-based, so the
     fusion step does not care which produced the ranking.
 

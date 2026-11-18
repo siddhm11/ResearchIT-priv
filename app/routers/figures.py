@@ -43,7 +43,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, Response
 
-from app import (arxiv_html, config, errors, features, http_client, licences, paper_source_svc, runtime_stats,
+from app import (arxiv_html, config, errors, features, http_client, paper_source_svc, runtime_stats,
                  svg_clean, thumbnails)
 
 router = APIRouter()

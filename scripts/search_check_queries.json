@@ -1,0 +1,802 @@
+[
+ {
+  "qid": "sy196",
+  "kind": "keyword",
+  "query": "stochastic gradient multimodal sampling",
+  "gold": [
+   "1706.01498"
+  ]
+ },
+ {
+  "qid": "sy298",
+  "kind": "keyword",
+  "query": "neural similarity transformer models",
+  "gold": [
+   "2501.06278"
+  ]
+ },
+ {
+  "qid": "sy092",
+  "kind": "keyword",
+  "query": "game theory neural optimization",
+  "gold": [
+   "1509.08627"
+  ]
+ },
+ {
+  "qid": "sy110",
+  "kind": "keyword",
+  "query": "LLM rationales self\u2011faithfulness test",
+  "gold": [
+   "2609.03366"
+  ]
+ },
+ {
+  "qid": "sy084",
+  "kind": "keyword",
+  "query": "filtering toxic training samples",
+  "gold": [
+   "2502.11411"
+  ]
+ },
+ {
+  "qid": "sy098",
+  "kind": "keyword",
+  "query": "algebraic topology network size",
+  "gold": [
+   "2004.02881"
+  ]
+ },
+ {
+  "qid": "sy086",
+  "kind": "keyword",
+  "query": "symmetric asymmetric TSP algorithm",
+  "gold": [
+   "2108.05231"
+  ]
+ },
+ {
+  "qid": "sy342",
+  "kind": "keyword",
+  "query": "knockoff variable selection MDP",
+  "gold": [
+   "2303.14281"
+  ]
+ },
+ {
+  "qid": "sy046",
+  "kind": "keyword",
+  "query": "quantum branching entanglement",
+  "gold": [
+   "2402.06848"
+  ]
+ },
+ {
+  "qid": "sy076",
+  "kind": "keyword",
+  "query": "two blackbody X\u2011ray spectrum",
+  "gold": [
+   "0711.4182"
+  ]
+ },
+ {
+  "qid": "sy144",
+  "kind": "keyword",
+  "query": "Z3 symmetry QCD model",
+  "gold": [
+   "hep-lat/9512011"
+  ]
+ },
+ {
+  "qid": "sy006",
+  "kind": "keyword",
+  "query": "V\u2011JEPA EEG classification",
+  "gold": [
+   "2507.03633"
+  ]
+ },
+ {
+  "qid": "sy224",
+  "kind": "keyword",
+  "query": "sparse autoencoder interaction aware",
+  "gold": [
+   "2511.18024"
+  ]
+ },
+ {
+  "qid": "sy238",
+  "kind": "keyword",
+  "query": "in\u2011context reasoning artwork explanation",
+  "gold": [
+   "2507.21917"
+  ]
+ },
+ {
+  "qid": "sy324",
+  "kind": "keyword",
+  "query": "image pretraining video recognition",
+  "gold": [
+   "2205.01721"
+  ]
+ },
+ {
+  "qid": "sy058",
+  "kind": "keyword",
+  "query": "finite element curve diffusion",
+  "gold": [
+   "2502.19277"
+  ]
+ },
+ {
+  "qid": "sy014",
+  "kind": "keyword",
+  "query": "generating function exponential polynomials",
+  "gold": [
+   "1503.05444"
+  ]
+ },
+ {
+  "qid": "sy264",
+  "kind": "keyword",
+  "query": "correlation matching transformation module",
+  "gold": [
+   "2406.00629"
+  ]
+ },
+ {
+  "qid": "sy346",
+  "kind": "keyword",
+  "query": "heterogeneous KG alignment GNN",
+  "gold": [
+   "2304.14585"
+  ]
+ },
+ {
+  "qid": "sy250",
+  "kind": "keyword",
+  "query": "social norm formation AI agents",
+  "gold": [
+   "2411.03252"
+  ]
+ },
+ {
+  "qid": "sy226",
+  "kind": "keyword",
+  "query": "LLM rubric based policy evaluation",
+  "gold": [
+   "2607.28094"
+  ]
+ },
+ {
+  "qid": "sy154",
+  "kind": "keyword",
+  "query": "swap reduction mapping algorithm",
+  "gold": [
+   "2503.07331"
+  ]
+ },
+ {
+  "qid": "sy254",
+  "kind": "keyword",
+  "query": "oversquashing mitigation GNNs",
+  "gold": [
+   "2407.09381"
+  ]
+ },
+ {
+  "qid": "sy042",
+  "kind": "keyword",
+  "query": "optical network programmable APIs",
+  "gold": [
+   "1801.09563"
+  ]
+ },
+ {
+  "qid": "sy130",
+  "kind": "keyword",
+  "query": "addition only Fourier transform",
+  "gold": [
+   "2012.06963"
+  ]
+ },
+ {
+  "qid": "sy080",
+  "kind": "keyword",
+  "query": "random feature score error analysis",
+  "gold": [
+   "2603.22962"
+  ]
+ },
+ {
+  "qid": "sy166",
+  "kind": "keyword",
+  "query": "fixing distorted facial images",
+  "gold": [
+   "1905.07515"
+  ]
+ },
+ {
+  "qid": "sy156",
+  "kind": "keyword",
+  "query": "Jack Macdonald factorization proof",
+  "gold": [
+   "1204.5117"
+  ]
+ },
+ {
+  "qid": "sy038",
+  "kind": "keyword",
+  "query": "2D type II superconductor melting",
+  "gold": [
+   "1306.1244"
+  ]
+ },
+ {
+  "qid": "sy276",
+  "kind": "keyword",
+  "query": "parameter efficient fine tuning LLaMA",
+  "gold": [
+   "2503.13988"
+  ]
+ },
+ {
+  "qid": "sy186",
+  "kind": "keyword",
+  "query": "Euler class quadratic degree lines",
+  "gold": [
+   "2607.29194"
+  ]
+ },
+ {
+  "qid": "sy016",
+  "kind": "keyword",
+  "query": "abiogenic hydrocarbons mantle conditions",
+  "gold": [
+   "2506.13350"
+  ]
+ },
+ {
+  "qid": "sy108",
+  "kind": "keyword",
+  "query": "z2 galaxy dark matter fraction",
+  "gold": [
+   "2008.05486"
+  ]
+ },
+ {
+  "qid": "sy160",
+  "kind": "keyword",
+  "query": "clustering based speech summarizer",
+  "gold": [
+   "2410.03412"
+  ]
+ },
+ {
+  "qid": "sy172",
+  "kind": "keyword",
+  "query": "zero\u2011field phosphorus silicon qubit",
+  "gold": [
+   "1801.10265"
+  ]
+ },
+ {
+  "qid": "sy034",
+  "kind": "keyword",
+  "query": "Kepler Doppler boosting",
+  "gold": [
+   "1001.4539"
+  ]
+ },
+ {
+  "qid": "sy158",
+  "kind": "keyword",
+  "query": "local transformation quantum phases",
+  "gold": [
+   "1012.4884"
+  ]
+ },
+ {
+  "qid": "sy048",
+  "kind": "keyword",
+  "query": "high\u2011stress SiN optomechanics",
+  "gold": [
+   "0909.0970"
+  ]
+ },
+ {
+  "qid": "sy124",
+  "kind": "keyword",
+  "query": "synthetic health data fairness",
+  "gold": [
+   "2203.04462"
+  ]
+ },
+ {
+  "qid": "sy078",
+  "kind": "keyword",
+  "query": "linguistic visual robustness tracking",
+  "gold": [
+   "2509.02028"
+  ]
+ },
+ {
+  "qid": "sy320",
+  "kind": "keyword",
+  "query": "synthetic car damage dataset",
+  "gold": [
+   "2311.06536"
+  ]
+ },
+ {
+  "qid": "sy338",
+  "kind": "keyword",
+  "query": "structure preserving super resolution",
+  "gold": [
+   "1707.08340"
+  ]
+ },
+ {
+  "qid": "sy136",
+  "kind": "keyword",
+  "query": "neural translation African languages",
+  "gold": [
+   "1906.05685"
+  ]
+ },
+ {
+  "qid": "sy140",
+  "kind": "keyword",
+  "query": "improve reasoning consistency LLM",
+  "gold": [
+   "2405.18915"
+  ]
+ },
+ {
+  "qid": "sy100",
+  "kind": "keyword",
+  "query": "thermal spin diode",
+  "gold": [
+   "1310.4222"
+  ]
+ },
+ {
+  "qid": "sy344",
+  "kind": "keyword",
+  "query": "online learning with constraints",
+  "gold": [
+   "1809.05720"
+  ]
+ },
+ {
+  "qid": "sy252",
+  "kind": "keyword",
+  "query": "multimodal material node generation",
+  "gold": [
+   "2509.22151"
+  ]
+ },
+ {
+  "qid": "sy280",
+  "kind": "keyword",
+  "query": "centralized SDN security model",
+  "gold": [
+   "2408.17356"
+  ]
+ },
+ {
+  "qid": "sy072",
+  "kind": "keyword",
+  "query": "multi fermion GUT proton lifetime",
+  "gold": [
+   "2604.08237"
+  ]
+ },
+ {
+  "qid": "sy306",
+  "kind": "keyword",
+  "query": "table only representation learning",
+  "gold": [
+   "2105.02584"
+  ]
+ },
+ {
+  "qid": "sy245",
+  "kind": "question",
+  "query": "What approach uses depth and camera pose optimization to improve depth estimation in dynamic videos?",
+  "gold": [
+   "2412.03079"
+  ]
+ },
+ {
+  "qid": "sy101",
+  "kind": "question",
+  "query": "How can a nanoscale magnetic junction be used to rectify spin Seebeck currents for efficient thermal\u2011spin conversion?",
+  "gold": [
+   "1310.4222"
+  ]
+ },
+ {
+  "qid": "sy343",
+  "kind": "question",
+  "query": "Is there a technique that uses knockoffs to select relevant variables in high\u2011dimensional Markov decision processes?",
+  "gold": [
+   "2303.14281"
+  ]
+ },
+ {
+  "qid": "sy309",
+  "kind": "question",
+  "query": "What objective metrics correlate well with human judgments of video quality in mobile cloud gaming scenarios?",
+  "gold": [
+   "2305.17260"
+  ]
+ },
+ {
+  "qid": "sy067",
+  "kind": "question",
+  "query": "Is there a Newtonian\u2011like potential that accurately reproduces transonic accretion around rotating black holes?",
+  "gold": [
+   "2201.04383"
+  ]
+ },
+ {
+  "qid": "sy243",
+  "kind": "question",
+  "query": "What kind of causal framework is needed to link AI test results to real\u2011world safety performance?",
+  "gold": [
+   "2501.15693"
+  ]
+ },
+ {
+  "qid": "sy259",
+  "kind": "question",
+  "query": "What learning objective can be used to align treatment effect estimation with optimal decision\u2011making?",
+  "gold": [
+   "2505.13092"
+  ]
+ },
+ {
+  "qid": "sy133",
+  "kind": "question",
+  "query": "What formulation allows solid and liquid membranes to be modeled with curvilinear coordinates without transforming derivatives?",
+  "gold": [
+   "1210.4791"
+  ]
+ },
+ {
+  "qid": "sy261",
+  "kind": "question",
+  "query": "What methods use Fisher information to detect and regularize against distribution shifts without storing past data?",
+  "gold": [
+   "2507.18996"
+  ]
+ },
+ {
+  "qid": "sy115",
+  "kind": "question",
+  "query": "Which metrics can quantify the performance of coherent cooling methods in terms of energy efficiency?",
+  "gold": [
+   "2402.11832"
+  ]
+ },
+ {
+  "qid": "sy273",
+  "kind": "question",
+  "query": "How can I animate both facial expressions and head movements from an audio track efficiently?",
+  "gold": [
+   "2411.09209"
+  ]
+ },
+ {
+  "qid": "sy125",
+  "kind": "question",
+  "query": "Do synthetic healthcare datasets preserve or amplify gender and race biases present in the original electronic medical records?",
+  "gold": [
+   "2203.04462"
+  ]
+ },
+ {
+  "qid": "sy043",
+  "kind": "question",
+  "query": "What are the required interfaces and use cases for programmably controlling datacenter optical links?",
+  "gold": [
+   "1801.09563"
+  ]
+ },
+ {
+  "qid": "sy323",
+  "kind": "question",
+  "query": "What methods help reinforcement learning agents explore efficiently when rewards are rare in continuous environments?",
+  "gold": [
+   "2012.13658"
+  ]
+ },
+ {
+  "qid": "sy069",
+  "kind": "question",
+  "query": "How can I model nanoparticle self\u2011assembly when simple hard\u2011sphere approximations fail?",
+  "gold": [
+   "2312.12421"
+  ]
+ },
+ {
+  "qid": "sy345",
+  "kind": "question",
+  "query": "What approaches allow an online AI agent to obey learned behavioral limits while still optimizing reward?",
+  "gold": [
+   "1809.05720"
+  ]
+ },
+ {
+  "qid": "sy161",
+  "kind": "question",
+  "query": "What methods exist for clustering speech transcripts to create concise summaries of spoken meetings?",
+  "gold": [
+   "2410.03412"
+  ]
+ },
+ {
+  "qid": "sy277",
+  "kind": "question",
+  "query": "What techniques improve reasoning performance of compact LLaMA or Gemma models on low\u2011resource languages?",
+  "gold": [
+   "2503.13988"
+  ]
+ },
+ {
+  "qid": "sy117",
+  "kind": "question",
+  "query": "What algorithms can generate low\u2011dimensional representations that preserve similar data fidelity for multiple populations?",
+  "gold": [
+   "1811.00103"
+  ]
+ },
+ {
+  "qid": "sy201",
+  "kind": "question",
+  "query": "Is there a way to automatically adapt foundation models to medical scans at inference time?",
+  "gold": [
+   "2505.17931"
+  ]
+ },
+ {
+  "qid": "sy105",
+  "kind": "question",
+  "query": "What numerical method can stably simulate solid\u2011state dewetting with moving contact lines in three dimensions?",
+  "gold": [
+   "2012.11404"
+  ]
+ },
+ {
+  "qid": "sy157",
+  "kind": "question",
+  "query": "How can the conjectured clustering formulas for (q,t)-deformed Macdonald polynomials be rigorously proved?",
+  "gold": [
+   "1204.5117"
+  ]
+ },
+ {
+  "qid": "sy207",
+  "kind": "question",
+  "query": "Is there a tracking method that uses lane and road layout information to improve trajectory continuity?",
+  "gold": [
+   "2508.14370"
+  ]
+ },
+ {
+  "qid": "sy035",
+  "kind": "question",
+  "query": "Can Doppler boosting in Kepler light curves be used to measure radial velocities of binary companions?",
+  "gold": [
+   "1001.4539"
+  ]
+ },
+ {
+  "qid": "sy241",
+  "kind": "question",
+  "query": "What methods use 2D\u20113D normal consistency to supervise indoor scene reconstruction networks?",
+  "gold": [
+   "2408.15608"
+  ]
+ },
+ {
+  "qid": "sy185",
+  "kind": "question",
+  "query": "What methods enable automatic generation of answers with precise timestamps from large video collections?",
+  "gold": [
+   "2406.14938"
+  ]
+ },
+ {
+  "qid": "sy167",
+  "kind": "question",
+  "query": "What techniques exist for correcting extreme perspective artifacts in facial images without 3D model fitting?",
+  "gold": [
+   "1905.07515"
+  ]
+ },
+ {
+  "qid": "sy129",
+  "kind": "question",
+  "query": "How does incommensurate charge density wave order reconstruct the Fermi surface and produce quantum oscillation frequencies in underdoped cuprate superconductors?",
+  "gold": [
+   "1408.6592"
+  ]
+ },
+ {
+  "qid": "sy095",
+  "kind": "question",
+  "query": "Can supernova\u2011induced turbulence generate the observed magnetic fields in early galaxies?",
+  "gold": [
+   "1708.01486"
+  ]
+ },
+ {
+  "qid": "sy295",
+  "kind": "question",
+  "query": "How can I train a model to infer the required input motions for a desired aerodynamic force in complex robotic systems?",
+  "gold": [
+   "2502.09378"
+  ]
+ },
+ {
+  "qid": "sy223",
+  "kind": "question",
+  "query": "Is there a benchmark that tests photorealistic simulators on unseen viewpoints in large\u2011scale city environments?",
+  "gold": [
+   "2412.05256"
+  ]
+ },
+ {
+  "qid": "sy175",
+  "kind": "question",
+  "query": "Why does the slow\u2011roll approximation give unreliable reconstructions of the inflaton potential?",
+  "gold": [
+   "astro-ph/0511660"
+  ]
+ },
+ {
+  "qid": "sy127",
+  "kind": "question",
+  "query": "What kinds of composite topological defects can form from domain walls, strings, and monopoles in linear O(N) symmetry\u2011breaking models?",
+  "gold": [
+   "2304.14143"
+  ]
+ },
+ {
+  "qid": "sy191",
+  "kind": "question",
+  "query": "How are the structural properties and resilience of Indian city bus systems characterized using network analysis?",
+  "gold": [
+   "1512.05909"
+  ]
+ },
+ {
+  "qid": "sy017",
+  "kind": "question",
+  "query": "Can hydrocarbons form abiotically in supercritical fluids under upper mantle pressure and temperature conditions?",
+  "gold": [
+   "2506.13350"
+  ]
+ },
+ {
+  "qid": "sy029",
+  "kind": "question",
+  "query": "What is the pair correlation function for angles between geodesic rays in a hyperbolic lattice and how is it computed for PSL(2,Z)?",
+  "gold": [
+   "1302.5067"
+  ]
+ },
+ {
+  "qid": "sy231",
+  "kind": "question",
+  "query": "What method uses internal representation consistency to neutralize backdoors in text generation models?",
+  "gold": [
+   "2411.12768"
+  ]
+ },
+ {
+  "qid": "sy327",
+  "kind": "question",
+  "query": "How do kernel methods handle features that are expressed as permutations or preference rankings?",
+  "gold": [
+   "1603.08035"
+  ]
+ },
+ {
+  "qid": "sy225",
+  "kind": "question",
+  "query": "What method extracts semantically meaningful neurons from recommendation models while preserving user\u2011item interaction predictions?",
+  "gold": [
+   "2511.18024"
+  ]
+ },
+ {
+  "qid": "sy229",
+  "kind": "question",
+  "query": "Why do masked diffusion models exhibit strong in\u2011context learning compared to traditional autoregressive generators?",
+  "gold": [
+   "2508.13021"
+  ]
+ },
+ {
+  "qid": "sy045",
+  "kind": "question",
+  "query": "How do decaying sterile neutrino dark\u2011matter signatures correlate with galaxy distributions in eROSITA and ART\u2011XC data?",
+  "gold": [
+   "2211.05919"
+  ]
+ },
+ {
+  "qid": "sy019",
+  "kind": "question",
+  "query": "What API simplifies the development of scalable, high\u2011performance distributed machine\u2011learning algorithms?",
+  "gold": [
+   "1310.5426"
+  ]
+ },
+ {
+  "qid": "sy041",
+  "kind": "question",
+  "query": "How can I estimate hidden states in a time\u2011series model using Monte\u202fCarlo methods?",
+  "gold": [
+   "1709.04196"
+  ]
+ },
+ {
+  "qid": "sy307",
+  "kind": "question",
+  "query": "How can I train a model to predict missing table entries using only the structure of the table itself?",
+  "gold": [
+   "2105.02584"
+  ]
+ },
+ {
+  "qid": "sy209",
+  "kind": "question",
+  "query": "What approaches synthesize high\u2011quality informal\u2011to\u2011formal theorem pairs to improve autoformalization?",
+  "gold": [
+   "2502.05567"
+  ]
+ },
+ {
+  "qid": "sy193",
+  "kind": "question",
+  "query": "Can private training data be inferred from a transferred face recognition model without direct access to the original teacher model?",
+  "gold": [
+   "2010.14023"
+  ]
+ },
+ {
+  "qid": "sy255",
+  "kind": "question",
+  "query": "What hyperparameter settings are most effective for reducing oversquashing in graph neural networks?",
+  "gold": [
+   "2407.09381"
+  ]
+ },
+ {
+  "qid": "sy271",
+  "kind": "question",
+  "query": "What methods provide statistically guaranteed robustness checks with fewer samples?",
+  "gold": [
+   "2406.17830"
+  ]
+ },
+ {
+  "qid": "sy203",
+  "kind": "question",
+  "query": "What techniques reduce the size of PLM\u2011based intent detectors while keeping accuracy?",
+  "gold": [
+   "2407.09943"
+  ]
+ },
+ {
+  "qid": "sy113",
+  "kind": "question",
+  "query": "How can a stochastic logging policy be accounted for to achieve unbiased learning\u2011to\u2011rank for limited\u2011size rankings?",
+  "gold": [
+   "2005.09035"
+  ]
+ }
+]

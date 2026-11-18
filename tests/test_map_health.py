@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import config, groq_svc, local_meta, map_locate_svc, qdrant_svc, zilliz_svc
+from app import config, groq_svc, local_meta, map_locate_svc, qdrant_svc
 from app.routers import health
 
 
@@ -25,8 +25,6 @@ def test_deep_health_reports_map_collection_failure(monkeypatch, stats, expected
     monkeypatch.setattr(config, "TURSO_DB_TOKEN", "")
     monkeypatch.setattr(qdrant_svc, "_client", lambda: SimpleNamespace(
         get_collection=lambda name: SimpleNamespace(points_count=100)))
-    monkeypatch.setattr(zilliz_svc, "_get_client", lambda: SimpleNamespace(
-        list_collections=lambda: ["papers"]))
     monkeypatch.setattr(local_meta, "stats", lambda: {"available": True})
     monkeypatch.setattr(groq_svc, "probe_models", lambda: {"status": "ok"})
 
@@ -121,8 +119,6 @@ def test_deep_health_does_not_silently_skip_missing_map_config(monkeypatch):
     monkeypatch.setattr(config, "TURSO_DB_TOKEN", "")
     monkeypatch.setattr(qdrant_svc, "_client", lambda: SimpleNamespace(
         get_collection=lambda name: SimpleNamespace(points_count=100)))
-    monkeypatch.setattr(zilliz_svc, "_get_client", lambda: SimpleNamespace(
-        list_collections=lambda: ["papers"]))
     monkeypatch.setattr(local_meta, "stats", lambda: {"available": True})
 
     result = asyncio.run(health.healthz_deep())

@@ -16,13 +16,18 @@
     <h1 class="issue-title">Library</h1>
     <div class="issue-line">
       <span><b>{{ count }}</b> paper{{ "s" if count != 1 }} saved</span>
-      {% if count and count < 5 %}
+      {% if count %}
         <span class="sep">·</span>
-        <span>{{ 5 - count }} more unlocks multi-interest ranking</span>
+        <span>each one shapes your feed</span>
       {% endif %}
     </div>
   </header>
   {% set library_tab = "saved" %}{% include "partials/library_tabs.html" %}
+  {% if opened == "1" %}
+    <p class="lib-notice" role="status">Your library is open in this browser.{% if added %} {{ added }} paper{{ "s" if added != 1 }} saved here before {{ "were" if added != 1 else "was" }} added to it.{% endif %}</p>
+  {% elif opened == "here" %}
+    <p class="lib-notice" role="status">That link is for this library, and it is already open here.</p>
+  {% endif %}
 
   {% if count > 0 %}
     <div class="feed">
@@ -36,8 +41,8 @@
     <div class="empty">
       <p class="empty-title">Nothing saved yet</p>
       <p class="empty-body">
-        Papers you save are what the feed learns from — every save sharpens
-        what shows up next. Five is roughly where it starts feeling personal.
+        Papers you save are what the feed learns from. One save is enough to
+        start a personal feed, and every save after sharpens it.
       </p>
       <div style="padding-top:.4rem">
         <a href="/search" class="btn btn-primary btn-sm">Find papers</a>

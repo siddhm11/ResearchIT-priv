@@ -3,7 +3,7 @@ Health check routes.
 
 Endpoints:
   /healthz/reranker  -- Phase 6.3: verify LightGBM model deployment status
-  /healthz/deep      -- Deep health check: ping search and map Qdrant, Zilliz, Turso
+  /healthz/deep      -- Deep health check: ping search and map Qdrant, Turso
   /healthz/client    -- what the rate limiter derives for the calling client
   /healthz/runtime   -- memory, CPUs, thread pools, recent search/feed timings
 """
@@ -58,7 +58,7 @@ async def healthz_runtime():
     builds since the last restart. Search stage times overlap (the rewrite runs
     alongside encoding and retrieval), so they do not sum to `total_ms`.
     """
-    from app import abstract_svc, compute_pool, discovery_svc, local_meta, runtime_stats, turso_sync
+    from app import abstract_svc, compute_pool, discovery_svc, local_meta, ops_digest, plain_prewarm, runtime_stats, turso_sync
     # Whether user data is being copied to Turso. Only whether there was an
     # error: its text stays in the logs, since it can name the database host.
     replication = turso_sync.status()
@@ -75,6 +75,10 @@ async def healthz_runtime():
         "counters": runtime_stats.counters(),
         "sidecar_warmup": local_meta.warmup_status(),
         "starter_prewarm": discovery_svc.prewarm_status(),
+        # Errors per module since the restart and the last 20 (audit F25); the
+        # daily counts survive restarts in ops_daily.
+        "errors": {"by_module": ops_digest.by_module(), "recent": list(ops_digest.recent)},
+        "plain_prewarm": plain_prewarm.stats(),
         "full_abstracts": abstract_svc.stats(),
         "replication": replication,
     }
@@ -237,7 +241,7 @@ async def healthz_shards():
     so it gets an explicit one. Also checks that the arxiv_id payload index
     exists, since without it recommendation lookups silently return nothing.
     """
-    from app import config, qdrant_svc
+    from app import qdrant_svc
 
     def _probe(backend: str) -> dict:
         with qdrant_svc.use_backend(backend):
@@ -406,27 +410,6 @@ async def healthz_deep():
             "status": "skipped",
             "error": str(e)[:200],
             "fanout_enabled": config.fanout_enabled(),
-            "time_ms": int((time.perf_counter() - t0) * 1000),
-        }
-
-    # ── Ping Zilliz ──────────────────────────────────────────────────────
-    t0 = time.perf_counter()
-    try:
-        from app.zilliz_svc import _get_client
-        client = _get_client()
-        # Run synchronous Zilliz call in executor to avoid blocking event loop
-        collections = await loop.run_in_executor(
-            None, client.list_collections
-        )
-        results["services"]["zilliz"] = {
-            "status": "ok",
-            "collections_count": len(collections),
-            "time_ms": int((time.perf_counter() - t0) * 1000),
-        }
-    except Exception as e:
-        results["services"]["zilliz"] = {
-            "status": "error",
-            "error": str(e),
             "time_ms": int((time.perf_counter() - t0) * 1000),
         }
 
@@ -655,11 +638,3 @@ async def healthz_shard_latency(samples: int = 5, limit: int = 20):
         "verdict": verdict,
     }
 
-
-@router.get("/healthz/discovery")
-async def healthz_discovery(request: Request):
-    """Cached operational status; no network/model work or credentials."""
-    runtime = getattr(request.app.state, "discovery", None)
-    if runtime is None:
-        return {"scheduler": "not_started", "serving_enabled": False}
-    return runtime.status()

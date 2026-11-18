@@ -144,11 +144,13 @@ async def test_direct_paper_visit_keeps_history_but_not_skip_onboarding(client, 
     """A shared link is often a reader's first visit; it must not count as history."""
     from app.routers import paper
     monkeypatch.setattr(paper, '_related', AsyncMock(return_value=[]))
-    assert (await client.get('/')).headers['location'].endswith('/onboarding')
+    # A new visitor gets the front page (doc 06, 2026-11-17), not the feed.
+    first = await client.get('/')
+    assert first.status_code == 200 and 'class="wl-title"' in first.text
     assert (await client.get('/p/2305.04120')).status_code == 200
     assert [r['paper_id'] for r in await db.get_recent_papers('reader')] == ['2305.04120']
     home = await client.get('/')
-    assert home.status_code == 302 and home.headers['location'].endswith('/onboarding')
+    assert home.status_code == 200 and 'class="wl-title"' in home.text
     assert (await db.get_onboarding_state('reader')) is None
 
 

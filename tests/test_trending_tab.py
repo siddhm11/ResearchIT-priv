@@ -222,7 +222,7 @@ async def test_search_recent_uses_only_the_recent_shard(monkeypatch):
         def __init__(self, aid, score):
             self.payload, self.score = {"arxiv_id": aid}, score
 
-    def run(vec, limit, with_vectors=False):
+    def run(vec, limit, with_vectors=False, *_):
         used.append(qdrant_svc._BACKEND.get())
         return [P("a", .9), P("a", .9), P("b", .8), P("c", .7)]
 

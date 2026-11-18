@@ -87,6 +87,9 @@
       </div>
       <span class="code-slot" data-quiet hx-get="/api/papers/{{ pid }}/code" hx-trigger="load" hx-swap="outerHTML"></span>
       <a class="lnk" href="https://arxiv.org/pdf/{{ pid }}" target="_blank" rel="noopener">PDF ↗</a>
+      {#- The link previews with the paper's figure (base.html og:image). -#}
+      <button type="button" class="lnk lnk-btn" data-share="{{ public_url }}/p/{{ pid }}"
+              data-share-title="{{ paper.title }}">Share</button>
       <div class="pc-menu">
         <button type="button" class="pc-menu-btn" data-menu aria-haspopup="true" aria-expanded="false"
                 aria-label="More about this paper">

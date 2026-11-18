@@ -36,7 +36,7 @@ from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, briefing_svc, confi
                  hf_papers_svc, hn_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
-from app.config import COOKIE_NAME
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.routers.events import _NO_POSITION, _position
 from app.templates_env import templates
 
@@ -220,8 +220,11 @@ async def paper_page(
     if features.visible("PAPER_PAGE_V2", request):
         template = "paper_v2.html"
         context.update(await _v2_context(paper, related, request, back=back_link(request, sf, qid)))
+        image = share_image(context.get("figures") or [])
+        if image:
+            context["og_image"] = image
     resp = templates.TemplateResponse(request, template, context)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
     # replaced: /healthz/runtime reports p50/p95 of the last 200 visits.
     runtime_stats.record("paper_page", {
@@ -236,6 +239,16 @@ async def paper_page(
 _BACK_PAGES = {"/": "Your feed", "/search": "Search results", "/saved": "Saved papers",
                "/history": "Recently opened", "/collections": "Collections"}
 _BACK_PATH = re.compile(r"/collections/[a-z0-9-]{1,80}|/p/\d{4}\.\d{4,5}")
+
+
+def share_image(figures: list[dict]) -> str | None:
+    """The picture a shared link to this paper shows: its first raster figure.
+    SVG figures are left out because link previews (Slack, X, WhatsApp) only
+    draw raster images; without one the page keeps the site's own picture."""
+    for f in figures:
+        if f.get("url") and not f["url"].endswith(".svg"):
+            return config.PUBLIC_URL + f["url"]
+    return None
 
 
 def back_link(request: Request, sf: str, qid: str) -> dict | None:

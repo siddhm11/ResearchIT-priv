@@ -354,3 +354,60 @@ def test_ordinary_queries_still_search(client, query):
             patch.object(turso, "fetch_metadata_batch", AsyncMock(return_value={})):
         client.get("/search", params={"q": query}, follow_redirects=False)
     assert s.await_count == 1
+
+
+# ── More results and year/area filters (audit F18) ───────────────────────────
+
+def _corpus(n=30):
+    """2301.x (2023, cs.LG) and 2501.x (2025, math.OC), alternating, best first."""
+    ids = [f"{'23' if i % 2 else '25'}01.{i:05d}" for i in range(n)]
+    meta = {a: {"arxiv_id": a, "title": f"Paper {a}", "abstract": "x", "authors": '["A"]',
+                "category": "cs.LG" if a.startswith("23") else "math.OC",
+                "arxiv_categories": "cs.LG stat.ML" if a.startswith("23") else "math.OC",
+                "published": "2023-01-01"} for a in ids}
+    return ids, meta
+
+
+def _install(monkeypatch, ids, meta):
+    import app.hybrid_search_svc as hs
+    import app.turso_svc as turso
+    search = AsyncMock(return_value=(ids[:10], {"total_time_ms": 5, "more_ids": ids[10:]}))
+    monkeypatch.setattr(hs, "search", search)
+
+    async def fetch(want):
+        return {a: dict(meta[a]) for a in want if a in meta}
+    monkeypatch.setattr(turso, "fetch_metadata_batch", fetch)
+    return search
+
+
+def _ids(html):
+    import re
+    return re.findall(r'id="paper-(\d{4}\.\d{5})"', html)
+
+
+def test_more_results_continue_the_same_search(client, monkeypatch):
+    ids, meta = _corpus()
+    search = _install(monkeypatch, ids, meta)
+    first = client.get("/search?q=optimisation+methods", headers={"HX-Request": "true"}).text
+    assert _ids(first) == ids[:10] and "More results" in first
+    second = client.get("/search?q=optimisation+methods&page=2", headers={"HX-Request": "true"}).text
+    assert _ids(second) == ids[10:20]
+    import html as _html
+    assert '"position": 10,' in _html.unescape(second)         # rank across pages, for §3.11
+    third = client.get("/search?q=optimisation+methods&page=3", headers={"HX-Request": "true"}).text
+    assert _ids(third) == ids[20:30] and "More results" not in third
+    assert search.await_count == 1                       # one search; later pages read what it kept
+
+
+def test_filters_narrow_the_kept_top_fifty(client, monkeypatch):
+    ids, meta = _corpus()
+    _install(monkeypatch, ids, meta)
+    recent = client.get("/search?q=optimisation&since=2025", headers={"HX-Request": "true"}).text
+    assert _ids(recent) and all(a.startswith("25") for a in _ids(recent))
+    assert "Narrowed from this search" in recent
+    cs = client.get("/search?q=optimisation&area=cs", headers={"HX-Request": "true"}).text
+    assert _ids(cs) and all(a.startswith("23") for a in _ids(cs))
+    none = client.get("/search?q=optimisation&since=2025&area=cs", headers={"HX-Request": "true"}).text
+    assert _ids(none) == [] and "50 best matches fits" in none
+    junk = client.get("/search?q=optimisation&since=1990&area=<x>", headers={"HX-Request": "true"}).text
+    assert _ids(junk) == ids[:10]                        # unknown values are ignored

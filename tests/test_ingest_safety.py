@@ -18,7 +18,7 @@ def test_topic_label_matches_existing_rows():
 
 def _upserter(monkeypatch, present):
     up = object.__new__(ingest_backends.Upserter)
-    calls = {"q": [], "z": [], "t": []}
+    calls = {"q": [], "t": []}
 
     def fake_q(path, body=None, method="GET", timeout=180):
         calls["q"].append((path, method, body))
@@ -27,7 +27,6 @@ def _upserter(monkeypatch, present):
         return {}
 
     monkeypatch.setattr(up, "_q", fake_q, raising=False)
-    monkeypatch.setattr(up, "_z", lambda *a, **k: calls["z"].append(a), raising=False)
     monkeypatch.setattr(up, "_t", lambda stmts, **k: calls["t"].append(stmts), raising=False)
     return up, calls
 
@@ -54,13 +53,11 @@ def test_nothing_new_means_no_qdrant_write(monkeypatch):
     assert not [1 for _p, m, _b in calls["q"] if m == "PUT"]
 
 
-def test_turso_rows_carry_the_friendly_label_and_zilliz_is_skipped(monkeypatch):
-    monkeypatch.setattr(ingest_backends, "WRITE_ZILLIZ", False)
+def test_turso_rows_carry_the_friendly_label(monkeypatch):
     up, calls = _upserter(monkeypatch, present=set())
     up.upsert(_papers("2608.00003"), [([0.1] * 4, {1: 0.5})])
     label = calls["t"][0][0]["args"][5]["value"]
     assert label == "Computer Vision"
-    assert calls["z"] == []
 
 
 def test_coverage_report_flags_short_and_unknown_categories(capsys):
@@ -246,5 +243,4 @@ def test_turso_urls_work_in_either_form(url, monkeypatch):
     monkeypatch.setenv("QDRANT_URL", "https://primary.example")
     monkeypatch.setenv("TURSO_URL", url)
     monkeypatch.setenv("TURSO_DB_TOKEN", "t")
-    monkeypatch.setattr(ingest_backends, "WRITE_ZILLIZ", False)
     assert ingest_backends.Upserter().turl == "https://db-org.turso.io"

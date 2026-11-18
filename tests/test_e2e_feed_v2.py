@@ -39,7 +39,7 @@ def _wide_world() -> bool:
         html = urllib.request.urlopen(req, timeout=15).read().decode()
     except (urllib.error.URLError, OSError):
         return False
-    # A new reader is sent to onboarding; a finished one sees the feed.
+    # A new reader gets the front page (it links to /onboarding); a finished one sees the feed.
     return "data-wide-feed" in html or "/onboarding" in html
 
 
