@@ -23,14 +23,9 @@ from datetime import datetime, timezone
 import numpy as np
 from scipy.cluster.hierarchy import ward, fcluster
 from scipy.optimize import linear_sum_assignment
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import pdist, squareform
 
 from app import db
-
-# Ward merge threshold — used as a MAXIMUM. The actual cut point is
-# determined adaptively by finding the largest gap in merge distances.
-# This fallback only applies if no clear gap is found.
-WARD_DISTANCE_THRESHOLD = 1.5
 
 # Absolute limits on cluster count
 MIN_CLUSTERS = 1
@@ -55,8 +50,12 @@ AVG_CLUSTER_SIZE_FLOOR = 2
 MIN_PAPERS_FOR_CLUSTERING = 5
 
 # From this many saves the feed runs per-interest retrieval (quota + MMR);
-# below MIN_PAPERS_FOR_CLUSTERING each save is its own interest.
-MIN_SAVES_FOR_INTERESTS = 2
+# below MIN_PAPERS_FOR_CLUSTERING each save is its own interest. One save is
+# enough since 2026-11-13 (audit F19): the first personalised page used to be
+# raw nearest neighbours (Tier 3) with no scoring, recency or exploration; on 15
+# one-save readers its papers averaged 4.32 years old against 2.07 here, with no
+# exploration against 2. Tiers 2 and 3 remain as fallbacks (doc 06).
+MIN_SAVES_FOR_INTERESTS = 1
 
 
 @dataclass
@@ -153,37 +152,43 @@ def _recency_weights(n: int, timestamps: list[str] | None) -> np.ndarray:
     )
 
 
-def _adaptive_threshold(linkage: np.ndarray) -> float:
-    """
-    Find the optimal cut point by detecting the largest gap in merge distances.
+# How many interests: the dendrogram cut with the best mean silhouette, and one
+# interest when even that cut separates nothing (doc 06, 2026-11-13; audit F27).
+# The largest gap between Ward merge heights, used before, sits near the top of
+# the tree for a reader with one big field, because Ward heights grow with
+# cluster size: side interests merged into one group and were never searched,
+# while a single-topic reader was split into fake ones. Measured on real paper
+# neighbourhoods from the live shards (13 reader shapes x 20 readers): exactly
+# the right number 30% -> 67% of the time, mean miscount 1.59 -> 0.58; a
+# 20-paper single-topic reader got 5.2 interests, now 1.8.
+SILHOUETTE_MIN = 0.12
 
-    The linkage matrix has shape (n-1, 4). Column 2 is the merge distance.
-    We look at the differences between consecutive merge distances and pick
-    the cut just below the biggest jump — that's where the most distinct
-    clusters separate.
 
-    Falls back to 0.7 × max_merge_distance if no clear gap is found.
-    """
-    merge_distances = linkage[:, 2]
-    if len(merge_distances) < 2:
-        return float(merge_distances[0]) if len(merge_distances) == 1 else WARD_DISTANCE_THRESHOLD
+def _silhouette(dist: np.ndarray, labels: np.ndarray) -> float:
+    """Mean silhouette over a square distance matrix; a singleton scores 0."""
+    groups = np.unique(labels)
+    scores = []
+    for i, own in enumerate(labels):
+        same = labels == own
+        if same.sum() <= 1:
+            scores.append(0.0)
+            continue
+        a = dist[i, same].sum() / (same.sum() - 1)
+        b = min(dist[i, labels == g].mean() for g in groups if g != own)
+        scores.append((b - a) / max(a, b, 1e-12))
+    return float(np.mean(scores))
 
-    # Compute gaps between consecutive merges
-    gaps = np.diff(merge_distances)
 
-    # The biggest gap indicates the most natural cluster boundary
-    best_gap_idx = int(np.argmax(gaps))
-
-    # Cut just above the merge BEFORE the biggest gap
-    # (i.e., allow all merges up to but not including the big jump)
-    threshold = float(merge_distances[best_gap_idx] + merge_distances[best_gap_idx + 1]) / 2.0
-
-    # Sanity: don't let it go below first merge or above reasonable max
-    min_t = float(merge_distances[0])
-    max_t = float(merge_distances[-1]) * 0.7
-    threshold = max(min_t, min(threshold, max_t))
-
-    return threshold
+def _choose_k(linkage: np.ndarray, dist: np.ndarray, cap: int) -> int:
+    best_k, best = 1, -1.0
+    for k in range(2, cap + 1):
+        labels = fcluster(linkage, t=k, criterion="maxclust")
+        if len(np.unique(labels)) < k:
+            continue
+        s = _silhouette(dist, labels)
+        if s > best + 1e-9:
+            best_k, best = k, s
+    return best_k if best >= SILHOUETTE_MIN else 1
 
 
 def compute_clusters(
@@ -235,36 +240,18 @@ def compute_clusters(
     distances = pdist(embeddings, metric="euclidean")
     linkage = ward(distances)
 
-    # Adaptive threshold: find the biggest gap in merge distances
-    threshold = _adaptive_threshold(linkage)
-
-    # Cut the dendrogram at the adaptive threshold
-    labels = fcluster(linkage, t=threshold, criterion="distance")
-
     # Clamp cluster count.
     # Two layers:
     #   1. Hard cap: never exceed MAX_CLUSTERS (=7) regardless of N.
     #   2. Soft cap: keep average cluster size >= AVG_CLUSTER_SIZE_FLOOR.
-    #      This prevents the gap-detection from over-splitting small N
-    #      (e.g. 5 same-domain saves were producing K=4 with 3 singletons,
-    #      which then got over-weighted by the quota floor of 3 slots).
     soft_cap = max(
         MIN_CLUSTERS,
         min(MAX_CLUSTERS, math.ceil(n / AVG_CLUSTER_SIZE_FLOOR)),
     )
-
-    unique_labels = np.unique(labels)
-    n_clusters = len(unique_labels)
-
-    if n_clusters > MAX_CLUSTERS:
-        labels = fcluster(linkage, t=MAX_CLUSTERS, criterion="maxclust")
-        unique_labels = np.unique(labels)
-        n_clusters = len(unique_labels)
-
-    if n_clusters > soft_cap:
-        labels = fcluster(linkage, t=soft_cap, criterion="maxclust")
-        unique_labels = np.unique(labels)
-        n_clusters = len(unique_labels)
+    n_clusters = _choose_k(linkage, squareform(distances), soft_cap)
+    labels = (fcluster(linkage, t=n_clusters, criterion="maxclust") if n_clusters > 1
+              else np.ones(n, dtype=int))
+    n_clusters = len(np.unique(labels))
 
     # Prefer the finest dendrogram cut, at or below this K, that leaves no
     # singleton. Folding singletons into the nearest multi-paper cluster

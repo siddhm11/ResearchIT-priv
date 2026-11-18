@@ -43,6 +43,7 @@ from app.recommend.clustering import (
 from app.recommend.fusion import (
     allocate_quotas,
     enforce_quota_on_ranking,
+    group_weights,
     merge_quota_results,
 )
 from app.recommend.labels import label_clusters, cluster_tone
@@ -605,11 +606,11 @@ _TIER_BY_SOURCE = {
     "ewma_longterm": 2,
 }
 
-# What the user gets at each step up, keyed by the tier they are ON now.
+# What the user gets at each step up, keyed by the tier they are ON now. From one
+# save the multi-interest feed runs (MIN_SAVES_FOR_INTERESTS = 1), so Tiers 2 and
+# 3 serve only when it failed and have nothing to promise (doc 06, 2026-11-13).
 _NEXT_UNLOCK = {
     0: (REC_MIN_POSITIVES, "papers matched to your library"),
-    3: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
-    2: (MIN_SAVES_FOR_INTERESTS, "multi-interest feed — every interest keeps its own slots"),
 }
 
 
@@ -1186,17 +1187,12 @@ async def _multi_interest_recommend(
                 top_k=limit,
             )
         else:
-            # The short-term supplement (-1) has no importance of its own, so
-            # it earns the share of the pool it already holds — neither
-            # promoted nor demoted relative to the real interests.
-            total_cands = len(reranked_ids)
+            # One scale for interests and the short-term supplement (-1): the
+            # supplement keeps the share of the pool it holds, the interests
+            # split the rest by importance (fusion.group_weights; audit F4).
             keys = list(groups)
-            weights = [
-                importance_by_idx.get(k, len(groups[k]) / total_cands)
-                if k >= 0 else len(groups[k]) / total_cands
-                for k in keys
-            ]
-            budgets = allocate_quotas(weights, total_slots=limit, min_slots=1)
+            shares = group_weights({k: len(v) for k, v in groups.items()}, importance_by_idx)
+            budgets = allocate_quotas([shares[k] for k in keys], total_slots=limit, min_slots=1)
 
             per_group: list[list[str]] = []
             for k, budget in zip(keys, budgets):

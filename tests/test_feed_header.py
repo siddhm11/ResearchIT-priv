@@ -44,13 +44,11 @@ def test_empty_feed_defaults_to_tier_1():
 
 # ── Progress toward the next tier ────────────────────────────────────────────
 
-def test_tier_3_user_is_pointed_at_the_multi_interest_threshold():
-    """From two saves every save is its own interest; that is the next step."""
-    s = _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1)
-    assert s is not None
-    assert s["target"] == MIN_SAVES_FOR_INTERESTS
-    assert s["remaining"] == MIN_SAVES_FOR_INTERESTS - 1
-    assert "multi-interest" in s["unlocks"]
+def test_tier_3_is_a_fallback_and_never_nags():
+    """From one save the multi-interest feed runs (audit F19); Tier 3 serves only
+    when it failed, so there is no next step to point at."""
+    assert MIN_SAVES_FOR_INTERESTS == 1
+    assert _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1) is None
 
 
 def test_tier_2_is_a_fallback_and_never_nags():
@@ -75,7 +73,7 @@ def test_no_nag_when_the_threshold_is_met_but_the_tier_did_not_engage():
 
 
 def test_percentage_is_bounded():
-    s = _profile_strength(entry({"a": tag("qdrant_recommend")}), save_count=1)
+    s = _profile_strength(entry({"a": tag("trending_category_fallback")}), save_count=0)
     assert 0 <= s["pct"] <= 100
 
 

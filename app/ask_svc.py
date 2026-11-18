@@ -38,7 +38,7 @@ import aiosqlite
 from app import ai_usage, arxiv_html, briefing_svc, config, errors, llm, paper_source_svc
 
 SWITCH = "ASK"
-PROMPT_VERSION = "a1"
+PROMPT_VERSION = "a2"   # a2 (2026-11-13): own limitations only, no anchors in prose (audit F20)
 MAX_QUESTION = 500
 TOP_K = 8
 TOTAL_CHARS = 12_000
@@ -69,6 +69,9 @@ Rules:
 with that passage's anchor. Leave the list empty rather than paraphrase.
 - If the passages don't answer the question, set "unanswerable" to true and use \
 "answer" to say briefly what the paper does cover.
+- Limitations, weaknesses or future work: give THIS paper's own (its method, data, \
+experiments or claims), never the limitations it describes in earlier work.
+- Never write an anchor in "answer"; anchors go only in "cites" and "quotes".
 - Plain text only: no LaTeX, no markdown, no links."""
 
 _STOP = set("""a an and are as at be by can could did do does for from had has have how i if in into is it its
@@ -228,6 +231,21 @@ def find_quote(quote: str, passage: str) -> str | None:
     return passage[start:end].strip()
 
 
+# A paragraph id from the paper's HTML (LaTeXML: S5.SS1.p3, S2.F1, A1.T2) copied
+# into an answer's prose: 2 of 80 stored answers had one (audit F20). Removed with
+# the brackets around it; the citations below the answer carry the same link.
+_ANCHOR_ID = r"(?:[A-Z]{1,2}x?\d+(?:\.[A-Za-z]{1,4}\d+)+)"
+_ANCHOR_BRACKETED = re.compile(
+    rf"\s*[(\[]\s*{_ANCHOR_ID}(?:\s*[,;]\s*{_ANCHOR_ID})*\s*[)\]]")
+_ANCHOR_BARE = re.compile(rf"\b{_ANCHOR_ID}\b")
+
+
+def strip_anchors(answer: str) -> str:
+    out = _ANCHOR_BARE.sub("the paper", _ANCHOR_BRACKETED.sub("", answer))
+    out = re.sub(r"\s+([.,;:])", r"\1", out)
+    return re.sub(r"\s{2,}", " ", out).strip()
+
+
 def verify(data: dict | None, passages: list[dict]) -> dict:
     """{kind: answer | unanswerable | nosupport, answer, quotes, cites, dropped}."""
     result = {"kind": "nosupport", "answer": NO_SUPPORT, "quotes": [], "cites": [],
@@ -237,7 +255,7 @@ def verify(data: dict | None, passages: list[dict]) -> dict:
     answer = data.get("answer")
     if not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_ANSWER:
         return result
-    answer = re.sub(r"\s+", " ", answer).strip()
+    answer = strip_anchors(re.sub(r"\s+", " ", answer).strip())
     by_anchor = {p["anchor"]: p for p in passages}
     all_text = " ".join(p["text"] for p in passages)
     if data.get("unanswerable") is True:

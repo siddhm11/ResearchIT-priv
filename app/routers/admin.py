@@ -132,6 +132,14 @@ async def feed_dashboard(request: Request):
     if not _owner(request):
         return HTMLResponse("Not found", status_code=404)
     data = await analytics.feed_report(include_owner=_me(request))
+    from app import ops_digest
+    ops = await ops_digest.last_days(7)
+    data["ops"] = [{"day": day, "boots": m.get("boot", 0),
+                    "errors": sum(n for k, n in m.items() if k.startswith("error:")),
+                    "worst": max(((k[6:], n) for k, n in m.items() if k.startswith("error:")),
+                                 key=lambda x: x[1], default=None),
+                    "search_p95": m.get("search_p95_ms"), "feed_p95": m.get("feed_first_page_p95_ms")}
+                   for day, m in sorted(ops.items(), reverse=True)]
     chart = bars([{"label": _day_label(d["day"]),
                    "values": {"saved": d["saved"], "opened": d["opened_only"], "passed": d["passed"]}} for d in data["days"]],
                  [("saved", "Saved"), ("passed", "Passed"), ("opened", "Opened, not saved")], unit="cards")

@@ -100,6 +100,9 @@ async def lifespan(app: FastAPI):
     await hn_svc.start()
     await ai_usage.start()
     await analytics.start()
+    from app import ops_digest, plain_prewarm
+    await ops_digest.start()
+    await plain_prewarm.start()
     try:
         yield
     finally:
@@ -112,7 +115,8 @@ async def lifespan(app: FastAPI):
             ("keep_warm", keep_warm.stop),
             ("figure_prewarm", figure_prewarm.stop), ("trending_shelf", trending_shelf.stop),
             ("trending_topics", trending_topics.stop), ("hn_svc", hn_svc.stop),
-            ("ai_usage", ai_usage.stop), ("analytics", analytics.stop),
+            ("ai_usage", ai_usage.stop), ("analytics", analytics.stop), ("ops_digest", ops_digest.stop),
+            ("plain_prewarm", plain_prewarm.stop),
             ("abstract_svc", abstract_svc.stop), ("paper_source_svc", paper_source_svc.stop),
             ("llm_router", llm_router.aclose), ("starter_prewarm", discovery_svc.stop_prewarm),
         ):

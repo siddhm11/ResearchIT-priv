@@ -146,10 +146,12 @@ def test_recommendations_after_save(client, monkeypatch):
     import app.qdrant_svc as qs
     import app.db as db_mod
 
-    # Mock recommend to return a known paper ID
+    # Mock recommend to return a known paper ID. One save now starts the
+    # multi-interest path; with no stored vectors it falls back to Tier 3.
     async def fake_recommend(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit, **_):
         return ["1706.03762"]
     monkeypatch.setattr(qs, "recommend", fake_recommend)
+    monkeypatch.setattr(qs, "get_paper_vectors", AsyncMock(return_value={}))
 
     # Also mock metadata fetch so we don't hit Turso DB in this test
     import app.turso_svc as turso
@@ -333,6 +335,7 @@ def test_full_pipeline_smoke(client, monkeypatch):
     async def fake_rec(positive_arxiv_ids, negative_arxiv_ids, seen_arxiv_ids, limit, **_):
         return ["2302.11382"]
     monkeypatch.setattr(qs, "recommend", fake_rec)
+    monkeypatch.setattr(qs, "get_paper_vectors", AsyncMock(return_value={}))
 
     import app.turso_svc as turso
     async def fake_meta(ids):

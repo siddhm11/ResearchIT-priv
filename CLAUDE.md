@@ -107,8 +107,8 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - Algorithm: **Ward hierarchical agglomerative** via `scipy.cluster.hierarchy.ward`.
 - Code lives in: `app/recommend/clustering.py`.
 - **L2-normalize embeddings BEFORE Ward, then use Euclidean distance.** Cosine Ward via sklearn is mathematically not Ward (Murtagh and Legendre 2014). L2-norm + Euclidean is monotonically equivalent to cosine and gives the intended behavior. This normalization is already in the code.
-- **No fixed K.** Cut the dendrogram by adaptive gap-based threshold (see `_adaptive_threshold()`). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist) and at ceil(N/2) (`AVG_CLUSTER_SIZE_FLOOR = 2`). Take the finest cut within the cap that leaves no singleton; never fold a split pair into another cluster (doc 06, 2026-09-30).
-- **From 2 saves, not 5.** Below `MIN_PAPERS_FOR_CLUSTERING = 5` each save is its own interest (`per_save_clusters`) on the same quota/MMR path. Do not average unrelated early saves into one vector; Tier 2 EWMA is only the fallback.
+- **No fixed K.** Cut the dendrogram where the mean silhouette is best, and keep one interest when that is below `SILHOUETTE_MIN = 0.12` (`_choose_k()`; doc 06, 2026-11-13 — the old largest-gap cut merged side interests and split single-topic readers). Cap at `K_max = 7` (currently; doc 06 says `K_max = 20` for heavy users — raise this when users exist) and at ceil(N/2) (`AVG_CLUSTER_SIZE_FLOOR = 2`). Take the finest cut within the cap that leaves no singleton; never fold a split pair into another cluster (doc 06, 2026-09-30).
+- **From 1 save, not 5** (doc 06, 2026-11-13; was 2). Below `MIN_PAPERS_FOR_CLUSTERING = 5` each save is its own interest (`per_save_clusters`) on the same quota/MMR path. Do not average unrelated early saves into one vector; Tier 2 EWMA is only the fallback.
 - **Medoid, not centroid.** Medoid = arg min over cluster members of sum of squared distances. Cache medoid paper IDs. This is implemented in `_find_medoid()`.
 - **Interests come from what readers do, not only saves** (doc 06, 2026-11-08). `db.get_taste_history` feeds the clusterer saves (1.0), papers asked about (0.6) and papers opened (0.3, click or view) from the last 30 days, at most 60 opened/asked papers; a paper since passed on or un-saved is left out. Importance is recency × signal weight. Opened and asked-about papers are excluded from that reader's candidates. Tier 1 still requires `MIN_SAVES_FOR_INTERESTS` saves.
 - **Hungarian-match cluster IDs across reclusterings** — implemented via `stabilize_cluster_ids`.
@@ -483,11 +483,11 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | alpha_short? | `0.40` — in `app/recommend/profiles.py` |
 | alpha_neg? | `0.15` — in `app/recommend/profiles.py` |
 | MMR lambda? | `0.6` — in `app/recommend/diversity.py` |
-| Cluster algorithm? | Ward, L2-normalized, Euclidean, adaptive gap threshold, `K_max=7`. In `app/recommend/clustering.py`. |
+| Cluster algorithm? | Ward, L2-normalized, Euclidean, best-silhouette cut (one interest below 0.12), `K_max=7`. In `app/recommend/clustering.py`. |
 | Reranker? | Personalized heuristic by default; optional LightGBM/auto. |
 | Latency budget? | <30ms end-to-end (compute only; metadata I/O excluded). |
 | Cold start? | Hybrid: categories + seed papers + popularity fallback (Phase 5 complete). Author import removed from current roadmap. |
-| When does behavioral take over? | ~10 saved papers. Currently: 1 save = similar-to, 2+ saves = interests built from saves, asks and opens (one interest per paper below 5 papers, Ward from 5); EWMA single-vector is a fallback. |
+| When does behavioral take over? | ~10 saved papers. Currently: from 1 save, interests built from saves, asks and opens (one interest per paper below 5 papers, Ward from 5); EWMA single-vector is a fallback. |
 | When to add CF? | 500+ users (Phase 9). |
 | Current status? | Local implementation and validation are distinct from deployed status. See `docs/CURRENT-STATE.md`. |
 | ArXiv ID type? | String. Always. `dtype=str` in pandas. |
