@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import time
 from collections import OrderedDict
 from functools import lru_cache
 
@@ -33,7 +34,7 @@ from qdrant_client.models import (
     QuantizationSearchParams,
 )
 
-from app import config, db, errors
+from app import config, db, errors, runtime_stats
 
 
 # ── Quantization search params ───────────────────────────────────────────────
@@ -89,6 +90,30 @@ _SEARCH_PARAMS = SearchParams(
         rescore=True, oversampling=config.SEARCH_OVERSAMPLING
     ),
 )
+
+
+@lru_cache(maxsize=8)
+def _params_at(oversampling: float) -> SearchParams:
+    return SearchParams(quantization=QuantizationSearchParams(
+        rescore=True, oversampling=oversampling))
+
+
+def _search_params(oversampling: float | None) -> SearchParams:
+    """_SEARCH_PARAMS, or the same at another oversampling (the feed's)."""
+    return _SEARCH_PARAMS if oversampling is None else _params_at(float(oversampling))
+
+
+# Papers to leave out are sent to Qdrant as a filter, so each shard returns the
+# full limit of papers that are left. Filtering afterwards meant asking for twice
+# the limit, and every extra result is another stored vector read from disk at
+# rescoring. A set larger than this is filtered afterwards, the old way.
+_INLINE_EXCLUDE_MAX = 5000
+
+
+def _exclude_filter(exclude) -> Filter | None:
+    if not exclude:
+        return None
+    return Filter(must_not=[FieldCondition(key="arxiv_id", match=MatchAny(any=sorted(exclude)))])
 
 
 # ── uint8 collection support ─────────────────────────────────────────────────
@@ -172,7 +197,7 @@ def _active_backends() -> list[str]:
     return backends
 
 
-async def _fanout(make_coro, label: str) -> list:
+async def _fanout(make_coro, label: str, deadline_s: float | None = None) -> list:
     """Run make_coro() once per active backend, concurrently.
 
     `make_coro` is a zero-arg callable returning a NEW coroutine per call --
@@ -181,14 +206,24 @@ async def _fanout(make_coro, label: str) -> list:
     Returns one result per backend, with failures replaced by []. A failing
     shard costs its share of the corpus, never the whole response: freshness
     must never be able to take search down.
+
+    With `deadline_s`, a shard that has not answered by then is treated the
+    same way, so one slow shard cannot hold the response for the client's 30 s
+    timeout. If no shard has answered, the first answer is waited for instead:
+    a late result beats an empty one. Each shard's time is kept per label in
+    /healthz/runtime, and each late shard is counted.
     """
     backends = _active_backends()
 
     async def one(backend: str):
         # Each gather() branch becomes a Task with its own copy of the context,
         # so these use_backend() scopes cannot observe each other's ContextVar.
+        t0 = time.monotonic()
         with use_backend(backend):
-            return await make_coro()
+            res = await make_coro()
+        runtime_stats.record(f"shard:{label}",
+                             {f"{backend}_ms": int((time.monotonic() - t0) * 1000)})
+        return res
 
     if len(backends) == 1:
         try:
@@ -197,15 +232,23 @@ async def _fanout(make_coro, label: str) -> list:
             errors.report("qdrant_svc", f"{label}: backend {backends[0]} failed", e)
             return [[]]
 
-    settled = await asyncio.gather(
-        *(one(b) for b in backends), return_exceptions=True)
+    tasks = [asyncio.ensure_future(one(b)) for b in backends]
+    done, pending = await asyncio.wait(tasks, timeout=deadline_s or None)
+    if not done:
+        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
     out = []
-    for backend, res in zip(backends, settled):
-        if isinstance(res, BaseException):
-            print(f"[qdrant_svc] {label}: shard {backend} failed: {res}")
+    for backend, task in zip(backends, tasks):
+        if task in pending:
+            # The worker thread finishes its call regardless; only the wait ends.
+            task.cancel()
+            runtime_stats.count(f"shard_late_{backend}")
+            print(f"[qdrant_svc] {label}: shard {backend} missed the {deadline_s} s deadline")
+            out.append([])
+        elif task.exception() is not None:
+            print(f"[qdrant_svc] {label}: shard {backend} failed: {task.exception()}")
             out.append([])
         else:
-            out.append(res)
+            out.append(task.result())
     return out
 
 
@@ -344,12 +387,16 @@ async def recommend(
     negative_arxiv_ids: list[str],
     seen_arxiv_ids: set[str],
     limit: int = config.REC_LIMIT,
+    *,
+    oversampling: float | None = None,
+    deadline_s: float | None = None,
 ) -> list[str]:
     """
     Call Qdrant Recommend API.
 
     Returns a list of arxiv_ids (up to `limit`) sorted by Qdrant score,
-    excluding papers the user has already seen.
+    excluding papers the user has already seen. `oversampling` and
+    `deadline_s` are the feed's (see search_by_vector_with_scores).
     """
     # Resolve arxiv_ids to VECTORS, not point IDs.
     #
@@ -371,11 +418,14 @@ async def recommend(
         return []
 
     # BEST_SCORE stays correct under sharding: the max over per-shard bests is
-    # the global best. Seen papers are filtered in Python -- the payload holds
-    # no per-user state to filter on.
+    # the global best. Seen papers go to Qdrant as a filter on arxiv_id, and are
+    # filtered again here in case a shard ignores it.
+    inline = len(seen_arxiv_ids) <= _INLINE_EXCLUDE_MAX
+    excl = seen_arxiv_ids if inline else None
+    fetch = limit if inline else limit * 2
     per_backend = await _fanout(
-        lambda: _in_executor(_run_recommend, pos, neg, limit * 2),
-        "recommend",
+        lambda: _in_executor(_run_recommend, pos, neg, fetch, excl, oversampling),
+        "recommend", deadline_s,
     )
 
     scored = [
@@ -392,6 +442,8 @@ def _run_recommend(
     pos_vectors: list[list[float]],
     neg_vectors: list[list[float]],
     limit: int,
+    exclude=None,
+    oversampling: float | None = None,
 ) -> list:
     """Sync helper — RecommendQuery over raw vectors, not point IDs.
 
@@ -409,9 +461,10 @@ def _run_recommend(
             )
         ),
         limit=limit,
+        query_filter=_exclude_filter(exclude),
         with_payload=True,
         with_vectors=False,
-        search_params=_SEARCH_PARAMS,
+        search_params=_search_params(oversampling),
     )
     return result.points
 
@@ -570,6 +623,7 @@ async def search_by_vector(
     query_vector: list[float],
     limit: int = 20,
     exclude_ids: set[str] | None = None,
+    **kw,
 ) -> list[str]:
     """
     Raw vector search — find papers similar to a given embedding.
@@ -580,7 +634,7 @@ async def search_by_vector(
     Implemented on top of the scored variant so the shard merge happens in one
     place: ordering across shards needs scores, which the id-only form discards.
     """
-    scored = await search_by_vector_with_scores(query_vector, limit, exclude_ids)
+    scored = await search_by_vector_with_scores(query_vector, limit, exclude_ids, **kw)
     return [r["arxiv_id"] for r in scored]
 
 
@@ -589,6 +643,9 @@ async def search_by_vector_with_scores(
     limit: int = 20,
     exclude_ids: set[str] | None = None,
     with_vectors: bool = False,
+    *,
+    oversampling: float | None = None,
+    deadline_s: float | None = None,
 ) -> list[dict]:
     """
     Vector search returning both arxiv_ids AND cosine scores.
@@ -604,11 +661,18 @@ async def search_by_vector_with_scores(
     Fans out across shards. Each shard is asked for the full limit rather than
     a share of it: the age boundary between shards is arbitrary with respect to
     relevance, so pre-allocating slots would starve whichever era matched best.
+
+    `exclude_ids` are left out inside Qdrant (see _INLINE_EXCLUDE_MAX) and again
+    here. The feed passes its own `oversampling` (config.FEED_OVERSAMPLING) and
+    a shard `deadline_s`; other callers keep the search defaults.
     """
-    fetch = (limit * 2) if exclude_ids else limit
+    inline = len(exclude_ids or ()) <= _INLINE_EXCLUDE_MAX
+    excl = exclude_ids if inline else None
+    fetch = (limit * 2) if exclude_ids and not inline else limit
     per_backend = await _fanout(
-        lambda: _in_executor(_run_vector_search, query_vector, fetch, with_vectors),
-        "search_by_vector_with_scores",
+        lambda: _in_executor(_run_vector_search, query_vector, fetch, with_vectors,
+                             excl, oversampling),
+        "search_by_vector_with_scores", deadline_s,
     )
 
     exclude = exclude_ids or set()
@@ -654,16 +718,18 @@ async def search_recent(
 
 def _run_vector_search(
     query_vector: list[float], limit: int, with_vectors: bool = False,
+    exclude=None, oversampling: float | None = None,
 ) -> list:
-    """Sync helper: nearest-neighbour search by vector."""
+    """Sync helper: nearest-neighbour search by vector, leaving out `exclude`."""
     client = _client()
     result = client.query_points(
         collection_name=_collection(),
         query=_quantize_query(query_vector),
         limit=limit,
+        query_filter=_exclude_filter(exclude),
         with_payload=True,
         with_vectors=with_vectors,
-        search_params=_SEARCH_PARAMS,
+        search_params=_search_params(oversampling),
     )
     return result.points
 

@@ -24,7 +24,7 @@ from collections import OrderedDict
 import numpy as np
 from fastapi import APIRouter, Request, Cookie
 from fastapi.responses import HTMLResponse
-from app import card_data, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, trending_shelf, turso_svc, user_state as us
+from app import card_data, config, db, discovery_svc, errors, features, figure_prewarm, qdrant_svc, arxiv_svc, runtime_stats, trending_shelf, turso_svc, user_state as us
 from app.config import (
     COOKIE_NAME, REC_LIMIT, REC_MIN_POSITIVES, CLUSTER_POSITIVE_LIMIT,
     DEFAULT_TRENDING_CATEGORIES,
@@ -81,6 +81,15 @@ _OVERSAMPLE = 3
 
 # Short-term session context: fixed supplementary pool size
 _ST_SUPPLEMENT = 20
+
+
+def _feed_query() -> dict:
+    """How the feed asks Qdrant: its own oversampling and a shard deadline
+    (config.FEED_OVERSAMPLING; doc 06, 2026-11-13). Read per call, so a test
+    can patch config."""
+    return {"oversampling": config.FEED_OVERSAMPLING,
+            "deadline_s": config.FEED_SHARD_DEADLINE_S or None}
+
 
 # ── Paginated feed ───────────────────────────────────────────────────────────
 #
@@ -540,6 +549,7 @@ async def _build_feed(
             negative_arxiv_ids=state.negative_list,
             seen_arxiv_ids=seen,
             limit=_FEED_POOL,
+            **_feed_query(),
         )
         explore, tags = [], {
             aid: {
@@ -926,6 +936,7 @@ async def _multi_interest_recommend(
                 query_vector=c.medoid_embedding.tolist(),
                 limit=quota * _OVERSAMPLE,
                 exclude_ids=seen,
+                **_feed_query(),
             )
             for c, quota in zip(clusters, quotas)
         ]
@@ -957,6 +968,7 @@ async def _multi_interest_recommend(
                 query_vector=st_vec.tolist(),
                 limit=_ST_SUPPLEMENT,
                 exclude_ids=seen | candidate_set,
+                **_feed_query(),
             )
             timing["st_search_ms"] = int((time.time() - t0_st) * 1000)
             for hit in st_scored:
@@ -1375,4 +1387,5 @@ async def _ewma_recommend(
         query_vector=query_vec,
         limit=limit,
         exclude_ids=seen,
+        **_feed_query(),
     )

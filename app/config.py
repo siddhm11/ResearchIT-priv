@@ -441,6 +441,18 @@ SEARCH_BGE_RERANK = os.getenv("SEARCH_BGE_RERANK", "1").strip().lower() in (
 # Set SEARCH_OVERSAMPLING=1.0 to restore the previous behaviour without a deploy.
 SEARCH_OVERSAMPLING = float(os.getenv("SEARCH_OVERSAMPLING", "8.0"))
 
+# The feed's own oversampling (2026-11-13). A feed sends one query per interest
+# to every shard, together asking for ~300 candidates, and rescoring each at 8x
+# read the stored vectors from disk: measured cold against the live shards, a
+# 3-interest reader's searches took 9.1 s and a 6-interest reader's 13.8 s. At
+# 2x, with seen papers filtered inside Qdrant: 2.0 s and 1.9 s, and 97-99% of
+# each interest's top 30 unchanged. Search keeps SEARCH_OVERSAMPLING: its
+# recall@60 caps what the reranker can find.
+FEED_OVERSAMPLING = float(os.getenv("FEED_OVERSAMPLING", "2.0"))
+# A shard that has not answered a feed search by then is left out of that page,
+# rather than holding it for the client's 30 s timeout. 0 turns it off.
+FEED_SHARD_DEADLINE_S = float(os.getenv("FEED_SHARD_DEADLINE_S", "2.5"))
+
 # Time budget for one FTS5 lexical search (AND attempt + OR fallback together).
 # Over budget the lexical arm returns nothing and the dense arm answers alone.
 # With ranking inside FTS before the `papers` join (fts_svc._SQL, 2026-10-16) the

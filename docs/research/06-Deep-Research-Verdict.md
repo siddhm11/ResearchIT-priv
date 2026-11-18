@@ -1371,3 +1371,39 @@ pin was off.
 **Action items:** Done: `groq_svc._settle`. For the owner: check whether
 `SEARCH_REWRITE_KEYWORDS` is on in the Space variables, and decide whether to
 turn it off given the recall loss above.
+
+### 2026-11-13 — The feed's Qdrant searches: seen papers filtered inside Qdrant, oversampling 2, a shard deadline (audit P2, P4)
+**Decision:** The feed's interest, session and fallback searches send the
+reader's seen papers to Qdrant as a `must_not` filter on `arxiv_id` and ask for
+exactly their limit, not twice it (sets over 5,000 ids keep the old way). They
+rescore at `FEED_OVERSAMPLING = 2` instead of search's 8, and give each shard
+`FEED_SHARD_DEADLINE_S = 2.5` s: a shard that has not answered is left out of
+that page, as a failed shard already was; if none has answered, the first
+answer is waited for. Every fan-out records each shard's time
+(`/healthz/runtime` `shard:<label>`), and late shards are counted
+(`shard_late_<shard>`). Search keeps `SEARCH_OVERSAMPLING = 8` and no deadline.
+**Supersedes:** The audit's (4 Nov) P2, one batched request per shard. Measured,
+it is no faster: the time is Qdrant's work, not the number of requests.
+**Rationale:** On the Space, 14 Tier 1 builds since 8 Nov took 3.3 s at the
+median and 11.9 s at p95, and 2.6 s / 10.7 s of that was the per-interest
+searches. Rescoring reads each candidate's stored vector from disk, and the
+feed read about 1,600 per query per shard (limit up to 100, doubled for the
+seen filter, times oversampling 8). Cold, against the live shards, with fresh
+paper vectors each run:
+* One call per search vs one batch per shard: 9.2 s vs 9.3 s (3 interests),
+  14.2 s vs 14.1 s (6 interests).
+* The real code, today vs this change: 8.9 s → 1.9 s (3 interests),
+  14.2 s → 1.9 s (6 interests). No shard missed the deadline.
+* Each interest's top 30 against today's lists: 97–99% the same papers at 2x,
+  98–100% at 4x (4x costs 3.4–3.6 s). Recall of the 200 nearest against exact
+  search on a single shard: 0.93 at 2x, 0.98 at 4x, 0.99 at 8x.
+* Each shard applies the filter itself: the two nearest papers, excluded, never
+  came back from a, b or recent.
+The feed's candidates are rescored, quota-arranged and diversified afterwards,
+so a 2–3% change at the edge of each interest's pool is not what a reader
+sees; a 9–14 s first page is.
+**Action items:** Done: `qdrant_svc` (`_exclude_filter`, `_search_params`,
+`_fanout(deadline_s)`), `recommendations._feed_query`, PHASE8 Tier 1 list. After
+deploy: read `shard:search_by_vector_with_scores` and `shard_late_*` in
+`/healthz/runtime`, and set `FEED_OVERSAMPLING=4` in the Space if a reader's
+feed looks thinner (no rebuild needed).
