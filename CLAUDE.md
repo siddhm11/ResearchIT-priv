@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-10-21
+> **Last updated**: 2026-11-13
 
 ---
 
@@ -138,7 +138,7 @@ If you find `alpha_long = 0.10` anywhere in code or config, it is a bug from doc
 - **Personalized tiers exclude the last seven days of impressions before retrieval**, preserving quota/MMR over eligible candidates. If no ranked result remains, retry once without impression exclusion and label repeats. Saves/dismissals remain excluded. Per-user serving locks include the impression write; cached cursors must belong to that user. Recently opened/discovered papers remain available at `/history`.
 - **Never restore `propensity: 1.0` on a tier that has any randomness.** A degenerate propensity makes all later IPS/SNIPS/DR analysis impossible, which defeats §3.11. `_cold_start_order()` records the conditional probability at the selected slot. This is not automatically a marginal inclusion probability or a validated IPS estimator; document conditioning before counterfactual analysis.
 - Prefer epsilon-greedy over Plackett-Luce/softmax here: its propensities are exactly computable in the form §3.11 already documents. Approximate propensities are silently biased estimates.
-- `feed_impressions` is **not** replicated to Turso — high volume, low value per row, and losing it degrades to repeats rather than to anything broken.
+- `feed_impressions`, `feed_exposures` and `collection_follows` **are** replicated to Turso (doc 06, 2026-11-13). Before that every deploy showed returning readers last week's papers again, dropped follows, and restarted the exposure log. An unfollow keeps its row with `active = 0` so replication carries it.
 
 ### 3.5 Diversity
 
@@ -237,8 +237,10 @@ collections; map backend; instrumentation; partial Turso replication; local CI.
 
 Not established by implementation alone: current corpus freshness, full abstract
 coverage, live relevance/latency, complete recovery semantics, and user retention.
-Exposure logs and follows still lack remote replication. Existing evaluation
-scripts are starting points for a held-out quality framework.
+Exposure logs, impressions and follows are replicated since 2026-11-13; cluster
+snapshots, ui_events and ask_log are not. Existing evaluation scripts are
+starting points for a held-out quality framework; `/admin/feed` reads the
+exposure log against interactions.
 
 **Out of scope until later phases — do not build:**
 - S2/ORCID author import for onboarding (removed — not the direction we want).
@@ -497,10 +499,10 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite + periodic Turso replication of four core user tables; follows/exposures/impressions remain outside that backup contract. |
+| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows) and the paid-for caches. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-10-21. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-11-13. Update this date when CLAUDE.md changes.*

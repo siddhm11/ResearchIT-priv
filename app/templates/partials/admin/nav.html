@@ -1,7 +1,8 @@
 {# Tabs across the owner's dashboards. `active` is the current page's key. #}
 <nav class="ai-tabs" aria-label="Dashboards">
   {% for key, href, label in [("ai", "/admin/ai", "AI usage"), ("readers", "/admin/readers", "Readers"),
-                              ("searches", "/admin/searches", "Searches"), ("history", "/admin/ai/history", "AI history")] %}
+                              ("searches", "/admin/searches", "Searches"), ("feed", "/admin/feed", "Feed"),
+                              ("history", "/admin/ai/history", "AI history")] %}
     <a href="{{ href }}"{% if key == active %} aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
   {% if owner_toggle is defined %}

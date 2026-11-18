@@ -6,6 +6,7 @@ to the request carrying that token itself; everyone else gets a 404.
     GET /admin/ai          where the AI goes (app/ai_usage.py)
     GET /admin/readers     readers and what they do (app/analytics.py)
     GET /admin/searches    what people search for and what comes of it
+    GET /admin/feed        what the feed showed, what readers did with it, how fast
     GET /admin/ai/history  every AI call, by the paper or search it was for
 
 The owner's own use is left out of readers and searches unless ?me=1.
@@ -124,6 +125,18 @@ async def searches_dashboard(request: Request):
                   for d in data["days"]], [("found", "Found results"), ("none", "Found nothing")], unit="searches")
     return templates.TemplateResponse(request, "admin_searches.html", {
         **data, "chart": chart, "active": "searches", "owner_toggle": data["include_owner"]})
+
+
+@router.get("/admin/feed", response_class=HTMLResponse)
+async def feed_dashboard(request: Request):
+    if not _owner(request):
+        return HTMLResponse("Not found", status_code=404)
+    data = await analytics.feed_report(include_owner=_me(request))
+    chart = bars([{"label": _day_label(d["day"]),
+                   "values": {"saved": d["saved"], "opened": d["opened_only"], "passed": d["passed"]}} for d in data["days"]],
+                 [("saved", "Saved"), ("passed", "Passed"), ("opened", "Opened, not saved")], unit="cards")
+    return templates.TemplateResponse(request, "admin_feed.html", {
+        **data, "chart": chart, "active": "feed", "owner_toggle": data["include_owner"]})
 
 
 @router.get("/admin/ai/history", response_class=HTMLResponse)

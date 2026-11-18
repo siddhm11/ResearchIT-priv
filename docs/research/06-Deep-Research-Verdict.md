@@ -1407,3 +1407,31 @@ sees; a 9–14 s first page is.
 deploy: read `shard:search_by_vector_with_scores` and `shard_late_*` in
 `/healthz/runtime`, and set `FEED_OVERSAMPLING=4` in the Space if a reader's
 feed looks thinner (no rebuild needed).
+
+### 2026-11-13 — What the feed showed and who follows what survive a deploy (audit F23)
+**Decision:** `feed_exposures` (append-only, id watermark, paged restore),
+`feed_impressions` (upserted, `shown_at` watermark) and `collection_follows`
+(`updated_at` watermark) are replicated to Turso with the existing
+`turso_sync` machinery. An unfollow keeps its row with `active = 0`, so the
+change replicates; `get_followed_slugs` reads `active = 1`. `/admin/feed`
+shows cards shown per day, what readers did with them (same paper, same
+`query_id`), rates by position, tier and source, and the feed's and each
+shard's speed.
+**Supersedes:** CLAUDE.md §3.4b "`feed_impressions` is not replicated" and the
+`feed_exposures` schema comment's "not replicated, highest-volume table". The
+audit's proposed daily roll-up table: replicating the log itself keeps every
+analysis possible, where a roll-up fixes the questions in advance.
+**Rationale:** On a free Space the local database starts empty on every
+deploy, and these three tables were never restored: a returning reader's
+seven-day "already shown" memory, their follows, and the only record of what
+the feed showed (the denominator for click and save rates, propensities for
+§3.11, and the input the planned engagement-scaled quota needs). The volume
+argument was made before there was traffic to measure: 1–3 readers a day now
+write a few hundred rows, against a free Turso allowance in the millions.
+`collections_svc.py` and `db.py` already said follows were replicated; they
+were not.
+**Action items:** Done: `turso_sync.TABLES` + `REMOTE_DDL`, the follows
+migration, `analytics.feed_report`, `/admin/feed`. Not replicated, on purpose:
+`cluster_snapshots` (4 KB per interest per build; rebuilt from history),
+`ui_events`, `ask_log` (local, pruned at 30 days). Revisit volume if exposures
+pass ~100k rows a month.

@@ -387,6 +387,68 @@ async def searches_report(days: int = 30, include_owner: bool = False) -> dict:
     }
 
 
+# Cards a feed served (feed_exposures, replicated since 2026-11-13) joined to what
+# the reader then did with the same paper under the same query_id. The tier and
+# position are the serving policy's, so open and save rates by position are the
+# raw numbers an IPS estimate would start from, not debiased ones.
+_FEED_ACTED = """
+    SELECT user_id, paper_id, query_id, MAX(event_type IN ('click', 'view')) AS opened,
+           MAX(event_type = 'save') AS saved, MAX(event_type = 'not_interested') AS passed
+    FROM interactions WHERE query_id IS NOT NULL AND timestamp >= date('now', ?)
+    GROUP BY user_id, paper_id, query_id"""
+_POSITIONS = (("1–3", 0, 2), ("4–10", 3, 9), ("11–20", 10, 19), ("21+", 20, 10**9))
+_TIERS = {0: "Starter (no saves yet)", 1: "Interests", 2: "Long-term profile", 3: "Similar to a save"}
+
+
+async def feed_report(days: int = 30, include_owner: bool = False) -> dict:
+    """What the feed showed per day and what readers did with it."""
+    owner = "" if include_owner else f"AND e.user_id NOT IN ({_OWNERS})"
+    since = f"-{days - 1} day"
+    joined = f"""
+        FROM feed_exposures e LEFT JOIN ({_FEED_ACTED}) a
+          ON a.user_id = e.user_id AND a.paper_id = e.paper_id AND a.query_id = e.query_id
+        WHERE e.shown_at >= date('now', ?) {owner}"""
+    acted = "COUNT(*), SUM(a.opened), SUM(a.saved), SUM(a.passed), SUM(a.opened > a.saved)"
+    async with aiosqlite.connect(config.DB_PATH) as conn:
+        per_day = await _all(conn, f"""SELECT substr(e.shown_at, 1, 10), COUNT(DISTINCT e.user_id),
+            COUNT(DISTINCT e.query_id), {acted} {joined} GROUP BY 1""", since, since)
+        total = (await _all(conn, f"""SELECT COUNT(DISTINCT e.user_id), COUNT(DISTINCT e.query_id), {acted}
+            {joined}""", since, since))[0]
+        by_pos = await _all(conn, f"""SELECT CASE {" ".join(
+            f"WHEN e.position BETWEEN {lo} AND {hi} THEN '{lab}'" for lab, lo, hi in _POSITIONS)}
+            ELSE '?' END, {acted} {joined} GROUP BY 1""", since, since)
+        by_tier = await _all(conn, f"""SELECT e.tier, {acted} {joined} GROUP BY 1 ORDER BY 1""", since, since)
+        by_source = await _all(conn, f"""SELECT COALESCE(e.candidate_source, '?'), {acted} {joined}
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 10""", since, since)
+
+    def row(r) -> dict:
+        return {"shown": r[0] or 0, "opened": r[1] or 0, "saved": r[2] or 0, "passed": r[3] or 0,
+                "opened_only": r[4] or 0}
+
+    by_d = {r[0]: r for r in per_day}
+    rows = []
+    for d in _days(days):
+        r = by_d.get(d)
+        rows.append({"day": d, "readers": r[1] if r else 0, "feeds": r[2] if r else 0,
+                     **(row(r[3:]) if r else row((0,) * 5))})
+    pos = {r[0]: row(r[1:]) for r in by_pos}
+    runtime = runtime_stats.timings()
+    counters = runtime_stats.counters()
+    return {
+        "include_owner": include_owner, "days": rows,
+        "totals": {"readers": total[0] or 0, "feeds": total[1] or 0, **row(total[2:])},
+        "positions": [{"label": lab, **pos.get(lab, row((0,) * 5))} for lab, _, _ in _POSITIONS],
+        "tiers": [{"label": _TIERS.get(r[0], f"Tier {r[0]}"), **row(r[1:])} for r in by_tier],
+        "sources": [{"label": r[0], **row(r[1:])} for r in by_source],
+        "speed": {k: runtime.get(kind, {}).get(key) for k, kind, key in (
+            ("page", "feed_first_page", "request_ms"), ("build", "feed_tier1", "total_ms"),
+            ("searches", "feed_tier1", "cluster_search_ms"))},
+        "builds": runtime.get("feed_tier1", {}).get("n", 0),
+        "shards": {name: {"time": runtime.get("shard:search_by_vector_with_scores", {}).get(f"{name}_ms"),
+                          "late": counters.get(f"shard_late_{name}", 0)} for name in ("a", "b", "recent")},
+    }
+
+
 def _after(encode_ms: int | None, gap_s: int | None) -> str | None:
     """What came before a search that ran the models, when it may have found them cold."""
     if encode_ms is None:
