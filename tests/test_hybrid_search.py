@@ -467,3 +467,70 @@ async def test_a_search_records_the_gap_since_the_last_and_the_rewrite_call_alon
         _, second = await hybrid_search_svc.search("sparse attention for long documents", return_meta=True)
     assert first["gap_s"] is None and second["gap_s"] == 0         # None: the first since a restart
     assert first["rewrite_call_ms"] < 200 <= first["groq_time_ms"]  # the old timer waited for the encode
+
+
+# ── After the cross-encoder; landmark queries; title auditions (doc 06, 2026-11-13) ──
+
+def _meta_from(table):
+    async def fake(ids):
+        return {a: table[a] for a in ids if a in table}
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_after_the_cross_encoder_word_overlap_no_longer_decides(monkeypatch):
+    """Audit F16: CE p=0.95 with no title overlap used to lose to p=0.50 with 80% overlap."""
+    from app import hybrid_search_svc as hs
+    monkeypatch.setattr(hs.turso_svc, "fetch_metadata_batch", _meta_from({
+        "a": {"title": "A study of sparse attention kernels", "citation_count": 0},
+        "b": {"title": "Graph neural networks for molecules", "citation_count": 2000},
+    }))
+    fused = [{"arxiv_id": "a", "rrf_score": 0.50}, {"arxiv_id": "b", "rrf_score": 0.95}]
+    before = await hs._title_match_rerank([dict(x) for x in fused[::-1]], "sparse attention kernels study")
+    after = await hs._title_match_rerank([dict(x) for x in fused[::-1]], "sparse attention kernels study",
+                                         after_ce=True)
+    assert before[0]["arxiv_id"] == "a" and after[0]["arxiv_id"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_an_exact_title_still_wins_after_the_cross_encoder(monkeypatch):
+    from app import hybrid_search_svc as hs
+    monkeypatch.setattr(hs.turso_svc, "fetch_metadata_batch", _meta_from({
+        "1706.03762": {"title": "Attention Is All You Need", "citation_count": 100000},
+        "x": {"title": "Positioning Is All You Need", "citation_count": 3},
+    }))
+    fused = [{"arxiv_id": "x", "rrf_score": 0.97}, {"arxiv_id": "1706.03762", "rrf_score": 0.20}]
+    ranked = await hs._title_match_rerank(fused, "attention is all you need", after_ce=True)
+    assert ranked[0]["arxiv_id"] == "1706.03762"
+
+
+@pytest.mark.asyncio
+async def test_asking_for_seminal_papers_weighs_citations(monkeypatch):
+    from app import hybrid_search_svc as hs
+    monkeypatch.setattr(hs.turso_svc, "fetch_metadata_batch", _meta_from({
+        "new": {"title": "Efficient attention for long documents", "citation_count": 4},
+        "classic": {"title": "Neural machine translation by jointly learning to align", "citation_count": 30000},
+    }))
+    fused = lambda: [{"arxiv_id": "new", "rrf_score": 0.80}, {"arxiv_id": "classic", "rrf_score": 0.72}]
+    plain = await hs._title_match_rerank(fused(), "attention mechanism", after_ce=True)
+    seminal = await hs._title_match_rerank(fused(), "seminal attention mechanism paper", after_ce=True)
+    assert plain[0]["arxiv_id"] == "new" and seminal[0]["arxiv_id"] == "classic"
+    assert hs.wants_landmarks("Most cited papers on RLHF") and not hs.wants_landmarks("attention for vision")
+
+
+def test_a_named_title_just_below_the_window_auditions():
+    """Audit F15: an exact-title paper at fused rank 11 never reached the reader."""
+    from app import hybrid_search_svc as hs
+    tail = [{"arxiv_id": f"t{i}"} for i in range(5)]
+    titles = {"t1": "Attention Is All You Need", "t3": "Deep Residual Learning for Image Recognition",
+              "t4": "Transformers for everything"}
+    assert [x["arxiv_id"] for x in hs._title_auditions("Attention is all you need", tail, titles)] == ["t1"]
+    assert [x["arxiv_id"] for x in hs._title_auditions("residual learning for image", tail, titles)] == ["t3"]
+    # One word inside a title is not naming it.
+    assert hs._title_auditions("transformers", tail, titles) == []
+
+
+def test_landmark_words_are_not_required_keywords():
+    from app import fts_svc
+    assert fts_svc._terms("seminal paper on attention") == ["attention"]
+    assert "popular" not in fts_svc._terms("most popular diffusion models")

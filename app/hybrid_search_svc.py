@@ -270,6 +270,9 @@ async def search(
     t0_rrf = time.perf_counter()
     fused = _rrf_fuse_multi(valid_result_lists, k=config.SEARCH_RRF_K)
     search_meta["rrf_time_ms"] = int((time.perf_counter() - t0_rrf) * 1000)
+    # The fused top 50, before the cross-encoder narrows to its window: what
+    # "More results" and the year/area filters read (audit F18).
+    pool_ids = [it["arxiv_id"] for it in fused[:MORE_POOL]]
 
     if not fused:
         if named_task is not None:
@@ -285,15 +288,31 @@ async def search(
         trend = {a: t for a, t in trending_shelf.trending_now().items()
                  if t["strength"] >= TREND_MIN_STRENGTH}
 
+    cross_encoded = False
     if fused and config.SEARCH_BGE_RERANK:
         top_n = min(len(fused), rerank_depth())
         search_meta["rerank_depth"] = top_n
         top_candidates = fused[:top_n]
+        auditions: list[dict] = []
+        if len(fused) > top_n:
+            try:
+                tail_meta = await turso_svc.fetch_metadata_batch(
+                    [it["arxiv_id"] for it in fused[top_n:TITLE_POOL]])
+                auditions = _title_auditions(
+                    query, fused[top_n:TITLE_POOL],
+                    {a: (m.get("title") or "") for a, m in tail_meta.items()})
+            except Exception as e:
+                print(f"[hybrid_search] title auditions skipped: {e}")
+            if auditions:
+                search_meta["title_auditions"] = len(auditions)
         if trend:
             extra = [it for it in fused[top_n:TREND_POOL] if it["arxiv_id"] in trend][:TREND_AUDITIONS]
             search_meta["trend_auditions"] = len(extra)
-            if extra and trend_mode == "on":
-                top_candidates = fused[:top_n - len(extra)] + extra
+            if trend_mode == "on":
+                auditions += [it for it in extra if it not in auditions]
+        if auditions:
+            auditions = auditions[:max(0, top_n - 1)]
+            top_candidates = fused[:top_n - len(auditions)] + auditions
         top_ids = [item["arxiv_id"] for item in top_candidates]
 
         try:
@@ -355,6 +374,7 @@ async def search(
                     item["rrf_score"] = bge_scores_by_id[item["arxiv_id"]]
                 scored.sort(key=lambda x: x["rrf_score"], reverse=True)
                 fused = scored
+                cross_encoded = True
 
         except Exception as e:
             print(f"[hybrid_search] BGE reranking stage failed: {e}")
@@ -369,7 +389,7 @@ async def search(
     rerank_timings: dict = {}
     ranked = await _title_match_rerank(
         fused, query, top_n_for_boost=50, timings=rerank_timings,
-        trend=trend, apply_trend=trend_mode == "on",
+        trend=trend, apply_trend=trend_mode == "on", after_ce=cross_encoded,
     )
     moved = {it["arxiv_id"]: {"from": it["trend_from"], "to": it["trend_to"],
                               "facts": trend[it["arxiv_id"]]["facts"]}
@@ -402,6 +422,8 @@ async def search(
 
     # ── Step 6: Return top results ───────────────────────────────────────
     final_results = [item["arxiv_id"] for item in ranked[:limit]]
+    shown = set(final_results)
+    search_meta["more_ids"] = [a for a in pool_ids if a not in shown]
     search_meta["total_ms"] = int((time.perf_counter() - t_start) * 1000)
     runtime_stats.record("search", search_meta)
     return (final_results, search_meta) if return_meta else final_results
@@ -489,6 +511,57 @@ _BOOST_MED_COVERAGE = 0.5         # >= 50% of query words found in title
 import math
 _CITATION_BOOST_CAP = 0.2         # max boost from citations alone
 _CITATION_LOG_DIVISOR = 30.0      # how many log10 units to reach the cap
+
+# After the cross-encoder the score is a probability in 0-1, and boosts sized
+# for RRF scores outweighed it: an 80% title-word overlap added ~0.8-1.0 and
+# decided the order among matching papers (audit F16). Replayed on 847
+# known-answer queries with the production cross-encoder's scores, scaling the
+# title and citation boosts by 0.3 after it raised MRR@10 from 0.584 to 0.612
+# (95% CI of the gain +0.018 to +0.038; 83 queries better, 39 worse) and top-1
+# from 50.5% to 55.3%. An exact title keeps its full boost: a known-item search
+# must still put the paper first. Without a cross-encoder pass the boosts stay
+# at full strength, the scale they were sized for (doc 06, 2026-11-13).
+_BOOST_SCALE_AFTER_CE = 0.3
+
+# "seminal", "popular", "most cited": the reader asks for landmark papers, so
+# citations count for more. 5x on the same replay, every query read as asking
+# for landmarks: MRR@10 0.425 -> 0.459 where the known paper has 500+
+# citations, 0.634 -> 0.603 where it has fewer; 8x gained nothing more.
+_LANDMARK_CITATION_MULT = 5.0
+_LANDMARK = re.compile(
+    r"\b(seminal|landmark|foundational|influential|famous|popular|classic|groundbreaking|"
+    r"iconic|canonical|highly[- ]cited|most[- ]cited|well[- ]known|best[- ]known)\b", re.I)
+
+
+def wants_landmarks(query: str) -> bool:
+    """The query asks for well-known papers rather than a particular topic match."""
+    return bool(_LANDMARK.search(query or ""))
+
+
+# A paper whose title the query names, sitting just below the cross-encoder's
+# window, is given a place in it (audit F15). Before this, an exact-title paper
+# at fused rank 11 never reached the reader: only the window is kept. Exact
+# titles always qualify; a query of three or more words found whole inside a
+# title does too, so a one-word query cannot pull in every title containing it.
+TITLE_POOL = 50
+TITLE_AUDITIONS = 2
+# Papers kept past the shown results, in fused order, for paging and filters.
+MORE_POOL = 50
+
+
+def _title_auditions(query: str, tail: list[dict], titles: dict[str, str]) -> list[dict]:
+    q_norm = _normalize_for_match(query)
+    if not q_norm:
+        return []
+    long_enough = len(q_norm.split()) >= 3
+    out = []
+    for it in tail:
+        boost = _compute_title_boost(q_norm, titles.get(it["arxiv_id"], ""))
+        if boost >= _BOOST_EXACT_TITLE or (long_enough and boost >= _BOOST_SUBSTRING_TITLE):
+            out.append(it)
+            if len(out) == TITLE_AUDITIONS:
+                break
+    return out
 
 # Drop any token shorter than this from coverage calculation — single-letter
 # tokens ("a", "i") and tiny stop-likes inflate spurious matches.
@@ -601,9 +674,13 @@ async def _title_match_rerank(
     timings: dict | None = None,
     trend: dict | None = None,
     apply_trend: bool = False,
+    after_ce: bool = False,
 ) -> list[dict]:
     """
     Boost candidates by title overlap + citation popularity.
+
+    `after_ce`: the scores are cross-encoder probabilities, so title (except an
+    exact title) and citation boosts are scaled by _BOOST_SCALE_AFTER_CE.
 
     Two signals, both based on metadata we already fetch from Turso:
 
@@ -658,6 +735,8 @@ async def _title_match_rerank(
         )
 
     max_rrf = max(item["rrf_score"] for item in fused)
+    scale = _BOOST_SCALE_AFTER_CE if after_ce else 1.0
+    cite_mult = _LANDMARK_CITATION_MULT if wants_landmarks(user_query) else 1.0
 
     for item in fused:
         aid = item["arxiv_id"]
@@ -666,7 +745,8 @@ async def _title_match_rerank(
         item["title_boost"] = t_boost
         item["citation_boost"] = c_boost
         item["trend_boost"] = _trend_boost((trend or {}).get(aid), item["rrf_score"], max_rrf)
-        item["final_score"] = item["rrf_score"] + max_rrf * (t_boost + c_boost)
+        t_eff = t_boost if t_boost >= _BOOST_EXACT_TITLE else scale * t_boost
+        item["final_score"] = item["rrf_score"] + max_rrf * (t_eff + scale * cite_mult * c_boost)
 
     boosted = sorted((it for it in fused if it["trend_boost"]), key=lambda it: -it["trend_boost"])
     for it in boosted[TREND_MAX_PROMOTED:]:

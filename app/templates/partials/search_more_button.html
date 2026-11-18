@@ -1,0 +1,8 @@
+{# "More results": the next page of the search's kept top 50, appended in place. #}
+{% if has_more | default(false) and query %}
+  <div class="search-more">
+    <button class="btn btn-quiet" type="button"
+            hx-get="/search?q={{ query | urlencode }}&amp;page={{ page + 1 }}{% if since %}&amp;since={{ since }}{% endif %}{% if area %}&amp;area={{ area }}{% endif %}"
+            hx-target="closest .search-more" hx-swap="outerHTML">More results</button>
+  </div>
+{% endif %}

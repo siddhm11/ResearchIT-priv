@@ -52,7 +52,7 @@ query
 | 3b | Zilliz sparse | same limit | ~network |
 | 4 | RRF | `SEARCH_RRF_K = 60`, `1/(k+rank)` summed over all lists | ~0 ms |
 | 5 | Cross-encoder | `mxbai-rerank-xsmall-v1`, 256 tokens, logits → sigmoid → [0,1]; top `SEARCH_RERANK_TOP_N = 10`; `SEARCH_RERANK_TOP_N_IDLE` (default 10) deepens it when the inference pool is idle, to be raised to 20 after the abstract backfill; `SEARCH_BGE_RERANK=0` disables. Was MiniLM-L-6 until 2026-10-14 (doc 06) | MiniLM 139–182 ms at n=10 (Space); mxbai 246 / 479 ms at n=10 / 20 on a laptop, ~1.5× that on the Space (estimate) |
-| 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2 | ~1 ms |
+| 6 | Boosts | exact 2.0 · substring 1.0 · coverage ≥0.8→1.0 / ≥0.5→0.5 · citation cap 0.2; after the cross-encoder all but an exact title ×0.3, citations ×5 more for "seminal"-style queries; title matches from fused 11–50 audition for the window (doc 06, 2026-11-13) | ~1 ms |
 | 7 | Return | `ARXIV_MAX_RESULTS = 10` | |
 
 ### Rules that must not change
