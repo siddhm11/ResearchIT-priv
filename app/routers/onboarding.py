@@ -12,7 +12,7 @@ import uuid
 from fastapi import APIRouter, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import db, discovery_svc
-from app.config import COOKIE_NAME, COOKIE_MAX_AGE, CATEGORY_GROUPS
+from app.config import AREA_COVERAGE_NOTES, COOKIE_NAME, COOKIE_MAX_AGE, CATEGORY_GROUPS
 from app.templates_env import templates
 
 # Reuse the hybrid search backend for seed paper discovery
@@ -100,6 +100,7 @@ async def onboarding_page(
         "onboarding.html",
         {
             "categories": CATEGORY_GROUPS,
+            "coverage": AREA_COVERAGE_NOTES,
             "selected": selected,
         },
     )

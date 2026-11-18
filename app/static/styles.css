@@ -855,7 +855,11 @@ a.card-title:hover { color: var(--accent); }
 .cat-grid--art { grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); }
 .cat-grid--art .cat-opt { position: relative; padding: .45rem .45rem .7rem; }
 .cat-grid--art .cat-opt .name,
-.cat-grid--art .cat-opt .desc { padding-inline: .3rem; }
+.cat-grid--art .cat-opt .desc,
+.cat-grid--art .cat-opt .cov { padding-inline: .3rem; }
+/* Areas the corpus holds only in part before mid-2025 (config.AREA_COVERAGE_NOTES). */
+.cat-opt .cov { margin-top: .15rem; font-family: var(--font-mono); font-size: .64rem; line-height: 1.35; color: var(--text-3); }
+.cat-opt .cov::before { content: "◐ "; color: var(--info); }
 .cat-opt .art {
   display: block; margin-bottom: .45rem; border-radius: 4px;
   background: var(--surface-2); transition: background .12s ease;
@@ -2159,9 +2163,10 @@ a.src:hover { text-decoration: underline; }
 .topic-row--steady .topic-delta { color: var(--text-2); }
 .topic-row--steady .topic-spark polyline { stroke: var(--text-3); }
 
-.library-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .4rem; }
+.library-tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); margin-bottom: .4rem; overflow-x: auto; scrollbar-width: none; }
 .library-tab { font-size: .88rem; font-weight: 600; color: var(--text-3); text-decoration: none;
   padding: .45rem .75rem; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.library-tab { white-space: nowrap; flex: none; }
 .library-tab:hover { color: var(--text); }
 .library-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
 .library-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -2377,3 +2382,67 @@ a.src:hover { text-decoration: underline; }
   .hn-row--norank { grid-template-columns: minmax(0, 1fr); }
   .hn-row--norank .hn-row-actions { grid-column: 1; }
 }
+
+/* ── Front page for new visitors (welcome.html; doc 06, 2026-11-17) ───────────
+   Says what ResearchIT is, takes a search with no setup, and shows the week's
+   papers as real cards. Beside the hero on wide screens, how the feed works. */
+.welcome { display: flex; flex-direction: column; gap: 2.2rem; }
+.wl-top { display: grid; gap: 1.6rem; align-items: start; padding-top: clamp(.5rem, 3vh, 2rem); }
+@media (min-width: 900px) { .wl-top { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); gap: 3rem; } }
+.wl-hero { display: flex; flex-direction: column; gap: .9rem; min-width: 0; }
+.wl-kicker { margin: 0; font-family: var(--font-mono); font-size: .7rem; font-weight: 600; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--accent); }
+.wl-title { margin: 0; font-family: var(--font-read); font-weight: 700; letter-spacing: -.015em;
+  font-size: clamp(2rem, 5.2vw, 3.1rem); line-height: 1.08; text-wrap: balance; }
+.wl-lede { margin: 0; max-width: 36rem; font-family: var(--font-read); font-size: 1.08rem; line-height: 1.55; color: var(--text-2); }
+.wl-search { margin-top: .4rem; padding: .45rem .45rem .45rem 1rem; }
+.wl-search input { font-size: 1.05rem; }
+.wl-try { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .45rem; font-size: .8rem; }
+.wl-try span { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
+.wl-try a { color: var(--text-2); text-decoration: none; border: 1px solid var(--border); background: var(--surface);
+  border-radius: 99px; padding: .2rem .65rem; }
+.wl-try a:hover { border-color: var(--accent); color: var(--accent); }
+.wl-cta { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem; margin-top: .5rem; }
+.wl-how--after { display: none; }
+@media (max-width: 899px) { .wl-how--beside { display: none; } .wl-how--after { display: block; } }
+.wl-how { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+  padding: 1.1rem 1.2rem 1.2rem; box-shadow: var(--shadow-1); }
+.wl-how-h { margin: 0 0 .8rem; font-family: var(--font-read); font-size: 1.05rem; font-weight: 650; }
+.wl-steps { list-style: none; margin: 0; padding: 0; counter-reset: wl; display: flex; flex-direction: column; gap: .9rem; }
+.wl-steps li { counter-increment: wl; display: grid; grid-template-columns: 1.9rem minmax(0, 1fr); column-gap: .6rem; }
+.wl-steps li::before { content: counter(wl); grid-row: span 2; width: 1.6rem; height: 1.6rem; border-radius: 50%;
+  display: grid; place-items: center; font-family: var(--font-mono); font-size: .75rem; font-weight: 700;
+  color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent-br); }
+.wl-steps b { font-size: .92rem; font-weight: 600; }
+.wl-steps span { font-size: .84rem; line-height: 1.45; color: var(--text-2); }
+.wl-week .shelf-more { margin-left: auto; }
+.wl-foot { margin: 0; text-align: center; }
+
+/* A search with no close match (config.SEARCH_WEAK_MATCH; doc 06, 2026-11-17). */
+.weak-match { border: 1px solid var(--border-2); border-left: 3px solid var(--info); border-radius: var(--radius-sm);
+  background: var(--info-bg); padding: .75rem .95rem; font-size: .88rem; line-height: 1.5; color: var(--text-2); }
+.weak-match p { margin: 0; }
+.weak-match-h { font-weight: 600; color: var(--text) !important; margin-bottom: .2rem !important; }
+
+/* Library > Other devices, and opening a library link (app/routers/library.py). */
+.devlink { display: flex; flex-direction: column; gap: .8rem; padding-top: 1.2rem; max-width: 40rem; }
+.devlink--open { padding-top: clamp(1rem, 6vh, 3rem); }
+.devlink-h { margin: 0; font-family: var(--font-read); font-size: 1.2rem; }
+.devlink-h3 { margin: .8rem 0 0; font-family: var(--font-read); font-size: 1rem; }
+.devlink-p { margin: 0; line-height: 1.55; color: var(--text-2); }
+.devlink-box { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; scroll-margin-top: 5rem; }
+.devlink-url { flex: 1 1 16rem; min-width: 0; font-family: var(--font-mono); font-size: .82rem; padding: .55rem .7rem;
+  border: 1px solid var(--border-2); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
+.devlink-note { margin: 0; font-size: .8rem; line-height: 1.5; color: var(--text-3); }
+.devlink-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.devlink-actions form { margin: 0; }
+.devlink-steps { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .3rem; font-size: .88rem; color: var(--text-2); }
+.lib-notice { margin: 0; padding: .6rem .85rem; border-radius: var(--radius-sm); background: var(--accent-bg);
+  border: 1px solid var(--accent-br); color: var(--text); font-size: .88rem; }
+/* Onboarding's way back to the front page: the form is no longer the only way in. */
+.ob-back { display: inline-block; margin-bottom: 1rem; font-size: .82rem; color: var(--text-3); text-decoration: none; }
+.ob-back:hover { color: var(--accent); }
+.weak-match a { color: var(--accent); }
+/* Share on the paper page: a button that reads like the PDF link beside it. */
+.lnk-btn { background: none; border: 0; font: inherit; cursor: pointer; text-decoration: none; }
+.inline-acts .lnk-btn:hover { color: var(--accent); }

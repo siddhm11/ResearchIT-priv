@@ -434,6 +434,20 @@ CREATE TABLE IF NOT EXISTS collection_follows (
 );
 CREATE INDEX IF NOT EXISTS idx_follow_user
     ON collection_follows(user_id);
+
+-- A private link that opens a reader's library in another browser
+-- (app/routers/library.py). One live link per reader; making a new one sets
+-- revoked = 1 on the old row, which keeps it so replication carries the change.
+CREATE TABLE IF NOT EXISTS library_links (
+    token       TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    uses        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_library_links_user
+    ON library_links(user_id);
 """
 
 
@@ -1222,6 +1236,46 @@ async def unfollow_collection(user_id: str, slug: str) -> None:
             (user_id, slug),
         )
         await conn.commit()
+
+
+# ── Library links (app/routers/library.py) ───────────────────────────────────
+
+async def get_library_link(user_id: str) -> str | None:
+    """The reader's live link token, or None."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        row = await (await conn.execute(
+            "SELECT token FROM library_links WHERE user_id = ? AND revoked = 0 "
+            "ORDER BY created_at DESC LIMIT 1", (user_id,))).fetchone()
+    return row[0] if row else None
+
+
+async def create_library_link(user_id: str, token: str) -> None:
+    """Make `token` the reader's only live link; earlier ones stop working."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "UPDATE library_links SET revoked = 1, updated_at = datetime('now') "
+            "WHERE user_id = ? AND revoked = 0", (user_id,))
+        await conn.execute("INSERT INTO library_links (token, user_id) VALUES (?, ?)", (token, user_id))
+        await conn.commit()
+
+
+async def revoke_library_link(user_id: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "UPDATE library_links SET revoked = 1, updated_at = datetime('now') "
+            "WHERE user_id = ? AND revoked = 0", (user_id,))
+        await conn.commit()
+
+
+async def resolve_library_link(token: str) -> str | None:
+    """The user a live link opens, counting the use; None for an unknown or old link."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        row = await (await conn.execute(
+            "SELECT user_id FROM library_links WHERE token = ? AND revoked = 0", (token,))).fetchone()
+        if row:
+            await conn.execute("UPDATE library_links SET uses = uses + 1 WHERE token = ?", (token,))
+            await conn.commit()
+    return row[0] if row else None
 
 
 async def get_followed_slugs(user_id: str) -> set[str]:

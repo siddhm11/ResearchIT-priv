@@ -443,6 +443,13 @@ SEARCH_FTS_BUDGET_MS = int(os.getenv("SEARCH_FTS_BUDGET_MS", "1500"))
 # Recent search results kept in memory (app/search_cache.py), so going back to a
 # search doesn't run it again. A search missing one retrieval arm is kept briefly,
 # since a later run may do better. 0 turns the cache off.
+# A search whose best cross-encoded match scores below this (sigmoid of the
+# logit) says so above its results and skips the AI overview. Measured
+# 2026-11-17 (doc 06): 0.15 flags 10 of 30 everyday web searches ("recipe for
+# butter chicken", "Paytm product manager questions") and 1 of 100 known-answer
+# research queries, none of 30 short real ones ("lora", "mamba"). 0 turns it off.
+SEARCH_WEAK_MATCH = float(os.getenv("SEARCH_WEAK_MATCH", "0.15"))
+
 SEARCH_CACHE_TTL_S = int(os.getenv("SEARCH_CACHE_TTL_S", "600"))
 SEARCH_CACHE_DEGRADED_TTL_S = int(os.getenv("SEARCH_CACHE_DEGRADED_TTL_S", "120"))
 
@@ -581,6 +588,25 @@ CATEGORY_GROUPS: dict[str, dict] = {
         "desc": "Image & signal processing, medical imaging",
     },
 }
+
+# Areas the corpus covers only in part before mid-2025, shown on their onboarding
+# card. The original snapshot left out 700,939 physics and maths papers (hep-ph
+# 125k, hep-th 96k, cond-mat 134k, astro-ph 104k); everything since 2025-06 comes
+# in daily. Measured 2026-11-17 in the sidecar as papers from 2024 against the
+# 12 months from 2025-07, by primary category: these fields grow a few percent a
+# year, so the ratio is close to the share we hold. CS and ML are complete.
+AREA_COVERAGE_NOTES: dict[str, str] = {
+    "hep": "Before mid-2025: about 1 in 5 papers",
+    "cond_mat": "Before mid-2025: about 1 in 3 papers",
+    "astro": "Before mid-2025: about 2 in 5 papers",
+    "pde": "Before mid-2025: about half the papers",
+    "math": "Before mid-2025: some fields partial",
+}
+
+# The address readers reach the app at. Behind the Space's proxy the request
+# arrives as http://, so links that leave the site (share previews, the
+# sitemap, library links) are built from this instead of from the request.
+PUBLIC_URL = os.getenv("PUBLIC_URL", "https://siddhm11-researchit.hf.space").strip().rstrip("/")
 
 
 def expand_category_groups(group_keys: list[str]) -> set[str]:

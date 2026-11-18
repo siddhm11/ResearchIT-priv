@@ -51,7 +51,16 @@
       <p class="small muted" role="status">Showing keyword matches. Semantic matches are unavailable for this search.</p>
     {% endif %}
 
-    {% if query and papers %}
+    {% if weak_match %}
+      <div class="weak-match" role="status">
+        <p class="weak-match-h">None of these is a close match.</p>
+        <p>ResearchIT searches {{ corpus_label() }} research papers on arXiv. These are the nearest it found.
+          For research on this, try naming a method, a field or a question, like
+          <a href="/search?q={{ ('how do recommender systems rank items') | urlencode }}">how do recommender systems rank items</a>.</p>
+      </div>
+    {% endif %}
+
+    {% if query and papers and not weak_match %}
       {% set arxiv_ids = papers | map(attribute='arxiv_id') | join(',') %}
       <div id="ai-summary-container"
            hx-get="/api/search/summary?q={{ query | urlencode }}&amp;ids={{ arxiv_ids }}{% if papers[0].query_id %}&amp;qid={{ papers[0].query_id }}{% endif %}"

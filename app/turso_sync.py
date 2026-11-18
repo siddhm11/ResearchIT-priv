@@ -208,6 +208,17 @@ TABLES: dict[str, dict] = {
         "cols": ["user_id", "slug", "followed_at", "active", "updated_at"],
         "blobs": [],
     },
+    # Library links (app/routers/library.py): a reader's link must keep working
+    # after a deploy, and a replaced link must stay dead. Uses are not pushed
+    # on their own (updated_at only changes on create and revoke).
+    "library_links": {
+        "remote": "library_links",
+        "watermark": "updated_at",
+        "wm_kind": "text",
+        "pk": ["token"],
+        "cols": ["token", "user_id", "created_at", "revoked", "updated_at", "uses"],
+        "blobs": [],
+    },
     "search_log": {
         "remote": "search_log",
         "watermark": "id",
@@ -313,6 +324,9 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS collection_follows (
         user_id TEXT NOT NULL, slug TEXT NOT NULL, followed_at TEXT, active INTEGER,
         updated_at TEXT, PRIMARY KEY (user_id, slug))""",
+    """CREATE TABLE IF NOT EXISTS library_links (
+        token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT, revoked INTEGER,
+        updated_at TEXT, uses INTEGER)""",
     """CREATE TABLE IF NOT EXISTS search_log (
         id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
         mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER, encode_ms INTEGER, rerank_ms INTEGER,

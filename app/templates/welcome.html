@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{#
+  The front page for a visitor without a finished onboarding (app/routers/
+  welcome.py; doc 06, 2026-11-17). It used to be a redirect to the form.
+  Search works from here with no setup; the week's papers are real cards a
+  visitor can open or save; "Personalise your feed" leads to onboarding.
+#}
+
+{% block title %}ResearchIT — papers picked for what you work on{% endblock %}
+
+{#- Beside the hero on wide screens; after the papers on a phone, so the
+    first screen reaches a paper sooner. -#}
+{% macro how(where) %}
+    <aside class="wl-how{{ where }}" aria-label="How the feed works">
+      <h2 class="wl-how-h">How the feed works</h2>
+      <ol class="wl-steps">
+        <li><b>Tell it your areas</b><span>Pick them, or describe your work and it suggests them.</span></li>
+        <li><b>Save what you like</b><span>One save is enough to start. It finds your separate interests and gives each its share of the page.</span></li>
+        <li><b>Read faster</b><span>Each paper opens with a plain-language summary, its figures, and answers to your questions about it.</span></li>
+      </ol>
+    </aside>
+{% endmacro %}
+
+{% block content %}
+<div class="wrap wrap--trend welcome">
+
+  <section class="wl-top">
+    <div class="wl-hero">
+      <p class="wl-kicker">{{ corpus_label() }} arXiv papers · free · no sign-up</p>
+      <h1 class="wl-title">Find the papers that matter to your work.</h1>
+      <p class="wl-lede">Search in plain words, or let a reading feed learn what you work on from the papers you save.
+        Each of your interests keeps its own share, so a side topic never gets drowned out.</p>
+
+      <form class="searchbar wl-search" action="/search" method="get" role="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+             stroke-linecap="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+        </svg>
+        <input type="search" name="q" id="welcome-q" placeholder="A topic or a question"
+               aria-label="Search papers" autocomplete="off" required />
+        <button class="btn btn-primary btn-sm" type="submit">Search</button>
+      </form>
+      <p class="wl-try"><span>Try</span>
+        {% for q in examples %}<a href="/search?q={{ q | urlencode }}">{{ q }}</a>{% endfor %}
+      </p>
+
+      <div class="wl-cta">
+        <a class="btn btn-primary" href="/onboarding">{{ "Finish setting up your feed" if started else "Personalise your feed" }}</a>
+        <span class="small muted">About a minute: pick areas, or describe your work in a sentence.</span>
+      </div>
+    </div>
+
+    {{ how(" wl-how--beside") }}
+  </section>
+
+  {% if papers %}
+  <section class="shelf wl-week" aria-labelledby="wl-week-h">
+    <header class="shelf-head">
+      <h2 class="shelf-title" id="wl-week-h">Most upvoted this week</h2>
+      <span class="shelf-note">From Hugging Face Daily Papers{% if window %}, {{ window.label }}{% endif %}. Save one and your feed starts from it.</span>
+      {% if feature_visible("TRENDING_PAGE", request) %}<a class="shelf-more" href="/trending">All of this week →</a>{% endif %}
+    </header>
+    <ol class="tgrid tgrid--top">
+      {% for paper in papers %}{% set lead = loop.first %}{% include "partials/trending_card.html" %}{% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {{ how(" wl-how--after") }}
+
+  <p class="wl-foot small muted">Already use ResearchIT on another device? Open your library link here.
+    You'll find it under Library, in Other devices.</p>
+</div>
+{% endblock %}

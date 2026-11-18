@@ -212,8 +212,8 @@ def test_homepage_ships_an_h1_before_the_feed_loads(client):
     visible title until the whole tier cascade had run (measured at 11s on a
     cold production feed). A page's heading must not depend on a slow request.
     """
-    # A brand-new user is redirected to onboarding, so skip it first —
-    # otherwise this asserts against the wizard, not the feed page.
+    # A brand-new user gets the front page, so skip onboarding first —
+    # otherwise this asserts against the front page, not the feed page.
     client.get("/")
     client.post("/api/onboarding/skip")
 

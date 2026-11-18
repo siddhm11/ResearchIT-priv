@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{#
+  Library > Other devices (app/routers/library.py). One private link that
+  opens this library in any browser: Copy, Share (phones), make a new one, or
+  turn it off. The link is shown in full so it can be checked before sending.
+#}
+
+{% block title %}Other devices — ResearchIT{% endblock %}
+
+{% block content %}
+<div class="wrap wrap--feed">
+  <header class="issue">
+    <div class="issue-kicker">Your collection</div>
+    <h1 class="issue-title">Library</h1>
+    <div class="issue-line"><span>Use it on your phone, laptop or another browser</span></div>
+  </header>
+  {% include "partials/library_tabs.html" %}
+
+  <section class="devlink" aria-labelledby="devlink-h">
+    <h2 id="devlink-h" class="devlink-h">Your library link</h2>
+    <p class="devlink-p">ResearchIT has no accounts. Your {{ count }} saved paper{{ "s" if count != 1 }}, your interests and the
+      collections you follow live in this browser. Open this link anywhere else and the same library opens there.</p>
+
+    {% if link %}
+      <div class="devlink-box" id="link">
+        <input type="text" class="devlink-url" id="devlink-url" value="{{ link }}" readonly
+               aria-label="Your library link" onclick="this.select()" />
+        <button type="button" class="btn btn-primary btn-sm" id="devlink-copy">Copy</button>
+        <button type="button" class="btn btn-quiet btn-sm" id="devlink-share" hidden>Share</button>
+      </div>
+      <p class="devlink-note" id="devlink-status" role="status" aria-live="polite">Treat it like a key: anyone with this link sees and changes your library.
+        Send it only to yourself, for example to your own email or notes.</p>
+      <div class="devlink-actions">
+        <form method="post" action="/api/library-link">
+          <button type="submit" class="btn btn-quiet btn-sm">Make a new link</button>
+        </form>
+        <form method="post" action="/api/library-link/revoke">
+          <button type="submit" class="btn btn-ghost btn-sm">Turn the link off</button>
+        </form>
+      </div>
+      <p class="devlink-note">A new link replaces this one, and this one stops working.</p>
+    {% else %}
+      <form method="post" action="/api/library-link" class="devlink-actions">
+        <button type="submit" class="btn btn-primary btn-sm">Make my library link</button>
+      </form>
+      <p class="devlink-note">You can replace it or turn it off here at any time.</p>
+    {% endif %}
+
+    <h3 class="devlink-h3">On the other device</h3>
+    <ol class="devlink-steps">
+      <li>Open the link in the browser you want to use.</li>
+      <li>If that browser has saved papers of its own, ResearchIT asks first, then adds them to this library.</li>
+      <li>From then on both browsers show the same library and the same feed.</li>
+    </ol>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (function () {
+    var input = document.getElementById('devlink-url');
+    if (!input) return;
+    var status = document.getElementById('devlink-status');
+    document.getElementById('devlink-copy').addEventListener('click', function () {
+      var btn = this;
+      function done() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); }
+      function fallback() { input.focus(); input.select(); status.textContent = 'Selected. Press Ctrl+C or ⌘C to copy.'; }
+      try { navigator.clipboard.writeText(input.value).then(done, fallback); } catch (e) { fallback(); }
+    });
+    var share = document.getElementById('devlink-share');
+    if (navigator.share) {
+      share.hidden = false;
+      share.addEventListener('click', function () {
+        navigator.share({ title: 'My ResearchIT library', url: input.value }).catch(function () {});
+      });
+    }
+  })();
+</script>
+{% endblock %}

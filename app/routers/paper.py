@@ -220,6 +220,9 @@ async def paper_page(
     if features.visible("PAPER_PAGE_V2", request):
         template = "paper_v2.html"
         context.update(await _v2_context(paper, related, request, back=back_link(request, sf, qid)))
+        image = share_image(context.get("figures") or [])
+        if image:
+            context["og_image"] = image
     resp = templates.TemplateResponse(request, template, context)
     resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
@@ -236,6 +239,16 @@ async def paper_page(
 _BACK_PAGES = {"/": "Your feed", "/search": "Search results", "/saved": "Saved papers",
                "/history": "Recently opened", "/collections": "Collections"}
 _BACK_PATH = re.compile(r"/collections/[a-z0-9-]{1,80}|/p/\d{4}\.\d{4,5}")
+
+
+def share_image(figures: list[dict]) -> str | None:
+    """The picture a shared link to this paper shows: its first raster figure.
+    SVG figures are left out because link previews (Slack, X, WhatsApp) only
+    draw raster images; without one the page keeps the site's own picture."""
+    for f in figures:
+        if f.get("url") and not f["url"].endswith(".svg"):
+            return config.PUBLIC_URL + f["url"]
+    return None
 
 
 def back_link(request: Request, sf: str, qid: str) -> dict | None:

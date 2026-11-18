@@ -79,12 +79,20 @@ async def saved_papers(
             if aid in meta
         ]
 
+    # Arriving from a library link (app/routers/library.py).
+    opened = request.query_params.get("opened")
+    try:
+        added = max(0, int(request.query_params.get("added", "0")))
+    except ValueError:
+        added = 0
     resp = templates.TemplateResponse(
         request,
         "saved.html",
         {
             "papers": papers,
             "count": len(papers),
+            "opened": opened if opened in ("1", "here") else None,
+            "added": added,
         },
     )
     resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
