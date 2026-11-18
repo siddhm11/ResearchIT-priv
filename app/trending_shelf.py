@@ -32,7 +32,6 @@ import json
 import math
 import os
 from bisect import bisect_left
-from collections import Counter
 from datetime import date as Date, datetime, timedelta, timezone
 
 import httpx

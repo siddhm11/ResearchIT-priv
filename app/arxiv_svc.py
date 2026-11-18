@@ -17,9 +17,7 @@ import asyncio
 import json
 import re
 import xml.etree.ElementTree as ET
-from datetime import datetime
 
-import httpx
 
 from app import config
 from app import http_client

@@ -58,7 +58,7 @@
     page's content. Note groq_time_ms OVERLAPS encode_time_ms — the stages run
     concurrently, so these do not sum to the total.
   #}
-  {% if search_meta %}
+  {% if search_meta and is_owner(request) %}
     <details class="stack" style="margin-top:1.25rem">
       <summary class="small muted" style="cursor:pointer">Pipeline timings</summary>
       <div class="search-meta" style="margin-top:.5rem">

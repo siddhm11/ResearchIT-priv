@@ -73,9 +73,9 @@ independently of the scorer.
 | Reader state | Main serving path |
 |---|---|
 | No saves | Popularity/recency candidates in chosen categories, or a broad fallback |
-| 1–2 saves | Qdrant recommendation from saved examples |
-| 3–4 saves | Long-term EWMA profile retrieval, when the profile is ready |
-| 5+ saves | Ward interest clusters, quota retrieval, scoring, within-cluster MMR |
+| 1 save | Qdrant recommendation from the saved paper |
+| 2+ saves | Interests built from saves, questions asked and papers opened (30 days): one interest per paper below 5 papers, Ward clusters from 5. Quota retrieval, scoring, within-interest MMR |
+| fallback | Long-term EWMA profile retrieval when interests can't be built |
 
 These are eligibility thresholds, not guarantees; unavailable vectors/profiles
 can lead to a simpler tier.

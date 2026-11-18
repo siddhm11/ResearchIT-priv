@@ -15,7 +15,7 @@
 # needs a heavy dependency, guard it with importlib.util.find_spec rather than
 # adding the dependency here — a 10-minute CI run is one nobody waits for.
 #
-# `-m "not live"` deselects tests that hit Qdrant/Zilliz/Groq/Turso. Those need
+# `-m "not live"` deselects tests that hit Qdrant/Groq/Turso. Those need
 # real credentials, they fail on someone else's outage, and a unit suite that
 # goes red for reasons outside the diff is a suite people learn to ignore.
 

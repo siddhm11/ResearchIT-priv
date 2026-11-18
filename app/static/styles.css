@@ -1478,6 +1478,8 @@ a.card-title:hover { color: var(--accent); }
 .card-id {
   font-family: var(--font-mono); font-size: .7rem; letter-spacing: .01em;
   color: var(--text-3); font-variant-numeric: tabular-nums;
+  /* 24 px tap target (WCAG 2.5.8) without changing the line's look (audit F14). */
+  display: inline-flex; align-items: center; min-height: 24px;
 }
 .card-id:hover { color: var(--accent); }
 

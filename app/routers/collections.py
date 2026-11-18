@@ -25,7 +25,7 @@ from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import HTMLResponse
 
 from app import arxiv_svc, collections_svc, db, turso_svc, user_state as us
-from app.config import COOKIE_NAME
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 
 router = APIRouter()
@@ -84,7 +84,7 @@ async def collections_index(
     resp = templates.TemplateResponse(
         request, "collections.html", {"collections": view},
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -101,7 +101,7 @@ async def collection_detail(
             request, "collections.html",
             {"collections": [], "not_found": slug}, status_code=404,
         )
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
     state = await us.ensure_loaded(user_id)
@@ -136,7 +136,7 @@ async def collection_detail(
             "following": slug in followed,
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -251,5 +251,5 @@ def _fragment(request: Request, user_id: str, col: dict | None,
         request, "partials/follow_button.html",
         {"collection": col, "following": following, "seeded": seeded},
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp

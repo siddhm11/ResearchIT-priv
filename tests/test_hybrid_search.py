@@ -2,7 +2,7 @@
 Tests for hybrid search pipeline — Phase 3.
 
 Tests RRF fusion and recency reranking logic (pure Python, no live services).
-Live integration tests are separate (require BGE-M3 + Qdrant + Zilliz).
+Live integration tests are separate (require BGE-M3 + Qdrant + the sidecar).
 """
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -16,7 +16,7 @@ class TestRRFFusion:
 
     def test_rrf_basic_merge(self):
         """Papers appearing in both lists get higher scores."""
-        from app.hybrid_search_svc import _rrf_fuse
+        from app.hybrid_search_svc import _rrf_fuse_multi
 
         dense = [
             {"arxiv_id": "2301.00001", "score": 0.95},
@@ -29,7 +29,7 @@ class TestRRFFusion:
             {"arxiv_id": "2301.00001", "score": 0.70},
         ]
 
-        fused = _rrf_fuse(dense, sparse, k=60)
+        fused = _rrf_fuse_multi([dense, sparse], k=60)
 
         # Papers in both lists should rank highest
         arxiv_ids = [f["arxiv_id"] for f in fused]
@@ -44,7 +44,7 @@ class TestRRFFusion:
 
     def test_rrf_single_source(self):
         """Works with only one source providing results."""
-        from app.hybrid_search_svc import _rrf_fuse
+        from app.hybrid_search_svc import _rrf_fuse_multi
 
         dense = [
             {"arxiv_id": "2301.00001", "score": 0.95},
@@ -52,20 +52,20 @@ class TestRRFFusion:
         ]
         sparse = []
 
-        fused = _rrf_fuse(dense, sparse, k=60)
+        fused = _rrf_fuse_multi([dense, sparse], k=60)
         assert len(fused) == 2
         assert fused[0]["arxiv_id"] == "2301.00001"
 
     def test_rrf_empty_both(self):
         """Empty inputs produce empty output."""
-        from app.hybrid_search_svc import _rrf_fuse
+        from app.hybrid_search_svc import _rrf_fuse_multi
 
-        fused = _rrf_fuse([], [], k=60)
+        fused = _rrf_fuse_multi([[], []], k=60)
         assert fused == []
 
     def test_rrf_scores_are_rank_based(self):
         """RRF scores depend on rank, not on raw scores."""
-        from app.hybrid_search_svc import _rrf_fuse
+        from app.hybrid_search_svc import _rrf_fuse_multi
 
         # Same papers, different raw scores — RRF should produce identical results
         dense_a = [
@@ -77,8 +77,8 @@ class TestRRFFusion:
             {"arxiv_id": "B", "score": 0.50},
         ]
 
-        fused_a = _rrf_fuse(dense_a, [], k=60)
-        fused_b = _rrf_fuse(dense_b, [], k=60)
+        fused_a = _rrf_fuse_multi([dense_a, []], k=60)
+        fused_b = _rrf_fuse_multi([dense_b, []], k=60)
 
         # Same ranking → same RRF scores
         assert fused_a[0]["rrf_score"] == fused_b[0]["rrf_score"]
@@ -86,15 +86,15 @@ class TestRRFFusion:
 
     def test_rrf_k_parameter(self):
         """Higher K dampens rank differences."""
-        from app.hybrid_search_svc import _rrf_fuse
+        from app.hybrid_search_svc import _rrf_fuse_multi
 
         dense = [
             {"arxiv_id": "A", "score": 0.9},
             {"arxiv_id": "B", "score": 0.8},
         ]
 
-        fused_k10 = _rrf_fuse(dense, [], k=10)
-        fused_k100 = _rrf_fuse(dense, [], k=100)
+        fused_k10 = _rrf_fuse_multi([dense, []], k=10)
+        fused_k100 = _rrf_fuse_multi([dense, []], k=100)
 
         # Score gap should be smaller with larger K
         gap_k10 = fused_k10[0]["rrf_score"] - fused_k10[1]["rrf_score"]
@@ -319,7 +319,8 @@ class TestHybridSearchOrchestrator:
                  {"arxiv_id": "2301.00001", "score": 0.95},
                  {"arxiv_id": "2301.00002", "score": 0.90},
              ]), \
-             patch.object(hybrid_search_svc.zilliz_svc, "search_sparse", new_callable=AsyncMock, return_value=[
+             patch.object(hybrid_search_svc.fts_svc, "is_available", return_value=True), \
+             patch.object(hybrid_search_svc.fts_svc, "search_sparse", new_callable=AsyncMock, return_value=[
                  {"arxiv_id": "2301.00002", "score": 0.80},
                  {"arxiv_id": "2301.00003", "score": 0.70},
              ]):
@@ -344,7 +345,8 @@ class TestHybridSearchOrchestrator:
              patch.object(hybrid_search_svc.qdrant_svc, "search_dense", new_callable=AsyncMock, return_value=[
                  {"arxiv_id": "2301.00001", "score": 0.95},
              ]), \
-             patch.object(hybrid_search_svc.zilliz_svc, "search_sparse", new_callable=AsyncMock, return_value=[]):
+             patch.object(hybrid_search_svc.fts_svc, "is_available", return_value=True), \
+             patch.object(hybrid_search_svc.fts_svc, "search_sparse", new_callable=AsyncMock, return_value=[]):
 
             result = await hybrid_search_svc.search("test", limit=10)
 
@@ -361,7 +363,8 @@ class TestHybridSearchOrchestrator:
         with patch.object(hybrid_search_svc.groq_svc, "rewrite", new_callable=AsyncMock, return_value="test"), \
              patch.object(hybrid_search_svc.embed_svc, "encode_query", return_value=(mock_dense, {100: 0.5})), \
              patch.object(hybrid_search_svc.qdrant_svc, "search_dense", new_callable=AsyncMock, return_value=[]), \
-             patch.object(hybrid_search_svc.zilliz_svc, "search_sparse", new_callable=AsyncMock, return_value=[
+             patch.object(hybrid_search_svc.fts_svc, "is_available", return_value=True), \
+             patch.object(hybrid_search_svc.fts_svc, "search_sparse", new_callable=AsyncMock, return_value=[
                  {"arxiv_id": "2301.00003", "score": 0.70},
              ]):
 
@@ -380,7 +383,8 @@ class TestHybridSearchOrchestrator:
         with patch.object(hybrid_search_svc.groq_svc, "rewrite", new_callable=AsyncMock, return_value="test"), \
              patch.object(hybrid_search_svc.embed_svc, "encode_query", return_value=(mock_dense, {100: 0.5})), \
              patch.object(hybrid_search_svc.qdrant_svc, "search_dense", new_callable=AsyncMock, side_effect=Exception("down")), \
-             patch.object(hybrid_search_svc.zilliz_svc, "search_sparse", new_callable=AsyncMock, side_effect=Exception("down")):
+             patch.object(hybrid_search_svc.fts_svc, "is_available", return_value=True), \
+             patch.object(hybrid_search_svc.fts_svc, "search_sparse", new_callable=AsyncMock, side_effect=Exception("down")):
 
             result = await hybrid_search_svc.search("test", limit=10)
 

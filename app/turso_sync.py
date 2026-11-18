@@ -26,18 +26,16 @@ Incremental rather than write-through, deliberately: it needs no changes to the
 six existing write paths and cannot coupling-break when their SQL changes. The
 cost is a bounded loss window equal to the sync interval.
 
-Only user data is replicated. paper_metadata and paper_qdrant_map are caches
+Only user data is replicated. paper_metadata is a cache
 rebuildable from Turso and Qdrant, so copying them would waste quota.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import time
 
 import aiosqlite
-import httpx
 
 from app import config
 from app import http_client

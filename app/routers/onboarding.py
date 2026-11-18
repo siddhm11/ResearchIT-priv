@@ -9,11 +9,10 @@ POST /api/onboarding/complete       → mark done, redirect to /
 POST /api/onboarding/skip           → mark done (no categories), redirect to /
 """
 import uuid
-import json
 from fastapi import APIRouter, Request, Cookie, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app import db, discovery_svc
-from app.config import COOKIE_NAME, CATEGORY_GROUPS
+from app.config import COOKIE_NAME, COOKIE_MAX_AGE, CATEGORY_GROUPS
 from app.templates_env import templates
 
 # Reuse the hybrid search backend for seed paper discovery
@@ -53,7 +52,7 @@ async def interests_page(
         "categories": CATEGORY_GROUPS,
         "selected": state["selected_categories"] if state else [],
     })
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -71,11 +70,11 @@ async def update_interests(
         resp = templates.TemplateResponse(request, "interests.html", {
             "categories": CATEGORY_GROUPS, "selected": selected, "error": exc.detail,
         }, status_code=422)
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
     await db.save_onboarding_categories(user_id, valid)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -90,7 +89,7 @@ async def onboarding_page(
     state = await db.get_onboarding_state(user_id)
     if state and state["onboarding_completed"]:
         resp = RedirectResponse("/", status_code=302)
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
     # Load any previously selected categories (if they started but didn't finish)
@@ -104,7 +103,7 @@ async def onboarding_page(
             "selected": selected,
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -143,7 +142,7 @@ async def save_categories(
             "query": described,
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -230,7 +229,7 @@ async def seed_search(
         "partials/seed_results.html",
         {"papers": papers, "query": q, "suggestions": not q.strip()},
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -243,7 +242,7 @@ async def complete_onboarding(
     user_id = user_id or str(uuid.uuid4())
     await db.complete_onboarding(user_id)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -256,5 +255,5 @@ async def skip_onboarding(
     user_id = user_id or str(uuid.uuid4())
     await db.complete_onboarding(user_id)
     resp = RedirectResponse("/", status_code=303)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=365 * 24 * 3600, httponly=True)
+    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp

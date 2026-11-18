@@ -18,28 +18,28 @@ def test_merge_orders_by_score_across_shards():
     main = [{"arxiv_id": "0704.0001", "score": 0.9},
             {"arxiv_id": "0704.0002", "score": 0.5}]
     recent = [{"arxiv_id": "2601.0001", "score": 0.7}]
-    out = qdrant_svc._merge_scored([main, recent], limit=10)
+    out = qdrant_svc._merge_by_score([main, recent], limit=10)
     assert [r["arxiv_id"] for r in out] == ["0704.0001", "2601.0001", "0704.0002"]
 
 
 def test_merge_respects_limit():
     main = [{"arxiv_id": f"a{i}", "score": 1.0 - i / 100} for i in range(50)]
     recent = [{"arxiv_id": f"b{i}", "score": 0.99 - i / 100} for i in range(50)]
-    out = qdrant_svc._merge_scored([main, recent], limit=10)
+    out = qdrant_svc._merge_by_score([main, recent], limit=10)
     assert len(out) == 10
     assert out == sorted(out, key=lambda r: r["score"], reverse=True)
 
 
 def test_merge_dedupes_keeping_higher_score():
     """A paper in both shards must appear once, at its better score."""
-    out = qdrant_svc._merge_scored(
+    out = qdrant_svc._merge_by_score(
         [[{"arxiv_id": "x", "score": 0.4}], [{"arxiv_id": "x", "score": 0.8}]],
         limit=10)
     assert out == [{"arxiv_id": "x", "score": 0.8}]
 
 
 def test_merge_skips_entries_without_arxiv_id():
-    out = qdrant_svc._merge_scored(
+    out = qdrant_svc._merge_by_score(
         [[{"score": 0.9}, {"arxiv_id": "ok", "score": 0.1}]], limit=10)
     assert [r["arxiv_id"] for r in out] == ["ok"]
 
