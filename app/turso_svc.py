@@ -317,10 +317,15 @@ def _to_paper_dict(row: dict) -> dict | None:
     cat_codes = cats_raw.split()
     category = cat_codes[0] if cat_codes else (row.get("primary_topic") or "")
 
-    # Extract year from update_date (YYYY-MM-DD format)
+    # The year shown on a paper is when it was published, read from the arXiv
+    # id; update_date is the last revision, so "Attention Is All You Need"
+    # (1706.03762) showed 2023. update_date is the fallback for an id that
+    # does not parse.
+    from app.local_meta import pub_year_month
     update_date = row.get("update_date") or ""
-    year = 0
-    if len(update_date) >= 4:
+    ym = pub_year_month(arxiv_id)
+    year = ym[0] if ym else 0
+    if not year and len(update_date) >= 4:
         try:
             year = int(update_date[:4])
         except ValueError:

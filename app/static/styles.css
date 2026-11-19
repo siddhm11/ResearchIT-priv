@@ -787,6 +787,7 @@ a.card-title:hover { color: var(--accent); }
 .search-filters label { display: inline-flex; align-items: center; gap: .4rem; }
 .search-filters select { min-height: 32px; padding: .2rem .5rem; border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--surface); }
+.search-filters-clear { color: var(--text-2); text-decoration: underline; text-underline-offset: 2px; }
 .search-more { grid-column: 1 / -1; display: flex; justify-content: center; padding-top: .5rem; }
 
 .ai-summary {
