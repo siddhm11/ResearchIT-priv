@@ -1,0 +1,51 @@
+{
+  "slug": "jepa-world-models",
+  "title": "JEPA & World Models",
+  "blurb": "Predict the meaning, not the pixels. A Joint-Embedding Predictive Architecture learns by predicting the representation of a hidden part of the input from the rest. From the world-model blueprint, through images, video, audio, graphs and language, to the theory of why it works.",
+  "anchors": [
+    {
+      "id": "2306.02572",
+      "note": "Lecture notes on the blueprint JEPA comes from: machines that learn world models, reason and plan. Read it for the why. LeCun's own position paper is on OpenReview, not arXiv."
+    },
+    {
+      "id": "2301.08243",
+      "note": "I-JEPA, where it starts in practice. From one context block, predict the representations of other blocks of the same image: no pixel reconstruction, no hand-made augmentations."
+    },
+    {
+      "id": "2307.12698",
+      "note": "MC-JEPA: one encoder learns both what is in a video and how it moves, joining optical flow with content features."
+    },
+    {
+      "id": "2309.16014",
+      "note": "Graph-JEPA: the same idea for whole graphs, predicting the embedding of a masked subgraph with no positive or negative pairs."
+    },
+    {
+      "id": "2311.15830",
+      "note": "A-JEPA: I-JEPA's recipe applied to audio spectrograms, with a curriculum for what to mask."
+    },
+    {
+      "id": "2404.08471",
+      "note": "V-JEPA: video models trained only by predicting features, on 2 million videos. No pretrained image encoder, text, negatives or reconstruction."
+    },
+    {
+      "id": "2407.03475",
+      "note": "Why predicting in embedding space differs from reconstructing pixels: in deep linear networks, JEPA training is biased toward high-influence features (strongly predictive ones), where an MAE is not."
+    },
+    {
+      "id": "2412.10925",
+      "note": "A video JEPA that avoids representation collapse with variance and covariance regularisation."
+    },
+    {
+      "id": "2506.09985",
+      "note": "V-JEPA 2: pretrained on over a million hours of internet video, then a small amount of robot data makes it a world model that plans actions."
+    },
+    {
+      "id": "2509.14252",
+      "note": "LLM-JEPA: a first step to bring the embedding-space objective to language models, for finetuning and pretraining."
+    },
+    {
+      "id": "2511.08544",
+      "note": "LeJEPA: what JEPA embeddings should look like (an isotropic Gaussian), and one regulariser, SIGReg, in place of the usual anti-collapse tricks. A single trade-off hyperparameter."
+    }
+  ]
+}
