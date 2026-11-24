@@ -35,6 +35,7 @@ import calendar
 import json
 import os
 import re
+import sqlite3
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -335,21 +336,37 @@ def _slim_figures(parsed: arxiv_html.ParsedPaper) -> list[dict]:
     return out
 
 
-async def _save_parsed(parsed: arxiv_html.ParsedPaper, keep: Source | None) -> None:
+def _parsed_row(parsed: arxiv_html.ParsedPaper, keep: Source | None) -> tuple:
+    """The paper_sources row for a fresh parse, in _COLS order."""
     figures = _slim_figures(parsed)
     code = (keep.code_repo, keep.code_stars, keep.code_checked_at) if keep else ("", None, "")
-    async with aiosqlite.connect(config.DB_PATH) as conn:
+    return (parsed.arxiv_id, "ok", parsed.version, licences.code_from_text(parsed.licence_text),
+            parsed.licence_text, json.dumps(figures), sum(1 for f in parsed.figures if f.first_image()),
+            len(parsed.sections),
+            len(parsed.paragraphs), code[0] or None, code[1], code[2] or None,
+            arxiv_html.PARSER_VERSION, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), None)
+
+
+# A reader is waiting on the first open of a paper. Another writer (turso_sync
+# applying a pull) can hold SQLite's write lock for seconds; the default 5 s
+# wait then failed the save and froze the page for it (UI review, 2026-11-24).
+# The reader now waits at most SAVE_WAIT_S; past that the page is served from
+# the parse in memory and the save is retried in the background.
+SAVE_WAIT_S = 1.5
+SAVE_RETRY_WAIT_S = 60.0
+_save_tasks: set[asyncio.Task] = set()
+
+
+async def _save_parsed(parsed: arxiv_html.ParsedPaper, keep: Source | None,
+                       wait_s: float = SAVE_RETRY_WAIT_S) -> None:
+    row = _parsed_row(parsed, keep)
+    async with aiosqlite.connect(config.DB_PATH, timeout=wait_s) as conn:
         await conn.execute("BEGIN")
         # Whole-row replace, never UPDATE: a new id is what makes turso_sync push
         # the change, and every column, the code link included, is carried over.
         await conn.execute(
             f"INSERT OR REPLACE INTO paper_sources ({', '.join(_COLS)}) "
-            f"VALUES ({', '.join('?' * len(_COLS))})",
-            (parsed.arxiv_id, "ok", parsed.version, licences.code_from_text(parsed.licence_text),
-             parsed.licence_text, json.dumps(figures), sum(1 for f in parsed.figures if f.first_image()),
-             len(parsed.sections),
-             len(parsed.paragraphs), code[0] or None, code[1], code[2] or None,
-             arxiv_html.PARSER_VERSION, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()), None))
+            f"VALUES ({', '.join('?' * len(_COLS))})", row)
         await conn.execute(
             "INSERT OR REPLACE INTO paper_fulltext (arxiv_id, version, title, abstract, sections_json, "
             "figures_json, tables_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -419,11 +436,28 @@ async def _fetch_and_save(arxiv_id: str, existing: Source | None, paced: bool = 
         await _save_status(arxiv_id, "error", parsed.error, existing)
         runtime_stats.count("paper_source_error")
         return await get(arxiv_id)
-    await _save_parsed(parsed, existing)
+    try:
+        await _save_parsed(parsed, existing, wait_s=SAVE_WAIT_S)
+    except sqlite3.OperationalError as e:
+        if "locked" not in str(e) and "busy" not in str(e):
+            raise
+        runtime_stats.count("paper_source_save_deferred")
+        task = asyncio.create_task(_save_later(parsed, existing))
+        _save_tasks.add(task)                              # strongly referenced (CLAUDE.md 3.6b)
+        task.add_done_callback(_save_tasks.discard)
+        runtime_stats.count("paper_source_ok")
+        return _row_to_source(_parsed_row(parsed, existing))
     runtime_stats.count("paper_source_ok")
     runtime_stats.record("paper_source", {"fetch_ms": round(fetch_ms, 1), "parse_ms": round(parse_ms, 1),
                                           "kb": len(body) // 1024})
     return await get(arxiv_id)
+
+
+async def _save_later(parsed: arxiv_html.ParsedPaper, keep: Source | None) -> None:
+    try:
+        await _save_parsed(parsed, keep)
+    except Exception as e:
+        errors.report("paper_source", f"deferred save failed for {parsed.arxiv_id}", e)
 
 
 def needs_fetch(src: Source | None) -> bool:

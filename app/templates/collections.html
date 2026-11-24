@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Collections — ResearchIT{% endblock %}
+{% block title %}Reading lists — ResearchIT{% endblock %}
 
 {#
   Collection index.
@@ -14,8 +14,8 @@
 <div class="wrap wrap--feed">
 
   <header class="issue">
-    <div class="issue-kicker">Curated tracks</div>
-    <h1 class="issue-title">Collections</h1>
+    <div class="issue-kicker">Hand-picked, one topic each</div>
+    <h1 class="issue-title">Reading lists</h1>
     {% if collections %}
       <div class="issue-line">
         <span><b>{{ collections | length }}</b> track{{ "s" if collections | length != 1 }}</span>
@@ -70,8 +70,8 @@
     </div>
   {% elif not not_found %}
     <div class="empty">
-      <p class="empty-title">No collections yet</p>
-      <p class="empty-body">Curated collections live in <code>data/collections/</code>.</p>
+      <p class="empty-title">No reading lists yet</p>
+      <p class="empty-body">Reading lists live in <code>data/collections/</code>.</p>
     </div>
   {% endif %}
 

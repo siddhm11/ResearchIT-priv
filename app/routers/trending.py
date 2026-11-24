@@ -154,8 +154,14 @@ def trend_sentence(t: dict, since: str) -> str:
             f"({_pct(frm)} to {_pct(to)} of each week's list).")
 
 
-def trending_lead(rising: list[dict], cooling: list[dict], since: str, papers: int) -> str:
-    """The /trending page's answer in one or two sentences."""
+def trending_lead(rising: list[dict], cooling: list[dict], since: str, papers: int,
+                  steady: list[dict] = (), top: dict | None = None) -> str:
+    """The /trending page's answer in one or two sentences.
+
+    A week in which no topic passes the trend test still has news: the most
+    upvoted paper and the largest shift, said to be within chance. Leading
+    with "nothing moved" told readers and answer engines the page was empty
+    (UI review, 2026-11-24)."""
     parts = []
     if rising:
         t = rising[0]
@@ -165,10 +171,23 @@ def trending_lead(rising: list[dict], cooling: list[dict], since: str, papers: i
         parts.append(f"cooling most: {t['name']}, from {one_in(t['from_share'])} to {one_in(t['to_share'])}")
     basis = f"{papers:,} papers on Hugging Face's Daily Papers since {since}" if papers and since else \
         "Hugging Face's Daily Papers"
-    if not parts:
-        return f"No research topic's share of {basis} moved more than chance would move it."
-    lead = "; ".join(parts)
-    return f"{lead[0].upper()}{lead[1:]}. Measured on {basis}, each trend tested against 2,000 shuffles of the weeks."
+    if parts:
+        lead = "; ".join(parts)
+        return f"{lead[0].upper()}{lead[1:]}. Measured on {basis}, each trend tested against 2,000 shuffles of the weeks."
+    out = []
+    if top and top.get("title"):
+        title = " ".join(top["title"].split())
+        votes = f" ({top['upvotes']:,} upvotes)" if top.get("upvotes") else ""
+        out.append(f"This week's most upvoted paper on Hugging Face's Daily Papers is \u201c{title}\u201d{votes}.")
+    named = [t for t in steady if t.get("name") and t.get("from_share") is not None and t.get("to_share") is not None]
+    if named:
+        t = max(named, key=lambda t: abs(t["to_share"] - t["from_share"]))
+        out.append(f"The largest shift was {t['name']}, from {one_in(t['from_share'])} to "
+                   f"{one_in(t['to_share'])} papers; like every topic's change across {basis}, it is within "
+                   "what chance alone gives (tested against 2,000 shuffles of the weeks).")
+    else:
+        out.append(f"No research topic's share of {basis} moved more than chance would move it.")
+    return " ".join(out)
 
 
 def _with_reader(user_id: str | None, reader: str | None, resp):
@@ -251,7 +270,8 @@ async def trending_page(
 
 def _trending_seo(rising: list[dict], cooling: list[dict]) -> dict:
     basis = trending_topics.coverage()
-    lead = trending_lead(rising, cooling, _day_label(basis.get("first_week")), basis.get("papers") or 0)
+    lead = trending_lead(rising, cooling, _day_label(basis.get("first_week")), basis.get("papers") or 0,
+                         steady=trending_topics.steady(), top=next(iter(trending_shelf.week_top(1)), None))
     computed = (basis.get("computed_at") or "")[:10]
     return {
         "lead": lead,
@@ -417,7 +437,7 @@ async def lasting_page(
         change goes back to page 1."""
         q = {**current, **change}
         parts = [f"{k}={v}" for k, v in q.items()
-                 if v and not (k == "sort" and v == "default") and not (k == "view" and v == ("you" if closest else "lasting"))]
+                 if v and k != "page" and not (k == "sort" and v == "default") and not (k == "view" and v == ("you" if closest else "lasting"))]
         if change.get("page", 1) > 1:
             parts.append(f"page={change['page']}")
         return "/trending/lasting" + ("?" + "&".join(parts) if parts else "")
@@ -433,6 +453,7 @@ async def lasting_page(
         # One interest's name on every row says nothing; it shows when rows differ.
         "show_interest": len({(p.get("interest") or {}).get("label") for p in shown}) > 1,
         "total": stats["lasting"], "total_all": stats["lasting_all"], "mentions": stats["mentions"],
+        "longest_years": int(max((c.get("span_years") or 0 for c in cards), default=0)),
         "loaded": bool(stats["loaded_at"]), "query_id": query_id, "source": LASTING_SOURCE,
         "trending_page": features.visible(trending_topics.SWITCH, request),
         **_lasting_seo(stats, name_top=not field and not year and page == 1)}))

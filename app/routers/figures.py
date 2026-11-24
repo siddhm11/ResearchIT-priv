@@ -89,11 +89,24 @@ def safe_src(arxiv_id: str, src: str, kind: str = "img") -> bool:
     return bool(re.fullmatch(rf"{base}v\d+/[A-Za-z0-9._\-/]+\.(?:{types})", src, re.I))
 
 
+MIN_FIGURE_SIDE = 64   # px; smaller is a symbol drawn as a picture (a LaTeX keycap "W" was 20x13)
+
+
+def too_small(fig: dict) -> bool:
+    """A "figure" whose longer side is under MIN_FIGURE_SIDE: an icon, a logo or
+    a keycap set with \\includegraphics, never a figure worth a card. Unknown
+    sizes pass."""
+    w, h = fig.get("w"), fig.get("h")
+    return bool(w and h) and max(w, h) < MIN_FIGURE_SIDE
+
+
 def figure_url(source, n: int) -> str | None:
     """The URL for figure n of a saved source, or None if it can't be shown."""
     if source is None or not source.figures_allowed or not 0 <= n < len(source.figures):
         return None
     fig = source.figures[n]
+    if too_small(fig):
+        return None
     kind = figure_kind(fig)
     if not safe_src(source.arxiv_id, fig.get("src") or "", kind):
         return None

@@ -75,6 +75,26 @@ async def test_a_page_is_saved_to_every_table(fake_arxiv):
     assert fake_arxiv["requests"] == [f"{config.ARXIV_HTML_BASE}/2609.31507"]
 
 
+async def test_a_locked_database_serves_the_page_from_memory_and_saves_later(fake_arxiv):
+    """Another writer holding SQLite's lock must not freeze a first open
+    (UI review, 2026-11-24: a 6.4 s open ended in "database is locked")."""
+    async with aiosqlite.connect(config.DB_PATH) as holder:
+        await holder.execute("BEGIN IMMEDIATE")              # hold the write lock
+        t0 = time.perf_counter()
+        src = await pss.ensure("2609.31507")
+        waited = time.perf_counter() - t0
+        assert src.ok and [f["anchor"] for f in src.figures][:1] == ["S1.F1"]
+        assert waited < pss.SAVE_WAIT_S + 1.5
+        assert await pss.get("2609.31507") is None           # not saved yet
+        await holder.rollback()
+    for _ in range(100):
+        if not pss._save_tasks:
+            break
+        await asyncio.sleep(0.05)
+    saved = await pss.get("2609.31507")
+    assert saved is not None and saved.ok and await pss.paragraphs("2609.31507")
+
+
 async def test_a_saved_page_is_not_fetched_again(fake_arxiv):
     await pss.ensure("2609.31507")
     await pss.ensure("2609.31507")

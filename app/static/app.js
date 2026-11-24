@@ -365,12 +365,20 @@
 
   function isSearchRequest(e) {
     var el = e.detail && e.detail.elt;
+    if (el && el.hasAttribute && el.hasAttribute('data-search-deferred')) return true;
     return !!(el && el.closest && el.closest('form.searchbar') &&
               el.getAttribute('hx-target') === '#search-results');
   }
 
   document.body.addEventListener('htmx:beforeRequest', function (e) {
     if (isSearchRequest(e)) searchProgressStart();
+  });
+  /* The overview's "Read the whole overview" on phones (styles.css clamps it). */
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.ai-more');
+    if (!b) return;
+    var box = b.closest('.ai-summary');
+    if (box) { box.classList.add('is-open'); b.setAttribute('aria-expanded', 'true'); }
   });
   /* afterRequest covers success, error and abort alike — afterSwap alone would
      leave the counter running forever on a failed search. */

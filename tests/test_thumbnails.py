@@ -166,6 +166,17 @@ def test_figure_url_names_the_figure_by_position_and_path_hash():
     assert figures.figure_url(None, 0) is None
 
 
+def test_a_symbol_set_as_a_picture_is_never_a_figure():
+    """A LaTeX keycap "W" (20x13) was a card's key figure (UI review, 2026-11-24)."""
+    src = source()
+    src.figures.insert(0, {"anchor": "S2.F1", "label": "", "caption": "", "src": f"{AID}v1/w-key.png",
+                           "w": 20, "h": 13})
+    assert figures.figure_url(src, 0) is None
+    assert figures.figure_url(src, 1) == f"/fig/{AID}/1-{figures.path_hash(SRC)}.webp"
+    src.figures[0].update(w=None, h=None)                 # unknown size: shown
+    assert figures.figure_url(src, 0) is not None
+
+
 def test_figure_url_follows_the_licence_policy(monkeypatch):
     monkeypatch.setenv("FIGURE_LICENCES", "CC-BY-4.0")
     assert figures.figure_url(source("CC-BY-4.0"), 0)
@@ -329,9 +340,9 @@ PAGE = (b'<html><body><figure id="S2.F2" class="ltx_figure"><svg class="ltx_pict
         b'</svg></figure></body></html>')
 VECTOR_FIGS = [
     {"anchor": "S1.F1", "label": "Figure 1", "caption": "A photo.", "src": SRC, "w": 476, "h": 235},
-    {"anchor": "S2.F1", "label": "Figure 2", "caption": "A chart.", "src": SVG_SRC, "w": 40, "h": 30, "kind": "svg"},
-    {"anchor": "S2.F2", "label": "Figure 3", "caption": "Drawn.", "src": PAGE_SRC, "w": 20, "h": 10, "kind": "svg-inline"},
-    {"anchor": "S2.F3", "label": "Figure 4", "caption": "Drawn.", "src": PAGE_SRC, "w": 9, "h": 9, "kind": "svg-inline"},
+    {"anchor": "S2.F1", "label": "Figure 2", "caption": "A chart.", "src": SVG_SRC, "w": 400, "h": 300, "kind": "svg"},
+    {"anchor": "S2.F2", "label": "Figure 3", "caption": "Drawn.", "src": PAGE_SRC, "w": 200, "h": 100, "kind": "svg-inline"},
+    {"anchor": "S2.F3", "label": "Figure 4", "caption": "Drawn.", "src": PAGE_SRC, "w": 90, "h": 90, "kind": "svg-inline"},
 ]
 
 

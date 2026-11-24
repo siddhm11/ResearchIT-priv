@@ -84,6 +84,21 @@ def _disable_turso_replication():
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _search_results_in_the_page():
+    """Search tests read results from the first response; production sends the
+    page first and fetches them (SEARCH_SHELL, tests/test_search_shell.py)."""
+    previous = os.environ.get("SEARCH_SHELL")
+    os.environ["SEARCH_SHELL"] = "0"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("SEARCH_SHELL", None)
+        else:
+            os.environ["SEARCH_SHELL"] = previous
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _no_sidecar_warmup():
     """App startup reads the 2.9 GB sidecar into the page cache in production
     (local_meta.start_warmup). Tests that boot the app must not pay for that;

@@ -170,7 +170,7 @@ def test_paper_text_is_escaped(page, field):
 def test_captions_are_escaped(page, monkeypatch):
     monkeypatch.setenv("FIGURES", "on")
     figs = [{"anchor": "S1.F1", "label": "Figure 1", "caption": '<img src=x onerror=alert(1)>',
-             "src": FIG_SRC, "w": 10, "h": 10}]
+             "src": FIG_SRC, "w": 400, "h": 300}]
 
     async def go():
         async with aiosqlite.connect(config.DB_PATH) as conn:
@@ -298,7 +298,7 @@ def test_the_code_chip_needs_the_new_page(page, monkeypatch):
 def test_the_full_caption_is_used_when_this_container_has_the_full_text(page, monkeypatch):
     monkeypatch.setenv("FIGURES", "on")
     long_cut = "A" * 300
-    figs = [{"anchor": "S1.F1", "label": "Figure 1", "caption": long_cut, "src": FIG_SRC, "w": 10, "h": 10}]
+    figs = [{"anchor": "S1.F1", "label": "Figure 1", "caption": long_cut, "src": FIG_SRC, "w": 400, "h": 300}]
 
     async def go(with_fulltext):
         async with aiosqlite.connect(config.DB_PATH) as conn:

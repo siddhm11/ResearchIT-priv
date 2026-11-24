@@ -98,7 +98,7 @@ async def test_without_the_trending_page_the_bar_keeps_collections(tab_world, mo
 
 async def test_library_is_current_on_collections_and_recent(tab_world):
     async with client() as c:
-        for url, tab in (("/collections", "Collections"), ("/history", "Recent"), ("/saved", "Saved")):
+        for url, tab in (("/collections", "Reading lists"), ("/history", "Recent"), ("/saved", "Saved")):
             html = (await c.get(url)).text
             assert 'href="/saved" class="nav-link" aria-current="page"' in html, url
             assert f'aria-current="page">{tab}</a>' in html, url

@@ -10,7 +10,7 @@
 #}
 
 {% block content %}
-<div class="wrap wrap--feed stack stack-4">
+<div class="wrap wrap--feed stack stack-4 search-page{% if query %} has-query{% endif %}">
 
   <header class="issue">
     <div class="issue-kicker">Semantic search</div>
@@ -24,7 +24,7 @@
     <div class="issue-line">
       <span>{{ corpus_label() }} arXiv papers</span>
       <span class="sep">·</span>
-      <span>matched by meaning, not keywords</span>
+      <span>matched by meaning and by keywords</span>
     </div>
   </header>
 
@@ -53,7 +53,7 @@
     the searching state once; the ticking seconds are aria-hidden so a screen
     reader is not read a new number every 100ms.
   #}
-  <div id="search-loading" class="htmx-indicator htmx-indicator--block">
+  <div id="search-loading" class="htmx-indicator htmx-indicator--block{% if deferred %} htmx-request{% endif %}">
     <div class="search-status" role="status" aria-live="polite">
       <span class="spinner"></span>
       <span>Searching {{ corpus_label() }} papers…</span>
@@ -67,9 +67,14 @@
     {% include "partials/skeleton.html" %}
   </div>
 
+  {% if deferred %}
+  <div id="search-results" data-search-deferred hx-get="{{ deferred_url }}" hx-trigger="load"
+       hx-indicator="#search-loading" hx-swap="innerHTML"></div>
+  {% else %}
   <div id="search-results">
     {% include "partials/search_results.html" %}
   </div>
+  {% endif %}
 
 </div>
 {% endblock %}
