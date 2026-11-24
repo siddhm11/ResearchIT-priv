@@ -19,7 +19,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Cookie, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from datetime import date as Date, datetime, timezone
 
@@ -119,7 +119,7 @@ def _spark(rolling: list[float], top: float) -> str:
 
 
 def _topic_view(t: dict, top: float) -> dict:
-    return {"id": t["id"], "name": t["name"], "also": t["also"], "papers": t["papers"],
+    return {"id": t["id"], "slug": t.get("slug"), "name": t["name"], "also": t["also"], "papers": t["papers"],
             "from": t["from_share"], "to": t["to_share"], "spark": _spark(t["rolling"], top),
             # Copies: these dicts live in the shared topic state, and figures are per request.
             "top": [dict(p) for p in t["top"]], "label": trending_topics.label(t)}
@@ -127,8 +127,8 @@ def _topic_view(t: dict, top: float) -> dict:
 
 def _chips(rising: list[dict], cooling: list[dict], areas: list[dict]) -> list[dict]:
     """The strip under the page title: topics that moved, then the reader's areas."""
-    return ([{"text": t["name"], "href": f"/trending/topics/{t['id']}", "kind": "up"} for t in rising]
-            + [{"text": t["name"], "href": f"/trending/topics/{t['id']}", "kind": "down"} for t in cooling]
+    return ([{"text": t["name"], "href": trending_topics.path(t), "kind": "up"} for t in rising]
+            + [{"text": t["name"], "href": trending_topics.path(t), "kind": "down"} for t in cooling]
             + [{"text": f"{a['label']} · {a['count']}", "href": f"#tp-area-{a['area']}", "kind": "area"}
                for a in areas])
 
@@ -538,15 +538,27 @@ async def _more_like(topic: dict) -> list[dict]:
     return hits
 
 
-@router.get("/trending/topics/{topic_id}", response_class=HTMLResponse)
+@router.get("/trending/topics/{key}", response_class=HTMLResponse)
 async def topic_page(
-    topic_id: int,
+    key: str,
     request: Request,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
-    topic = trending_topics.get(topic_id) if features.visible(trending_topics.SWITCH, request) else None
+    """One topic, at /trending/topics/<slug>. The old numeric address 301s to
+    the slug, keeping its query string; ids change on restart, slugs only when
+    the name does (docs/AEO-PLAN.md phase 3)."""
+    visible = features.visible(trending_topics.SWITCH, request)
+    topic = None
+    if visible:
+        topic = trending_topics.by_slug(key)
+        if topic is None and key.isascii() and key.isdigit():
+            topic = trending_topics.get(int(key))
     if topic is None:
         return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
+    if key != (topic.get("slug") or str(topic["id"])):
+        query = request.url.query
+        return RedirectResponse(trending_topics.path(topic) + (f"?{query}" if query else ""), status_code=301)
+    topic_id = topic["id"]
     t0 = time.perf_counter()
     state = await us.ensure_loaded(user_id) if user_id else None
     decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)} if user_id else set()

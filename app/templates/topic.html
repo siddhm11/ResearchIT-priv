@@ -90,7 +90,7 @@
   <section class="topics-block" aria-labelledby="tp-related">
     <h2 class="shelf-title" id="tp-related">Nearby topics</h2>
     <nav class="topic-chips" aria-labelledby="tp-related">
-      {% for r in related %}<a class="tchip" href="/trending/topics/{{ r.id }}">{{ r.name }}</a>{% endfor %}
+      {% for r in related %}<a class="tchip" href="/trending/topics/{{ r.slug or r.id }}">{{ r.name }}</a>{% endfor %}
     </nav>
   </section>
   {% endif %}

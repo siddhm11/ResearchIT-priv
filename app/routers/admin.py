@@ -8,6 +8,7 @@ to the request carrying that token itself; everyone else gets a 404.
     GET /admin/searches    what people search for and what comes of it
     GET /admin/feed        what the feed showed, what readers did with it, how fast
     GET /admin/ai/history  every AI call, by the paper or search it was for
+    GET /admin/visibility  crawlers, AI assistants and AI-answer referrals (app/visibility.py)
 
 The owner's own use is left out of readers and searches unless ?me=1.
 Counts and text only: no reader is shown against a query.
@@ -20,7 +21,7 @@ import time
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from app import ai_usage, analytics, features
+from app import ai_usage, analytics, features, visibility
 from app.templates_env import templates
 
 router = APIRouter()
@@ -153,3 +154,14 @@ async def ai_history_dashboard(request: Request):
         return HTMLResponse("Not found", status_code=404)
     data = await analytics.ai_history()
     return templates.TemplateResponse(request, "admin_history.html", {**data, "active": "history"})
+
+
+@router.get("/admin/visibility", response_class=HTMLResponse)
+async def visibility_dashboard(request: Request):
+    if not _owner(request):
+        return HTMLResponse("Not found", status_code=404)
+    data = await visibility.report()
+    chart = bars([{"label": _day_label(d["day"]), "values": d["values"]} for d in data["days"]],
+                 [(k, label) for k, label in visibility.CLASSES], unit="fetches")
+    return templates.TemplateResponse(request, "admin_visibility.html", {
+        **data, "chart": chart, "class_labels": dict(visibility.CLASSES), "active": "visibility"})

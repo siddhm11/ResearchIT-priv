@@ -1696,3 +1696,22 @@ will train on (§3.11), and a visit from an AI answer was invisible.
 `routers/collections.py`, `tests/test_bots.py`; test clients now send a browser
 User-Agent, `tests/conftest.py`). Reader counts and CTR from before the deploy
 may include crawlers.
+
+### 2026-11-24 — Monthly trend reports are frozen; topic pages live at a slug
+
+**Decision:** Each daily topic computation (`trending_topics.refresh`) is also
+stored as the current month's trend report in `trend_snapshots` (replicated to
+Turso), served at `/trending/<yyyy-mm>` and `.csv`. A month's row is never
+written once the month is over. Topic pages live at `/trending/topics/<slug>`,
+the slug made from the topic's name; the numeric address 301s to it. The trend
+test itself is unchanged: when no topic passes it, the report says so and names
+the largest change as not passing, never as a trend.
+**Supersedes:** Topic addresses by numeric id (2026-10-25), which changed on
+every restart because ids are matched only against the previous in-memory run.
+**Rationale:** A page meant to be cited needs an address and content that do
+not change under the citation (docs/AEO-PLAN.md phase 3). On 24 Nov no topic
+passed the test on the live 26 weeks (best named q = 0.29); loosening it to
+produce a headline would break "never claim more than the data shows".
+**Action items:** Done on `feat/aeo` (`app/trend_reports.py`,
+`app/routers/reports.py`, `trending_topics.assign_slugs/by_slug/path`,
+`tests/test_aeo_reports.py`).

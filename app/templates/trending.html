@@ -116,7 +116,7 @@
     <ol class="steady-list">
       {% for t in steady %}
       <li class="steady-row" id="topic-{{ t.id }}">
-        <span class="steady-name"><a href="/trending/topics/{{ t.id }}">{{ t.name }}</a>
+        <span class="steady-name"><a href="/trending/topics/{{ t.slug or t.id }}">{{ t.name }}</a>
           {% if t.also %}<span class="steady-also">{{ t.also[:2] | join(", ") }}</span>{% endif %}</span>
         <span class="steady-bar" aria-hidden="true"><span style="width: {{ (t["to"] / (widest or 1) * 100) | round(1) }}%"></span></span>
         <span class="steady-share">{{ "%.1f" | format(t["to"] * 100) }}% · {{ t["to"] | one_in }}</span>
@@ -140,5 +140,6 @@
     Shares, not counts, because the lists ran from about 100 to 400 papers a week.</p>
   </details>
   {% endif %}
+  <p class="small muted report-links">Past months, final once each month ends: <a href="/trending/reports">monthly trend reports</a> with the data as CSV.</p>
 </div>
 {% endblock %}

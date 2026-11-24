@@ -10,6 +10,7 @@
   one line, then the list, one view per page so a paper is on it once.
 #}
 {% block title %}The arXiv papers Hacker News keeps coming back to — ResearchIT{% endblock %}
+{% block head %}<link rel="alternate" type="application/rss+xml" title="Lasting on Hacker News" href="/trending/lasting.rss" />{% endblock %}
 {% block content %}
 <div class="wrap wrap--trend trending-page lasting-page">
   <header class="issue">
@@ -22,6 +23,8 @@
         <span><b>{{ total | commafy }}</b> papers</span>
         <span class="sep">·</span><span>from {{ mentions | commafy }} links to arXiv</span>
         <span class="sep">·</span><span>updated daily</span>
+        <span class="sep">·</span><a href="/trending/lasting.csv">CSV</a>
+        <span class="sep">·</span><a href="/trending/lasting.rss">RSS</a>
       </div>
     {% endif %}
   </header>

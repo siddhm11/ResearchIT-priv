@@ -83,10 +83,23 @@ async def entries() -> list[tuple[str, str | None]]:
                                   "/collections": None}
     for path in STATIC_EXTRA:
         out[path] = None
+    try:
+        from app import features, trend_reports, trending_topics
+        if features.mode(trending_topics.SWITCH) == "on":     # the pages 404 otherwise
+            dated = await trend_reports.dates()
+            months = sorted(dated, reverse=True)
+            if months:
+                out["/trending/reports"] = dated[months[0]] or None
+            for m in months:
+                # The day it was last computed: today for this month, the
+                # month's last run for a past one, which never changes again.
+                out[f"/trending/{m}"] = dated[m] or None
+    except Exception as e:
+        errors.report("seo", "sitemap source trend reports failed", e)
     papers: dict[str, str | None] = {}
     sources = (
         ("collections", lambda: [f"/collections/{c['slug']}" for c in collections_svc.load_all()]),
-        ("topics", lambda: [f"/trending/topics/{t['id']}" for t in
+        ("topics", lambda: [trending_topics.path(t) for t in
                             trending_topics.rising() + trending_topics.cooling() + trending_topics.steady()]),
         ("trending", lambda: [p["arxiv_id"] for p in trending_shelf.week_top(200)]),
         ("lasting", lambda: [c["arxiv_id"] for c in hn_svc.lasting_cards()]),

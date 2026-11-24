@@ -219,6 +219,16 @@ TABLES: dict[str, dict] = {
         "cols": ["token", "user_id", "created_at", "revoked", "updated_at", "uses"],
         "blobs": [],
     },
+    # Monthly trend reports (app/trend_reports.py): a past month's report must
+    # survive a deploy, since its address is meant to be cited.
+    "trend_snapshots": {
+        "remote": "trend_snapshots",
+        "watermark": "updated_at",
+        "wm_kind": "text",
+        "pk": ["month"],
+        "cols": ["month", "computed_at", "payload", "updated_at"],
+        "blobs": [],
+    },
     "search_log": {
         "remote": "search_log",
         "watermark": "id",
@@ -327,6 +337,8 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS library_links (
         token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT, revoked INTEGER,
         updated_at TEXT, uses INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS trend_snapshots (
+        month TEXT PRIMARY KEY, computed_at TEXT, payload TEXT NOT NULL, updated_at TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS search_log (
         id INTEGER PRIMARY KEY, created_at TEXT, query TEXT, query_id TEXT, n_results INTEGER,
         mode TEXT, rewritten TEXT, latency_ms INTEGER, owner INTEGER, encode_ms INTEGER, rerank_ms INTEGER,

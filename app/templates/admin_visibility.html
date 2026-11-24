@@ -1,0 +1,84 @@
+{#
+  Visibility (/admin/visibility), owner only; data from app/visibility.py.
+  Crawler and assistant fetches and AI-answer referrals, counted per day in
+  ops_daily (docs/AEO-PLAN.md phase 6). Bots never appear in Readers.
+#}
+{% extends "base.html" %}
+{% from "partials/admin/bars.html" import bars %}
+
+{% block title %}Visibility — ResearchIT{% endblock %}
+{% block body_class %} class="page-wide"{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+
+{% block content %}
+<div class="wrap wrap--wide ai-dash viz-root">
+  {% include "partials/admin/nav.html" %}
+
+  <header class="ai-head">
+    <h1>Visibility</h1>
+    <p class="ai-sub">Who fetches the site's pages besides people, and how many people arrive from AI answers. Counted from the day the crawler rule shipped; last 28 days.</p>
+  </header>
+
+  <section class="ai-kpis" aria-label="Visibility at a glance">
+    <div class="ai-kpi"><span class="ai-kpi-label">Search crawler fetches, 7 days</span><span class="ai-kpi-value">{{ kpis.search_week | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Assistants reading for a person, 7 days</span><span class="ai-kpi-value">{{ kpis.user_fetch_week | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Training crawler fetches, 7 days</span><span class="ai-kpi-value">{{ kpis.training_week | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Visits from AI answers, 7 days</span><span class="ai-kpi-value">{{ kpis.referrals_week | commafy }}</span></div>
+    <div class="ai-kpi"><span class="ai-kpi-label">Visits from AI answers, 28 days</span><span class="ai-kpi-value">{{ kpis.referrals_month | commafy }}</span></div>
+  </section>
+
+  <section class="ai-sec" aria-labelledby="v-daily-h">
+    <h2 id="v-daily-h">Bot fetches per day</h2>
+    {{ bars(chart, "Bot fetches per day by kind") }}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="v-who-h">
+    <h2 id="v-who-h">By crawler</h2>
+    {% if crawlers %}
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr><th scope="col">Crawler</th><th scope="col">Kind</th><th scope="col">7 days</th>
+          <th scope="col">28 days</th><th scope="col">Pages it fetched most</th></tr></thead>
+        <tbody>
+          {% for r in crawlers %}
+          <tr><th scope="row">{{ r.name }}</th><td>{{ class_labels.get(r.cls, r.cls) }}</td><td>{{ r.week | commafy }}</td>
+            <td>{{ r.month | commafy }}</td><td>{{ r.top_pages }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="ai-empty">No crawler fetches recorded yet.</p>{% endif %}
+  </section>
+
+  <section class="ai-sec" aria-labelledby="v-ref-h">
+    <h2 id="v-ref-h">People arriving from AI answers</h2>
+    {% if referrals %}
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr><th scope="col">From</th><th scope="col">Landed on</th><th scope="col">7 days</th><th scope="col">28 days</th></tr></thead>
+        <tbody>
+          {% for r in referrals %}
+          <tr><th scope="row">{{ r.engine }}</th><td>{{ r.page }}</td><td>{{ r.week | commafy }}</td><td>{{ r.month | commafy }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<p class="ai-empty">No visits from AI answers recorded yet.</p>{% endif %}
+  </section>
+
+  {% if errors or indexnow %}
+  <section class="ai-sec" aria-labelledby="v-err-h">
+    <h2 id="v-err-h">Errors and pings, 28 days</h2>
+    <div class="ai-table-wrap">
+      <table class="ai-table">
+        <thead><tr><th scope="col">What</th><th scope="col">Count</th></tr></thead>
+        <tbody>
+          {% for e in errors %}<tr><th scope="row">{{ class_labels.get(e.cls, e.cls) }} got HTTP {{ e.status }}</th><td>{{ e.n | commafy }}</td></tr>{% endfor %}
+          {% for status, n in indexnow.items() %}<tr><th scope="row">IndexNow answered {{ status }}</th><td>{{ n | commafy }}</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

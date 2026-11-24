@@ -5,7 +5,14 @@ colorFrom: indigo
 colorTo: purple
 sdk: docker
 pinned: false
-short_description: A multi-interest arXiv recommender over 1.8M papers
+short_description: Free arXiv reading feed, search and AI research trends
+tags:
+  - arxiv
+  - papers
+  - research
+  - recommender-system
+  - semantic-search
+  - hacker-news
 models:
   - BAAI/bge-m3
   - mixedbread-ai/mxbai-rerank-xsmall-v1 (search cross-encoder; MiniLM-L6 kept as rollback)
@@ -15,6 +22,14 @@ datasets:
 ---
 
 # ResearchIT — personalized paper discovery
+
+**Live site: https://siddhm11-researchit.hf.space/** — a free reading feed and
+plain-language search over arXiv, with no sign-up. Also there:
+[rising and cooling AI research topics](https://siddhm11-researchit.hf.space/trending),
+[monthly trend reports](https://siddhm11-researchit.hf.space/trending/reports),
+[the arXiv papers Hacker News keeps coming back to](https://siddhm11-researchit.hf.space/trending/lasting),
+[reading lists](https://siddhm11-researchit.hf.space/collections) and
+[how it compares with other tools](https://siddhm11-researchit.hf.space/compare).
 
 ResearchIT is a FastAPI + HTMX + Jinja2 application for searching arXiv and
 building a reading feed around several interests. This description reflects the

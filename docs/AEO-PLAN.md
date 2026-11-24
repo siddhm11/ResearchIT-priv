@@ -1,6 +1,6 @@
 # AEO plan — getting ResearchIT found, quoted and used by AI answer engines
 
-> **Status: active.** Written 2026-11-24 from a live audit of the site and four
+> **Status: active.** Written 2026-11-24 (updated the same day: stay on hf.space) from a live audit of the site and four
 > research passes. Read this before touching anything listed under "Where it
 > lives". Update the status column and the log at the bottom in the same
 > commit as the work. The longer background doc is the AEO Playbook artifact
@@ -117,69 +117,92 @@ curl -s $H/about | grep -c 'free reading feed'                                  
 curl -sI $H/ | grep -i '^link:'      # Hugging Face's canonical header — see Phase 1
 ```
 
-### Phase 1 — Own the address (BLOCKER for indexing) 👤 + 🔧
+### Phase 1 — Stay on hf.space, measure the header, decide the domain later 👤 + 🔧
 
-**Why it blocks:** every response from `*.hf.space` carries an HTTP header
-added by Hugging Face's proxy, `Link: <https://huggingface.co/spaces/siddhm11/ResearchIT>; rel="canonical"`
-(verified 24 Nov; it is appended even when the app sends its own — HF forum
-thread 177658). Our HTML says each page is its own canonical. Google treats
-conflicting canonicals as a hint it may ignore, and the worst case folds every
-page into the Space's iframe wrapper. Until this is gone, Search Console
-submissions may index nothing.
+**Decision (owner, 24 Nov): stay on `siddhm11-researchit.hf.space`.** A
+domain is not required to be indexed or cited; it is bought only if the
+check below shows Google folding pages into the Space page.
 
-1. 👤 Decide the name (Archivore recommended in the playbook) and register the
-   domain (archivore.org ≈ $8 first year).
-2. 👤 Hugging Face PRO ($9/mo) → Space settings → Custom domain → `www.<domain>`;
-   DNS `www` CNAME → `hf.space`, DNS-only (not proxied).
-3. 👤 **Verify:** `curl -sI https://www.<domain>/ | grep -i '^link:'`.
-   - Header gone → continue.
-   - Header still there → put Cloudflare in front (proxied) with a Response
-     Header Transform Rule removing `Link`, or move to the Phase-7 VPS.
-     Do not launch until this check passes.
-4. 🔧 Set `PUBLIC_URL=https://www.<domain>`; add middleware 301 from the
-   hf.space host to the same path on the new host, **except** `/healthz*`
-   (keep-alive) and `/mcp` (agents; 308 later if ever). Rename brand strings
-   (`APP_TITLE`, masthead, `og:site_name`) if renaming.
-5. 🔧 Bare domain → 301 to `www`.
+**The header.** Every `*.hf.space` response carries an HTTP header added by
+Hugging Face's proxy, `link: <https://huggingface.co/spaces/siddhm11/ResearchIT>;rel="canonical"`
+(re-verified 24 Nov on `/` and `/trending/lasting`), contradicting each page's
+own canonical. Google treats a canonical as a hint and says it
+"might choose a different canonical"; it does not document the case of every
+page pointing at one off-host page. What is known (research pass, 24 Nov):
+- **Brave indexes hf.space apps that carry the same header** (a `site:hf.space`
+  search lists openai-whisper.hf.space, kermitt2-grobid.hf.space, …; curl shows
+  the header on them). Claude's web search uses Brave.
+- **No evidence that HF's custom domain removes the header.** The forum thread
+  reporting it (177658) is gone; a later subject line mentions the same
+  conflict *on* a custom domain. Before ever paying for PRO, curl a Space that
+  already has a custom domain and check.
+- Search Console's HTML-tag method works for URL-prefix properties; Bing's
+  `msvalidate.01` tag likewise; IndexNow's key file is per host, no DNS.
+
+**The test that decides it** (owner, after Phase 2 step 1):
+1. 2 weeks after submitting the sitemap, run URL Inspection on
+   `/trending/lasting`, `/trending/<month>`, a topic page and a paper page.
+2. "Google-selected canonical" is the hf.space URL → stay; done.
+3. It is `huggingface.co/spaces/...`, or "Duplicate, Google chose different
+   canonical" → the header is costing us. Then, in order: check a custom-domain
+   Space for the header; if gone, domain + HF PRO; if not, Cloudflare in front
+   with a Response Header Transform Rule removing `Link`, or the VPS.
+4. 🔧 Only if moving: set `PUBLIC_URL`, add a host middleware that 301s the
+   hf.space host to the same path on the new one (except `/healthz*`), and
+   bare domain → `www`. Every URL built from `config.PUBLIC_URL` follows.
+
+Hold the Hacker News launch post until step 2 or 3 has an answer: links
+collected before a move live behind a redirect forever.
 
 ### Phase 2 — Get registered 👤 + 🔧
 
 1. 👤 Google Search Console: verify (set `GOOGLE_SITE_VERIFICATION`), submit
    `/sitemap.xml`. Inspect `/trending/lasting`, `/trending`, one paper.
 2. 👤 Bing Webmaster Tools: verify (`BING_SITE_VERIFICATION`), submit sitemap,
-   turn on **AI Performance** (the only first-party report of AI citations:
+   open **AI Performance** (public preview since Feb 2026; comes with a verified site) (the only first-party report of AI citations:
    Copilot citations, grounding queries, cited URLs).
 3. 👤 Generate an IndexNow key (`openssl rand -hex 16`), set `INDEXNOW_KEY`.
    ✅ `app/indexnow.py` then pings the sitemap URLs dated today, once a day,
    30 minutes after start (counts in `ops_daily` as `indexnow:<status>`).
-4. 👤 Brave Search: submit the site (Claude's web search has used Brave).
-5. 👤 Rewrite the HF Space card: `short_description` with the one-line pitch
-   and 2.0M count, tags `arxiv`, `papers`, `recommender-system`, `research`,
-   `semantic-search`, link to the live site.
+4. 👤 Brave Search: no webmaster console; submit `/`, `/trending/lasting` and
+   `/trending/reports` at search.brave.com/submit-url (Claude's web search uses Brave).
+5. ✅ HF Space card (`README.md` front matter): `short_description` "Free arXiv
+   reading feed, search and AI research trends", tags `arxiv`, `papers`,
+   `research`, `recommender-system`, `semantic-search`, `hacker-news`, links
+   to the live site's public pages. Ships with the next `git push hf main`.
 
 ### Phase 3 — Pages built to be quoted 🔧
 
 Ordered by expected citations (section 2, point 5).
 
-1. **Monthly trend reports at permanent addresses** — `/trending/2026-11`,
-   frozen when the month closes, never recomputed. H1 with the month; first
-   sentence a number ("X rose from 1 in 29 to 1 in 18 papers"); table of
-   rising and cooling topics with shares, change and q-value; chart; "how
-   measured" box; `dateModified`; CSV at the same address + `.csv`. Needs a
-   `trend_snapshots` table (Turso) and **stable topic slugs** (persisted per
-   topic; name ties broken by the topic's other phrases; `/trending/topics/{id}`
-   301s to `/topics/{slug}`). This is the page no one else has.
-2. **Evergreen question pages per topic** — the topic page already answers
-   "is X growing?" in its first sentence (done); once slugs exist, title them
-   `Is {topic} research growing?`.
-3. **Lasting as a ranking + data** — a numbered top-50 table (paper, people,
-   separate months, first/last link) on the unfiltered page; `/trending/lasting.csv`;
-   an RSS feed of papers newly reaching the bar.
+1. ✅ **Monthly trend reports at permanent addresses** (`app/trend_reports.py`,
+   `app/routers/reports.py`): `/trending/<yyyy-mm>` + `.csv`, index at
+   `/trending/reports`. Each daily topic computation is written as the
+   current month's row in `trend_snapshots` (replicated); a past month is
+   never written again. The lead sentence is computed; when no topic passes
+   the test it names the largest change and says it did not pass. Dataset
+   JSON-LD with a CSV `distribution`. 🔧 Not done: a chart; persisting topic
+   ids across restarts (slugs made that unnecessary for addresses).
+   **Finding, 24 Nov:** on the live 26 weeks (4,970 papers) **no topic passes
+   the trend test** (best named q = 0.29 at K=24, 0.16 at K=40), so /trending
+   and the November report currently say "nothing moved more than chance".
+   That is the honest result of the test doc 06 set; do not loosen it to get
+   a headline. Lead outreach with Lasting until a month has passing trends.
+2. ✅ **Stable topic addresses** — `/trending/topics/<slug>` from the name
+   (`trending_topics.assign_slugs`; the bigger of two same-named topics keeps
+   the plain slug); the numeric address 301s, query kept; sitemap and every
+   link use the slug. Titles already read "Is {topic} research growing?".
+3. ✅ **Lasting as data** — the list is already numbered in canon order;
+   `/trending/lasting.csv` (every lasting paper, rank, people, months,
+   threads, first/last link, date it became lasting) and
+   `/trending/lasting.rss` (the 50 that most recently became lasting),
+   linked from the page and its `<head>`.
 4. **Reading lists people search for** — ✅ *ColBERT & Late-Interaction
    Retrieval* (`data/collections/late-interaction.json`, 9 papers, ids checked
    against the corpus; ColBERT and ColBERTv2 moved there from RAG & Retrieval,
    since an anchor lives in one list). ✅ Collection titles and descriptions
-   read "<Topic>: a reading list". 🔧 Still to do: an "updated" date.
+   read "<Topic>: a reading list". (An "updated" date was dropped: the JSON
+   files carry no date, and a git date would be invented precision.)
 5. ✅ **/compare** (`routers/pages.py COMPARE`, checked 24 Nov) — dated, honest table: Scholar Inbox, alphaXiv,
    arxiv-sanity-lite, Semantic Scholar feeds, HF Daily Papers, Paper Espresso,
    ResearchRabbit, zotero-arxiv-daily, ResearchIT; columns free?, sign-up?,
@@ -225,8 +248,9 @@ never count as feed clicks.
 ### Phase 6 — Measure 🔧 + 👤
 
 - `ops_daily` rows `bot:<class>:<name>:<page>`, `bot_status:<class>:<code>`,
-  `ai_ref:<engine>:<page>` (live once Phase 0 deploys). 🔧 Add them to
-  `/admin` as a weekly table.
+  `ai_ref:<engine>:<page>` (live once Phase 0 deploys). ✅ `/admin/visibility`
+  (`app/visibility.py`): 7- and 28-day totals per crawler and kind, AI-answer
+  referrals by engine and landing page, bot errors, IndexNow answers.
 - Bing AI Performance and Search Console (Generative AI report if the site
   qualifies).
 - Prompt panel, monthly: the 10 prompts in the playbook, **each run 5–10 times
@@ -235,12 +259,12 @@ never count as feed clicks.
 
 ## 5. Targets for 31 Dec 2026 (and what would change the plan)
 
-- Header check passes on the final domain; Search Console and Bing list
-  `/trending` and `/trending/lasting` as indexed.
+- Phase 1 decided from URL Inspection; Search Console and Bing list
+  `/trending/lasting` and `/trending/reports` as indexed.
 - ≥1 AI user-fetch (`ChatGPT-User`, `Claude-User`, `Perplexity-User`) a week
   in `ops_daily`.
 - Listed on AlternativeTo and awesome-arxiv; ≥3 independent pages name ResearchIT.
-- First monthly trend report live (`/trending/2026-12`, or 2026-11 backfilled).
+- Monthly trend reports live from November 2026 (built; live on deploy).
 - 100 outside readers in December, counted after the bot fix.
 
 If six weeks after submission most paper URLs are "Crawled – currently not
@@ -250,16 +274,22 @@ different channel, then retry once.
 
 ## 6. Owner checklist (things only you can do)
 
-- [ ] Name + domain + HF PRO custom domain; run the Link-header check
-- [ ] Search Console + Bing (+ AI Performance) + IndexNow key + Brave
+- [ ] Deploy (`git push hf main` after the PR merges), then run the Phase 0 exit check
+- [ ] Search Console (URL-prefix, HTML tag) + Bing (+ AI Performance) + IndexNow key + Brave submit-url
+- [ ] Two weeks later: URL Inspection → Phase 1 decision (domain only if Google picks huggingface.co)
 - [ ] Set `FIGURE_LICENCES=CC-BY-4.0,CC-BY-SA-4.0,CC0-1.0` before any launch post
 - [ ] Set `CONTACT_URL` to an address you read (privacy requests go there)
-- [ ] Space card rewrite
 - [ ] Listings, HN post, Reddit, HF dataset/article, YouTube demo, emails
 - [ ] OK the `mcp` dependency when Phase 5 starts
 
 ## 7. Log
 
+- **2026-11-24** — Owner chose to stay on hf.space; Phase 1 rewritten as
+  "measure, then decide" (research: Brave indexes hf.space despite the
+  header; no evidence a custom domain removes it). Built monthly reports +
+  CSV, slug topic addresses, Lasting CSV/RSS, `/admin/visibility`, Space card.
+  Tested against live Turso/Qdrant data locally (replication off): found no
+  topic passes the trend test this month (see phase 3.1).
 - **2026-11-24** — Independent review of the Phase 0 diff found 7 defects and
   4 overstated privacy/about claims; all fixed with regression tests
   (`tests/test_bots.py`, 64 tests; full suite 1,873 passed). Added /compare,

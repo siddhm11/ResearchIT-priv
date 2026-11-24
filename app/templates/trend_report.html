@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{#
+  /trending/<yyyy-mm> (app/routers/reports.py monthly_report): one month's
+  trend report, stored by app/trend_reports.py. A past month never changes;
+  the current one says it is updated daily. Every sentence and number comes
+  from the stored row. Not a ranked surface: no cookie, no exposures.
+#}
+{% block title %}Rising AI research topics, {{ label }} — Hugging Face Daily Papers trend report — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--trend prose-page report-page">
+  <header class="issue">
+    <div class="issue-kicker"><a href="/trending/reports">Trend reports</a></div>
+    <h1 class="issue-title">Rising and cooling AI research topics, {{ label }}</h1>
+    <p class="trend-lead">{{ lead }}</p>
+    <p class="muted">
+      {% if final %}Final report: computed {{ computed_label }}, not changed since.
+      {% else %}This month's report is recomputed daily until the month ends; last computed {{ computed_label }}.{% endif %}
+      <a href="/trending/{{ month }}.csv">Download the table (CSV)</a>.
+    </p>
+  </header>
+
+  {% macro rows(list) %}
+  <div class="cmp-wrap">
+    <table class="cmp report-table">
+      <thead>
+        <tr><th scope="col">Topic</th><th scope="col">Share at start</th><th scope="col">Share at end</th>
+            <th scope="col">Change</th><th scope="col">q value</th><th scope="col">Papers</th>
+            <th scope="col">Most upvoted paper</th></tr>
+      </thead>
+      <tbody>
+        {% for t in list %}
+        <tr>
+          <th scope="row">{% if t.href %}<a href="{{ t.href }}">{{ t.name }}</a>{% else %}{{ t.name }}{% endif %}
+            {% if t.also %}<div class="small muted">{{ t.also[:3] | join(", ") }}</div>{% endif %}</th>
+          <td>{{ pct(t.from_share) }} <span class="muted">({{ one_in(t.from_share) }})</span></td>
+          <td>{{ pct(t.to_share) }} <span class="muted">({{ one_in(t.to_share) }})</span></td>
+          <td>{{ "%+.1f" | format(t.change) }} pts</td>
+          <td>{{ "%.3f" | format(t.q) }}</td>
+          <td>{{ t.papers | commafy }}</td>
+          <td>{% if t.top %}<a href="/p/{{ t.top[0].arxiv_id }}">{{ t.top[0].title }}</a>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endmacro %}
+
+  <section>
+    <h2 class="shelf-title">Rising</h2>
+    {% if rising %}{{ rows(rising) }}{% else %}<p class="muted">No topic rose by more than chance would explain.</p>{% endif %}
+  </section>
+  <section>
+    <h2 class="shelf-title">Cooling</h2>
+    {% if cooling %}{{ rows(cooling) }}{% else %}<p class="muted">No topic fell by more than chance would explain.</p>{% endif %}
+  </section>
+  {% if steady %}
+  <section>
+    <h2 class="shelf-title">Steady</h2>
+    <p class="muted small">Real groups of papers whose change did not pass the test, largest change first. A change here can be chance; no trend is claimed.</p>
+    {{ rows(steady) }}
+  </section>
+  {% endif %}
+
+  <section class="prose">
+    <h2>How this is measured</h2>
+    <p>The {{ (snap.papers or 0) | commafy }} papers on Hugging Face's Daily Papers over the {{ snap.weeks }} weeks from {{ since }} are grouped into topics by meaning (Ward clustering of their BGE-M3 embeddings), and each topic's share of every week's list is followed. "Share at start" and "share at end" average the first and last four weeks.</p>
+    <p>A topic is called rising or cooling only if the slope of its weekly share beats the same slope with every paper's week shuffled 2,000 times, after a Benjamini–Hochberg correction for testing many topics at once (q below {{ snap.q_max }}). Shares, not counts, because the lists ran from about 100 to 400 papers a week. A topic is named by a phrase at least 30% of its papers use; no language model writes the names or the sentences.</p>
+    <p>Topic names can change from month to month as the grouping is redone, so compare months by the papers as well as the names.</p>
+  </section>
+
+  <nav class="report-nav">
+    {% if older %}<a href="/trending/{{ older }}">← {{ older_label }}</a>{% endif %}
+    <a href="/trending">Today's trends</a>
+    {% if newer %}<a href="/trending/{{ newer }}">{{ newer_label }} →</a>{% endif %}
+  </nav>
+</div>
+{% endblock %}

@@ -106,7 +106,7 @@ def ai_referral(request) -> str | None:
 
 
 def page_type(path: str) -> str:
-    """A coarse page type for counts: paper, trending, lasting, topic, collection, home, other."""
+    """A coarse page type for counts: paper, trending, lasting, topic, report, collection, home, other."""
     if path == "/":
         return "home"
     if path.startswith("/p/"):
@@ -115,6 +115,8 @@ def page_type(path: str) -> str:
         return "lasting"
     if path.startswith("/trending/topics/") or path.startswith("/topics/"):
         return "topic"
+    if path.startswith("/trending/reports") or path[10:14].isdigit() and path.startswith("/trending/"):
+        return "report"
     if path.startswith("/trending"):
         return "trending"
     if path.startswith("/collections"):

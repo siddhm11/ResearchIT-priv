@@ -2598,3 +2598,10 @@ a.src:hover { text-decoration: underline; }
 .cmp thead th { font-size: .78rem; color: var(--text-3); font-weight: 600; }
 .cmp tbody th a { color: var(--accent); }
 .cmp-us { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+/* Monthly trend reports (/trending/<yyyy-mm>, app/routers/reports.py) */
+.report-page section { margin: 1.4rem 0; }
+.report-table { min-width: 48rem; }
+.report-table td:nth-child(n+2):nth-child(-n+6) { white-space: nowrap; }
+.report-nav { display: flex; gap: 1.2rem; flex-wrap: wrap; margin: 2rem 0 1rem; font-size: .92rem; }
+.report-nav a, .report-links a, .report-page .issue p a { color: var(--accent); }

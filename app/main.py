@@ -22,7 +22,7 @@ from app import db
 from app.config import APP_TITLE, COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
-                         health, collections, paper, figures, trending, library, seo, pages)
+                         health, collections, paper, figures, trending, library, seo, pages, reports)
 
 
 @asynccontextmanager
@@ -278,6 +278,7 @@ app.include_router(search.router)
 app.include_router(events.router)
 app.include_router(recommendations.router)
 app.include_router(trending.router)
+app.include_router(reports.router)   # after trending: /trending/<yyyy-mm> must not shadow /trending/lasting
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)

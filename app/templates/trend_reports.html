@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{#
+  /trending/reports (app/routers/reports.py): every monthly trend report.
+#}
+{% block title %}Monthly AI research trend reports — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--trend prose-page">
+  <header class="issue">
+    <div class="issue-kicker">Hugging Face Daily Papers</div>
+    <h1 class="issue-title">Monthly trend reports</h1>
+    <p class="trend-lead">Each month, which AI research topics took a bigger or smaller share of Hugging Face's Daily Papers, each trend tested against chance, with the table as CSV. A month's report is final once the month ends.</p>
+  </header>
+  <section class="prose">
+    {% if months %}
+    <ul>
+      {% for m in months %}
+      <li><a href="/trending/{{ m.month }}">{{ m.label }}</a>{% if not m.final %} <span class="muted">(this month, updated daily)</span>{% endif %}
+        · <a href="/trending/{{ m.month }}.csv">CSV</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">The first report appears after the topics are next computed.</p>
+    {% endif %}
+    <p><a href="/trending">Today's trends</a> · <a href="/trending/lasting">Lasting on Hacker News</a></p>
+  </section>
+</div>
+{% endblock %}
