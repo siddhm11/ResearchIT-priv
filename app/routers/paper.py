@@ -30,9 +30,9 @@ import uuid
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import APIRouter, Cookie, Form, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, briefing_svc, config, db, features, groq_svc,
+from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, bots, briefing_svc, config, db, features, groq_svc,
                  hf_papers_svc, hn_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
 from app.routers.figures import figure_credit, figure_url
@@ -122,9 +122,24 @@ async def paper_page(
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     t_start = time.perf_counter()
-    returning_reader = user_id is not None
+    # Old and borrowed addresses fold into the one canonical /p/{id}: a
+    # version suffix (/p/2005.11401v2) or an arXiv-style /p/abs/... . A 404
+    # there sent crawlers and pasted links away empty (docs/AEO-PLAN.md).
+    canonical_id = canonical_arxiv_id(arxiv_id)
+    if canonical_id != arxiv_id:
+        # The query string goes along: a ranked link's qid/pos/pol must still
+        # reach the click log (§3.11), and ?preview= must still work.
+        query = request.url.query
+        return RedirectResponse(f"/p/{canonical_id}" + (f"?{query}" if query else ""), status_code=301)
+    # A crawler, answer engine or link preview gets the same page a reader
+    # does, but leaves no trace in reader data: no cookie, no user state, no
+    # click or view row (CLAUDE.md §3.11; app/bots.py).
+    bot = bots.is_bot(request)
+    returning_reader = user_id is not None and not bot
+    if bot:
+        user_id = None
     user_id = user_id or str(uuid.uuid4())
-    state = await us.ensure_loaded(user_id)
+    state = us.UserState() if bot else await us.ensure_loaded(user_id)
 
     t_meta = time.perf_counter()
     paper = await _fetch_one(arxiv_id)
@@ -137,11 +152,14 @@ async def paper_page(
 
     # A cut abstract is queued for its full text, which the next view shows.
     # Off the request path: request() only schedules the fetch.
-    if abstract_svc.is_truncated(paper.get("abstract")):
+    # Not for crawlers: the sitemap and IndexNow invite a crawl of thousands of
+    # papers, and each would queue two arXiv fetches.
+    if not bot and abstract_svc.is_truncated(paper.get("abstract")):
         abstract_svc.request(arxiv_id)
     # Likewise the arXiv HTML page (figures, sections, paragraphs), read once
     # in the background when PAPER_SOURCES is shadow or on. Never awaited here.
-    paper_source_svc.schedule(arxiv_id)
+    if not bot:
+        paper_source_svc.schedule(arxiv_id)
 
     paper = {
         **paper,
@@ -164,7 +182,7 @@ async def paper_page(
     # surface. A bare /p/{id} visit — a shared link, a bookmark, a crawler —
     # has no propensity and no policy, and recording it as though it did would
     # corrupt the §3.11 contract rather than honour it.
-    if qid:
+    if qid and not bot:
         try:
             await db.log_interaction(
                 user_id=user_id,
@@ -205,7 +223,7 @@ async def paper_page(
             print(f"[paper] history log failed for {arxiv_id}: {e}")
 
     t_related = time.perf_counter()
-    related = await _related(arxiv_id, us.all_seen(user_id))
+    related = await _related(arxiv_id, set() if bot else us.all_seen(user_id))
     related_ms = (time.perf_counter() - t_related) * 1000
 
     context = {
@@ -215,6 +233,12 @@ async def paper_page(
         "og_title": paper.get("title") or f"arXiv:{arxiv_id}",
         "og_description": _summary_for_card(paper),
         "og_type": "article",
+        # The plain-language summary, when one is already written, goes in the
+        # HTML itself: AI crawlers run no JavaScript, and robots.txt keeps
+        # every crawler off /api/, so a summary fetched by htmx was invisible
+        # to all of them (docs/AEO-PLAN.md, step 2). Never generated here.
+        "explanation": await cached_explanation(paper),
+        "jsonld": paper_jsonld(paper),
     }
     template = "paper.html"
     if features.visible("PAPER_PAGE_V2", request):
@@ -224,7 +248,8 @@ async def paper_page(
         if image:
             context["og_image"] = image
     resp = templates.TemplateResponse(request, template, context)
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
+    if not bot:
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     # Recorded so a redesign of this page can be compared against what it
     # replaced: /healthz/runtime reports p50/p95 of the last 200 visits.
     runtime_stats.record("paper_page", {
@@ -365,6 +390,103 @@ def _summary_for_card(paper: dict) -> str:
     return text[:200].rsplit(" ", 1)[0] + "…"
 
 
+# A version suffix, or an arXiv path pasted after /p/ (abs/, pdf/, html/).
+_VERSIONED = re.compile(r"^(?:(?:abs|pdf|html)/)?(.+?)(?:v\d+)?(?:\.pdf)?/?$")
+
+
+# arXiv's pre-2007 ids may carry a subject class ("math.AG/0101001"); the id
+# itself is "math/0101001".
+_SUBJECT_CLASS = re.compile(r"^([a-z-]+)\.[A-Z]{2}/(\d{7})$")
+
+
+def canonical_arxiv_id(arxiv_id: str) -> str:
+    """The id the paper's one address uses: no version, no arXiv path prefix.
+
+    "2005.11401v2" -> "2005.11401"; "abs/2005.11401" -> "2005.11401";
+    "hep-th/9711200v1" -> "hep-th/9711200"; "math.AG/0101001" -> "math/0101001".
+    Anything else is returned as is.
+    """
+    m = _VERSIONED.match(arxiv_id or "")
+    out = m.group(1) if m else arxiv_id
+    sc = _SUBJECT_CLASS.match(out)
+    return f"{sc.group(1)}/{sc.group(2)}" if sc else out
+
+
+async def cached_explanation(paper: dict) -> str | None:
+    """The plain-language summary already written for this paper, or None.
+
+    Same key loop as explain(), reading only: a page render never calls a model.
+    """
+    abstract = paper.get("abstract") or ""
+    if not abstract:
+        return None
+    try:
+        models = groq_svc.explanation_models()
+        for model in models:
+            text = await db.get_explanation(groq_svc.explain_cache_key(paper["arxiv_id"], abstract, model=model))
+            if text:
+                return text
+        # The page may hold a cut abstract while the summary was written from
+        # the full one (explain() fetches it): then the keys differ. Fall back
+        # to this paper's newest summary from an accepted model.
+        import aiosqlite
+        async with aiosqlite.connect(config.DB_PATH) as conn:
+            rows = await (await conn.execute(
+                "SELECT explanation, model FROM paper_explanations WHERE arxiv_id = ? ORDER BY id DESC LIMIT 5",
+                (paper["arxiv_id"],))).fetchall()
+        return next((r[0] for r in rows if r[0] and r[1] in models), None)
+    except Exception as e:                      # the page is worth serving without it
+        print(f"[paper] explanation cache read failed: {e}")
+    return None
+
+
+def _author_names(paper: dict) -> list[str]:
+    raw = paper.get("authors")
+    if isinstance(raw, list):
+        return [str(a) for a in raw if a]
+    if not raw:
+        return []
+    import json
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return [str(a) for a in parsed if a]
+    except (TypeError, ValueError):
+        pass
+    return [a.strip() for a in str(raw).split(",") if a.strip()]
+
+
+def paper_jsonld(paper: dict) -> dict:
+    """schema.org ScholarlyArticle for the paper page (docs/AEO-PLAN.md).
+
+    Says what the page is about and that its arXiv record is the same work.
+    Rendered with |tojson, which escapes <, > and &, so no text can end the
+    script element.
+    """
+    pid = paper["arxiv_id"]
+    data = {
+        "@context": "https://schema.org",
+        "@type": "ScholarlyArticle",
+        "headline": (paper.get("title") or f"arXiv:{pid}")[:300],
+        "name": paper.get("title") or f"arXiv:{pid}",
+        "url": f"{config.PUBLIC_URL}/p/{pid}",
+        "sameAs": f"https://arxiv.org/abs/{pid}",
+        "identifier": {"@type": "PropertyValue", "propertyID": "arXiv", "value": pid},
+        "isAccessibleForFree": True,
+    }
+    authors = _author_names(paper)
+    if authors:
+        data["author"] = [{"@type": "Person", "name": n} for n in authors[:50]]
+    published = paper.get("published") or ""
+    if published[:4].isdigit():
+        data["datePublished"] = published[:10]
+    elif paper.get("year"):
+        data["datePublished"] = str(paper["year"])
+    if paper.get("abstract"):
+        data["abstract"] = paper["abstract"]
+    return data
+
+
 @router.get("/api/papers/{arxiv_id:path}/explain", response_class=HTMLResponse)
 async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
     """Plain-language explanation of one paper.
@@ -383,6 +505,15 @@ async def explain(arxiv_id: str, request: Request, v: int = Query(default=1)):
         return HTMLResponse(content="")
 
     abstract = paper.get("abstract") or ""
+    bot = bots.is_bot(request)
+    if bot:
+        # A crawler that renders pages (Googlebot) gets cached text or nothing:
+        # never a model call, never an arXiv fetch.
+        text = await cached_explanation(paper)
+        if not text:
+            return HTMLResponse(content="")
+        partial = "partials/paper/explanation_body.html" if v == 2 else "partials/explanation.html"
+        return templates.TemplateResponse(request, partial, {"explanation": text, "cached": True})
     # Write the explanation from the whole abstract when it can be had within a
     # few seconds, rather than caching one written from a stump for everyone.
     if abstract_svc.is_truncated(abstract):
@@ -499,8 +630,8 @@ async def briefing(arxiv_id: str, request: Request):
     generation finishes in the background for the next visit. In shadow mode
     it generates and stores, and always answers empty.
     """
-    if not features.active("BRIEFING"):
-        return HTMLResponse("")
+    if not features.active("BRIEFING") or bots.is_bot(request):
+        return HTMLResponse("")                 # bots never start a model call
     paper = await _known_paper(arxiv_id)
     if paper is None:
         return HTMLResponse("")

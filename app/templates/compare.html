@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{#
+  /compare (app/routers/pages.py COMPARE). Ours, and it says so; it says
+  plainly where each tool is the better choice. Every row links the page its
+  facts came from. Re-check quarterly and update CHECKED.
+#}
+{% block title %}Personalised arXiv feeds and paper tools compared (2026) — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--trend prose-page">
+  <header class="issue">
+    <div class="issue-kicker">Compare</div>
+    <h1 class="issue-title">Personalised arXiv feeds and paper tools, compared</h1>
+    <p class="trend-lead">For a learned arXiv feed with no account, ResearchIT; for a daily email trained by your ratings, Scholar Inbox; for every field of science, Semantic Scholar or Google Scholar; for reading and annotating PDFs, alphaXiv; for exploring by citation, ResearchRabbit or Connected Papers.</p>
+    <p class="muted">Written by ResearchIT, so read it with that in mind. Each row links where its facts come from. Checked {{ checked }}.</p>
+  </header>
+
+  <div class="cmp-wrap">
+    <table class="cmp">
+      <thead>
+        <tr><th scope="col">Tool</th><th scope="col">Price</th><th scope="col">Account</th><th scope="col">Covers</th>
+            <th scope="col">How it picks papers</th><th scope="col">Delivery</th><th scope="col">Choose it when</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr{% if r.name == "ResearchIT" %} class="cmp-us"{% endif %}>
+          <th scope="row"><a href="{{ r.source }}"{% if not r.source.startswith('/') %} rel="noopener nofollow"{% endif %}>{{ r.name }}</a></th>
+          <td>{{ r.free }}</td><td>{{ r.signup }}</td><td>{{ r.coverage }}</td>
+          <td>{{ r.picks }}</td><td>{{ r.delivery }}</td><td>{{ r.when }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <section class="prose">
+    <h2>Where ResearchIT falls short</h2>
+    <ul>
+      <li>No email digest yet: you have to come to the site.</li>
+      <li>arXiv only. Fields that publish elsewhere are better served by Semantic Scholar or Google Scholar.</li>
+      <li>No PDF reader, notes or citation graph.</li>
+      <li>No app; it is a web page that works on a phone.</li>
+    </ul>
+    <h2>What only ResearchIT has here</h2>
+    <ul>
+      <li><a href="/trending">Topic trends</a> in Hugging Face's Daily Papers that are called rising or cooling only when a statistical test says so.</li>
+      <li><a href="/trending/lasting">Lasting</a>: the arXiv papers Hacker News keeps linking, month after month, since 2007.</li>
+      <li>A feed that keeps a share of the page for each separate interest, so a side topic is not drowned out.</li>
+    </ul>
+    <p>Papers with Code, often listed in older round-ups, closed in July 2025; its address now leads to Hugging Face's trending papers.</p>
+  </section>
+</div>
+{% endblock %}

@@ -69,6 +69,21 @@
 
   {{ how(" wl-how--after") }}
 
+  {#- The site's other public pages, one click from the front door: until now a
+      crawler landing here could not reach Lasting or the reading lists. -#}
+  <section class="wl-explore" aria-labelledby="wl-explore-h">
+    <h2 class="shelf-title" id="wl-explore-h">Explore without signing up</h2>
+    <ul class="wl-explore-list">
+      {% if feature_visible("TRENDING_PAGE", request) %}
+      <li><a href="/trending"><b>Trending topics</b></a> — which AI research topics are rising or cooling in Hugging Face's Daily Papers.</li>
+      {% endif %}
+      {% if feature_visible("HN_LASTING", request) %}
+      <li><a href="/trending/lasting"><b>Lasting on Hacker News</b></a> — the arXiv papers Hacker News keeps linking, year after year.</li>
+      {% endif %}
+      <li><a href="/collections"><b>Reading lists</b></a> — short paths into one topic, each paper with a note on why to read it.</li>
+    </ul>
+  </section>
+
   <p class="wl-foot small muted">Already use ResearchIT on another device? Open your library link here.
     You'll find it under Library, in Other devices.</p>
 </div>

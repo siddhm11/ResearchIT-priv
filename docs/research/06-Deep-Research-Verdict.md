@@ -1671,3 +1671,28 @@ for 2018–2025 and 37% for 2026. Reading the 40 extra rows for the counts costs
 **Action items:** Done in `app/routers/search.py`, `partials/search_results.html`,
 `partials/search_more_button.html`, `app/turso_svc.py`; tests in
 `tests/test_search_router.py`, `tests/test_paper_year.py`.
+
+### 2026-11-24 — Crawlers leave no trace in reader data; first visits to public pages get a reader id
+**Decision:** Every request is classed by `app/bots.py` (search, user_fetch,
+training, preview, other; or a person). Bots get the same HTML a person gets
+(no cloaking) but no cookie, no reader state, no click, view or exposure row,
+no reader-day count and no model call; they are counted only as
+`bot:<class>:<name>:<page>` in `ops_daily`. A person arriving without a cookie
+at /trending, Lasting or a topic page now gets a reader id on that response, so
+the page's exposures are written and their first click matches one. Visits from
+AI answers are counted as `ai_ref:<engine>:<page>`. The working plan for search
+and answer-engine visibility is `docs/AEO-PLAN.md`.
+**Supersedes:** The paper page's "a crawler would only mint a one-row phantom
+user" note, which held for views but not clicks: any crawler following a
+tracked link (/p/{id}?qid=...) logged a click, and every crawl of / wrote seven
+exposure rows. The 2026-11-17 analytics note that cookie-less requests are not
+counted.
+**Rationale:** Public pages carry 129 tracked paper links across /, /trending,
+a topic page and Lasting. Without this, the first crawler visits after
+indexing would have outnumbered the 18 outside readers in the log the reranker
+will train on (§3.11), and a visit from an AI answer was invisible.
+**Action items:** Done on branch `feat/aeo` (`app/bots.py`, `analytics.observe`,
+`routers/paper.py`, `main.home`, `routers/welcome.py`, `routers/trending.py`,
+`routers/collections.py`, `tests/test_bots.py`; test clients now send a browser
+User-Agent, `tests/conftest.py`). Reader counts and CTR from before the deploy
+may include crawlers.

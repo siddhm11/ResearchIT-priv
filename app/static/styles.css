@@ -1684,6 +1684,7 @@ a.card-title:hover { color: var(--accent); }
 .tx-note { display: block; margin-top: .4rem; font-family: var(--font-ui); font-size: .7rem; color: var(--text-3); }
 .tx-note a { color: var(--accent); }
 .tx-loading { padding-top: .55rem; margin: 0; font-size: .85rem; color: var(--text-3); }
+.tx-loading::after { content: attr(data-msg); }   /* drawn, not in the HTML text: see paper_v2.html */
 
 /* ── paper page: outline · reading · Ask ── */
 .px { display: block; }
@@ -2568,3 +2569,32 @@ a.src:hover { text-decoration: underline; }
   .hn-story[open] .hn-story-body { animation: hn-unfold .22s ease-out; }
   @keyframes hn-unfold { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
 }
+
+/* ── About / Privacy (app/templates/about.html, privacy.html) ─────────────── */
+.prose { max-width: 42rem; line-height: 1.6; color: var(--text); }
+.prose h2 { font-size: 1.05rem; margin: 1.8rem 0 .5rem; }
+.prose ul { padding-left: 1.2rem; margin: .4rem 0 1rem; }
+.prose li { margin: .35rem 0; }
+.prose p { margin: .5rem 0 1rem; }
+.prose a { color: var(--accent); }
+.prose code { font-size: .9em; }
+
+/* ── Site footer: links every crawler can follow (base.html) ──────────────── */
+.site-foot { border-top: 1px solid var(--border, rgba(127,127,127,.25)); margin-top: 3rem;
+             padding: 1.2rem 0 5.5rem; font-size: .85rem; color: var(--text-3); }
+.site-foot nav { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; }
+.site-foot a { color: inherit; }
+.site-foot a:hover { color: var(--accent); }
+.wl-explore { margin: 2.2rem 0 1rem; }
+.wl-explore-list { list-style: none; padding: 0; margin: .6rem 0 0; display: grid; gap: .5rem; }
+.wl-explore-list a { color: var(--accent); }
+.trend-lead { font-size: 1.02rem; line-height: 1.5; margin: .4rem 0 .5rem; max-width: 48rem; }
+
+/* ── /compare ─────────────────────────────────────────────────────────────── */
+.cmp-wrap { overflow-x: auto; margin: 1.2rem 0 2rem; -webkit-overflow-scrolling: touch; }
+.cmp { border-collapse: collapse; font-size: .86rem; min-width: 56rem; }
+.cmp th, .cmp td { text-align: left; vertical-align: top; padding: .55rem .7rem;
+                   border-bottom: 1px solid var(--border); }
+.cmp thead th { font-size: .78rem; color: var(--text-3); font-weight: 600; }
+.cmp tbody th a { color: var(--accent); }
+.cmp-us { background: color-mix(in srgb, var(--accent) 7%, transparent); }

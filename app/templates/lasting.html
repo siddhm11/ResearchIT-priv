@@ -9,13 +9,14 @@
   ranking hardly at all), the views as tabs, the filters as three menus on
   one line, then the list, one view per page so a paper is on it once.
 #}
-{% block title %}Lasting on Hacker News — ResearchIT{% endblock %}
+{% block title %}The arXiv papers Hacker News keeps coming back to — ResearchIT{% endblock %}
 {% block content %}
 <div class="wrap wrap--trend trending-page lasting-page">
   <header class="issue">
     <div class="issue-kicker">Hacker News, 2007 to today</div>
-    <h1 class="issue-title">Lasting</h1>
-    <p class="muted hn-dek">The papers Hacker News keeps coming back to, some of them for nineteen years.</p>
+    <h1 class="issue-title">The arXiv papers Hacker News keeps coming back to</h1>
+    {% if lead %}<p class="trend-lead">{{ lead }}</p>{% endif %}
+    <p class="muted hn-dek">Lasting: some of them for nineteen years.</p>
     {% if loaded %}
       <div class="issue-line">
         <span><b>{{ total | commafy }}</b> papers</span>

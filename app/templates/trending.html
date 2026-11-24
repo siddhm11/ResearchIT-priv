@@ -10,12 +10,15 @@
   count from the lists; the footnote says how the topics were found, so a
   reader can judge them.
 #}
-{% block title %}Trending on Hugging Face — ResearchIT{% endblock %}
+{% block title %}Which AI research topics are rising? Hugging Face Daily Papers trends — ResearchIT{% endblock %}
 {% block content %}
 <div class="wrap wrap--trend trending-page">
   <header class="issue">
     <div class="issue-kicker">Hugging Face Daily Papers</div>
-    <h1 class="issue-title">Trending this week</h1>
+    <h1 class="issue-title">Rising and cooling AI research topics</h1>
+    {#- The answer first, written from the numbers (trending.trending_lead): it is
+        what an answer engine keeps of this page (docs/AEO-PLAN.md, step 3). -#}
+    {% if lead %}<p class="trend-lead">{{ lead }}{% if updated %} <span class="muted">Updated {{ updated }}.</span>{% endif %}</p>{% endif %}
     <p class="muted">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
     {% if window %}
       <div class="issue-line trend-window">

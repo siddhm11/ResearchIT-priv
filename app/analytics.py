@@ -164,9 +164,31 @@ def count_reader(user_id: str | None, metric: str, owner: bool = False, n: int =
 
 
 def observe(request, status: int, content_type: str) -> None:
-    """Count one finished request against its reader, by what the request was."""
+    """Count one finished request against its reader, by what the request was.
+
+    Bots are counted apart, per class, name and page type, in ops_daily
+    (`bot:<class>:<name>:<page>`, plus `bot_status:<class>:<code>` for errors),
+    and never as readers. A person arriving from an AI answer adds
+    `ai_ref:<engine>:<page>`. See app/bots.py and docs/AEO-PLAN.md.
+    """
+    from app import bots, ops_digest
+    path = request.url.path
+    found = bots.identify(request.headers.get("user-agent"))
+    if found is not None:
+        if not path.startswith(("/static/", "/fig/", "/favicon")):
+            cls, name = found
+            if status >= 400:
+                ops_digest.count(f"bot_status:{cls}:{status}")
+            else:
+                ops_digest.count(f"bot:{cls}:{name}:{bots.page_type(path)}")
+        return
     if status >= 400:
         return
+    if (request.method == "GET" and request.headers.get("HX-Request") != "true"
+            and content_type.startswith("text/html")):
+        engine = bots.ai_referral(request)
+        if engine:
+            ops_digest.count(f"ai_ref:{engine}:{bots.page_type(path)}")
     user_id = request.cookies.get(config.COOKIE_NAME)
     if not user_id:
         return                                   # a first visit; the cookie is being set now

@@ -389,3 +389,7 @@ from app.routers.figures import figure_credit, figure_url  # noqa: E402
 templates.env.globals["figure_url"] = figure_url
 templates.env.globals["figure_credit"] = figure_credit
 templates.env.globals["space_paper_url"] = config.space_paper_url
+
+# Search-engine ownership tokens (docs/AEO-PLAN.md); empty renders nothing.
+templates.env.globals["google_site_verification"] = config.GOOGLE_SITE_VERIFICATION
+templates.env.globals["bing_site_verification"] = config.BING_SITE_VERIFICATION
