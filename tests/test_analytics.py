@@ -171,13 +171,17 @@ def test_search_tables_replicate():
 from types import SimpleNamespace
 
 
+BROWSER = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+
 def req(method, path, cookie="reader-1", query=None, hx=False, preview=False):
     from app import features
     cookies = {config.COOKIE_NAME: cookie} if cookie else {}
     if preview:
         cookies[features.PREVIEW_COOKIE] = features._cookie_value()
     return SimpleNamespace(method=method, url=SimpleNamespace(path=path), cookies=cookies,
-                           query_params=query or {}, headers={"HX-Request": "true"} if hx else {})
+                           query_params=query or {},
+                           headers={"user-agent": BROWSER, **({"HX-Request": "true"} if hx else {})})
 
 
 @pytest.fixture

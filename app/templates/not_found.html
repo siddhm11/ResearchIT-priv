@@ -11,6 +11,8 @@
   handler in app/main.py.
 #}
 {% extends "base.html" %}
+{# No canonical for a missing page: it is not a page to index (base.html). #}
+{% set page_noindex = true %}
 
 {% block title %}Not found — ResearchIT{% endblock %}
 

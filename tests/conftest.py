@@ -135,3 +135,26 @@ def pytest_addoption(parser):
 @pytest.fixture
 def update_golden(request) -> bool:
     return request.config.getoption("--update-golden")
+
+
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/18.0 Safari/605.1.15")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _clients_are_browsers():
+    """Test clients introduce themselves as a browser.
+
+    httpx says "python-httpx/x.y", which app/bots.py rightly treats as a script:
+    no cookie, no reader state, no clicks logged. Nearly every route test plays
+    a reader, so the suite's clients say what a reader's browser says;
+    tests/test_bots.py sends crawler User-Agents on purpose.
+    """
+    import httpx._client as hc
+
+    original = hc.USER_AGENT
+    hc.USER_AGENT = BROWSER_UA
+    try:
+        yield
+    finally:
+        hc.USER_AGENT = original

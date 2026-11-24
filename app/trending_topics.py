@@ -264,9 +264,36 @@ def compute(rows: list[dict], vectors: dict, previous: list[dict] | None = None,
         topic["id"] = c.cluster_idx
         topic["medoid_paper_id"] = c.medoid_paper_id
         topic["_medoid"] = c.medoid_embedding
+    assign_slugs(topics)
     topic_of = {r["arxiv_id"]: topics[t]["id"] for r, t in zip(rows, labels)}
     return {"topics": topics, "topic_of": topic_of, "papers": len(rows), "weeks": w,
             "first_week": first_monday.isoformat()}
+
+
+def slugify(name: str) -> str:
+    """"Vision-Language-Action Models" -> "vision-language-action-models"."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def assign_slugs(topics: list[dict]) -> None:
+    """Give every named topic a `slug` for its address, from its name: an
+    address survives a restart or a regrouping as long as the name does,
+    where the numeric id does not (ids are matched only against the previous
+    run in memory). Two topics with one name: the bigger keeps the plain slug,
+    the other takes "-2". Unnamed topics get None."""
+    taken: set[str] = set()
+    for t in sorted(topics, key=lambda t: (-t["papers"], t.get("id", 0))):
+        if not t.get("name"):
+            t["slug"] = None
+            continue
+        base = slugify(t["name"]) or "topic"
+        if base.isdigit():                 # a digits-only address is read as an old numeric id
+            base = f"topic-{base}"
+        slug, n = base, 2
+        while slug in taken:
+            slug, n = f"{base}-{n}", n + 1
+        taken.add(slug)
+        t["slug"] = slug
 
 
 def previous_clusters(topics: list[dict]) -> list[InterestCluster]:
@@ -306,6 +333,16 @@ def label(t: dict) -> str:
 def get(topic_id: int) -> dict | None:
     """A named topic by id, or None (unnamed topics are never shown)."""
     return next((t for t in _state["topics"] if t["id"] == topic_id and t["name"] is not None), None)
+
+
+def by_slug(slug: str) -> dict | None:
+    """A named topic by its address, or None."""
+    return next((t for t in _state["topics"] if t.get("slug") == slug and t["name"] is not None), None)
+
+
+def path(t: dict) -> str:
+    """A topic page's one address: by slug, by id only for a topic without one."""
+    return f"/trending/topics/{t.get('slug') or t['id']}"
 
 
 def _unit(v) -> np.ndarray:
@@ -351,7 +388,7 @@ def topic_line(arxiv_id: str) -> dict | None:
     tid = _state["topic_of"].get(arxiv_id)
     for t in rising():
         if t["id"] == tid:
-            return {"id": t["id"], "name": t["name"], "from": t["from_share"], "to": t["to_share"],
+            return {"id": t["id"], "slug": t.get("slug"), "name": t["name"], "from": t["from_share"], "to": t["to_share"],
                     "since": _state["first_week"]}
     return None
 
@@ -383,6 +420,9 @@ async def refresh(today: Date | None = None) -> dict:
     _state.update(result, error=None, computed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
     print(f"[trending_topics] {result['papers']} papers, {len(result['topics'])} topics, "
           f"{len(rising())} rising, {len(cooling())} cooling")
+    # This month's report (/trending/<yyyy-mm>) is this computation.
+    from app import trend_reports
+    await trend_reports.record()
     # /trending shows the moving topics' top papers with their figures.
     from app import trending_shelf
     await trending_shelf.warm_figures([p["arxiv_id"] for t in rising() + cooling() for p in t["top"]])

@@ -448,6 +448,16 @@ CREATE TABLE IF NOT EXISTS library_links (
 );
 CREATE INDEX IF NOT EXISTS idx_library_links_user
     ON library_links(user_id);
+
+-- Monthly trend reports (app/trend_reports.py): one row per month, the topics
+-- as last computed in that month. A past month is never written again.
+-- Replicated, so a deploy keeps the archive.
+CREATE TABLE IF NOT EXISTS trend_snapshots (
+    month       TEXT PRIMARY KEY,
+    computed_at TEXT,
+    payload     TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 """
 
 

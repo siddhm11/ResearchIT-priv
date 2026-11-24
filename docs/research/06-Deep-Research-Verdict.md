@@ -1671,3 +1671,47 @@ for 2018–2025 and 37% for 2026. Reading the 40 extra rows for the counts costs
 **Action items:** Done in `app/routers/search.py`, `partials/search_results.html`,
 `partials/search_more_button.html`, `app/turso_svc.py`; tests in
 `tests/test_search_router.py`, `tests/test_paper_year.py`.
+
+### 2026-11-24 — Crawlers leave no trace in reader data; first visits to public pages get a reader id
+**Decision:** Every request is classed by `app/bots.py` (search, user_fetch,
+training, preview, other; or a person). Bots get the same HTML a person gets
+(no cloaking) but no cookie, no reader state, no click, view or exposure row,
+no reader-day count and no model call; they are counted only as
+`bot:<class>:<name>:<page>` in `ops_daily`. A person arriving without a cookie
+at /trending, Lasting or a topic page now gets a reader id on that response, so
+the page's exposures are written and their first click matches one. Visits from
+AI answers are counted as `ai_ref:<engine>:<page>`. The working plan for search
+and answer-engine visibility is `docs/AEO-PLAN.md`.
+**Supersedes:** The paper page's "a crawler would only mint a one-row phantom
+user" note, which held for views but not clicks: any crawler following a
+tracked link (/p/{id}?qid=...) logged a click, and every crawl of / wrote seven
+exposure rows. The 2026-11-17 analytics note that cookie-less requests are not
+counted.
+**Rationale:** Public pages carry 129 tracked paper links across /, /trending,
+a topic page and Lasting. Without this, the first crawler visits after
+indexing would have outnumbered the 18 outside readers in the log the reranker
+will train on (§3.11), and a visit from an AI answer was invisible.
+**Action items:** Done on branch `feat/aeo` (`app/bots.py`, `analytics.observe`,
+`routers/paper.py`, `main.home`, `routers/welcome.py`, `routers/trending.py`,
+`routers/collections.py`, `tests/test_bots.py`; test clients now send a browser
+User-Agent, `tests/conftest.py`). Reader counts and CTR from before the deploy
+may include crawlers.
+
+### 2026-11-24 — Monthly trend reports are frozen; topic pages live at a slug
+
+**Decision:** Each daily topic computation (`trending_topics.refresh`) is also
+stored as the current month's trend report in `trend_snapshots` (replicated to
+Turso), served at `/trending/<yyyy-mm>` and `.csv`. A month's row is never
+written once the month is over. Topic pages live at `/trending/topics/<slug>`,
+the slug made from the topic's name; the numeric address 301s to it. The trend
+test itself is unchanged: when no topic passes it, the report says so and names
+the largest change as not passing, never as a trend.
+**Supersedes:** Topic addresses by numeric id (2026-10-25), which changed on
+every restart because ids are matched only against the previous in-memory run.
+**Rationale:** A page meant to be cited needs an address and content that do
+not change under the citation (docs/AEO-PLAN.md phase 3). On 24 Nov no topic
+passed the test on the live 26 weeks (best named q = 0.29); loosening it to
+produce a headline would break "never claim more than the data shows".
+**Action items:** Done on `feat/aeo` (`app/trend_reports.py`,
+`app/routers/reports.py`, `trending_topics.assign_slugs/by_slug/path`,
+`tests/test_aeo_reports.py`).

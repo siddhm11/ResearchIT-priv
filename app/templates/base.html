@@ -45,7 +45,7 @@
   #}
   {% set _path = request.url.path if request else '/' %}
   {% set _og_image = og_image | default(public_url ~ "/static/og.png") %}
-  {% if _path.startswith(('/search', '/saved', '/history', '/interests', '/library', '/l/', '/admin', '/onboarding')) %}
+  {% if page_noindex or _path.startswith(('/search', '/saved', '/history', '/interests', '/library', '/l/', '/admin', '/onboarding')) %}
   <meta name="robots" content="noindex" />
   {% else %}
   <link rel="canonical" href="{{ public_url }}{{ _path }}" />
@@ -60,6 +60,12 @@
   <meta name="twitter:title" content="{{ _og_title }}" />
   <meta name="twitter:description" content="{{ _og_description }}" />
   <meta name="twitter:image" content="{{ _og_image }}" />
+
+  {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}" />{% endif %}
+  {% if bing_site_verification %}<meta name="msvalidate.01" content="{{ bing_site_verification }}" />{% endif %}
+  {#- schema.org data a page passes as `jsonld` (a dict or a list of them).
+      |tojson escapes <, > and &, so no value can close the script. -#}
+  {% if jsonld %}<script type="application/ld+json">{{ jsonld | tojson }}</script>{% endif %}
 
   <link rel="stylesheet" href="/static/styles.css?v={{ static_version }}" />
 
@@ -146,6 +152,22 @@
     <main id="main">
       {% block content %}{% endblock %}
     </main>
+
+    {#- Plain links to every public page, so a crawler that lands anywhere can
+        reach them all; Collections and Lasting had no link from the front page
+        or the top bar (docs/AEO-PLAN.md, step 4). -#}
+    <footer class="site-foot">
+      <div class="wrap">
+        <nav aria-label="Site">
+          {% if trending_tab %}<a href="/trending">Trending topics</a><a href="/trending/reports">Monthly trend reports</a>{% endif %}
+          {% if feature_visible("HN_LASTING", request) %}<a href="/trending/lasting">Lasting on Hacker News</a>{% endif %}
+          <a href="/collections">Reading lists</a>
+          <a href="/compare">Compare tools</a>
+          <a href="/about">About</a>
+          <a href="/privacy">Privacy</a>
+        </nav>
+      </div>
+    </footer>
 
   </div>
 

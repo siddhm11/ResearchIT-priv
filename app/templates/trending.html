@@ -10,12 +10,15 @@
   count from the lists; the footnote says how the topics were found, so a
   reader can judge them.
 #}
-{% block title %}Trending on Hugging Face — ResearchIT{% endblock %}
+{% block title %}Which AI research topics are rising? Hugging Face Daily Papers trends — ResearchIT{% endblock %}
 {% block content %}
 <div class="wrap wrap--trend trending-page">
   <header class="issue">
     <div class="issue-kicker">Hugging Face Daily Papers</div>
-    <h1 class="issue-title">Trending this week</h1>
+    <h1 class="issue-title">Rising and cooling AI research topics</h1>
+    {#- The answer first, written from the numbers (trending.trending_lead): it is
+        what an answer engine keeps of this page (docs/AEO-PLAN.md, step 3). -#}
+    {% if lead %}<p class="trend-lead">{{ lead }}{% if updated %} <span class="muted">Updated {{ updated }}.</span>{% endif %}</p>{% endif %}
     <p class="muted">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
     {% if window %}
       <div class="issue-line trend-window">
@@ -113,7 +116,7 @@
     <ol class="steady-list">
       {% for t in steady %}
       <li class="steady-row" id="topic-{{ t.id }}">
-        <span class="steady-name"><a href="/trending/topics/{{ t.id }}">{{ t.name }}</a>
+        <span class="steady-name"><a href="/trending/topics/{{ t.slug or t.id }}">{{ t.name }}</a>
           {% if t.also %}<span class="steady-also">{{ t.also[:2] | join(", ") }}</span>{% endif %}</span>
         <span class="steady-bar" aria-hidden="true"><span style="width: {{ (t["to"] / (widest or 1) * 100) | round(1) }}%"></span></span>
         <span class="steady-share">{{ "%.1f" | format(t["to"] * 100) }}% · {{ t["to"] | one_in }}</span>
@@ -137,5 +140,6 @@
     Shares, not counts, because the lists ran from about 100 to 400 papers a week.</p>
   </details>
   {% endif %}
+  <p class="small muted report-links">Past months, final once each month ends: <a href="/trending/reports">monthly trend reports</a> with the data as CSV.</p>
 </div>
 {% endblock %}

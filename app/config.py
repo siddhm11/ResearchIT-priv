@@ -671,3 +671,13 @@ def space_paper_url(arxiv_id: str) -> str:
 # key -- a limiter that cannot tell clients apart is worse than none.
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1").strip().lower() in (
     "1", "true", "yes")
+
+# ── Search engines and answer engines (docs/AEO-PLAN.md) ─────────────────────
+# Ownership tokens from Google Search Console and Bing Webmaster Tools, rendered
+# as <meta> tags in base.html; empty renders nothing. INDEXNOW_KEY (8-128 hex
+# characters) turns on /{key}.txt and the daily ping in app/indexnow.py.
+GOOGLE_SITE_VERIFICATION = os.getenv("GOOGLE_SITE_VERIFICATION", "").strip()
+BING_SITE_VERIFICATION = os.getenv("BING_SITE_VERIFICATION", "").strip()
+INDEXNOW_KEY = os.getenv("INDEXNOW_KEY", "").strip()
+# Where /about and /privacy send people with a question or a data request.
+CONTACT_URL = os.getenv("CONTACT_URL", "https://huggingface.co/spaces/siddhm11/ResearchIT/discussions").strip()

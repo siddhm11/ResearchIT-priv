@@ -19,15 +19,15 @@ import time
 import uuid
 
 from fastapi import APIRouter, Cookie, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from datetime import date as Date, datetime, timezone
 
-from app import card_data, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
+from app import bots, card_data, config, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
 from app import user_state as us
-from app.config import COOKIE_NAME
+from app.config import COOKIE_MAX_AGE, COOKIE_NAME
 from app.routers import recommendations
-from app.templates_env import templates
+from app.templates_env import one_in, templates
 
 router = APIRouter()
 
@@ -119,7 +119,7 @@ def _spark(rolling: list[float], top: float) -> str:
 
 
 def _topic_view(t: dict, top: float) -> dict:
-    return {"id": t["id"], "name": t["name"], "also": t["also"], "papers": t["papers"],
+    return {"id": t["id"], "slug": t.get("slug"), "name": t["name"], "also": t["also"], "papers": t["papers"],
             "from": t["from_share"], "to": t["to_share"], "spark": _spark(t["rolling"], top),
             # Copies: these dicts live in the shared topic state, and figures are per request.
             "top": [dict(p) for p in t["top"]], "label": trending_topics.label(t)}
@@ -127,10 +127,55 @@ def _topic_view(t: dict, top: float) -> dict:
 
 def _chips(rising: list[dict], cooling: list[dict], areas: list[dict]) -> list[dict]:
     """The strip under the page title: topics that moved, then the reader's areas."""
-    return ([{"text": t["name"], "href": f"/trending/topics/{t['id']}", "kind": "up"} for t in rising]
-            + [{"text": t["name"], "href": f"/trending/topics/{t['id']}", "kind": "down"} for t in cooling]
+    return ([{"text": t["name"], "href": trending_topics.path(t), "kind": "up"} for t in rising]
+            + [{"text": t["name"], "href": trending_topics.path(t), "kind": "down"} for t in cooling]
             + [{"text": f"{a['label']} · {a['count']}", "href": f"#tp-area-{a['area']}", "kind": "area"}
                for a in areas])
+
+
+# ── Sentences an answer engine can quote (docs/AEO-PLAN.md, step 3) ──────────
+# Written from the numbers, never by a model: the H1 and first sentence are what
+# an AI index keeps of a page, and the meta description repeats them.
+
+def _pct(share: float) -> str:
+    return f"{share * 100:.1f}%"
+
+
+def trend_sentence(t: dict, since: str) -> str:
+    """One topic's movement as a sentence: "Robots rose from 1 in 29 to 1 in 18 ..."."""
+    lbl = trending_topics.label(t)
+    frm, to = t["from_share"], t["to_share"]
+    when = f" since {since}" if since else ""
+    if lbl == "steady":
+        return (f"{t['name']} makes up {_pct(to)} of Hugging Face's Daily Papers ({one_in(to)} papers), "
+                f"with no trend the data can stand behind{when}.")
+    verb = "rose" if lbl == "rising" else "fell"
+    return (f"{t['name']} {verb} from {one_in(frm)} to {one_in(to)} papers on Hugging Face's Daily Papers{when} "
+            f"({_pct(frm)} to {_pct(to)} of each week's list).")
+
+
+def trending_lead(rising: list[dict], cooling: list[dict], since: str, papers: int) -> str:
+    """The /trending page's answer in one or two sentences."""
+    parts = []
+    if rising:
+        t = rising[0]
+        parts.append(f"Rising fastest: {t['name']}, from {one_in(t['from_share'])} to {one_in(t['to_share'])} papers")
+    if cooling:
+        t = cooling[0]
+        parts.append(f"cooling most: {t['name']}, from {one_in(t['from_share'])} to {one_in(t['to_share'])}")
+    basis = f"{papers:,} papers on Hugging Face's Daily Papers since {since}" if papers and since else \
+        "Hugging Face's Daily Papers"
+    if not parts:
+        return f"No research topic's share of {basis} moved more than chance would move it."
+    lead = "; ".join(parts)
+    return f"{lead[0].upper()}{lead[1:]}. Measured on {basis}, each trend tested against 2,000 shuffles of the weeks."
+
+
+def _with_reader(user_id: str | None, reader: str | None, resp):
+    """Set the cookie when this response minted the reader id."""
+    if reader and reader != user_id:
+        resp.set_cookie(COOKIE_NAME, reader, max_age=COOKIE_MAX_AGE, httponly=True)
+    return resp
 
 
 @router.get("/trending", response_class=HTMLResponse)
@@ -178,7 +223,13 @@ async def trending_page(
                               "cluster_id": p["cluster_id"], "propensity": 1.0, "policy_id": policy})
             position += 1
     exposures += _instrument(hn_lately, user_id, HN_LATELY_POLICY, HN_FRESH_SOURCE, query_id, start=position)
-    if user_id and exposures:
+    # A person's first visit gets a reader id now, so the exposures of the page
+    # they arrive on are recorded and their first click matches one; a crawler
+    # gets none (app/bots.py, docs/AEO-PLAN.md step 1).
+    reader = None if bots.is_bot(request) else (user_id or str(uuid.uuid4()))
+    for row in exposures:
+        row["user_id"] = reader
+    if reader and exposures:
         try:
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
@@ -187,14 +238,40 @@ async def trending_page(
     await card_data.add_figures([p for _n, papers, _p in sections for p in papers]
                                 + [p for t in moving for p in t["top"]], request)
     runtime_stats.record("trending_page", {"request_ms": int((time.perf_counter() - t0) * 1000)})
-    return templates.TemplateResponse(request, "trending.html", {
+    return _with_reader(user_id, reader, templates.TemplateResponse(request, "trending.html", {
         "for_you": for_you, "areas": areas, "top": top, "query_id": query_id, "source": PAGE_SOURCE,
         "rising": moving[:len(rising)], "cooling": moving[len(rising):],
         "steady": [_topic_view(t, scale) for t in steady],
         "chips": _chips(rising, cooling, areas), "window": trending_shelf.window(),
         "basis": trending_topics.coverage(), "since": _day_label(trending_topics.coverage().get("first_week")),
         "spark_w": SPARK_W, "spark_h": SPARK_H, "hn_lately": hn_lately, "hn_days": hn_svc.FRESH_DAYS,
-        "lasting_visible": features.visible(hn_svc.SWITCH_LASTING, request)})
+        "lasting_visible": features.visible(hn_svc.SWITCH_LASTING, request),
+        **_trending_seo(rising, cooling)}))
+
+
+def _trending_seo(rising: list[dict], cooling: list[dict]) -> dict:
+    basis = trending_topics.coverage()
+    lead = trending_lead(rising, cooling, _day_label(basis.get("first_week")), basis.get("papers") or 0)
+    computed = (basis.get("computed_at") or "")[:10]
+    return {
+        "lead": lead,
+        "updated": _long_day(computed),
+        "og_title": "Which AI research topics are rising? Trends in Hugging Face Daily Papers",
+        "og_description": lead,
+        "jsonld": {
+            "@context": "https://schema.org", "@type": "Dataset",
+            "name": "Rising and cooling AI research topics in Hugging Face Daily Papers",
+            "description": lead,
+            "url": f"{config.PUBLIC_URL}/trending",
+            "creator": {"@type": "Organization", "name": "ResearchIT", "url": config.PUBLIC_URL + "/"},
+            "isAccessibleForFree": True,
+            "temporalCoverage": f"{basis.get('first_week') or ''}/..",
+            **({"dateModified": computed} if computed else {}),
+            "variableMeasured": "Weekly share of Hugging Face Daily Papers per research topic",
+            "measurementTechnique": "Ward clustering of BGE-M3 embeddings; permutation test of the weekly-share "
+                                    "slope (2,000 shuffles), Benjamini-Hochberg q < 0.05",
+        },
+    }
 
 
 # ── "On Hacker News lately" on /trending ─────────────────────────────────────
@@ -321,7 +398,13 @@ async def lasting_page(
     if page == 1 and view not in ("saved",):
         week = hn_svc.week_cards(exclude=decided, year=year, field=field, this_year=this_year)
         exposures += _instrument(week, user_id, LASTING_WEEK_POLICY, LASTING_SOURCE, str(uuid.uuid4()))
-    if user_id and exposures:
+    # A person's first visit gets a reader id now, so the exposures of the page
+    # they arrive on are recorded and their first click matches one; a crawler
+    # gets none (app/bots.py, docs/AEO-PLAN.md step 1).
+    reader = None if bots.is_bot(request) else (user_id or str(uuid.uuid4()))
+    for row in exposures:
+        row["user_id"] = reader
+    if reader and exposures:
         try:
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
@@ -341,7 +424,7 @@ async def lasting_page(
 
     stats = hn_svc.stats()
     runtime_stats.record("hn_lasting", {"request_ms": int((time.perf_counter() - t0) * 1000)})
-    return templates.TemplateResponse(request, "lasting.html", {
+    return _with_reader(user_id, reader, templates.TemplateResponse(request, "lasting.html", {
         **current, "papers": shown, "page": page, "pages": pages, "count": total, "week": week,
         "view_counts": {k: len(hn_svc.browse(cards, k, "default", "", "", saved, this_year)) for k, _ in hn_svc.VIEWS},
         "views": hn_svc.VIEWS, "sorts": hn_svc.SORTS, "years": buckets, "fields": hn_svc.FIELDS,
@@ -351,7 +434,43 @@ async def lasting_page(
         "show_interest": len({(p.get("interest") or {}).get("label") for p in shown}) > 1,
         "total": stats["lasting"], "total_all": stats["lasting_all"], "mentions": stats["mentions"],
         "loaded": bool(stats["loaded_at"]), "query_id": query_id, "source": LASTING_SOURCE,
-        "trending_page": features.visible(trending_topics.SWITCH, request)})
+        "trending_page": features.visible(trending_topics.SWITCH, request),
+        **_lasting_seo(stats, name_top=not field and not year and page == 1)}))
+
+
+def _lasting_seo(stats: dict, name_top: bool = True) -> dict:
+    """The Lasting page's answer sentence, meta description and Dataset record.
+
+    name_top: also name the most lasting paper; only on the unfiltered first
+    page, where that paper is in the list below."""
+    if not stats.get("lasting"):
+        return {"og_title": "The arXiv papers Hacker News keeps coming back to"}
+    cards = hn_svc.lasting_cards()
+    rule = (f"{stats.get('lasting_all') or stats['lasting']:,} arXiv papers have been linked on Hacker News by at "
+            f"least 3 different people in at least 3 different months, out of {stats.get('mentions') or 0:,} "
+            "links to arXiv since 2007.")
+    top = ""
+    if cards and name_top:
+        c = cards[0]
+        top = (f" The most lasting is \u201c{c.get('title') or c['arxiv_id']}\u201d, linked by "
+               f"{c['hn']['people']} people in {c['hn']['months']} separate months, {c['hn']['span']}.")
+    lead = rule + top
+    return {
+        "lead": lead,
+        "og_title": "The arXiv papers Hacker News keeps coming back to",
+        "og_description": rule,
+        "jsonld": {
+            "@context": "https://schema.org", "@type": "Dataset",
+            "name": "Lasting on Hacker News: the arXiv papers HN keeps linking",
+            "description": rule,
+            "url": f"{config.PUBLIC_URL}/trending/lasting",
+            "creator": {"@type": "Organization", "name": "ResearchIT", "url": config.PUBLIC_URL + "/"},
+            "isAccessibleForFree": True,
+            "temporalCoverage": "2007/..",
+            "variableMeasured": "Distinct people and separate months in which each arXiv paper was linked on Hacker News",
+            "isBasedOn": "https://news.ycombinator.com/",
+        },
+    }
 
 
 @router.get("/trending/lasting/strata.json")
@@ -387,6 +506,14 @@ def _day_label(iso: str | None) -> str:
     return f"{d.day} {d:%b}"
 
 
+def _long_day(iso: str | None) -> str:
+    """"24 November 2026", or "" for no date."""
+    if not iso:
+        return ""
+    d = Date.fromisoformat(iso[:10])
+    return f"{d.day} {d:%B %Y}"
+
+
 def _big_spark(rolling: list[float]) -> str:
     top = max(rolling or [0.01]) or 0.01
     n = max(len(rolling) - 1, 1)
@@ -411,15 +538,27 @@ async def _more_like(topic: dict) -> list[dict]:
     return hits
 
 
-@router.get("/trending/topics/{topic_id}", response_class=HTMLResponse)
+@router.get("/trending/topics/{key}", response_class=HTMLResponse)
 async def topic_page(
-    topic_id: int,
+    key: str,
     request: Request,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
-    topic = trending_topics.get(topic_id) if features.visible(trending_topics.SWITCH, request) else None
+    """One topic, at /trending/topics/<slug>. The old numeric address 301s to
+    the slug, keeping its query string; ids change on restart, slugs only when
+    the name does (docs/AEO-PLAN.md phase 3)."""
+    visible = features.visible(trending_topics.SWITCH, request)
+    topic = None
+    if visible:
+        topic = trending_topics.by_slug(key)
+        if topic is None and key.isascii() and key.isdigit():
+            topic = trending_topics.get(int(key))
     if topic is None:
         return templates.TemplateResponse(request, "not_found.html", {}, status_code=404)
+    if key != (topic.get("slug") or str(topic["id"])):
+        query = request.url.query
+        return RedirectResponse(trending_topics.path(topic) + (f"?{query}" if query else ""), status_code=301)
+    topic_id = topic["id"]
     t0 = time.perf_counter()
     state = await us.ensure_loaded(user_id) if user_id else None
     decided = {r["paper_id"] for r in await db.get_current_feedback(user_id)} if user_id else set()
@@ -464,7 +603,13 @@ async def topic_page(
                               "position": position, "tier": None, "candidate_source": source,
                               "cluster_id": None, "propensity": 1.0, "policy_id": policy})
             position += 1
-    if user_id and exposures:
+    # A person's first visit gets a reader id now, so the exposures of the page
+    # they arrive on are recorded and their first click matches one; a crawler
+    # gets none (app/bots.py, docs/AEO-PLAN.md step 1).
+    reader = None if bots.is_bot(request) else (user_id or str(uuid.uuid4()))
+    for row in exposures:
+        row["user_id"] = reader
+    if reader and exposures:
         try:
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page
@@ -473,12 +618,15 @@ async def topic_page(
     basis = trending_topics.coverage()
     runtime_stats.record("trending_topic", {"request_ms": int((time.perf_counter() - t0) * 1000),
                                             "more_ms": more_ms})
-    return templates.TemplateResponse(request, "topic.html", {
+    return _with_reader(user_id, reader, templates.TemplateResponse(request, "topic.html", {
         "t": topic, "label": trending_topics.label(topic), "week": week, "best": best, "more": more,
         "related": trending_topics.related(topic), "query_id": query_id, "source": TOPIC_SOURCE,
         "spark": _big_spark(topic["rolling"]), "big_w": BIG_W, "big_h": BIG_H,
         "since": _day_label(basis.get("first_week")),
-        "basis": basis})
+        "basis": basis,
+        "lead": trend_sentence(topic, _day_label(basis.get("first_week"))),
+        "og_title": f"Is {topic['name']} research growing? Its share of Hugging Face Daily Papers",
+        "og_description": trend_sentence(topic, _day_label(basis.get("first_week")))}))
 
 
 def _feed_labels(after: str, user_id: str) -> dict[int, tuple[str, int]]:

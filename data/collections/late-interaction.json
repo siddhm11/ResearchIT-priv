@@ -1,0 +1,16 @@
+{
+  "slug": "late-interaction",
+  "title": "ColBERT & Late-Interaction Retrieval",
+  "blurb": "How retrieval learned to keep a vector per token and still search millions of documents: ColBERT, the engineering that made it cheap, and where the idea went next, from multi-hop questions to page screenshots.",
+  "anchors": [
+    {"id": "2004.12832", "note": "Start here. Encode query and document separately into one vector per token, score with MaxSim (each query token takes its best-matching document token). Documents can be indexed ahead of time, unlike a cross-encoder."},
+    {"id": "2112.01488", "note": "The version people deploy. Residual compression shrinks the per-token index several-fold, and training distils from a cross-encoder."},
+    {"id": "2205.09707", "note": "How ColBERTv2 search got fast: score cheap centroid matches first and prune, so only a few candidates pay for full late interaction."},
+    {"id": "2203.13088", "note": "Another answer to the storage bill: whole-word vectors instead of sub-word ones, plus pruning, for a much smaller index."},
+    {"id": "2304.01982", "note": "XTR trains the model so that token retrieval alone finds the right documents, dropping ColBERT's separate gather-and-rescore stage."},
+    {"id": "2405.19504", "note": "MUVERA turns each set of token vectors into one fixed-size vector whose dot product approximates MaxSim, so ordinary single-vector search can fetch candidates."},
+    {"id": "2101.00436", "note": "Late interaction for multi-hop questions: retrieve, condense what was found, retrieve again."},
+    {"id": "2407.01449", "note": "ColPali applies the same MaxSim matching to patch vectors of page images, retrieving PDFs from screenshots with no OCR step."},
+    {"id": "2408.16672", "note": "A multilingual late-interaction retriever whose vectors can be cut shorter to save space, a practical open model to start from."}
+  ]
+}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{#
+  /privacy (app/routers/pages.py). Required before any listing in the Claude
+  or ChatGPT directories. Keep it true to the code: when what is stored
+  changes (app/db.py, app/turso_sync.py), change this page in the same commit.
+#}
+{% block title %}Privacy — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed prose-page">
+  <header class="issue">
+    <div class="issue-kicker">Privacy</div>
+    <h1 class="issue-title">What ResearchIT stores, and why</h1>
+    <p class="muted hn-dek">No accounts, no ads, no third-party analytics. Last changed 24 November 2026.</p>
+  </header>
+
+  <section class="prose">
+    <h2>The cookie</h2>
+    <p>Your first visit sets one cookie, <code>arxiv_user_id</code>: a random identifier that lasts a year. It is how the site knows which library is yours. It is not linked to your name, email or any other site. Clearing it starts you afresh.</p>
+
+    <h2>What is stored against that identifier</h2>
+    <ul>
+      <li>Papers you save, un-save or pass on, and papers you open or ask about (the paper only, never the question you typed).</li>
+      <li>Which papers your feed showed you, and in what order, so it can show you new ones and so the ranking can be measured.</li>
+      <li>The topics and areas you choose, the collections you follow, and a private link to your library if you make one.</li>
+      <li>A daily count of what you did (pages, searches, saves), used to see whether the site is useful.</li>
+    </ul>
+    <p>Your library, choices and follows are kept for as long as the site runs, so they are there when you come back. The record of what your feed showed you is deleted after 90 days (which papers you have seen) and 180 days (their order on the page).</p>
+
+    <h2>Searches and questions</h2>
+    <p>A search's text is logged to measure search quality and deleted after 90 days. It is not stored with your identifier, but if you open or save a result, that action is, with an id shared by the search, so the two can be linked until the text is deleted. To read your search and write its overview, its text is sent to an AI provider (Groq). A question you ask about a paper is sent to that provider with passages of the paper; its text is not kept here.</p>
+
+    <h2>Who processes the data</h2>
+    <ul>
+      <li><b>Hugging Face</b> hosts the site.</li>
+      <li><b>Turso</b> keeps a copy of the database so a restart loses nothing.</li>
+      <li><b>Groq</b> runs the AI model for searches, summaries and questions.</li>
+      <li><b>Qdrant Cloud</b> stores the papers' vectors. To find papers it receives vectors made from your search or from papers you saved, never your identifier.</li>
+    </ul>
+    <p>Nothing is sold, and nothing is shared for advertising.</p>
+
+    <h2>Crawlers and AI assistants</h2>
+    <p>Search engines and AI assistants that read these pages get the same pages as you. They get no cookie, and their visits are counted only as totals per crawler.</p>
+
+    <h2>Removing your data</h2>
+    <p>Un-save papers at any time from your library. To have everything stored against your identifier deleted, <a href="{{ contact_url }}" rel="noopener">contact us</a> with the private link to your library (Library → Devices), which proves it is yours.</p>
+  </section>
+</div>
+{% endblock %}

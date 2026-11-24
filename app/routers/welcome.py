@@ -33,8 +33,11 @@ EXAMPLES = (
 )
 
 
-async def render(request: Request, user_id: str, started: bool):
-    """The page itself. `started`: the visitor began onboarding and left it."""
+async def render(request: Request, user_id: str | None, started: bool):
+    """The page itself. `started`: the visitor began onboarding and left it.
+
+    user_id None is a crawler (app/bots.py): the same cards, no exposure rows.
+    """
     papers = trending_shelf.week_top(N_PAPERS)
     query_id = str(uuid.uuid4())
     exposures = []
@@ -44,7 +47,7 @@ async def render(request: Request, user_id: str, started: bool):
         exposures.append({"user_id": user_id, "paper_id": p["arxiv_id"], "query_id": query_id,
                           "position": i, "tier": None, "candidate_source": p["candidate_source"],
                           "cluster_id": None, "propensity": 1.0, "policy_id": POLICY})
-    if exposures:
+    if exposures and user_id:
         try:
             await db.record_exposures(exposures)
         except Exception as e:  # pragma: no cover - analytics must not cost the page

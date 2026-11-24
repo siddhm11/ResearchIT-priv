@@ -15,14 +15,14 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Request, Cookie
 from fastapi.responses import (HTMLResponse, JSONResponse,
-                               PlainTextResponse)
+                               PlainTextResponse, Response)
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from app import db
 from app.config import APP_TITLE, COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
-                         health, collections, paper, figures, trending, library, seo)
+                         health, collections, paper, figures, trending, library, seo, pages, reports)
 
 
 @asynccontextmanager
@@ -103,6 +103,8 @@ async def lifespan(app: FastAPI):
     from app import ops_digest, plain_prewarm
     await ops_digest.start()
     await plain_prewarm.start()
+    from app import indexnow
+    await indexnow.start()
     try:
         yield
     finally:
@@ -116,7 +118,7 @@ async def lifespan(app: FastAPI):
             ("figure_prewarm", figure_prewarm.stop), ("trending_shelf", trending_shelf.stop),
             ("trending_topics", trending_topics.stop), ("hn_svc", hn_svc.stop),
             ("ai_usage", ai_usage.stop), ("analytics", analytics.stop), ("ops_digest", ops_digest.stop),
-            ("plain_prewarm", plain_prewarm.stop),
+            ("plain_prewarm", plain_prewarm.stop), ("indexnow", indexnow.stop),
             ("abstract_svc", abstract_svc.stop), ("paper_source_svc", paper_source_svc.stop),
             ("llm_router", llm_router.aclose), ("starter_prewarm", discovery_svc.stop_prewarm),
         ):
@@ -239,6 +241,36 @@ async def _rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
+class HeadAsGet:
+    """Answer HEAD like GET, without the body.
+
+    FastAPI routes declared with GET answer HEAD with 405, and link checkers,
+    some crawlers and preview fetchers read that as a dead link
+    (docs/AEO-PLAN.md). The app below sees a GET on a *copy* of the scope: the
+    server's own scope keeps "HEAD", which is how uvicorn knows to send no body.
+    The copy carries bots.HEAD_FLAG, so a HEAD never logs a click or an exposure.
+    Added last, so it is the outermost middleware.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "HEAD":
+            return await self.app(scope, receive, send)
+        from app import bots
+
+        async def send_headers_only(message):
+            if message["type"] == "http.response.body":
+                message = {**message, "body": b""}
+            await send(message)
+
+        await self.app({**scope, "method": "GET", bots.HEAD_FLAG: True}, receive, send_headers_only)
+
+
+app.add_middleware(HeadAsGet)
+
+
 # Serve static files (CSS, JS, images)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -246,6 +278,7 @@ app.include_router(search.router)
 app.include_router(events.router)
 app.include_router(recommendations.router)
 app.include_router(trending.router)
+app.include_router(reports.router)   # after trending: /trending/<yyyy-mm> must not shadow /trending/lasting
 app.include_router(saved.router)
 app.include_router(onboarding.router)
 app.include_router(health.router)
@@ -255,6 +288,7 @@ app.include_router(figures.router)
 app.include_router(admin.router)
 app.include_router(library.router)
 app.include_router(seo.router)
+app.include_router(pages.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it
 # must never stop the main app from serving.
@@ -270,6 +304,12 @@ async def home(
     request: Request,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
+    from app import bots
+    if bots.is_bot(request):
+        # Crawlers and answer engines get the front page with no cookie, no
+        # reader state and no exposure rows (app/bots.py; CLAUDE.md §3.11).
+        from app.routers import welcome
+        return await welcome.render(request, None, started=False)
     user_id = user_id or str(uuid.uuid4())
 
     # A visitor without a finished onboarding gets the front page, not the

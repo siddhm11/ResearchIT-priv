@@ -12,7 +12,7 @@
   Every paper link carries the page's query_id, position, propensity and
   policy_id (CLAUDE.md §3.11).
 #}
-{% block title %}{{ t.name }} — Trending — ResearchIT{% endblock %}
+{% block title %}{{ t.name }}: {{ label }} in Hugging Face Daily Papers — ResearchIT{% endblock %}
 {% block content %}
 <div class="wrap wrap--feed trending-page topic-page">
   <header class="issue">
@@ -30,6 +30,7 @@
       <span class="sep">·</span>
       <span>{{ t.papers }} papers in {{ basis.weeks }} weeks</span>
     </div>
+    {% if lead %}<p class="trend-lead">{{ lead }}</p>{% endif %}
     {% if t.also %}<p class="topic-also">Also: {{ t.also | join(", ") }}</p>{% endif %}
   </header>
 
@@ -89,7 +90,7 @@
   <section class="topics-block" aria-labelledby="tp-related">
     <h2 class="shelf-title" id="tp-related">Nearby topics</h2>
     <nav class="topic-chips" aria-labelledby="tp-related">
-      {% for r in related %}<a class="tchip" href="/trending/topics/{{ r.id }}">{{ r.name }}</a>{% endfor %}
+      {% for r in related %}<a class="tchip" href="/trending/topics/{{ r.slug or r.id }}">{{ r.name }}</a>{% endfor %}
     </nav>
   </section>
   {% endif %}

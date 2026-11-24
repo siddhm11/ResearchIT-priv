@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{#
+  /about (app/routers/pages.py). Written to be quoted: each paragraph answers
+  one question someone might ask an assistant about ResearchIT, in its first
+  sentence. Numbers come from the live services, never typed in.
+#}
+{% block title %}About ResearchIT — a free reading feed for arXiv{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed prose-page">
+  <header class="issue">
+    <div class="issue-kicker">About</div>
+    <h1 class="issue-title">ResearchIT is a free reading feed and search engine for arXiv.</h1>
+    <p class="muted hn-dek">It covers {{ facts.corpus }} arXiv papers, adds new ones every night, and needs no sign-up.</p>
+  </header>
+
+  <section class="prose">
+    <h2>What it does</h2>
+    <ul>
+      <li><b>Search in plain words.</b> Describe what you are looking for; ResearchIT finds papers by meaning and by keyword together, then re-reads the best matches to put the closest first. A search with no close match says so.</li>
+      <li><b>A feed that learns from what you save.</b> One saved paper is enough to start. It finds your separate interests and gives each its own share of the page, so a side topic is never drowned out by your main one.</li>
+      <li><b>Each paper explained.</b> A paper's page opens with a plain-language summary written by an AI model from the abstract, then its figures, its record on Hacker News and the papers closest to it in meaning.</li>
+      <li><a href="/trending"><b>Trending</b></a>: which AI research topics are taking a bigger or smaller share of Hugging Face's Daily Papers, week by week.</li>
+      <li><a href="/trending/lasting"><b>Lasting</b></a>: the arXiv papers Hacker News keeps coming back to{% if facts.lasting %}: {{ facts.lasting | commafy }} papers from {{ facts.hn_links | commafy }} links since 2007{% endif %}.</li>
+      <li><a href="/collections"><b>Collections</b></a>: {% if facts.collections %}{{ facts.collections }} {% endif %}reading lists on single topics, each paper with a one-line note on why to read it.</li>
+    </ul>
+
+    <h2>Is it free?</h2>
+    <p>Yes. Reading, searching, saving and the feed are free, with no account and no ads. Your library lives with an anonymous cookie in your browser; a private link opens it on another device. See <a href="/privacy">Privacy</a>.</p>
+
+    <h2>Where the data comes from</h2>
+    <ul>
+      <li><b>Papers</b>: arXiv's own metadata, harvested every night. Abstracts and full texts stay arXiv's; every page links to the paper there.</li>
+      <li><b>Trends</b>: the papers listed on Hugging Face Daily Papers over the last 26 weeks, grouped into topics by meaning. A topic is called rising or cooling only when its weekly share moves more than it does in 2,000 shuffles of the same weeks (Benjamini–Hochberg, q &lt; 0.05). Shares, never raw counts, because the lists vary in length from week to week. No model names the topics; the names are phrases from the papers themselves.</li>
+      <li><b>Hacker News</b>: every link to arXiv in Hacker News stories and comments since 2007. A paper is "lasting" once at least three different people have linked it in at least three different months, counting a month only when someone new links it.</li>
+      <li><b>Summaries</b>: written by an AI model from the paper's abstract and labelled as such. Check the paper before relying on one.</li>
+    </ul>
+
+    <h2>How the feed ranks papers</h2>
+    <p>Every paper is placed by its meaning (BGE-M3 embeddings). Your saves, and to a lesser degree the papers you open or ask about, are grouped into interests. Each interest looks for papers near its most typical paper and gets a share of the page by how much and how recently you engaged with it, never fewer than three slots, and its papers are kept varied within that share. Two papers on every page are picked from outside what the feed already knows about you, so it can learn.</p>
+
+    <h2>Who makes it</h2>
+    <p>ResearchIT is an independent project, run on a Hugging Face Space. It is not affiliated with arXiv, Hugging Face or Hacker News. Thank you to arXiv for use of its open access interoperability.</p>
+    <p>Questions, corrections or a paper we got wrong: <a href="{{ contact_url }}" rel="noopener">get in touch</a>.</p>
+  </section>
+</div>
+{% endblock %}

@@ -110,10 +110,21 @@
         <button type="button" class="tx-tab" role="tab" id="tab-abs" aria-controls="panel-abs"
                 aria-selected="false" tabindex="-1" data-tab="abs">Abstract</button>
       </div>
+      {# A summary already written is part of the page itself, so crawlers and
+         answer engines (which run no JavaScript, and may not fetch /api/) read
+         it right under the title. Only a missing one is fetched after paint;
+         its placeholder is drawn by CSS so it is never the page's first text
+         to a crawler (docs/AEO-PLAN.md, step 2). #}
+      {% if explanation %}
+      <div class="tx-panel" id="panel-plain" role="tabpanel" aria-labelledby="tab-plain">
+        {% include "partials/paper/explanation_body.html" %}
+      </div>
+      {% else %}
       <div class="tx-panel" id="panel-plain" role="tabpanel" aria-labelledby="tab-plain" data-quiet
            hx-get="/api/papers/{{ pid }}/explain?v=2" hx-trigger="load" hx-swap="innerHTML">
-        <p class="tx-loading">Writing a plain-language summary…</p>
+        <p class="tx-loading" data-msg="Writing a plain-language summary…"></p>
       </div>
+      {% endif %}
       <div class="tx-panel" id="panel-abs" role="tabpanel" aria-labelledby="tab-abs" hidden>
         {% if paper.abstract %}
           <p class="tx-body tx-body--abs tex">{{ paper.abstract }}{% if truncated %}<span class="abstract-cut" aria-hidden="true">…</span>{% endif %}</p>

@@ -24,7 +24,7 @@ import uuid
 from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import HTMLResponse
 
-from app import arxiv_svc, collections_svc, db, turso_svc, user_state as us
+from app import arxiv_svc, bots, collections_svc, config, db, turso_svc, user_state as us
 from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 
@@ -82,9 +82,15 @@ async def collections_index(
         })
 
     resp = templates.TemplateResponse(
-        request, "collections.html", {"collections": view},
+        request, "collections.html", {
+            "collections": view,
+            "og_title": "Reading lists for AI research — ResearchIT",
+            "og_description": (f"{len(view)} short reading lists on single topics in AI research, from "
+                               "retrieval-augmented generation to world models; each paper has a note on why to read it."),
+        },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
+    if not bots.is_bot(request):
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
 
 
@@ -94,6 +100,8 @@ async def collection_detail(
     request: Request,
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
+    bot = bots.is_bot(request)
+    user_id = None if bot else user_id
     user_id = user_id or str(uuid.uuid4())
     col = collections_svc.get(slug)
     if col is None:
@@ -101,17 +109,19 @@ async def collection_detail(
             request, "collections.html",
             {"collections": [], "not_found": slug}, status_code=404,
         )
-        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
+        if not bot:
+            resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
         return resp
 
-    state = await us.ensure_loaded(user_id)
+    # A crawler gets the same lists with no reader state (app/bots.py).
+    state = us.UserState() if bot else await us.ensure_loaded(user_id)
     anchor_ids = [a["id"] for a in col["anchors"]]
 
     # The extension is best-effort. A vector-store hiccup should cost the
     # "recent work" section, never the curated list -- which is the part with
     # editorial value and the part that works with no network at all.
     try:
-        extended_ids = await collections_svc.extend(slug, exclude=us.all_seen(user_id))
+        extended_ids = await collections_svc.extend(slug, exclude=set() if bot else us.all_seen(user_id))
     except Exception as e:
         print(f"[collections] extend failed for {slug}: {e}")
         extended_ids = []
@@ -125,7 +135,7 @@ async def collection_detail(
             anchors.append({**m, "note": a["note"], "ordinal": i + 1})
 
     extended = [meta[a] for a in extended_ids if a in meta]
-    followed = await db.get_followed_slugs(user_id)
+    followed = set() if bot else await db.get_followed_slugs(user_id)
 
     resp = templates.TemplateResponse(
         request, "collection_detail.html",
@@ -134,10 +144,38 @@ async def collection_detail(
             "anchors": anchors,
             "extended": extended,
             "following": slug in followed,
+            "og_title": f"{col['title']}: a reading list — ResearchIT",
+            "og_description": _describe(col, len(anchors)),
+            "jsonld": _itemlist(col, anchors),
         },
     )
-    resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
+    if not bots.is_bot(request):
+        resp.set_cookie(COOKIE_NAME, user_id, max_age=COOKIE_MAX_AGE, httponly=True)
     return resp
+
+
+def _describe(col: dict, n: int) -> str:
+    """The collection's meta description: its blurb, led by what it is."""
+    blurb = " ".join((col.get("blurb") or "").split())
+    lead = f"{n} papers to read on {col['title']}, in order, each with a note on why it matters."
+    text = f"{lead} {blurb}".strip()
+    return text if len(text) <= 300 else text[:297].rsplit(" ", 1)[0] + "…"
+
+
+def _itemlist(col: dict, anchors: list[dict]) -> dict:
+    """schema.org ItemList: the reading list in order (docs/AEO-PLAN.md)."""
+    return {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": f"{col['title']}: a reading list",
+        "description": col.get("blurb") or "",
+        "url": f"{config.PUBLIC_URL}/collections/{col['slug']}",
+        "numberOfItems": len(anchors),
+        "itemListElement": [
+            {"@type": "ListItem", "position": a["ordinal"], "url": f"{config.PUBLIC_URL}/p/{a['arxiv_id']}",
+             "name": a.get("title") or a["arxiv_id"], **({"description": a["note"]} if a.get("note") else {})}
+            for a in anchors],
+    }
 
 
 @router.post("/api/collections/{slug}/follow", response_class=HTMLResponse)

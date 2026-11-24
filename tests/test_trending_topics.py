@@ -126,7 +126,8 @@ def test_topic_line_only_for_named_rising_topics(monkeypatch):
               {"id": 9, "name": "Speech", "q": 0.01, "slope": -0.4, "from_share": 0.3, "to_share": 0.1}]
     monkeypatch.setattr(tt, "_state", {**tt._state, "topics": topics, "first_week": "2026-04-27",
                                        "topic_of": {"a": 7, "b": 8, "c": 9}})
-    assert tt.topic_line("a") == {"id": 7, "name": "Robots", "from": 0.1, "to": 0.5, "since": "2026-04-27"}
+    assert tt.topic_line("a") == {"id": 7, "slug": None, "name": "Robots", "from": 0.1, "to": 0.5,
+                                  "since": "2026-04-27"}
     assert tt.topic_line("b") is None and tt.topic_line("c") is None and tt.topic_line("zz") is None
     assert [t["id"] for t in tt.rising()] == [7] and [t["id"] for t in tt.cooling()] == [9]
 

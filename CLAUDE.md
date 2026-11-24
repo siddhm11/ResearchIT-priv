@@ -2,7 +2,7 @@
 
 > **Read this file first, every session, before touching anything else.** This file tells you which docs to trust, in what order, and the non-negotiable rules for this codebase. If you skip this file you will produce code that contradicts months of architectural research.
 >
-> **Last updated**: 2026-11-17
+> **Last updated**: 2026-11-24
 
 ---
 
@@ -50,6 +50,12 @@ Start with `docs/CURRENT-STATE.md` for implemented behavior and `docs/DISCOVERY-
 | `PHASE3-Hybrid-Semantic-Search.md` | **Historical Phase 3 implementation plan** — BGE-M3 + Qdrant dense + Zilliz sparse + RRF |
 | `PHASE7-Data-Freshness-And-Capacity.md` | **Active** — arXiv ingestion, abstract truncation, Qdrant free-tier capacity. Read before touching the data stores or proposing a reranker retrain. Contains the measured per-point disk cost and the eviction analysis. |
 | `PHASE8-Search-And-Recommendation-Design.md` | **Active** — the exact search and recommendation pipelines: every stage, constant and threshold, what is live vs pending, and the rules that must not change. Read before altering either pipeline. |
+
+### Visibility (`docs/`)
+
+| File | What it covers |
+|---|---|
+| `AEO-PLAN.md` | **Active** — getting ResearchIT found, quoted and used by search and AI answer engines: the evidence, the rules (no cloaking; bots leave no trace in reader data and never cause a model call; numbers computed, never typed), the phases with exit checks, and the owner-only steps. Read before touching `app/bots.py`, `app/routers/seo.py`, `app/routers/pages.py`, page titles/descriptions/JSON-LD, or public-page links. |
 
 ### Walkthroughs (`docs/walkthroughs/`)
 
@@ -221,6 +227,8 @@ Ranked-surface interactions must preserve available **`query_id`**, **`propensit
 Card saves, passes and clicks also carry `layout` (`list` or `grid2`); split any position or CTR analysis by it, since two columns change how position relates to attention. Paper titles named in a search overview link to the paper (`app/overview_links.py`, added after escaping, never model markup); those links carry the search's `query_id` and the paper's rank with `sf=search_overview`, so their clicks never pass for result-list clicks.
 
 The front page's week cards are a ranked surface too (`policy_id = welcome_top_v1`, logged to `feed_exposures`).
+
+**Crawlers are not readers** (doc 06, 2026-11-24). `app/bots.py` classes every request; a bot gets the same HTML but no cookie, reader state, click, view or exposure row, and never causes a model call. Any new public route that sets a cookie, writes an interaction or exposure, or calls a model must check `bots.is_bot(request)` first. A person's first visit to a public ranked page gets a reader id on that response so its exposures are written.
 
 **When adding a new recommendation tier or call path**, always include these three fields in the `paper_tags` dict. The round-trip is: `recommendations.py` → paper dict → `action_buttons.html` `hx-vals` → `events.py` Form params → `db.log_interaction()`.
 
@@ -498,10 +506,10 @@ If a topic is too large for a 06 changelog entry, create `docs/research/07-[topi
 | Embedding model? | BAAI/bge-m3, 1024-dim dense + sparse lexical weights, pinned to commit `5617a9f6` (`config.BGE_M3_PINS`; Dockerfile and ingest use the same). Loaded at startup in `app/embed_svc.py`. Graceful fallback if not installed. |
 | How to run? | `python run.py` at http://127.0.0.1:7860 (port 7860 for HF Spaces compat) |
 | How to test? | `python -m pytest tests/ -v` |
-| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows, library links) and the paid-for caches. |
+| Storage? | SQLite + periodic Turso replication of the user tables (interactions, profiles, clusters, onboarding, impressions, exposures, follows, library links), the monthly trend reports and the paid-for caches. |
 | Deployment? | Hugging Face Spaces (Docker SDK, 16GB RAM, 2 vCPUs). Render abandoned (512MB too small for BGE-M3). |
 | Forbidden in v1? | Redis, React SPA, real-time streaming, custom embedding fine-tuning, cross-encoder in recommendation hot path, DPPs, generative retrieval. |
 
 ---
 
-*Last updated: 2026-11-17. Update this date when CLAUDE.md changes.*
+*Last updated: 2026-11-24. Update this date when CLAUDE.md changes.*
