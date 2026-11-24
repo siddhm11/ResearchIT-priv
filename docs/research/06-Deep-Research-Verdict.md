@@ -1473,6 +1473,7 @@ LightGBM rollbacks (X9, documented options in §3.4).
 * A search keeps its fused top 50 (`more_ids`). "More results" pages through
   it and the year/area filters narrow it, with no new search; pages after the
   first are in fused order. Positions continue across pages (§3.11).
+  (2026-11-20: also re-sorted by citations or date, with counted menus; see that entry.)
 * `.github/workflows/search-check.yml` runs 100 fixed known-answer searches
   against the live Space nightly and fails below floor hit@10 / MRR@10.
 **Supersedes:** The boost calibration "against max_rrf" for the post-cross-
@@ -1636,3 +1637,37 @@ voice; the quote is what this page adds.
 `tests/test_e2e_lasting.py` (needs a server with HN data). Next: have the Groq
 chain pick a quote from the candidates (no rewriting) and store picks in a new
 Turso table, for coverage beyond 17%. That needs the owner's OK.
+
+### 2026-11-20 — Search: sort by citations or date, menus that count, the real publication year
+**Decision:** The search's kept top 50 can be re-sorted (Relevance, Most cited,
+Newest) as well as narrowed, with no new search:
+* Sorting re-orders only papers the search matched, so "Most cited" never
+  surfaces a famous paper that merely shares a word. Ties keep the search's
+  order; a paper without a count sorts as 0.
+* A re-sorted list is a different ranking: its cards carry `policy_id`
+  `search_v2_sort_cited` or `search_v2_sort_newest` (§3.11). Relevance keeps
+  `search_v2_independent_lexical`. Positions are in the shown order.
+* Published offers this year, last year, three and six years back, and
+  "Before" the oldest (`since=pre<year>`). Area lists the subject codes the 50
+  actually have (up to 8, most common first, named as in
+  `app/recommend/labels.py`); the old archive keys (`area=cs`) still work.
+  Each choice shows how many of the 50 it keeps, given the other menu's
+  choice; an empty year is disabled.
+* A narrowed or re-sorted view shows no AI overview (it would ask the model
+  again for a list the reader is only rearranging) and says what it is, with
+  Clear. The result count is the number of matches kept, not the page size.
+* The year on a paper (`turso_svc._to_paper_dict`) is its publication year from
+  the arXiv id; `update_date` is the last revision and is only the fallback.
+  "Attention Is All You Need" showed 2023 on every card.
+**Supersedes:** The 2026-11-13 entry's fixed year list (2025, 2023, 2020) and
+eight archive-level areas.
+**Rationale:** Checked on production 20 Nov: the filters worked, but "Computer
+science" kept 10 of 10 for both test searches, nothing said how many a choice
+would keep, and there was no way to rank by citations. On the kept 50, "Most
+cited" puts I-JEPA (1,318 citations) first for "jepa", which relevance ranks
+outside the top 10. Citation coverage in the sidecar is 74–91% of papers
+for 2018–2025 and 37% for 2026. Reading the 40 extra rows for the counts costs
+2–6 ms warm on a laptop.
+**Action items:** Done in `app/routers/search.py`, `partials/search_results.html`,
+`partials/search_more_button.html`, `app/turso_svc.py`; tests in
+`tests/test_search_router.py`, `tests/test_paper_year.py`.

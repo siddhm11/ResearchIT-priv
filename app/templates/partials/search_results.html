@@ -12,21 +12,25 @@
 {% endif %}
 {% set start = start | default(0) %}
 {% macro search_filters() %}
-  {# Year and area narrow the search's top 50; no new search runs (audit F18). #}
+  {# Sort, year and area rearrange or narrow the search's top 50; no new search runs (audit F18). #}
   {# The query comes from the search box (hx-include), so it is written once on the page. #}
+  {# Each choice says how many of the 50 it keeps, given the other menu's choice. #}
   <form class="search-filters" hx-get="/search" hx-target="#search-results" hx-push-url="true"
         hx-trigger="change" hx-include="#search-q" hx-indicator="#search-loading"
-        aria-label="Narrow these results">
+        aria-label="Sort and narrow these results">
+    <label>Sort
+      <select name="sort">
+        {% for key, label in sorts.items() %}<option value="{{ '' if key == 'relevance' else key }}"{% if sort == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
     <label>Published
       <select name="since">
-        <option value="0">any year</option>
-        {% for y in years %}<option value="{{ y }}"{% if since == y %} selected{% endif %}>{{ y }} or later</option>{% endfor %}
+        {% for value, label, n in options.published %}<option value="{{ value }}"{% if since == value %} selected{% endif %}{% if n == 0 and since != value %} disabled{% endif %}>{{ label }} · {{ n }}</option>{% endfor %}
       </select>
     </label>
     <label>Area
       <select name="area">
-        <option value="">all areas</option>
-        {% for key, label in areas.items() %}<option value="{{ key }}"{% if area == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        {% for value, label, n in options.areas %}<option value="{{ value }}"{% if area == value %} selected{% endif %}>{{ label }} · {{ n }}</option>{% endfor %}
       </select>
     </label>
   </form>
@@ -35,7 +39,8 @@
   <div class="stack stack-4"{% if search_meta and search_meta.cached %} data-cached{% endif %}>
 
     <div class="search-meta">
-      <span>{{ papers | length }} result{{ "s" if papers | length != 1 else "" }}</span>
+      {% set n_shown = matched if matched is defined and matched else papers | length %}
+      <span>{{ n_shown }} result{{ "s" if n_shown != 1 else "" }}</span>
       {% if search_meta and search_meta.total_time_ms is defined %}
         <span>{{ search_meta.total_time_ms }}ms</span>
       {% endif %}
@@ -43,9 +48,16 @@
         <span>searched as &ldquo;{{ search_meta.rewritten_query }}&rdquo;</span>
       {% endif %}
     </div>
-    {% if query and years is defined %}{{ search_filters() }}{% endif %}
-    {% if since or area %}
-      <p class="small muted" role="status">Narrowed from this search's 50 best matches.</p>
+    {% if query and options %}{{ search_filters() }}{% endif %}
+    {% if narrowed or (sort is defined and sort != 'relevance') %}
+      <p class="small muted" role="status">
+        {%- if narrowed %}{{ matched }} of this search's {{ pool_n }} best matches{% else %}This search's {{ pool_n }} best matches{% endif %}
+        {%- if sort == 'cited' %}, most cited first. Recent papers have had little time to be cited.
+        {%- elif sort == 'newest' %}, newest first.
+        {%- else %}.{% endif %}
+        {# The query comes from the search box. #}
+        <a class="search-filters-clear" href="/search?q={{ query | urlencode }}" hx-get="/search"
+           hx-include="#search-q" hx-target="#search-results" hx-push-url="true">Clear</a></p>
     {% endif %}
     {% if search_meta and search_meta.retrieval_mode in ['keyword', 'arxiv_keyword'] %}
       <p class="small muted" role="status">Showing keyword matches. Semantic matches are unavailable for this search.</p>
@@ -60,7 +72,7 @@
       </div>
     {% endif %}
 
-    {% if query and papers and not weak_match %}
+    {% if query and papers and not weak_match and show_overview | default(true) %}
       {% set arxiv_ids = papers | map(attribute='arxiv_id') | join(',') %}
       <div id="ai-summary-container"
            hx-get="/api/search/summary?q={{ query | urlencode }}&amp;ids={{ arxiv_ids }}{% if papers[0].query_id %}&amp;qid={{ papers[0].query_id }}{% endif %}"
@@ -117,8 +129,8 @@
     </details>
   {% endif %}
 
-{% elif query and (since or area) %}
-  {% if years is defined %}{{ search_filters() }}{% endif %}
+{% elif query and narrowed %}
+  {% if options %}{{ search_filters() }}{% endif %}
   <div class="empty">
     <p class="empty-title">None of this search's 50 best matches fits</p>
     <p class="empty-body">Try another year or area, or

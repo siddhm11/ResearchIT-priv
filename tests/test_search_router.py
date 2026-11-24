@@ -399,15 +399,121 @@ def test_more_results_continue_the_same_search(client, monkeypatch):
     assert search.await_count == 1                       # one search; later pages read what it kept
 
 
-def test_filters_narrow_the_kept_top_fifty(client, monkeypatch):
+@pytest.fixture
+def fixed_years(monkeypatch):
+    """'Published' choices as in 2026, whatever today's date."""
+    import app.routers.search as sr
+    monkeypatch.setattr(sr, "years", lambda today=None: (2026, 2025, 2023, 2020))
+
+
+def test_filters_narrow_the_kept_top_fifty(client, monkeypatch, fixed_years):
     ids, meta = _corpus()
     _install(monkeypatch, ids, meta)
     recent = client.get("/search?q=optimisation&since=2025", headers={"HX-Request": "true"}).text
     assert _ids(recent) and all(a.startswith("25") for a in _ids(recent))
-    assert "Narrowed from this search" in recent
+    assert "15 of this search&#39;s 30 best matches" in recent or "15 of this search's 30 best matches" in recent
     cs = client.get("/search?q=optimisation&area=cs", headers={"HX-Request": "true"}).text
     assert _ids(cs) and all(a.startswith("23") for a in _ids(cs))
     none = client.get("/search?q=optimisation&since=2025&area=cs", headers={"HX-Request": "true"}).text
     assert _ids(none) == [] and "50 best matches fits" in none
     junk = client.get("/search?q=optimisation&since=1990&area=<x>", headers={"HX-Request": "true"}).text
     assert _ids(junk) == ids[:10]                        # unknown values are ignored
+
+
+# ── Sort and filter menus ────────────────────────────────────────────────────
+
+def _cited_corpus(n=30):
+    ids, meta = _corpus(n)
+    for i, a in enumerate(ids):
+        meta[a]["citation_count"] = (i * 37) % 101      # not the search's order
+    return ids, meta
+
+
+def test_most_cited_reorders_only_the_kept_matches(client, monkeypatch, fixed_years):
+    import html as _html
+    ids, meta = _cited_corpus()
+    search = _install(monkeypatch, ids, meta)
+    want = sorted(ids, key=lambda a: -meta[a]["citation_count"])
+    first = client.get("/search?q=optimisation&sort=cited", headers={"HX-Request": "true"}).text
+    assert _ids(first) == want[:10]
+    assert "most cited first" in first
+    assert '"policy_id": "search_v2_sort_cited"' in _html.unescape(first)   # §3.11
+    assert "ai-summary-container" not in first          # no new overview for a re-sorted list
+    assert "sort=cited" in first and "Clear" in first   # More results keeps the order
+    second = client.get("/search?q=optimisation&sort=cited&page=2", headers={"HX-Request": "true"}).text
+    assert _ids(second) == want[10:20]
+    assert search.await_count == 1
+
+
+def test_relevance_view_is_unchanged(client, monkeypatch, fixed_years):
+    import html as _html
+    ids, meta = _cited_corpus()
+    _install(monkeypatch, ids, meta)
+    body = client.get("/search?q=optimisation", headers={"HX-Request": "true"}).text
+    assert _ids(body) == ids[:10]
+    assert '"policy_id": "search_v2_independent_lexical"' in _html.unescape(body)
+    assert "ai-summary-container" in body and "Clear" not in body
+    assert "30 results" in body                         # the kept matches, not the page size
+    junk = client.get("/search?q=optimisation&sort=<x>", headers={"HX-Request": "true"}).text
+    assert _ids(junk) == ids[:10]
+
+
+def test_newest_first_and_combined_with_a_filter(client, monkeypatch, fixed_years):
+    ids, meta = _cited_corpus()
+    _install(monkeypatch, ids, meta)
+    body = client.get("/search?q=optimisation&sort=newest&area=stat.ML", headers={"HX-Request": "true"}).text
+    got = _ids(body)
+    assert got and all(a.startswith("23") for a in got)          # stat.ML is on the 2023 papers
+    assert got == sorted(got, reverse=True)
+    assert "area=stat.ML" in body and "sort=newest" in body
+
+
+def test_menus_count_what_each_choice_keeps(client, monkeypatch, fixed_years):
+    ids, meta = _corpus()
+    _install(monkeypatch, ids, meta)
+    body = client.get("/search?q=optimisation", headers={"HX-Request": "true"}).text
+    assert "2025 or later · 15" in body and "2023 or later · 30" in body
+    assert "Machine learning · 15" in body and "Optimization · 15" in body
+    # Counts for one menu follow the other menu's choice.
+    cs = client.get("/search?q=optimisation&area=cs.LG", headers={"HX-Request": "true"}).text
+    assert "2025 or later · 0" in cs and "2023 or later · 15" in cs
+    # Nothing here is from before 2020: that choice is offered but disabled.
+    assert '<option value="pre2020" disabled>Before 2020 · 0</option>' in body
+
+
+def test_published_before_and_unknown_values():
+    import app.routers.search as sr
+    ys = sr.years()
+    assert sr.parse_published(str(ys[1])) == (ys[1], 0)
+    assert sr.parse_published(f"pre{ys[-1]}") == (0, ys[-1])
+    assert sr.parse_published("1999") == (0, 0) and sr.parse_published("pre2001") == (0, 0)
+    assert sr.parse_published("") == (0, 0)
+    assert sr.years(2030) == (2030, 2029, 2027, 2024)
+    old = {"arxiv_id": "1706.03762", "citation_count": 1}
+    assert sr._keeps(old, 0, "", 2020) and not sr._keeps(old, 2020, "")
+    assert not sr._keeps({"arxiv_id": "2501.00001"}, 0, "", 2020)
+
+
+def test_sort_pool_is_stable_and_handles_missing_data():
+    import app.routers.search as sr
+    pool = [{"arxiv_id": "2301.00001", "citation_count": 5}, {"arxiv_id": "2501.00002"},
+            {"arxiv_id": "math/0309136", "citation_count": 5}, {"arxiv_id": "2501.00010", "citation_count": None}]
+    assert [p["arxiv_id"] for p in sr.sort_pool(pool, "cited")] == \
+        ["2301.00001", "math/0309136", "2501.00002", "2501.00010"]
+    assert [p["arxiv_id"] for p in sr.sort_pool(pool, "newest")] == \
+        ["2501.00010", "2501.00002", "2301.00001", "math/0309136"]
+    assert sr.sort_pool(pool, "relevance") is pool
+
+
+def test_area_menu_lists_codes_the_results_have():
+    import app.routers.search as sr
+    pool = [{"arxiv_id": f"2401.{i:05d}", "arxiv_categories": c} for i, c in enumerate(
+        ["cs.CV cs.LG", "cs.CV", "physics.flu-dyn", "physics.optics", "cs.LG", "bad;code"])]
+    opts = sr.filter_options(pool, 0, 0, "")
+    areas = {v: (label, n) for v, label, n in opts["areas"]}
+    assert areas[""] == ("All areas", 6)
+    assert areas["cs.CV"] == ("Computer vision", 2) and areas["cs.LG"] == ("Machine learning", 2)
+    assert areas["physics.flu-dyn"][0] == "Physics (physics.flu-dyn)"   # same family name twice
+    assert "bad;code" not in areas
+    # An area from an old link stays listed.
+    assert ("q-bio", "Quantitative biology", 0) in sr.filter_options(pool, 0, 0, "q-bio")["areas"]

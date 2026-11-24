@@ -33,33 +33,121 @@ _PAPER_QUERY = re.compile(
     re.IGNORECASE)
 
 
-# ── More results and filters (audit F18) ─────────────────────────────────────
-# A search keeps the fused top 50 (search_meta["more_ids"]). Later pages and the
-# year/area filters read that list, so they cost a metadata read from the local
-# sidecar and nothing else: no encode, no rewrite, no cross-encoder. Pages after
-# the first are in fused order; only the first was cross-encoded.
+# ── More results, filters and sort (audit F18) ───────────────────────────────
+# A search keeps the fused top 50 (search_meta["more_ids"]). Later pages, the
+# year/area filters and the sort read that list, so they cost a metadata read
+# from the local sidecar and nothing else: no encode, no rewrite, no
+# cross-encoder. Pages after the first are in fused order; only the first was
+# cross-encoded. Sorting re-orders only papers the search already matched, so
+# "Most cited" never surfaces a famous paper that merely shares a word.
 AREAS = {"cs": "Computer science", "math": "Mathematics", "stat": "Statistics", "physics": "Physics",
          "q-bio": "Quantitative biology", "eess": "Electrical engineering", "econ": "Economics",
          "q-fin": "Quantitative finance"}
 _PHYSICS = ("physics", "astro-ph", "cond-mat", "gr-qc", "hep-", "math-ph", "nlin", "nucl-",
             "quant-ph")
-YEARS = (2025, 2023, 2020)
+# One arXiv subject code, e.g. cs.CV, quant-ph, physics.flu-dyn.
+_CATEGORY = re.compile(r"^[a-z][a-z-]*(?:\.[A-Za-z][A-Za-z-]*)?$")
+SORTS = {"relevance": "Relevance", "cited": "Most cited", "newest": "Newest"}
+# Clicks on a re-sorted list come from a different ranking (§3.11).
+_SORT_POLICY = {"relevance": "search_v2_independent_lexical",
+                "cited": "search_v2_sort_cited", "newest": "search_v2_sort_newest"}
+AREA_OPTIONS_MAX = 8
+
+
+def years(today: int | None = None) -> tuple[int, ...]:
+    """'Published' choices: this year, last year, three and six years back."""
+    import datetime
+    y = today or datetime.date.today().year
+    return (y, y - 1, y - 3, y - 6)
+
+
+def parse_published(since: str) -> tuple[int, int]:
+    """(published in or after, published before) from the `since` parameter.
+
+    A year from years() keeps papers from that year on; `pre<year>` with the
+    oldest choice keeps papers from before it. Anything else means any time.
+    """
+    ys = years()
+    since = (since or "").strip()
+    if since.isdigit() and int(since) in ys:
+        return int(since), 0
+    if since == f"pre{ys[-1]}":
+        return 0, ys[-1]
+    return 0, 0
+
+
+def _cats(paper: dict) -> list[str]:
+    return (paper.get("arxiv_categories") or paper.get("category") or "").replace(",", " ").split()
 
 
 def _in_area(paper: dict, area: str) -> bool:
-    cats = (paper.get("arxiv_categories") or paper.get("category") or "").replace(",", " ").split()
+    cats = _cats(paper)
     if area == "physics":
         return any(c.startswith(_PHYSICS) for c in cats)
-    return any(c.split(".")[0] == area for c in cats)
+    if area in AREAS:
+        return any(c.split(".")[0] == area for c in cats)
+    return area in cats
 
 
-def _keeps(paper: dict, since: int, area: str) -> bool:
+def _year_ok(paper: dict, since: int, before: int) -> bool:
     from app.local_meta import pub_year_month
-    if since:
-        ym = pub_year_month(paper.get("arxiv_id", ""))
-        if ym is None or ym[0] < since:
-            return False
-    return not area or _in_area(paper, area)
+    if not since and not before:
+        return True
+    ym = pub_year_month(paper.get("arxiv_id", ""))
+    if ym is None:
+        return False
+    return (not since or ym[0] >= since) and (not before or ym[0] < before)
+
+
+def _keeps(paper: dict, since: int, area: str, before: int = 0) -> bool:
+    return _year_ok(paper, since, before) and (not area or _in_area(paper, area))
+
+
+def sort_pool(pool: list[dict], sort: str) -> list[dict]:
+    """The pool in the chosen order. Ties keep the search's order (stable sort)."""
+    if sort == "cited":
+        return sorted(pool, key=lambda p: -(p.get("citation_count") or 0))
+    if sort == "newest":
+        from app.local_meta import pub_year_month
+        # Within a month, a later arXiv number is a later submission.
+        return sorted(pool, key=lambda p: (pub_year_month(p.get("arxiv_id", "")) or (0, 0),
+                                           p.get("arxiv_id", "")), reverse=True)
+    return pool
+
+
+def category_name(code: str) -> str:
+    from app.recommend.labels import _name_for
+    return _name_for(code) or code
+
+
+def filter_options(pool: list[dict], since: int, before: int, area: str) -> dict:
+    """Choices for the filter menus, each with how many of the pool it keeps.
+
+    Counts for one menu respect the other menu's choice, so a number always
+    says what picking it would show. Areas are the subject codes the pool
+    actually has, most common first; an area chosen from an old link stays
+    listed even when nothing here has it.
+    """
+    in_area = [p for p in pool if not area or _in_area(p, area)]
+    published = [("", "Any time", len(in_area))]
+    ys = years()
+    published += [(str(y), f"{y} or later", sum(_year_ok(p, y, 0) for p in in_area)) for y in ys]
+    published.append((f"pre{ys[-1]}", f"Before {ys[-1]}", sum(_year_ok(p, 0, ys[-1]) for p in in_area)))
+
+    in_years = [p for p in pool if _year_ok(p, since, before)]
+    counts: dict[str, int] = {}
+    for p in in_years:
+        for c in dict.fromkeys(_cats(p)):
+            if _CATEGORY.match(c):
+                counts[c] = counts.get(c, 0) + 1
+    top = sorted(counts, key=lambda c: (-counts[c], c))[:AREA_OPTIONS_MAX]
+    names = [category_name(c) for c in top]
+    areas = [("", "All areas", len(in_years))]
+    areas += [(c, f"{n} ({c})" if names.count(n) > 1 else n, counts[c]) for c, n in zip(top, names)]
+    if area and area not in top:
+        label = AREAS.get(area) or category_name(area)
+        areas.append((area, label, sum(_in_area(p, area) for p in in_years)))
+    return {"published": published, "areas": areas}
 
 
 async def _pool(papers: list[dict], meta: dict) -> list[dict]:
@@ -86,14 +174,17 @@ async def search(
     request: Request,
     q: str = "",
     page: int = 1,
-    since: int = 0,
+    since: str = "",
     area: str = "",
+    sort: str = "",
     user_id: str | None = Cookie(default=None, alias=COOKIE_NAME),
 ):
     import time
     page = max(1, min(page, 5))
-    since = since if since in YEARS else 0
-    area = area if area in AREAS else ""
+    since_year, before_year = parse_published(since)
+    since = str(since_year) if since_year else (f"pre{before_year}" if before_year else "")
+    area = area if (area in AREAS or _CATEGORY.match(area or "")) and len(area) <= 24 else ""
+    sort = sort if sort in SORTS else "relevance"
     named = paper_for_query(q)
     if named:
         target = f"/p/{named}"
@@ -177,17 +268,23 @@ async def search(
     saved_ids = {r["paper_id"] for r in feedback if r["event_type"] == "save"}
     dismissed_ids = {r["paper_id"] for r in feedback if r["event_type"] == "not_interested"}
 
-    # Pages and filters read the kept top 50; the first unfiltered page is the
-    # search itself.
+    # Pages, filters and the sort read the kept top 50. The first page in
+    # relevance order is still the search itself; the rest of the pool is read
+    # (local sidecar) for the menus' counts.
     per_page = ARXIV_MAX_RESULTS
-    if page > 1 or since or area:
-        pool = await _pool(papers, search_meta)
-        if since or area:
-            pool = [p for p in pool if _keeps(p, since, area)]
+    narrowed = bool(since or area)
+    pool = await _pool(papers, search_meta) if papers else []
+    options = filter_options(pool, since_year, before_year, area) if pool else None
+    pool_n = len(pool)
+    if page > 1 or narrowed or sort != "relevance":
+        if narrowed:
+            pool = [p for p in pool if _keeps(p, since_year, area, before_year)]
+        pool = sort_pool(pool, sort)
         start = (page - 1) * per_page
         papers, has_more = pool[start:start + per_page], len(pool) > start + per_page
     else:
-        start, has_more = 0, bool(search_meta.get("more_ids"))
+        start, has_more = 0, len(pool) > per_page
+    matched = len(pool)
 
     for idx, p in enumerate(papers, start=start):
         p["saved"] = p["arxiv_id"] in saved_ids
@@ -195,7 +292,7 @@ async def search(
         p["query_id"] = query_id
         p["position"] = idx
         p["propensity"] = 1.0  # search is deterministic
-        p["policy_id"] = "search_v2_independent_lexical"
+        p["policy_id"] = _SORT_POLICY[sort]
     # Papers the temporary trending step-up moved into view (SEARCH_TRENDING=on)
     # say so, with the strongest count behind it. Shadow mode tags nothing.
     for p in papers:
@@ -227,8 +324,17 @@ async def search(
 
     # htmx restoring a page it has no snapshot of asks with HX-Request too, and
     # swaps the answer in as the whole body, so it gets the whole page.
-    paging = {"page": page, "since": since, "area": area, "has_more": has_more, "start": start,
-              "years": YEARS, "areas": AREAS, "weak_match": weak_match}
+    from urllib.parse import urlencode
+    view = {k: v for k, v in (("since", since), ("area", area), ("sort", sort if sort != "relevance" else ""))
+            if v}
+    paging = {"page": page, "since": since, "area": area, "sort": sort, "sorts": SORTS,
+              "has_more": has_more, "start": start, "options": options, "narrowed": narrowed,
+              "matched": matched, "pool_n": pool_n, "view_qs": urlencode(view),
+              # The overview describes the search's own best matches; a narrowed
+              # or re-sorted view would ask the model again for a list the reader
+              # is only rearranging.
+              "show_overview": not narrowed and sort == "relevance",
+              "weak_match": weak_match}
     if request.headers.get("HX-Request") and not request.headers.get("HX-History-Restore-Request"):
         resp = templates.TemplateResponse(
             request,
