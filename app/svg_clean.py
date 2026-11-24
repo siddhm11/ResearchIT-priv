@@ -51,7 +51,18 @@ SVG_ELEMENTS = {
     "feFuncA", "feFuncB", "feFuncG", "feFuncR", "feGaussianBlur", "feMerge", "feMergeNode",
     "feMorphology", "feOffset",
 }
-HTML_ELEMENTS = {"span", "div", "p", "br", "b", "i", "u", "s", "em", "strong", "sub", "sup", "small", "code"}
+HTML_ELEMENTS = {"span", "div", "p", "br", "b", "i", "u", "s", "em", "strong", "sub", "sup", "small", "code",
+                 # LaTeX boxes (tcolorbox, minipage) put verbatim prompts, lists and tables in a
+                 # foreignObject; dropping them left the box empty (2406.11717 fig. 13, 2026-11-24).
+                 "pre", "tt", "kbd", "samp", "var", "mark", "del", "ins", "abbr", "cite", "q", "dfn",
+                 "ul", "ol", "li", "dl", "dt", "dd", "blockquote", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
+                 "table", "caption", "colgroup", "col", "thead", "tbody", "tfoot", "tr", "td", "th"}
+# Never kept, with their contents: they load, run or take input. Any other
+# unknown HTML element inside a foreignObject is kept as a span, so its text
+# survives.
+HTML_DROPPED = {"script", "style", "iframe", "frame", "frameset", "object", "embed", "applet", "img", "picture",
+                "source", "video", "audio", "track", "canvas", "input", "button", "textarea", "select", "option",
+                "form", "link", "meta", "base", "template", "slot", "noscript", "portal", "dialog", "head", "title"}
 MATHML_ELEMENTS = {
     "math", "semantics", "mrow", "mi", "mo", "mn", "ms", "mtext", "mspace", "msub", "msup", "msubsup",
     "mfrac", "msqrt", "mroot", "mstyle", "mover", "munder", "munderover", "mtable", "mtr", "mtd",
@@ -144,7 +155,7 @@ def _tag(src_tag: str, ctx: str) -> tuple[str, str, str] | None:
             return None
         return f"{{{SVG_NS}}}{name}", name, ("html" if name == "foreignObject" else "svg")
     if ctx == "html":
-        name = "span" if lower == "a" else (lower if lower in HTML_ELEMENTS else None)
+        name = lower if lower in HTML_ELEMENTS else (None if lower in HTML_DROPPED or not lower else "span")
         return (f"{{{XHTML_NS}}}{name}", name, "html") if name else None
     if lower in MATHML_ELEMENTS:                         # mathml
         return f"{{{MATHML_NS}}}{lower}", lower, "mathml"

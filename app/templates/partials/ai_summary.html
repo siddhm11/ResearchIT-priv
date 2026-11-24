@@ -1,7 +1,9 @@
 {# AI overview of the top search results. #}
 {% if summary_html %}
-<div class="ai-summary">
+<div class="ai-summary" data-clamp>
   <span class="label">Overview</span>
-  <div>{{ summary_html | safe }}</div>
+  <div class="ai-summary-body">{{ summary_html | safe }}</div>
+  {# Phones show the first lines, so the first result is on the first screen (UI review, 2026-11-24). #}
+  <button type="button" class="ai-more" aria-expanded="false">Read the whole overview</button>
 </div>
 {% endif %}

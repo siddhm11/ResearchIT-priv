@@ -47,7 +47,7 @@ import sqlite3
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
-from app import features, qdrant_svc, turso_svc
+from app import arxiv_svc, features, qdrant_svc, turso_svc
 
 SWITCH_PAPER = "HN_PAPER"
 SWITCH_LASTING = "HN_LASTING"
@@ -62,6 +62,8 @@ FRESH_POINTS = 20           # ... or submitted as a story that reached this many
 SUBMISSION_FIRST = 50       # a submission with fewer points is listed after the discussions
 PAGE_ROWS = 5000
 VECTOR_BATCH = 500
+ARXIV_FILL_MAX = 400         # lasting papers the corpus lacks, described from the arXiv API instead
+ARXIV_FILL_SECONDS = 90
 THREADS_SHOWN = 3
 WEEK_DAYS = 7               # "Back on HN this week"
 WEEK_SHOWN = 8
@@ -359,6 +361,22 @@ async def _describe(ids: list[str]) -> tuple[dict, dict]:
         meta[aid] = {"title": m["title"], "authors": m.get("authors") or "", "year": id_year(aid) or m.get("year") or "",
                      "categories": (m.get("arxiv_categories") or "").split(),
                      "citation_count": m.get("citation_count") or 0}
+    # A lasting paper outside the corpus (mostly physics and maths) is still
+    # lasting: describe it from the arXiv API (cached) so every count on the
+    # site is the same number. No vector, so it never shows under "for you".
+    missing = [a for a in ids if a not in meta][:ARXIV_FILL_MAX]
+    if missing:
+        try:
+            filled = await asyncio.wait_for(arxiv_svc.fetch_metadata_batch(missing), ARXIV_FILL_SECONDS)
+        except Exception as e:  # lists still work; these papers stay off them until the next load
+            print(f"[hn] arXiv fill unavailable: {type(e).__name__}")
+            filled = {}
+        for aid, m in filled.items():
+            if aid in meta or not m.get("title"):
+                continue
+            meta[aid] = {"title": " ".join(m["title"].split()), "authors": _authors_text(m.get("authors")),
+                         "year": id_year(aid) or m.get("year") or "",
+                         "categories": [m["category"]] if m.get("category") else [], "citation_count": 0}
     vectors: dict = {}
     have = [a for a in ids if a in meta]
     for i in range(0, len(have), VECTOR_BATCH):
@@ -368,6 +386,17 @@ async def _describe(ids: list[str]) -> tuple[dict, dict]:
             print(f"[hn] vectors unavailable: {type(e).__name__}")
             break
     return meta, vectors
+
+
+def _authors_text(raw) -> str:
+    """arxiv_svc stores authors as a JSON list; the lists show them as text."""
+    if isinstance(raw, list):
+        return ", ".join(raw)
+    try:
+        got = json.loads(raw or "")
+    except (TypeError, ValueError):
+        return raw or ""
+    return ", ".join(got) if isinstance(got, list) else str(got)
 
 
 async def _loop() -> None:

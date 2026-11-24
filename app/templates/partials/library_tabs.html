@@ -7,7 +7,7 @@
 {% set trending_tab = feature_visible("TRENDING_PAGE", request) %}
 <nav class="library-tabs" aria-label="Library">
   <a href="/saved" class="library-tab" {% if library_tab == "saved" %}aria-current="page"{% endif %}>Saved</a>
-  {% if trending_tab %}<a href="/collections" class="library-tab" {% if library_tab == "collections" %}aria-current="page"{% endif %}>Collections</a>{% endif %}
+  {% if trending_tab %}<a href="/collections" class="library-tab" {% if library_tab == "collections" %}aria-current="page"{% endif %}>Reading lists</a>{% endif %}
   <a href="/history" class="library-tab" {% if library_tab == "recent" %}aria-current="page"{% endif %}>Recent</a>
   <a href="/library/devices" class="library-tab" {% if library_tab == "devices" %}aria-current="page"{% endif %}>Other devices</a>
 </nav>

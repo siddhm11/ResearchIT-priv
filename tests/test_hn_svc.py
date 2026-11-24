@@ -19,7 +19,7 @@ import httpx
 import numpy as np
 import pytest
 
-from app import db, hn_svc, http_client, qdrant_svc, trending_shelf as ts, turso_svc, user_state as us
+from app import arxiv_svc, db, hn_svc, http_client, qdrant_svc, trending_shelf as ts, turso_svc, user_state as us
 from app.main import app
 
 READER = "hn-reader"
@@ -127,6 +127,8 @@ async def world(monkeypatch, tmp_path, outside_calls):
                         AsyncMock(side_effect=lambda ids: {i: META[i] for i in ids if i in META}))
     monkeypatch.setattr(qdrant_svc, "get_paper_vectors",
                         AsyncMock(side_effect=lambda ids, remember=True: {i: VECTORS[i] for i in ids if i in VECTORS}))
+    # arXiv has nothing for the paper the corpus lacks, so it stays off the lists here.
+    monkeypatch.setattr(arxiv_svc, "fetch_metadata_batch", AsyncMock(return_value={}))
     await db.init_db()
     us._cache.clear()
     await hn_svc.refresh()
@@ -210,6 +212,20 @@ async def test_the_lists_count_but_leave_out_papers_the_corpus_lacks(world):
     assert hn_svc._state["canon"] == ["1706.03762"]
     assert hn_svc._state["fresh"] == ["2610.00001", "2610.00002"]
     assert set(hn_svc.vectors()) == {"1706.03762", "2610.00001", "2610.00002"}
+
+
+async def test_a_lasting_paper_the_corpus_lacks_is_described_from_arxiv(world, monkeypatch):
+    """Lasting said 2,040 in its first line and 1,859 below it: the 181 between
+    had no metadata in the corpus (UI review, 2026-11-24)."""
+    monkeypatch.setattr(arxiv_svc, "fetch_metadata_batch", AsyncMock(return_value={"hep-th/9711200": {
+        "arxiv_id": "hep-th/9711200", "title": "The Large N Limit of\n Superconformal Field Theories",
+        "authors": '["Juan M. Maldacena"]', "category": "hep-th", "year": 1997}}))
+    s = await hn_svc.refresh(force=True)
+    assert s["lasting"] == s["lasting_all"] == 2
+    card = next(c for c in hn_svc.lasting_cards() if c["arxiv_id"] == "hep-th/9711200")
+    assert card["title"] == "The Large N Limit of Superconformal Field Theories"
+    assert card["authors"] == "Juan M. Maldacena" and card["categories"] == ["hep-th"]
+    assert "hep-th/9711200" not in hn_svc._state["vectors"]   # never under "for you"
 
 
 async def test_an_unchanged_harvest_is_not_read_again(world):

@@ -20,7 +20,7 @@ from xml.sax.saxutils import escape
 
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse, Response
 
 from app import config, errors
 
@@ -54,6 +54,21 @@ STATIC_EXTRA = ("/about", "/compare", "/privacy")
 async def robots_txt() -> PlainTextResponse:
     return PlainTextResponse(ROBOTS.format(base=config.PUBLIC_URL),
                              headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    """Browsers and search engines ask for /favicon.ico whatever the page says;
+    it was the HTML 404 page (UI review, 2026-11-24)."""
+    return FileResponse("app/static/favicon.ico", media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
+@router.get("/apple-touch-icon.png", include_in_schema=False)
+@router.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+async def touch_icon() -> FileResponse:
+    return FileResponse("app/static/apple-touch-icon.png", media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 async def _explained(limit: int) -> list[tuple[str, str]]:

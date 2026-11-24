@@ -17,7 +17,7 @@
     <div class="issue-kicker">Hacker News, 2007 to today</div>
     <h1 class="issue-title">The arXiv papers Hacker News keeps coming back to</h1>
     {% if lead %}<p class="trend-lead">{{ lead }}</p>{% endif %}
-    <p class="muted hn-dek">Lasting: some of them for nineteen years.</p>
+    {% if longest_years >= 2 %}<p class="muted hn-dek">Lasting: some of them for more than {{ longest_years }} years.</p>{% endif %}
     {% if loaded %}
       <div class="issue-line">
         <span><b>{{ total | commafy }}</b> papers</span>

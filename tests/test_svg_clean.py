@@ -68,6 +68,18 @@ def test_html_labels_and_maths_keep_their_namespaces_and_the_tex_source_goes():
     assert "annotation" not in out and "application/x-tex" not in out
 
 
+def test_a_latex_box_keeps_its_verbatim_text_and_unknown_html_keeps_its_words():
+    """2406.11717 fig. 13: a tcolorbox whose prompt sat in a <pre> came out empty."""
+    out = clean('<foreignObject width="9" height="9"><span class="ltx_foreignobject_content">'
+                '<pre class="ltx_verbatim">S1: Violent Crimes.\nS2: Non-Violent Crimes.</pre>'
+                '<table><tr><td>cell</td></tr></table><section><custom-el>kept words</custom-el></section>'
+                '</span></foreignObject>')
+    root = ET.fromstring(out)
+    assert "S2: Non-Violent Crimes." in root.find(f".//{{{XHTML_NS}}}pre").text
+    assert root.find(f".//{{{XHTML_NS}}}td").text == "cell"
+    assert "kept words" in "".join(root.itertext())
+
+
 # ── attacks ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("body", [
@@ -76,6 +88,8 @@ def test_html_labels_and_maths_keep_their_namespaces_and_the_tex_source_goes():
     "<g><script><![CDATA[alert(1)]]></script></g>",
     '<foreignObject><iframe src="https://evil.example"/><span>ok</span></foreignObject>',
     '<foreignObject><span><script>alert(1)</script>ok</span></foreignObject>',
+    '<foreignObject><pre><object data="https://evil.example"/>ok</pre></foreignObject>',
+    '<foreignObject><div><embed src="https://evil.example"/><form action="https://evil.example"><input/></form></div></foreignObject>',
 ])
 def test_scripts_and_frames_are_removed(body):
     out = clean(body)

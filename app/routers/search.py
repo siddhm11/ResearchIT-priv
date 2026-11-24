@@ -11,6 +11,7 @@ Phase 3 replaces the arXiv keyword API with:
 Phase 3.5: Metadata now fetched from Turso cloud DB (fast, includes citations)
   with arXiv API as fallback for papers not in Turso.
 """
+import os
 import re
 import uuid
 from fastapi import APIRouter, Request, Cookie
@@ -163,6 +164,13 @@ async def _pool(papers: list[dict], meta: dict) -> list[dict]:
     return papers + [dict(rows[a]) for a in more if a in rows]
 
 
+def search_shell_on() -> bool:
+    """SEARCH_SHELL (default on): a full page load of an unseen search sends
+    the page first and fetches its results. 0 renders the results in the
+    page, as before (the test suite's default)."""
+    return os.getenv("SEARCH_SHELL", "1").strip().lower() not in ("0", "off", "false", "no")
+
+
 def paper_for_query(q: str) -> str | None:
     """The arXiv id a query names on its own, version stripped, or None."""
     m = _PAPER_QUERY.match(q.strip())
@@ -193,6 +201,17 @@ async def search(
             # paper page into the results list.
             return Response(status_code=200, headers={"HX-Redirect": target})
         return RedirectResponse(target, status_code=303)
+    # A full page load of a search not in memory sends the page at once and
+    # fetches the results into it: the reader sees the box, the query and the
+    # progress line in under a second instead of a blank tab for ~4 s (UI
+    # review, 2026-11-24). The fetch is this same route over htmx. A crawler,
+    # which runs no script, never starts the models.
+    if (q.strip() and search_shell_on() and not request.headers.get("HX-Request")
+            and search_cache.get(q) is None):
+        runtime_stats.count("search_shell")
+        return templates.TemplateResponse(request, "search.html", {
+            "papers": [], "query": q, "deferred": True, "search_meta": {},
+            "deferred_url": str(request.url.path) + ("?" + request.url.query if request.url.query else "")})
     start_time = time.perf_counter()
     search_meta = {}
     papers = []

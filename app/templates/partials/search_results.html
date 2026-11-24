@@ -18,17 +18,17 @@
   <form class="search-filters" hx-get="/search" hx-target="#search-results" hx-push-url="true"
         hx-trigger="change" hx-include="#search-q" hx-indicator="#search-loading"
         aria-label="Sort and narrow these results">
-    <label>Sort
+    <label><span class="sf-l">Sort</span>
       <select name="sort">
         {% for key, label in sorts.items() %}<option value="{{ '' if key == 'relevance' else key }}"{% if sort == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </label>
-    <label>Published
+    <label><span class="sf-l">Published</span>
       <select name="since">
         {% for value, label, n in options.published %}<option value="{{ value }}"{% if since == value %} selected{% endif %}{% if n == 0 and since != value %} disabled{% endif %}>{{ label }} · {{ n }}</option>{% endfor %}
       </select>
     </label>
-    <label>Area
+    <label><span class="sf-l">Area</span>
       <select name="area">
         {% for value, label, n in options.areas %}<option value="{{ value }}"{% if area == value %} selected{% endif %}>{{ label }} · {{ n }}</option>{% endfor %}
       </select>
