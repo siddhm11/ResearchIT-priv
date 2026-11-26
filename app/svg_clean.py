@@ -127,6 +127,14 @@ def _attrs(attrib: dict, ctx: str, name: str) -> dict:
         value = "" if value is None else str(value)
         if lname.startswith("on"):
             continue
+        if name == "img" and lname == "src":
+            # A picture inside a drawing (LaTeXML draws labels over a raster
+            # image): only as data the drawing carries, never a URL to load.
+            if _DATA_IMAGE.match(value.strip()):
+                out["src"] = value.strip()
+            continue
+        if name == "img" and lname not in ("width", "height", "alt", "class", "style"):
+            continue
         if lname == "href":                              # href and xlink:href alike
             v = value.strip()
             if _FRAGMENT.match(v) or (name == "image" and _DATA_IMAGE.match(v)):
@@ -155,6 +163,8 @@ def _tag(src_tag: str, ctx: str) -> tuple[str, str, str] | None:
             return None
         return f"{{{SVG_NS}}}{name}", name, ("html" if name == "foreignObject" else "svg")
     if ctx == "html":
+        if lower == "img":                               # kept only with an inline picture (_rebuild)
+            return f"{{{XHTML_NS}}}img", "img", "html"
         name = lower if lower in HTML_ELEMENTS else (None if lower in HTML_DROPPED or not lower else "span")
         return (f"{{{XHTML_NS}}}{name}", name, "html") if name else None
     if lower in MATHML_ELEMENTS:                         # mathml
@@ -179,6 +189,8 @@ def _rebuild(src: ET.Element, ctx: str, depth: int, budget: _Budget) -> ET.Eleme
         raise NotSVG(f"over {MAX_ELEMENTS} elements")
     own_ctx = {SVG_NS: "svg", XHTML_NS: "html", MATHML_NS: "mathml"}[_split(tag)[0]]
     el = ET.Element(tag, _attrs(src.attrib, own_ctx, name))
+    if name == "img":
+        return el if el.get("src") else None             # no inline picture: nothing to show
     if name == "style":
         css = "".join(src.itertext())
         if not _safe_value(css):
@@ -217,6 +229,8 @@ def almost_empty(root: ET.Element) -> bool:
     card it reads as a blank or broken figure."""
     # Lower-cased: an HTML parser hands inline drawings over as "foreignobject".
     names = [(el, _split(el.tag)[1].lower()) for el in root.iter() if isinstance(el.tag, str)]
+    if any(n == "img" and (el.get("src") or "").startswith("data:image/") for el, n in names):
+        return False                                     # a picture is something drawn
     if sum(1 for _, n in names if n in _MARKS) >= MIN_MARKS:
         return False
     text = "".join("".join(el.itertext()) for el, n in names if n in ("text", "foreignobject"))
