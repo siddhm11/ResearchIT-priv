@@ -22,7 +22,7 @@ from __future__ import annotations
 import aiosqlite
 
 from app import abstract_svc, config, errors, features, groq_svc, paper_source_svc
-from app.routers.figures import figure_credit, figure_url
+from app.routers.figures import figure_credit, figure_failed, figure_url
 
 
 async def _cached_explanations(keys: list[str]) -> dict[str, str]:
@@ -68,7 +68,9 @@ def first_figure(paper: dict, source) -> dict | None:
         return None
     for n, f in enumerate(source.figures):
         url = figure_url(source, n)
-        if url:
+        # A figure this container already failed to make (unreadable, or a
+        # drawing with almost nothing in it) gives way to the next one.
+        if url and not figure_failed(source.arxiv_id, url):
             return {"url": url, "w": f.get("w"), "h": f.get("h"),
                     "label": f.get("label") or "", "caption": f.get("caption") or "",
                     "credit": figure_credit(paper, source)}

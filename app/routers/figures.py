@@ -152,6 +152,11 @@ def _cache_path(arxiv_id: str, name: str) -> Path:
     return Path(config.FIG_CACHE_DIR) / arxiv_id / name
 
 
+def figure_failed(arxiv_id: str, url: str) -> bool:
+    """Whether the figure at `url` (from figure_url) recently failed to be made here."""
+    return _failed_recently(_cache_path(arxiv_id, url.rsplit("/", 1)[1]).with_suffix(".fail"))
+
+
 def _failed_recently(marker: Path) -> bool:
     try:
         return time.time() - marker.stat().st_mtime < FAIL_SKIP_S
@@ -254,6 +259,9 @@ def _drawings(html: bytes, anchors: list[str]) -> dict[str, bytes | str]:
     for anchor in anchors:
         if anchor not in found:
             out[anchor] = "no drawing for this figure in the page"
+            continue
+        if svg_clean.almost_empty(found[anchor]):
+            out[anchor] = "almost nothing drawn"     # a card would show it as blank
             continue
         try:
             out[anchor] = svg_clean.clean_tree(found[anchor])

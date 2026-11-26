@@ -35,6 +35,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app import (abstract_svc, ai_usage, arxiv_svc, ask_svc, bots, briefing_svc, config, db, features, groq_svc,
                  hf_papers_svc, hn_svc, http_client, paper_source_svc, qdrant_svc, readability, runtime_stats,
                  turso_svc, user_state as us)
+from app.routers import share
 from app.routers.figures import figure_credit, figure_url
 from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.routers.events import _NO_POSITION, _position
@@ -244,6 +245,11 @@ async def paper_page(
     if features.visible("PAPER_PAGE_V2", request):
         template = "paper_v2.html"
         context.update(await _v2_context(paper, related, request, back=back_link(request, sf, qid)))
+    # The share card names the paper and carries its figure when one is saved
+    # (app/share_cards.py); it replaced the bare first figure (share_image).
+    if paper_source_svc.ID_PATTERN.match(arxiv_id):
+        context["og_image"] = share.card_url("p", arxiv_id)
+    else:
         image = share_image(context.get("figures") or [])
         if image:
             context["og_image"] = image

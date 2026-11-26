@@ -25,6 +25,7 @@ from fastapi import APIRouter, Cookie, Request
 from fastapi.responses import HTMLResponse
 
 from app import arxiv_svc, bots, collections_svc, config, db, turso_svc, user_state as us
+from app.routers import share
 from app.config import COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 
@@ -146,6 +147,7 @@ async def collection_detail(
             "following": slug in followed,
             "og_title": f"{col['title']}: a reading list — ResearchIT",
             "og_description": _describe(col, len(anchors)),
+            "og_image": share.card_url("list", slug),
             "jsonld": _itemlist(col, anchors),
         },
     )

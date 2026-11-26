@@ -335,8 +335,10 @@ SVG_SRC, PAGE_SRC = f"{AID}v1/chart.svg", f"{AID}v1"
 SVG_FILE = (b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30" '
             b'onload="alert(1)"><script>alert(2)</script><rect width="40" height="30" fill="#c33"/></svg>')
 PAGE = (b'<html><body><figure id="S2.F2" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 20 10">'
-        b'<foreignObject width="20" height="10"><span>Accuracy</span></foreignObject></svg></figure>'
+        b'<foreignObject width="20" height="10"><span>Accuracy of every model on the benchmark</span>'
+        b'</foreignObject></svg></figure>'
         b'<figure id="S2.F3" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 9 9"><circle r="4"/>'
+        b'<circle r="3"/><circle r="2"/><rect width="1" height="1"/><line x2="9"/><path d="M0 0L9 9"/>'
         b'</svg></figure></body></html>')
 VECTOR_FIGS = [
     {"anchor": "S1.F1", "label": "Figure 1", "caption": "A photo.", "src": SRC, "w": 476, "h": 235},
@@ -464,3 +466,41 @@ def test_an_svg_that_will_not_clean_is_a_404(vector_world):
     vector_world["bodies"][SVG_SRC] = (b'<!DOCTYPE svg [<!ENTITY x "y">]><svg/>', "image/svg+xml")
     with TestClient(app) as c:
         assert c.get(figures.figure_url(saved(), 1)).status_code == 404
+
+
+def test_a_drawing_with_almost_nothing_in_it_is_not_a_figure():
+    """2611.32884's figure 1 was numbered dots over a raster image that the
+    cleaner drops; on a card it read as a blank figure (UI pass 2026-11-27)."""
+    import xml.etree.ElementTree as ET
+
+    from app import svg_clean
+    from app.routers.figures import _drawings
+    dots = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 404 230"><foreignObject width="404" height="230">'
+            '<span xmlns="http://www.w3.org/1999/xhtml"><img src="x1.png"/></span></foreignObject>'
+            + "".join(f'<path d="M{i} 0 L{i} 1"/><foreignObject><span xmlns="http://www.w3.org/1999/xhtml">{i}</span>'
+                      '</foreignObject>' for i in range(4)) + '</svg>')
+    assert svg_clean.almost_empty(ET.fromstring(dots))
+    page = f'<html><body><figure id="S1.F1" class="ltx_figure">{dots}</figure></body></html>'.encode()
+    assert _drawings(page, ["S1.F1"]) == {"S1.F1": "almost nothing drawn"}
+    labelled = ('<svg xmlns="http://www.w3.org/2000/svg"><text>Encoder and decoder stacks</text>'
+                '<rect/></svg>')
+    assert not svg_clean.almost_empty(ET.fromstring(labelled))
+
+
+def test_a_failed_figure_gives_way_to_the_next_on_a_card(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import app.config as cfg
+    from app import card_data
+    from app.routers import figures as figs
+    monkeypatch.setattr(cfg, "FIG_CACHE_DIR", str(tmp_path))
+    pid = "2611.32884"
+    src = SimpleNamespace(arxiv_id=pid, figures_allowed=True, licence_label="CC BY 4.0", figures=[
+        {"anchor": "S1.F1", "src": pid, "kind": "svg-inline", "w": 400, "h": 230},
+        {"anchor": "S1.F2", "src": f"{pid}v1/x2.png", "w": 600, "h": 300}])
+    first = figs.figure_url(src, 0)
+    marker = figs._cache_path(pid, first.rsplit("/", 1)[1]).with_suffix(".fail")
+    marker.parent.mkdir(parents=True)
+    marker.write_text("almost nothing drawn")
+    fig = card_data.first_figure({"authors": '["A"]', "year": 2026}, src)
+    assert fig["url"] == figs.figure_url(src, 1)

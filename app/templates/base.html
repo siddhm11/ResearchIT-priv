@@ -49,7 +49,7 @@
     for search engines (see also /robots.txt).
   #}
   {% set _path = request.url.path if request else '/' %}
-  {% set _og_image = og_image | default(public_url ~ "/static/og.png") %}
+  {% set _og_image = og_image or (public_url ~ "/static/og.png") %}
   {% if page_noindex or _path.startswith(('/search', '/saved', '/history', '/interests', '/library', '/l/', '/admin', '/onboarding')) %}
   <meta name="robots" content="noindex" />
   {% else %}
