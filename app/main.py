@@ -22,7 +22,7 @@ from app import db
 from app.config import APP_TITLE, COOKIE_NAME, COOKIE_MAX_AGE
 from app.templates_env import templates
 from app.routers import (admin, search, events, recommendations, saved, onboarding,
-                         health, collections, paper, figures, trending, library, seo, pages, reports)
+                         health, collections, paper, figures, trending, library, seo, pages, reports, share)
 
 
 @asynccontextmanager
@@ -288,6 +288,7 @@ app.include_router(figures.router)
 app.include_router(admin.router)
 app.include_router(library.router)
 app.include_router(seo.router)
+app.include_router(share.router)
 app.include_router(pages.router)
 # researchit-space (3D map client) JSON API. Guarded the same way as the Turso
 # sync and BGE-M3 warmup above: this router is additive, and a fault inside it

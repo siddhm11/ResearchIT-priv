@@ -26,7 +26,7 @@ from datetime import date as Date, datetime, timezone
 from app import bots, card_data, config, db, errors, features, hn_svc, qdrant_svc, runtime_stats, trending_shelf, trending_topics
 from app import user_state as us
 from app.config import COOKIE_MAX_AGE, COOKIE_NAME
-from app.routers import recommendations
+from app.routers import recommendations, share
 from app.templates_env import one_in, templates
 
 router = APIRouter()
@@ -278,6 +278,7 @@ def _trending_seo(rising: list[dict], cooling: list[dict]) -> dict:
         "updated": _long_day(computed),
         "og_title": "Which AI research topics are rising? Trends in Hugging Face Daily Papers",
         "og_description": lead,
+        "og_image": share.card_url("trending"),
         "jsonld": {
             "@context": "https://schema.org", "@type": "Dataset",
             "name": "Rising and cooling AI research topics in Hugging Face Daily Papers",
@@ -480,6 +481,7 @@ def _lasting_seo(stats: dict, name_top: bool = True) -> dict:
         "lead": lead,
         "og_title": "The arXiv papers Hacker News keeps coming back to",
         "og_description": rule,
+        "og_image": share.card_url("lasting"),
         "jsonld": {
             "@context": "https://schema.org", "@type": "Dataset",
             "name": "Lasting on Hacker News: the arXiv papers HN keeps linking",
@@ -647,7 +649,8 @@ async def topic_page(
         "basis": basis,
         "lead": trend_sentence(topic, _day_label(basis.get("first_week"))),
         "og_title": f"Is {topic['name']} research growing? Its share of Hugging Face Daily Papers",
-        "og_description": trend_sentence(topic, _day_label(basis.get("first_week")))}))
+        "og_description": trend_sentence(topic, _day_label(basis.get("first_week"))),
+        "og_image": share.card_url("topic", topic["slug"]) if topic.get("slug") else None}))
 
 
 def _feed_labels(after: str, user_id: str) -> dict[int, tuple[str, int]]:

@@ -2659,3 +2659,26 @@ a.src:hover { text-decoration: underline; }
   .cat, .dens { font-size: .72rem; }
   .ai-summary .label { font-size: .7rem; }
 }
+
+/* ── Phone: papers on the first screen (UI pass 2026-11-27) ──────────────────
+   On a 390 x 664 iPhone screen the front page showed only its pitch and
+   Trending only its heading: neither had a paper above the fold. The pitch
+   keeps its title, search and button; the explaining sentence moves out of
+   the way (the "How the feed works" box below says the same), the example
+   searches scroll in one row, and Trending drops its second introduction. */
+@media (max-width: 640px) {
+  .wl-top { gap: 1rem; padding-top: .25rem; }
+  .wl-hero { gap: .7rem; }
+  .wl-title { font-size: clamp(1.75rem, 8vw, 2.1rem); line-height: 1.12; }
+  .wl-lede, .wl-cta-note { display: none; }
+  .wl-try { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -16px; padding-right: 16px; }
+  .wl-try::-webkit-scrollbar { display: none; }
+  .wl-try a { white-space: nowrap; flex: none; }
+  .wl-cta { margin-top: .1rem; }
+  .wl-week { margin-top: 1.4rem; }
+  .trending-page .trend-sub { display: none; }
+  .trending-page { gap: 1rem; }
+  .trending-page > .issue { margin-bottom: 0; }
+  .trending-page .issue-title { font-size: clamp(1.7rem, 7.5vw, 2rem); }
+  .trending-page .trend-lead { font-size: .95rem; line-height: 1.5; }
+}

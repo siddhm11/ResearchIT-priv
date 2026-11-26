@@ -19,7 +19,7 @@
     {#- The answer first, written from the numbers (trending.trending_lead): it is
         what an answer engine keeps of this page (docs/AEO-PLAN.md, step 3). -#}
     {% if lead %}<p class="trend-lead">{{ lead }}{% if updated %} <span class="muted">Updated {{ updated }}.</span>{% endif %}</p>{% endif %}
-    <p class="muted">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
+    <p class="muted trend-sub">What researchers upvoted on Hugging Face this week, and which topics are taking a bigger share of the lists.</p>
     {% if window %}
       <div class="issue-line trend-window">
         <span>Lists of {{ window.label }}</span>

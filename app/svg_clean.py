@@ -206,6 +206,23 @@ def _number(value: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+_MARKS = {"path", "line", "polyline", "polygon", "rect", "circle", "ellipse", "image", "use", "text"}
+MIN_MARKS, MIN_TEXT = 6, 20
+
+
+def almost_empty(root: ET.Element) -> bool:
+    """A drawing with under MIN_MARKS shapes and under MIN_TEXT characters of
+    text: what is left of a LaTeXML picture drawn over a raster image once the
+    image is dropped (2611.32884's figure 1 kept four numbered dots). Shown on a
+    card it reads as a blank or broken figure."""
+    # Lower-cased: an HTML parser hands inline drawings over as "foreignobject".
+    names = [(el, _split(el.tag)[1].lower()) for el in root.iter() if isinstance(el.tag, str)]
+    if sum(1 for _, n in names if n in _MARKS) >= MIN_MARKS:
+        return False
+    text = "".join("".join(el.itertext()) for el, n in names if n in ("text", "foreignobject"))
+    return len("".join(text.split())) < MIN_TEXT
+
+
 def clean_tree(root: ET.Element) -> bytes:
     """Cleaned SVG bytes for a parsed <svg> element, from a file or an HTML page."""
     if _split(root.tag)[1].lower() != "svg":

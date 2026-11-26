@@ -329,11 +329,12 @@ def test_a_shared_paper_link_previews_with_its_figure_and_has_a_share_button(pag
     monkeypatch.setenv("FIGURES", "on")
     save_source(figures=2)
     html = get("/p/2609.31507").text
-    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/fig/2609.31507/0-' in html
+    # The share card names the paper and carries the figure (app/share_cards.py).
+    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/og/p/2609.31507.png?v=' in html
     assert f'<meta property="og:url" content="{config.PUBLIC_URL}/p/2609.31507"' in html
     assert f'data-share="{config.PUBLIC_URL}/p/2609.31507"' in html
 
 
-def test_a_paper_without_figures_previews_with_the_site_picture(page):
+def test_a_paper_without_figures_still_previews_with_its_own_card(page):
     html = get("/p/2609.31507").text
-    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/static/og.png"' in html
+    assert f'<meta property="og:image" content="{config.PUBLIC_URL}/og/p/2609.31507.png?v=' in html
