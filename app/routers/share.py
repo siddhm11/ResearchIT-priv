@@ -221,3 +221,22 @@ async def trending_card() -> Response:
     except Exception as e:
         print(f"[share] trending card failed: {type(e).__name__}: {e}")
         return _fallback()
+
+
+@router.get("/og/day/{day}.png", include_in_schema=False)
+async def day_card(day: str) -> Response:
+    from app import daily_pages
+    from app.routers.daily import long_day
+    papers = daily_pages.papers(day) if len(day) == 10 else []
+    if not papers:
+        return _fallback()
+    try:
+        titles = [p["title"] for p in papers[:3]]
+        key = "d:" + hashlib.sha1(repr((day, len(papers), titles)).encode()).hexdigest()
+        data = await _draw(key, share_cards.list_card, title=long_day(day),
+                           kicker=f"Hugging Face Daily Papers · {len(papers)} papers",
+                           blurb="The day's papers, most upvoted first.", items=titles)
+        return _png(data, long=True)
+    except Exception as e:
+        print(f"[share] day card {day} failed: {type(e).__name__}: {e}")
+        return _fallback()

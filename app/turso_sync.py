@@ -219,6 +219,17 @@ TABLES: dict[str, dict] = {
         "cols": ["token", "user_id", "created_at", "revoked", "updated_at", "uses"],
         "blobs": [],
     },
+    # The weekly digest (app/digest_svc.py): a reader's private digest link and
+    # email subscription must survive a deploy, and an unsubscribe must stick.
+    "digest_subscriptions": {
+        "remote": "digest_subscriptions",
+        "watermark": "updated_at",
+        "wm_kind": "text",
+        "pk": ["token"],
+        "cols": ["token", "user_id", "email", "status", "confirm_token", "created_at",
+                 "confirmed_at", "last_sent_at", "updated_at"],
+        "blobs": [],
+    },
     # Monthly trend reports (app/trend_reports.py): a past month's report must
     # survive a deploy, since its address is meant to be cited.
     "trend_snapshots": {
@@ -337,6 +348,9 @@ REMOTE_DDL = [
     """CREATE TABLE IF NOT EXISTS library_links (
         token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT, revoked INTEGER,
         updated_at TEXT, uses INTEGER)""",
+    """CREATE TABLE IF NOT EXISTS digest_subscriptions (
+        token TEXT PRIMARY KEY, user_id TEXT NOT NULL, email TEXT, status TEXT, confirm_token TEXT,
+        created_at TEXT, confirmed_at TEXT, last_sent_at TEXT, updated_at TEXT)""",
     """CREATE TABLE IF NOT EXISTS trend_snapshots (
         month TEXT PRIMARY KEY, computed_at TEXT, payload TEXT NOT NULL, updated_at TEXT NOT NULL)""",
     """CREATE TABLE IF NOT EXISTS search_log (

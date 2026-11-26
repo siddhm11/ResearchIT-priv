@@ -87,6 +87,10 @@
     </div>
   </header>
 
+  {#- New papers in the reader's interests since their last visit; fetched
+      after the page so the feed never waits on it (app/routers/digest.py). -#}
+  <div hx-get="/digest/since" hx-trigger="load" hx-swap="outerHTML"></div>
+
   <div class="discovery-tools" aria-label="Discovery controls">
     <button type="button" class="btn btn-primary btn-sm"
             hx-get="/api/recommendations" hx-target="#rec-section" hx-swap="innerHTML"

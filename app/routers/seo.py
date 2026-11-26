@@ -41,6 +41,7 @@ Disallow: /admin
 Disallow: /healthz
 Disallow: /l/
 Disallow: /library/
+Disallow: /digest
 Allow: /
 
 Sitemap: {base}/sitemap.xml
@@ -109,6 +110,11 @@ async def entries() -> list[tuple[str, str | None]]:
                 # The day it was last computed: today for this month, the
                 # month's last run for a past one, which never changes again.
                 out[f"/trending/{m}"] = dated[m] or None
+            # Dated daily lists (/day/<date>): the last 30 days; a past day's
+            # list only changes as its upvotes settle.
+            from app import daily_pages
+            for day in daily_pages.available()[:30]:
+                out[f"/day/{day}"] = day
     except Exception as e:
         errors.report("seo", "sitemap source trend reports failed", e)
     papers: dict[str, str | None] = {}

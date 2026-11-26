@@ -1,0 +1,23 @@
+<!doctype html><html><body style="margin:0;padding:24px 12px;background:#F2EEE6;font-family:Georgia,'Times New Roman',serif;color:#16140F">
+<table role="presentation" width="100%" style="max-width:620px;margin:0 auto;background:#FCFAF6;border:1px solid #D6CFC1;border-radius:10px">
+<tr><td style="padding:28px 28px 8px">
+<p style="margin:0 0 6px;font:600 12px/1.4 -apple-system,Segoe UI,Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#2C5638">ResearchIT · weekly digest</p>
+<h1 style="margin:0 0 6px;font-size:24px;line-height:1.25">New papers in your interests</h1>
+<p style="margin:0 0 8px;font:14px/1.5 -apple-system,Segoe UI,Arial,sans-serif;color:#5F584C">{{ digest.count }} paper{{ "s" if digest.count != 1 }} first published in the last {{ digest.days }} days.</p>
+</td></tr>
+{% for s in digest.sections %}
+<tr><td style="padding:16px 28px 0">
+<h2 style="margin:0 0 8px;padding-top:12px;border-top:1px solid #D6CFC1;font:600 13px/1.4 -apple-system,Segoe UI,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#2C5638">{{ s.label }}</h2>
+{% for p in s.papers %}
+<div style="margin:0 0 16px">
+<a href="{{ base }}/p/{{ p.arxiv_id }}?sf=digest_email&amp;qid={{ digest.query_id }}&amp;pos={{ p.position }}&amp;src={{ s.source }}&amp;prop=1.0&amp;pol=digest_v1" style="font-size:17px;line-height:1.35;color:#16140F;text-decoration:none;font-weight:bold">{{ p.title }}</a>
+<div style="margin-top:3px;font:13px/1.45 -apple-system,Segoe UI,Arial,sans-serif;color:#5F584C">{{ p.authors }}{% if p.published %} · {{ p.published }}{% endif %}</div>
+{% if p.line %}<div style="margin-top:4px;font-size:15px;line-height:1.5;color:#2B2822">{{ p.line }}</div>{% endif %}
+</div>
+{% endfor %}
+</td></tr>
+{% endfor %}
+<tr><td style="padding:8px 28px 28px;font:13px/1.6 -apple-system,Segoe UI,Arial,sans-serif;color:#5F584C;border-top:1px solid #D6CFC1">
+<a href="{{ link }}" style="color:#2C5638">Open on the web</a> · Save papers on ResearchIT and next week's list follows them.<br>
+<a href="{{ unsub }}" style="color:#5F584C">Unsubscribe</a>
+</td></tr></table></body></html>
