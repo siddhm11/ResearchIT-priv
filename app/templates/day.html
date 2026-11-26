@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{#
+  One day's Hugging Face Daily Papers list, most upvoted first, at a permanent
+  address (app/routers/daily.py). The top three carry their figure.
+#}
+{% block title %}Hugging Face Daily Papers, {{ label }} — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed digest-page day-page">
+  <header class="issue">
+    <div class="issue-kicker">Hugging Face Daily Papers</div>
+    <h1 class="issue-title">{{ label }}</h1>
+    <div class="issue-line"><span>{{ papers | length }} papers, most upvoted first</span>
+      <span class="sep">·</span><a href="/trending">This week's trends</a></div>
+  </header>
+  <nav class="day-nav" aria-label="Other days">
+    {% if older %}<a class="btn btn-ghost btn-sm" href="/day/{{ older }}" rel="prev">← {{ older }}</a>{% else %}<span></span>{% endif %}
+    {% if newer %}<a class="btn btn-ghost btn-sm" href="/day/{{ newer }}" rel="next">{{ newer }} →</a>{% endif %}
+  </nav>
+  <ol class="dg-list day-list">
+    {% for p in papers %}
+    <li class="dg-item day-item{% if p.card_figure %} has-fig{% endif %}">
+      <span class="day-rank">{{ loop.index }}</span>
+      <div class="day-body">
+        <a class="dg-title tex" href="/p/{{ p.arxiv_id }}?qid={{ query_id }}&amp;pos={{ p.position }}&amp;sf=daily_page&amp;src={{ source }}&amp;prop=1.0&amp;pol={{ policy }}">{{ p.title }}</a>
+        <div class="dg-meta">▲ {{ p.upvotes }}{% if p.github %}<span class="sep">·</span><a href="https://github.com/{{ p.github }}" target="_blank" rel="noopener">Code{% if p.stars %} ★ {{ p.stars }}{% endif %}</a>{% endif %}<span class="sep">·</span>arXiv:{{ p.arxiv_id }}</div>
+        {% if p.summary %}<p class="dg-line">{{ p.summary | truncate(240) }}</p>{% endif %}
+      </div>
+      {% if p.card_figure %}<img class="day-fig" src="{{ p.card_figure.url }}" alt="" loading="lazy" decoding="async">{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <nav class="day-nav" aria-label="Other days">
+    {% if older %}<a class="btn btn-ghost btn-sm" href="/day/{{ older }}" rel="prev">← {{ older }}</a>{% else %}<span></span>{% endif %}
+    {% if newer %}<a class="btn btn-ghost btn-sm" href="/day/{{ newer }}" rel="next">{{ newer }} →</a>{% endif %}
+  </nav>
+</div>
+{% endblock %}

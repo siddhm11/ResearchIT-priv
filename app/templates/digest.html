@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{#
+  The weekly digest (app/routers/digest.py, app/digest_svc.py): new papers in
+  the reader's interests from the last 7 days, with the private link and RSS
+  feed that bring it back without an account, and an email sign-up when the
+  Space has email configured. `own` is the reader's own browser.
+#}
+
+{% block title %}Your weekly digest — ResearchIT{% endblock %}
+
+{% block content %}
+<div class="wrap wrap--feed digest-page">
+  <header class="issue">
+    <div class="issue-kicker">Weekly digest</div>
+    <h1 class="issue-title">New papers in your interests</h1>
+    {% if digest %}
+    <div class="issue-line"><span>First published in the last {{ digest.days }} days</span>
+      <span class="sep">·</span><span>{{ digest.count }} paper{{ "s" if digest.count != 1 }}</span></div>
+    {% endif %}
+  </header>
+  {% if own %}{% set library_tab = "digest" %}{% include "partials/library_tabs.html" %}{% endif %}
+
+  {% if notice %}
+  <p class="dg-notice" role="status">
+    {%- if notice == "check-inbox" %}Check your inbox: we sent a link to confirm. Nothing is sent until you click it.
+    {%- elif notice == "wait" %}A confirmation email is on its way. You can ask again in ten minutes.
+    {%- elif notice == "already" %}That address already gets this digest.
+    {%- elif notice == "bad-email" %}That doesn't look like an email address.
+    {%- elif notice == "send-failed" %}The confirmation email couldn't be sent. Please try again later.
+    {%- elif notice == "email-off" %}Email isn't switched on yet. The link and the feed below work now.
+    {%- endif %}</p>
+  {% endif %}
+
+  {% if not digest %}
+    <p class="dg-lead">A weekly list of new arXiv papers in your interests, by private link, RSS or email. Open ResearchIT in your browser to get yours.</p>
+  {% else %}
+    {% if digest.kind != "interests" %}
+    <p class="dg-lead">You haven't saved a paper yet, so this week's list is
+      {% if digest.kind == "areas" %}the most upvoted papers in the areas you picked{% else %}the most upvoted papers on Hugging Face{% endif %}.
+      Save a few papers you like and it becomes new papers in your own interests, each with its share.</p>
+    {% endif %}
+
+    {% if digest.count == 0 %}
+      <p class="dg-lead">Nothing new in your interests in the last {{ digest.days }} days. The next list is built from whatever appears.</p>
+    {% endif %}
+
+    {% for s in digest.sections %}
+    <section class="dg-sec">
+      <h2 class="dg-h">{{ s.label }}</h2>
+      <ol class="dg-list">
+        {% for p in s.papers %}
+        <li class="dg-item">
+          <a class="dg-title tex" href="/p/{{ p.arxiv_id }}?qid={{ digest.query_id }}&amp;pos={{ p.position }}&amp;sf=digest&amp;src={{ s.source }}&amp;prop=1.0&amp;pol=digest_v1">{{ p.title }}</a>
+          <div class="dg-meta">{% if p.authors %}{{ p.authors }}{% endif %}{% if p.published %}<span class="sep">·</span>{{ p.published }}{% endif %}{% if p.category %}<span class="sep">·</span>{{ p.category }}{% endif %}</div>
+          {% if p.line %}<p class="dg-line">{{ p.line }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endfor %}
+
+    {% if own %}
+    <section class="devlink dg-get" aria-labelledby="dg-get-h">
+      <h2 id="dg-get-h" class="devlink-h">Get it every week</h2>
+      {% if email_on %}
+      <form class="dg-email" method="post" action="/digest/email">
+        <label for="dg-email-in" class="small muted">By email, once a week. Unsubscribe in one click.</label>
+        <div class="devlink-box">
+          <input type="email" id="dg-email-in" name="email" class="devlink-url" placeholder="you@example.org" required
+                 value="{{ row.email if row and row.status in ('pending', 'active') and row.email else '' }}" autocomplete="email" />
+          <button type="submit" class="btn btn-primary btn-sm">{{ "Change" if row and row.status == "active" else "Send it to me" }}</button>
+        </div>
+        {% if row and row.status == "active" %}<p class="devlink-note">Sending to {{ row.email }} every week. <a href="/digest/unsubscribe/{{ row.token }}">Unsubscribe</a></p>
+        {% elif row and row.status == "pending" %}<p class="devlink-note">Waiting for you to confirm {{ row.email }}.</p>{% endif %}
+      </form>
+      {% endif %}
+      <p class="devlink-p">{% if email_on %}Or keep{% else %}Keep{% endif %} this private link: it always shows this week's list, on any device.</p>
+      <div class="devlink-box">
+        <input type="text" class="devlink-url" id="dg-link" value="{{ link }}" readonly aria-label="Your digest link" onclick="this.select()" />
+        <button type="button" class="btn btn-quiet btn-sm" data-copy="#dg-link">Copy</button>
+      </div>
+      <p class="devlink-p">In a feed reader (Feedly, NetNewsWire, Inoreader):</p>
+      <div class="devlink-box">
+        <input type="text" class="devlink-url" id="dg-feed" value="{{ feed }}" readonly aria-label="Your digest feed" onclick="this.select()" />
+        <button type="button" class="btn btn-quiet btn-sm" data-copy="#dg-feed">Copy</button>
+      </div>
+      <p class="devlink-note" id="dg-status" role="status" aria-live="polite">Anyone with these links sees this list, nothing else: not your saves or your library.</p>
+    </section>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.querySelector(btn.getAttribute('data-copy'));
+      function done() { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = 'Copy'; }, 1600); }
+      function fallback() { input.focus(); input.select(); document.getElementById('dg-status').textContent = 'Selected. Press Ctrl+C or ⌘C to copy.'; }
+      try { navigator.clipboard.writeText(input.value).then(done, fallback); } catch (e) { fallback(); }
+    });
+  });
+</script>
+{% endblock %}

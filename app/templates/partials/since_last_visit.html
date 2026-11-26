@@ -1,0 +1,11 @@
+{#- The feed's catch-up box (app/routers/digest.py since_last_visit). -#}
+{% set first = digest.sections | map(attribute="papers") | sum(start=[]) %}
+<aside class="sb-recent" aria-labelledby="sb-recent-h">
+  <h2 class="sb-recent-h" id="sb-recent-h">Since your last visit{% if gap > 1 %}, {{ gap }} days ago{% endif %}: {{ digest.count }} new paper{{ "s" if digest.count != 1 }} in your interests</h2>
+  <ul>
+    {% for p in first[:3] %}
+    <li><a class="tex" href="/p/{{ p.arxiv_id }}?qid={{ digest.query_id }}&amp;pos={{ p.position }}&amp;sf=since_last_visit&amp;prop=1.0&amp;pol=digest_v1">{{ p.title }}</a></li>
+    {% endfor %}
+  </ul>
+  <a class="sb-more" href="/digest?days={{ digest.days }}">See all {{ digest.count }}, and get them every week →</a>
+</aside>

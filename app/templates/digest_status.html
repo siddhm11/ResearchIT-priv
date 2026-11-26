@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{# Confirm / unsubscribe pages of the weekly digest (app/routers/digest.py). #}
+{% block title %}Weekly digest — ResearchIT{% endblock %}
+{% block content %}
+<div class="wrap wrap--feed digest-page">
+  <header class="issue">
+    <div class="issue-kicker">Weekly digest</div>
+    <h1 class="issue-title">
+      {%- if state == "confirm" %}Confirm your weekly digest
+      {%- elif state == "subscribed" %}You're subscribed
+      {%- elif state == "unsubscribe" %}Stop the weekly email?
+      {%- elif state == "unsubscribed" %}You're unsubscribed
+      {%- else %}This link has expired{% endif %}</h1>
+  </header>
+  {% if state == "confirm" %}
+    <p class="dg-lead">One click and a list of new papers in your interests arrives once a week.</p>
+    <form method="post" action="/digest/confirm/{{ code }}"><button class="btn btn-primary" type="submit">Yes, send it to me</button></form>
+  {% elif state == "subscribed" %}
+    <p class="dg-lead">The first one arrives within a week. You can also open it any time from <a href="{{ link }}">your digest link</a>.</p>
+  {% elif state == "unsubscribe" %}
+    <form method="post" action="/digest/unsubscribe/{{ token }}"><button class="btn btn-primary" type="submit">Unsubscribe</button></form>
+    <p class="dg-lead small muted">Your private digest link keeps working.</p>
+  {% elif state == "unsubscribed" %}
+    <p class="dg-lead">No more emails. Your address has been removed.</p>
+  {% else %}
+    <p class="dg-lead">It was used already or replaced. <a href="/digest">Open your digest</a> to ask again.</p>
+  {% endif %}
+</div>
+{% endblock %}

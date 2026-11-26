@@ -1715,3 +1715,10 @@ produce a headline would break "never claim more than the data shows".
 **Action items:** Done on `feat/aeo` (`app/trend_reports.py`,
 `app/routers/reports.py`, `trending_topics.assign_slugs/by_slug/path`,
 `tests/test_aeo_reports.py`).
+
+### 2026-11-27 — Weekly digest, catch-up box and daily pages
+
+**Decision:** A reader's weekly digest (`app/digest_svc.py`, `/digest`) lists papers first published in the last 7 days, found per stored interest (`user_clusters` medoids) in the recent shard at depth 1000, cut to the window's arXiv months before metadata is read. Slots are split by `allocate_quotas` (importance-weighted quota with a floor, F = 10, floor = min(3, F // K) and at least 1), never RRF; order within an interest is nearness to its medoid. Readers without interests get the week's most upvoted Hugging Face papers in their areas, labelled as such. Delivery: a private link (`/digest/<token>`, 128-bit, not the user id), RSS, and email through Resend's HTTPS API with double opt-in and RFC 8058 one-click unsubscribe, sent by an external weekly cron (`POST /digest/send`, `DIGEST_CRON_KEY`). The feed shows a "since your last visit" box built the same way over the days since the last visit. `/day/<date>` lists one day's Daily Papers from lists already in memory. All are ranked surfaces: `digest_v1`, `daily_page_v1`, exposures logged, propensity 1.0.
+**Supersedes:** nothing.
+**Rationale:** Retention, not ranking, is the problem (~1 reader a day). Every comparable product people return to sends a scheduled list (Scholar Inbox: the digest was its users' favourite feature). Depth 80 found 1, 0 and 0 papers from the last week for a real three-interest reader; depth 1000 found 11, 12 and 18.
+**Action items:** email needs a domain verified with Resend (hf.space can't be) plus `RESEND_API_KEY`, `DIGEST_FROM`, `DIGEST_CRON_KEY` and a weekly scheduler; until then the link and RSS work alone.

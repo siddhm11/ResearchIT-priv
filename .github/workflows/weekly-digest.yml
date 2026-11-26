@@ -1,0 +1,28 @@
+# Sends the weekly digest emails (app/routers/digest.py, POST /digest/send).
+# The Space sleeps when idle, so the schedule lives here. Does nothing until
+# the repository secret DIGEST_CRON_KEY is set to the same value as the Space
+# secret of that name, and the Space has RESEND_API_KEY and DIGEST_FROM.
+name: Weekly digest
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"      # Mondays 07:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Send the digests that are due
+        env:
+          KEY: ${{ secrets.DIGEST_CRON_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then echo "DIGEST_CRON_KEY not set: nothing to do"; exit 0; fi
+          # Wake the Space first; a cold start can take a few minutes.
+          for i in $(seq 1 20); do
+            curl -fsS -o /dev/null https://siddhm11-researchit.hf.space/healthz/deep && break
+            sleep 15
+          done
+          curl -fsS -X POST -H "Authorization: Bearer $KEY" --max-time 600 \
+            https://siddhm11-researchit.hf.space/digest/send

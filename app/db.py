@@ -458,6 +458,23 @@ CREATE TABLE IF NOT EXISTS trend_snapshots (
     payload     TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
+
+-- The weekly digest (app/digest_svc.py, app/routers/digest.py): one row per
+-- reader. `token` is the private address of their digest page and feed (never
+-- the user id); `email` is set only when they ask for it by email, and is
+-- `active` only after they click the confirmation link. Unsubscribing keeps
+-- the row (status 'unsubscribed', email cleared) so replication carries it.
+CREATE TABLE IF NOT EXISTS digest_subscriptions (
+    token          TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL UNIQUE,
+    email          TEXT,
+    status         TEXT NOT NULL DEFAULT 'link',   -- link | pending | active | unsubscribed
+    confirm_token  TEXT,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    confirmed_at   TEXT,
+    last_sent_at   TEXT,
+    updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -1318,3 +1335,80 @@ async def save_explanation(cache_key: str, arxiv_id: str, explanation: str,
             "(cache_key, arxiv_id, explanation, model) VALUES (?, ?, ?, ?)",
             (cache_key, arxiv_id, explanation, model))
         await db.commit()
+
+
+# ── Weekly digest (app/digest_svc.py) ─────────────────────────────────────────
+
+_DIGEST_COLS = ("token", "user_id", "email", "status", "confirm_token", "created_at",
+                "confirmed_at", "last_sent_at", "updated_at")
+
+
+async def get_digest_by_user(user_id: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        row = await (await conn.execute(
+            "SELECT * FROM digest_subscriptions WHERE user_id = ?", (user_id,))).fetchone()
+    return dict(row) if row else None
+
+
+async def get_digest_by_token(token: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        row = await (await conn.execute(
+            "SELECT * FROM digest_subscriptions WHERE token = ?", (token,))).fetchone()
+    return dict(row) if row else None
+
+
+async def get_digest_by_confirm(confirm_token: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        row = await (await conn.execute(
+            "SELECT * FROM digest_subscriptions WHERE confirm_token = ?", (confirm_token,))).fetchone()
+    return dict(row) if row else None
+
+
+async def create_digest(user_id: str, token: str) -> dict:
+    """The reader's digest row, made with `token` if they have none yet."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            "INSERT OR IGNORE INTO digest_subscriptions (token, user_id) VALUES (?, ?)", (token, user_id))
+        await conn.commit()
+    return await get_digest_by_user(user_id)
+
+
+async def update_digest(token: str, **fields) -> None:
+    """Set columns of one digest row; updated_at moves so replication carries it."""
+    cols = [c for c in fields if c in _DIGEST_COLS and c not in ("token", "user_id", "updated_at")]
+    if not cols:
+        return
+    async with aiosqlite.connect(DB_PATH) as conn:
+        await conn.execute(
+            f"UPDATE digest_subscriptions SET {', '.join(f'{c} = ?' for c in cols)}, "
+            "updated_at = datetime('now') WHERE token = ?",
+            [fields[c] for c in cols] + [token])
+        await conn.commit()
+
+
+async def digests_due(min_age_days: float = 6.5) -> list[dict]:
+    """Active email subscriptions not sent to in the last `min_age_days`."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        conn.row_factory = aiosqlite.Row
+        rows = await (await conn.execute(
+            "SELECT * FROM digest_subscriptions WHERE status = 'active' AND email IS NOT NULL "
+            "AND (last_sent_at IS NULL OR last_sent_at <= datetime('now', ?))",
+            (f"-{min_age_days * 24:.0f} hours",))).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def last_visit_day(user_id: str, before: str) -> str | None:
+    """The last day (YYYY-MM-DD) before `before` this reader used the site:
+    from the daily reader counts, else their newest interaction."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        row = await (await conn.execute(
+            "SELECT MAX(day) FROM reader_days WHERE user_id = ? AND day < ?", (user_id, before))).fetchone()
+        if row and row[0]:
+            return row[0]
+        row = await (await conn.execute(
+            "SELECT MAX(substr(timestamp, 1, 10)) FROM interactions WHERE user_id = ? "
+            "AND substr(timestamp, 1, 10) < ?", (user_id, before))).fetchone()
+    return row[0] if row and row[0] else None

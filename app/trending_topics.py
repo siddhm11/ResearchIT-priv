@@ -418,6 +418,15 @@ async def refresh(today: Date | None = None) -> dict:
         vectors.update(await qdrant_svc.get_paper_vectors(ids[i:i + VECTOR_BATCH], remember=False))
     result = await asyncio.to_thread(compute, rows, vectors, _state["topics"] or None)
     _state.update(result, error=None, computed_at=datetime.now(timezone.utc).isoformat(timespec="seconds"))
+    # Each day's list, for the dated daily pages (/day/<date>, app/daily_pages.py).
+    days: dict[str, list[dict]] = {}
+    for r in rows:
+        if r.get("listed_on"):
+            days.setdefault(r["listed_on"][:10], []).append(
+                {"arxiv_id": r["arxiv_id"], "title": r.get("title") or r["arxiv_id"],
+                 "summary": r.get("summary") or "", "upvotes": int(r.get("upvotes") or 0),
+                 "github": r.get("github_repo") or "", "stars": int(r.get("github_stars") or 0)})
+    _state["days"] = days
     print(f"[trending_topics] {result['papers']} papers, {len(result['topics'])} topics, "
           f"{len(rising())} rising, {len(cooling())} cooling")
     # This month's report (/trending/<yyyy-mm>) is this computation.
