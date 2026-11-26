@@ -187,3 +187,28 @@ def test_lowercased_inline_svg_gets_its_camel_case_and_namespaces_back():
     assert tree.tag == f"{{{SVG_NS}}}svg" and tree.get("viewBox") == "0 0 20 10"
     assert tree.find(f".//{{{SVG_NS}}}clipPath").get("clipPathUnits") == "userSpaceOnUse"
     assert tree.find(f".//{{{SVG_NS}}}foreignObject/{{{XHTML_NS}}}span").text == "label"
+
+
+# ── pictures inside drawings (2026-11-27) ────────────────────────────────────
+# LaTeXML draws some figures as labels over a raster image. The image comes in
+# as an <img> inside a foreignObject; it is kept only as inline data.
+_PIXEL = ("data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA")
+
+
+def _fo_img(src: str) -> bytes:
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><foreignObject width="10" height="10">'
+            f'<img xmlns="http://www.w3.org/1999/xhtml" src="{src}" width="10" height="10" onerror="alert(1)" '
+            f'srcset="https://evil.example/x.png 2x"/></foreignObject></svg>').encode()
+
+
+def test_a_picture_inside_a_drawing_is_kept_as_inline_data():
+    out = svg_clean.clean(_fo_img(_PIXEL)).decode()
+    assert _PIXEL in out and "<h:img" in out or ":img" in out
+    assert "onerror" not in out and "srcset" not in out and "evil" not in out
+
+
+@pytest.mark.parametrize("src", ["https://evil.example/x.png", "x1.png", "javascript:alert(1)",
+                                 "data:text/html;base64,PHNjcmlwdD4=", "data:image/svg+xml;base64,PHN2Zz4="])
+def test_a_picture_that_would_load_anything_is_dropped(src):
+    out = svg_clean.clean(_fo_img(src)).decode()
+    assert "img" not in out and "evil" not in out and "javascript" not in out

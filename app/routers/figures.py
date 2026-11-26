@@ -33,6 +33,7 @@ vCPUs).
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import os
 import re
@@ -71,7 +72,9 @@ def figure_kind(fig: dict) -> str:
 def figure_key(fig: dict) -> str:
     """What a figure's URL hash is taken from: its path, plus the anchor for a drawing."""
     src = fig.get("src") or ""
-    return f"{src}#{fig.get('anchor') or ''}" if figure_kind(fig) == "svg-inline" else src
+    # "#2": drawings made since 2026-11-27 carry their pictures. Their URLs are
+    # cached for a year as immutable, so the old, picture-less ones need new URLs.
+    return f"{src}#{fig.get('anchor') or ''}#2" if figure_kind(fig) == "svg-inline" else src
 
 
 def _ext(kind: str) -> str:
@@ -252,13 +255,64 @@ async def _generate(arxiv_id: str, src: str, path: Path, kind: str = "img", pace
     return data
 
 
-def _drawings(html: bytes, anchors: list[str]) -> dict[str, bytes | str]:
-    """Cleaned SVG, or why there is none, for each anchor. CPU-bound: run in a thread."""
+# Pictures inside a drawing. LaTeXML draws some figures as labels and arrows
+# over a raster image (2611.26444 fig. 1: a 7074x4904 photo with 150 labels).
+# The cleaner keeps an <img> only as inline data, so each picture is fetched,
+# shrunk and written into the drawing; without this the figure showed only
+# its labels, as scattered dashes on a blank page (2026-11-27).
+MAX_PICTURES = 6                     # per page
+PICTURE_WIDTH = 1400                 # px: sharp at the paper page's figure width on a 2x screen
+
+
+def _pictures(html: bytes, anchors: list[str], arxiv_id: str) -> list[str]:
+    """Saved paths of the raster images drawn inside these anchors' drawings."""
+    found = arxiv_html.inline_svgs(html)
+    srcs: list[str] = []
+    for anchor in anchors:
+        el = found.get(anchor)
+        for node in el.iter() if el is not None else ():
+            if isinstance(node.tag, str) and node.tag.rsplit("}", 1)[-1].lower() == "img":
+                src = (node.get("src") or "").strip()
+                if safe_src(arxiv_id, src, "img") and src not in srcs:
+                    srcs.append(src)
+    return srcs[:MAX_PICTURES]
+
+
+def _data_uri(raw: bytes) -> str | None:
+    try:
+        webp = thumbnails.make(raw, max_width=PICTURE_WIDTH)
+    except thumbnails.NotAnImage:
+        return None
+    return "data:image/webp;base64," + base64.b64encode(webp).decode("ascii")
+
+
+def _is_backdrop(img, svg) -> bool:
+    """An <img> at least half the drawing's width: the picture the labels sit on."""
+    def num(v):
+        m = re.match(r"\s*([0-9.]+)", v or "")
+        return float(m.group(1)) if m else 0.0
+    box = (svg.get("viewBox") or svg.get("viewbox") or "").replace(",", " ").split()
+    width = num(box[2]) if len(box) == 4 else num(svg.get("width"))
+    return bool(width) and num(img.get("width")) >= width / 2
+
+
+def _drawings(html: bytes, anchors: list[str], pictures: dict[str, str] | None = None) -> dict[str, bytes | str]:
+    """Cleaned SVG, or why there is none, for each anchor. CPU-bound: run in a thread.
+    `pictures` maps an <img>'s saved path to the data: URI that replaces it."""
     found = arxiv_html.inline_svgs(html)
     out: dict[str, bytes | str] = {}
     for anchor in anchors:
         if anchor not in found:
             out[anchor] = "no drawing for this figure in the page"
+            continue
+        missing_backdrop = False
+        for node in found[anchor].iter():
+            if isinstance(node.tag, str) and node.tag.rsplit("}", 1)[-1].lower() == "img":
+                node.set("src", (pictures or {}).get((node.get("src") or "").strip(), ""))
+                missing_backdrop |= not node.get("src") and _is_backdrop(node, found[anchor])
+        if missing_backdrop:
+            # Labels without the picture under them read as a blank figure.
+            out[anchor] = "the picture under the drawing could not be fetched"
             continue
         if svg_clean.almost_empty(found[anchor]):
             out[anchor] = "almost nothing drawn"     # a card would show it as blank
@@ -288,8 +342,22 @@ async def _generate_inline(source, src: str, paced: bool = False) -> None:
     if status != 200 or not raw:
         results: dict[str, bytes | str] = {a: f"HTTP {status} {ctype}" for a in wanted}
     else:
+        pictures: dict[str, str] = {}
+        for pic in await asyncio.to_thread(_pictures, raw, list(wanted), source.arxiv_id):
+            if not await paper_source_svc.pace(background=paced):
+                break                                # breaker open: the drawing goes without
+            try:
+                p_status, p_raw, p_type = await _download(pic)
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                print(f"[figures] {pic}: {type(e).__name__}")
+                continue
+            if p_status == 200 and p_type.startswith("image/") and p_raw:
+                async with st.cpu:
+                    uri = await asyncio.to_thread(_data_uri, p_raw)
+                if uri:
+                    pictures[pic] = uri
         async with st.cpu:
-            results = await asyncio.to_thread(_drawings, raw, list(wanted))
+            results = await asyncio.to_thread(_drawings, raw, list(wanted), pictures)
     for anchor, path in wanted.items():
         result = results[anchor]
         if isinstance(result, bytes):

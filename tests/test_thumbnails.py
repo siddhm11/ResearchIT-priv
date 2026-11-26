@@ -504,3 +504,29 @@ def test_a_failed_figure_gives_way_to_the_next_on_a_card(tmp_path, monkeypatch):
     marker.write_text("almost nothing drawn")
     fig = card_data.first_figure({"authors": '["A"]', "year": 2026}, src)
     assert fig["url"] == figs.figure_url(src, 1)
+
+
+def test_a_drawings_pictures_are_fetched_and_written_into_it():
+    """2611.26444 fig. 1: 150 labels over a 7074x4904 photo. The photo was
+    dropped, leaving only labels as dashes on a blank page (2026-11-27)."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from app.routers.figures import _data_uri, _drawings, _pictures
+    pid = "2611.26444"
+    page = (f'<html><body><figure id="S3.F1" class="ltx_figure"><svg class="ltx_picture" viewBox="0 0 70 49">'
+            f'<foreignObject width="70" height="49"><img src="{pid}v1/figures/background.jpg" width="70" height="49"/>'
+            f'</foreignObject><foreignObject><span>Mind tasks and Act tasks</span></foreignObject>'
+            f'<foreignObject><img src="https://evil.example/x.png"/></foreignObject></svg></figure></body></html>').encode()
+    assert _pictures(page, ["S3.F1"], pid) == [f"{pid}v1/figures/background.jpg"]   # never another host
+    buf = io.BytesIO()
+    Image.new("RGB", (3000, 2000), (40, 120, 200)).save(buf, "JPEG")
+    uri = _data_uri(buf.getvalue())
+    assert uri.startswith("data:image/webp;base64,")
+    assert Image.open(io.BytesIO(base64.b64decode(uri.split(",", 1)[1]))).width == 1400   # shrunk
+    out = _drawings(page, ["S3.F1"], {f"{pid}v1/figures/background.jpg": uri})["S3.F1"]
+    assert isinstance(out, bytes) and uri.encode() in out and b"evil" not in out
+    # Without the picture under them the labels read as a blank figure: not shown.
+    assert _drawings(page, ["S3.F1"], {}) == {"S3.F1": "the picture under the drawing could not be fetched"}
