@@ -24,7 +24,7 @@ import time
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from app import config, hybrid_search_svc, local_meta, map_locate_svc, qdrant_svc
+from app import config, hybrid_search_svc, local_meta, map_locate_svc, qdrant_svc, turso_svc
 
 router = APIRouter(prefix="/api/space")
 
@@ -141,11 +141,24 @@ async def space_locate(
     except Exception as exc:
         print(f"[space] locate failed ({exc})")
         raise HTTPException(status_code=502, detail="map position store unavailable") from exc
+    # Titles too: a paper placed by its neighbours is in no spatial chunk, so
+    # the map had only its id to show ("arXiv 2611.12345").
+    try:
+        meta = await turso_svc.fetch_metadata_batch([a for a in ids if a in located])
+    except Exception as exc:      # positions are worth returning without titles
+        print(f"[space] locate titles failed ({exc})")
+        meta = {}
+    results = []
+    for aid in ids:
+        row = located.get(aid)
+        if row is not None and meta.get(aid, {}).get("title"):
+            row = {**row, "title": meta[aid]["title"]}
+        results.append(row)
     return {
         "requested": len(ids),
         "found": len(located),
         # Input order preserved: the client zips these against its own list.
-        "results": [located.get(aid) for aid in ids],
+        "results": results,
     }
 
 
